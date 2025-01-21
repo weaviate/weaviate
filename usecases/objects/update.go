@@ -15,6 +15,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -33,7 +36,12 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
 		return nil, err
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(updates.Class)...); err != nil {
+
+	className := schema.UppercaseClassName(updates.Class)
+	updates.Class = className
+
+	fetchedClasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	if err != nil {
 		return nil, err
 	}
 
@@ -53,12 +61,12 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 		return nil, fmt.Errorf("cannot process update object: %w", err)
 	}
 
-	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl)
+	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID, updates *models.Object,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (*models.Object, error) {
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
@@ -69,13 +77,8 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, err
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
-	if err != nil {
-		return nil, err
-	}
-
-	maxSchemaVersion := vclasses[className].Version
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, vclasses, updates)
+	maxSchemaVersion := fetchedClasses[className].Version
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClasses, updates)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -90,9 +93,10 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		WithField("id", id).
 		Debug("received update kind request")
 
+	class := fetchedClasses[className].Class
+
 	prevObj := obj.Object()
-	err = m.validateObjectAndNormalizeNames(
-		ctx, principal, repl, updates, prevObj)
+	err = m.validateObjectAndNormalizeNames(ctx, repl, updates, prevObj, fetchedClasses)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -104,8 +108,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	vclass := vclasses[className]
-	err = m.modulesProvider.UpdateVector(ctx, updates, vclass.Class, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, updates, class, m.findObject, m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}

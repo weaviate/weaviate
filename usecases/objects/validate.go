@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/weaviate/weaviate/entities/schema"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
@@ -27,7 +29,14 @@ import (
 func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principal,
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
-	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(obj.Class, obj.Tenant, obj.ID))
+	className := schema.UppercaseClassName(obj.Class)
+	obj.Class = className
+
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))
+	if err != nil {
+		return err
+	}
+	fetchedClasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		return err
 	}
@@ -39,7 +48,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	defer unlock()
 
 	ctx = classcache.ContextWithClassCache(ctx)
-	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, obj, nil)
+	err = m.validateObjectAndNormalizeNames(ctx, repl, obj, nil, fetchedClasses)
 	if err != nil {
 		var forbidden autherrs.Forbidden
 		if errors.As(err, &forbidden) {

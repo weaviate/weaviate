@@ -17,6 +17,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 
@@ -34,22 +37,19 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	var (
-		class  = "*"
-		tenant = "*"
-	)
-	if object != nil {
-		class = object.Class
-		if object.Tenant != "" {
-			tenant = object.Tenant
-		}
+	className := schema.UppercaseClassName(object.Class)
+	object.Class = className
+	tenant := "*"
+	if object.Tenant != "" {
+		tenant = object.Tenant
 	}
 
-	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(className, tenant)...); err != nil {
 		return nil, err
 	}
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+	fetchedClasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	if err != nil {
 		return nil, err
 	}
 
@@ -68,11 +68,11 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)
-	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl)
+	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object, repl *additional.ReplicationProperties,
+	object *models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (*models.Object, error) {
 	id, err := m.checkIDOrAssignNew(ctx, principal, object.Class, object.ID, repl, object.Tenant)
 	if err != nil {
@@ -80,21 +80,18 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
-	if err != nil {
-		return nil, err
-	}
-
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, vclasses, object)
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, object)
 	if err != nil {
 		return nil, fmt.Errorf("invalid object: %w", err)
 	}
 
-	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, vclasses); err != nil {
+	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, fetchedClasses); err != nil {
 		return nil, err
 	}
 
-	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil)
+	class := fetchedClasses[object.Class].Class
+
+	err = m.validateObjectAndNormalizeNames(ctx, repl, object, nil, fetchedClasses)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -106,7 +103,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	err = m.modulesProvider.UpdateVector(ctx, object, vclasses[object.Class].Class, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, object, class, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -167,34 +164,25 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 }
 
 func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
-	principal *models.Principal, repl *additional.ReplicationProperties,
-	incoming *models.Object, existing *models.Object,
+	repl *additional.ReplicationProperties,
+	incoming *models.Object, existing *models.Object, fetchedClasses map[string]versioned.Class,
 ) error {
-	class, err := m.validateSchema(ctx, principal, incoming)
+	err := m.validateUUID(incoming)
 	if err != nil {
 		return err
 	}
+
+	if _, ok := fetchedClasses[incoming.Class]; !ok || fetchedClasses[incoming.Class].Class == nil {
+		return fmt.Errorf("class %q not found in schema", incoming.Class)
+	}
+	class := fetchedClasses[incoming.Class].Class
 
 	return validation.New(m.vectorRepo.Exists, m.config, repl).
 		Object(ctx, class, incoming, existing)
 }
 
-func (m *Manager) validateSchema(ctx context.Context,
-	principal *models.Principal, obj *models.Object,
-) (*models.Class, error) {
+func (m *Manager) validateUUID(obj *models.Object) error {
 	// Validate schema given in body with the weaviate schema
-	if _, err := uuid.Parse(obj.ID.String()); err != nil {
-		return nil, err
-	}
-
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, obj.Class)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(vclasses) == 0 || vclasses[obj.Class].Class == nil {
-		return nil, fmt.Errorf("class %q not found in schema", obj.Class)
-	}
-
-	return vclasses[obj.Class].Class, nil
+	_, err := uuid.Parse(obj.ID.String())
+	return err
 }
