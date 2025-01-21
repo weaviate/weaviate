@@ -16,10 +16,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/classcache"
+
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -55,6 +56,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	className := schema.UppercaseClassName(updates.Class)
 	updates.Class = className
 
+	ctx = classcache.ContextWithClassCache(ctx)
 	fetchedClass, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		if errors.As(err, &authzerrs.Forbidden{}) {
@@ -72,7 +74,6 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{err.Error(), StatusInternalServerError, err}
 	}
 
-	ctx = classcache.ContextWithClassCache(ctx)
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		switch {
