@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	reposdb "github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -1191,7 +1192,12 @@ func (i *indices) postShardFile() http.Handler {
 			return
 		}
 
-		fmt.Printf("%s/%s/%s n=%d\n", index, shard, filename, n)
+		i.logger.WithFields(logrus.Fields{
+			"index":    index,
+			"shard":    shard,
+			"fileName": filename,
+			"n":        n,
+		}).Debug()
 
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -1200,7 +1206,6 @@ func (i *indices) postShardFile() http.Handler {
 func (i *indices) postShard() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpShard.FindStringSubmatch(r.URL.Path)
-		fmt.Println(args)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -1221,7 +1226,6 @@ func (i *indices) postShard() http.Handler {
 func (i *indices) putShardReinit() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpShardReinit.FindStringSubmatch(r.URL.Path)
-
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
