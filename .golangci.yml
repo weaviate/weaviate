@@ -9,11 +9,26 @@ linters:
     - govet
     - unused
     - nolintlint
+    - errorlint
 linters-settings:
   exhaustive:
     # Presence of "default" case in switch statements satisfies exhaustiveness,
     # even if all enum members are not listed.
     default-signifies-exhaustive: true
+  errorlint:
+    # Check whether fmt.Errorf uses the %w verb for formatting errors.
+    # See the https://github.com/polyfloyd/go-errorlint for caveats.
+    # Default: true
+    errorf: true
+    # Permit more than 1 %w verb, valid per Go 1.20 (Requires errorf:true)
+    # Default: true
+    errorf-multi: true
+    # Check for plain type assertions and type switches.
+    # Default: true
+    asserts: true
+    # Check for plain error comparisons.
+    # Default: true
+    comparison: true
 issues:
   exclude-rules:
     # Exclude some staticcheck messages

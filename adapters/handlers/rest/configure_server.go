@@ -19,7 +19,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/utils"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -61,7 +63,7 @@ func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
 			appState.Modules,
 			appState.Authorizer,
 		)
-		if err != nil && err != utils.ErrEmptySchema {
+		if err != nil && !errors.Is(err, utils.ErrEmptySchema) {
 			appState.Logger.WithField("action", "graphql_rebuild").
 				WithError(err).Error("could not (re)build graphql provider")
 		}

@@ -44,7 +44,7 @@ func NewClient(uri string, logger logrus.FieldLogger) (*Client, error) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*48)))
 	if err != nil {
-		return nil, fmt.Errorf("couldn't connect to remote contextionary gRPC server: %s", err)
+		return nil, fmt.Errorf("couldn't connect to remote contextionary gRPC server: %w", err)
 	}
 
 	client := pb.NewContextionaryClient(conn)
@@ -155,7 +155,7 @@ func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, err
 	res, err := c.grpcClient.VectorForWord(ctx, &pb.Word{Word: word})
 	if err != nil {
 		logConnectionRefused(c.logger, err)
-		return nil, fmt.Errorf("could not get vector from remote: %v", err)
+		return nil, fmt.Errorf("could not get vector from remote: %w", err)
 	}
 	v, _, _ := vectorFromProto(res)
 	return v, nil
@@ -263,7 +263,7 @@ func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMa
 		}
 		st, ok := status.FromError(err)
 		if !ok || st.Code() != codes.InvalidArgument {
-			return nil, nil, fmt.Errorf("could not get vector from remote: %v", err)
+			return nil, nil, fmt.Errorf("could not get vector from remote: %w", err)
 		}
 
 		return nil, nil, vectorizer.NewErrNoUsableWordsf("%s", st.Message())
@@ -285,7 +285,7 @@ func (c *Client) NearestWordsByVector(ctx context.Context, vector []float32, n i
 	})
 	if err != nil {
 		logConnectionRefused(c.logger, err)
-		return nil, nil, fmt.Errorf("could not get nearest words by vector: %v", err)
+		return nil, nil, fmt.Errorf("could not get nearest words by vector: %w", err)
 	}
 
 	return res.Words, res.Distances, nil

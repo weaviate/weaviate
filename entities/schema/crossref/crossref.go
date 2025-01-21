@@ -43,7 +43,7 @@ type Ref struct {
 func Parse(uriString string) (*Ref, error) {
 	uri, err := url.Parse(uriString)
 	if err != nil || uri.Path == "" {
-		return nil, fmt.Errorf("invalid cref URI: %s", err)
+		return nil, fmt.Errorf("invalid cref URI: %w", err)
 	}
 
 	segments := strings.Split(uri.Path, "/")

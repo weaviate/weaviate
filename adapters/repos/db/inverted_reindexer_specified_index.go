@@ -143,7 +143,7 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) ObjectsIterator(shard ShardLik
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 			obj, err := storobj.FromBinaryOptional(v, additional.Properties{}, propsExtraction)
 			if err != nil {
-				return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
+				return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 			}
 			if err := fn(obj); err != nil {
 				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)

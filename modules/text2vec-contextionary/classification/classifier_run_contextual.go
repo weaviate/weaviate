@@ -81,7 +81,7 @@ func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPrepar
 
 		err := run.do()
 		if err != nil {
-			return fmt.Errorf("text2vec-contextionary-contextual: %v", err)
+			return fmt.Errorf("text2vec-contextionary-contextual: %w", err)
 		}
 
 		return nil
@@ -93,7 +93,7 @@ func (c *contextualItemClassifier) do() error {
 	for _, propName := range c.params.ClassifyProperties {
 		current, err := c.property(propName)
 		if err != nil {
-			return fmt.Errorf("prop '%s': %v", propName, err)
+			return fmt.Errorf("prop '%s': %w", propName, err)
 		}
 
 		// append list of actually classified (can differ from scope!) properties,
@@ -104,7 +104,7 @@ func (c *contextualItemClassifier) do() error {
 	c.classifier.extendItemWithObjectMeta(&c.item, c.params, classified)
 	err := c.writer.Store(c.item)
 	if err != nil {
-		return fmt.Errorf("store %s/%s: %v", c.item.ClassName, c.item.ID, err)
+		return fmt.Errorf("store %s/%s: %w", c.item.ClassName, c.item.ID, err)
 	}
 
 	return nil
@@ -142,31 +142,31 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 
 	vectors, err := c.vectorizer.MultiVectorForWord(ctx, words)
 	if err != nil {
-		return "", fmt.Errorf("vectorize individual words: %v", err)
+		return "", fmt.Errorf("vectorize individual words: %w", err)
 	}
 
 	scoredWords, err := c.scoreWords(words, vectors, propName)
 	if err != nil {
-		return "", fmt.Errorf("score words: %v", err)
+		return "", fmt.Errorf("score words: %w", err)
 	}
 
 	c.rankedWords[propName] = c.rankAndDedup(scoredWords)
 
 	corpus, boosts, err := c.buildBoostedCorpus(propName)
 	if err != nil {
-		return "", fmt.Errorf("build corpus: %v", err)
+		return "", fmt.Errorf("build corpus: %w", err)
 	}
 
 	ctx, cancel = contextWithTimeout(10 * time.Second)
 	defer cancel()
 	vector, err := c.vectorizer.VectorOnlyForCorpi(ctx, []string{corpus}, boosts)
 	if err != nil {
-		return "", fmt.Errorf("vectorize corpus: %v", err)
+		return "", fmt.Errorf("vectorize corpus: %w", err)
 	}
 
 	target, distance, err := c.findClosestTarget(vector, propName)
 	if err != nil {
-		return "", fmt.Errorf("find closest target: %v", err)
+		return "", fmt.Errorf("find closest target: %w", err)
 	}
 
 	targetBeacon := crossref.New("localhost", target.ClassName, target.ID).String()
@@ -189,7 +189,7 @@ func (c *contextualItemClassifier) findClosestTarget(query []float32, targetProp
 	for _, item := range c.context.targets[targetProp] {
 		dist, err := cosineDist(query, item.Vector)
 		if err != nil {
-			return nil, -1, fmt.Errorf("calculate distance: %v", err)
+			return nil, -1, fmt.Errorf("calculate distance: %w", err)
 		}
 
 		if dist < minimum {
@@ -322,7 +322,7 @@ func (c *contextualItemClassifier) scoreWords(words []string, vectors [][]float3
 		word := strings.ToLower(words[i])
 		sw, err := c.scoreWord(word, vectors[i], targetProp)
 		if err != nil {
-			return nil, fmt.Errorf("score word '%s': %v", word, err)
+			return nil, fmt.Errorf("score word '%s': %w", word, err)
 		}
 
 		// accept nil-entries for now, they will be removed in ranking/deduping
@@ -350,7 +350,7 @@ func (c *contextualItemClassifier) scoreWord(word string, vector []float32,
 	for _, target := range targets {
 		dist, err := cosineDist(vector, target.Vector)
 		if err != nil {
-			return nil, fmt.Errorf("calculate cosine distance: %v", err)
+			return nil, fmt.Errorf("calculate cosine distance: %w", err)
 		}
 
 		all = append(all, dist)

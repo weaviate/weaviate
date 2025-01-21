@@ -17,6 +17,7 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
@@ -47,17 +48,14 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		params.Body.Objects, params.Body.Fields, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
-		var forbidden autherrs.Forbidden
-		var errInvalidUserInput objects.ErrInvalidUserInput
-		var errMultiTenancy objects.ErrMultiTenancy
 		switch {
-		case errors.As(err, &forbidden):
+		case errors.As(err, &autherrs.Forbidden{}):
 			return batch.NewBatchObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errInvalidUserInput):
+		case errors.As(err, &objects.ErrInvalidUserInput{}):
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errMultiTenancy):
+		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -108,17 +106,14 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 	references, err := h.manager.AddReferences(ctx, principal, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
-		var forbidden autherrs.Forbidden
-		var errInvalidUserInput objects.ErrInvalidUserInput
-		var errMultiTenancy objects.ErrMultiTenancy
 		switch {
-		case errors.As(err, &forbidden):
+		case errors.As(err, &autherrs.Forbidden{}):
 			return batch.NewBatchReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errInvalidUserInput):
+		case errors.As(err, &objects.ErrInvalidUserInput{}):
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errMultiTenancy):
+		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -271,12 +266,12 @@ func newBatchRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.
 }
 
 func (e *batchRequestsTotal) logError(className string, err error) {
-	switch err.(type) {
-	case errReplication:
+	switch {
+	case errors.As(err, &errReplication{}):
 		e.logUserError(className)
-	case autherrs.Forbidden, objects.ErrInvalidUserInput:
+	case errors.As(err, &autherrs.Forbidden{}), errors.As(err, &objects.ErrInvalidUserInput{}):
 		e.logUserError(className)
-	case objects.ErrMultiTenancy:
+	case errors.As(err, &objects.ErrMultiTenancy{}):
 		e.logUserError(className)
 	default:
 		if errors.As(err, &objects.ErrMultiTenancy{}) ||

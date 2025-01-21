@@ -29,7 +29,7 @@ type snapshot struct {
 func (s *schema) Restore(r io.Reader, parser Parser) error {
 	snap := snapshot{}
 	if err := json.NewDecoder(r).Decode(&snap); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %v", err)
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 	for _, cls := range snap.Classes {
 		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail

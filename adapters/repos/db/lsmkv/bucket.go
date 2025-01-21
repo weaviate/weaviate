@@ -27,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
@@ -327,7 +328,7 @@ func (b *Bucket) iterateObjectsCursor(ctx context.Context, cursor *CursorReplace
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		obj, err := storobj.FromBinary(v)
 		if err != nil {
-			return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
+			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}
 		if err := f(obj); err != nil {
 			return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
@@ -445,7 +446,7 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if err != lsmkv.NotFound {
+	if !errors.Is(err, lsmkv.NotFound) {
 		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
 	}
 
@@ -462,7 +463,7 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 			return nil, err
 		}
 
-		if err != lsmkv.NotFound {
+		if !errors.Is(err, lsmkv.NotFound) {
 			panic("unsupported error in bucket.Get")
 		}
 	}
@@ -689,8 +690,8 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 		return false, time.Time{}, nil
 	}
 	if errors.Is(err, lsmkv.Deleted) {
-		errDeleted, ok := err.(lsmkv.ErrDeleted)
-		if ok {
+		var errDeleted lsmkv.ErrDeleted
+		if errors.As(err, &errDeleted) {
 			return true, errDeleted.DeletionTime(), nil
 		} else {
 			return true, time.Time{}, nil
@@ -708,8 +709,8 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 			return false, time.Time{}, nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
-			errDeleted, ok := err.(lsmkv.ErrDeleted)
-			if ok {
+			var errDeleted lsmkv.ErrDeleted
+			if errors.As(err, &errDeleted) {
 				return true, errDeleted.DeletionTime(), nil
 			} else {
 				return true, time.Time{}, nil
@@ -727,8 +728,8 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 		return false, time.Time{}, nil
 	}
 	if errors.Is(err, lsmkv.Deleted) {
-		errDeleted, ok := err.(lsmkv.ErrDeleted)
-		if ok {
+		var errDeleted lsmkv.ErrDeleted
+		if errors.As(err, &errDeleted) {
 			return true, errDeleted.DeletionTime(), nil
 		} else {
 			return true, time.Time{}, nil

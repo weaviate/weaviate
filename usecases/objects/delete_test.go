@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -60,7 +61,7 @@ func Test_DeleteObject(t *testing.T) {
 	// return internal error if deleteObject() fails
 	repo.On("DeleteObject", cls, id, mock.Anything).Return(errNotFound).Once()
 	err = manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
-	if _, ok := err.(ErrInternal); !ok {
+	if !errors.As(err, &ErrInternal{}) {
 		t.Errorf("error type got: %T want: ErrInternal", err)
 	}
 	repo.AssertExpectations(t)

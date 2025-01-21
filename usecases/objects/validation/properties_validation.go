@@ -54,7 +54,7 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 	if vectorWeights != nil {
 		res, err := v.validateVectorWeights(vectorWeights)
 		if err != nil {
-			return fmt.Errorf("vector weights: %v", err)
+			return fmt.Errorf("vector weights: %w", err)
 		}
 
 		vectorWeights = res
@@ -250,94 +250,94 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 	case schema.DataTypeCRef:
 		data, err = v.cRef(ctx, propertyName, pv, className, tenant)
 		if err != nil {
-			return nil, fmt.Errorf("invalid cref: %s", err)
+			return nil, fmt.Errorf("invalid cref: %w", err)
 		}
 	case schema.DataTypeText:
 		data, err = stringVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid text property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid text property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeUUID:
 		data, err = uuidVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid uuid property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid uuid property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeInt:
 		data, err = intVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid integer property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid integer property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeNumber:
 		data, err = numberVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid number property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid number property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeBoolean:
 		data, err = boolVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid boolean property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid boolean property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeDate:
 		data, err = dateVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid date property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid date property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeGeoCoordinates:
 		data, err = geoCoordinates(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid geoCoordinates property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid geoCoordinates property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypePhoneNumber:
 		data, err = phoneNumber(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid phoneNumber property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid phoneNumber property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeBlob:
 		data, err = blobVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid blob property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid blob property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeTextArray:
 		data, err = stringArrayVal(pv, "text")
 		if err != nil {
-			return nil, fmt.Errorf("invalid text array property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid text array property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeIntArray:
 		data, err = intArrayVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid integer array property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid integer array property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeNumberArray:
 		data, err = numberArrayVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid number array property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid number array property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeBooleanArray:
 		data, err = boolArrayVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid boolean array property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid boolean array property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeDateArray:
 		data, err = dateArrayVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid date array property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid date array property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeUUIDArray:
 		data, err = uuidArrayVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid uuid array property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid uuid array property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	// deprecated string
 	case schema.DataTypeString:
 		data, err = stringVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid string property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid string property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	// deprecated string
 	case schema.DataTypeStringArray:
 		data, err = stringArrayVal(pv, "string")
 		if err != nil {
-			return nil, fmt.Errorf("invalid string array property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid string array property '%s' on class '%s': %w", propertyName, className, err)
 		}
 
 	default:
@@ -486,12 +486,12 @@ func geoCoordinates(input interface{}) (*models.GeoCoordinates, error) {
 
 	lonFloat, err := parseCoordinate(lon)
 	if err != nil {
-		return nil, fmt.Errorf("invalid longitude: %s", err)
+		return nil, fmt.Errorf("invalid longitude: %w", err)
 	}
 
 	latFloat, err := parseCoordinate(lat)
 	if err != nil {
-		return nil, fmt.Errorf("invalid latitude: %s", err)
+		return nil, fmt.Errorf("invalid latitude: %w", err)
 	}
 
 	return &models.GeoCoordinates{
@@ -539,7 +539,7 @@ func parseCoordinate(raw interface{}) (float64, error) {
 	case json.Number:
 		asFloat, err := v.Float64()
 		if err != nil {
-			return 0, fmt.Errorf("cannot interpret as float: %s", err)
+			return 0, fmt.Errorf("cannot interpret as float: %w", err)
 		}
 		return asFloat, nil
 	case float64:
@@ -589,7 +589,7 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 
 	ref, err := crossref.Parse(pvcr["beacon"].(string))
 	if err != nil {
-		return nil, fmt.Errorf("invalid reference: %s", err)
+		return nil, fmt.Errorf("invalid reference: %w", err)
 	}
 	errVal := fmt.Sprintf("'cref' %s:%s", className, propertyName)
 	ref, err = v.ValidateSingleRef(ref.SingleRef())

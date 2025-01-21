@@ -16,11 +16,12 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
-	authZerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -110,13 +111,11 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		var forbidden authZerrors.Forbidden
-		var errUnprocessable backup.ErrUnprocessable
 		switch {
-		case errors.As(err, &forbidden):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errUnprocessable):
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -143,17 +142,14 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		var forbidden authZerrors.Forbidden
-		var errUnprocessable backup.ErrUnprocessable
-		var errNotFound backup.ErrNotFound
 		switch {
-		case errors.As(err, &forbidden):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsCreateStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errUnprocessable):
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsCreateStatusUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errNotFound):
+		case errors.As(err, &backup.ErrNotFound{}):
 			return backups.NewBackupsCreateStatusNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -195,17 +191,14 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		var forbidden authZerrors.Forbidden
-		var errNotFound backup.ErrNotFound
-		var errUnprocessable backup.ErrUnprocessable
 		switch {
-		case errors.As(err, &forbidden):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errNotFound):
+		case errors.As(err, &backup.ErrNotFound{}):
 			return backups.NewBackupsRestoreNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errUnprocessable):
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -233,17 +226,14 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		var forbidden authZerrors.Forbidden
-		var errNotFound backup.ErrNotFound
-		var errUnprocessable backup.ErrUnprocessable
 		switch {
-		case errors.As(err, &forbidden):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errNotFound):
+		case errors.As(err, &backup.ErrNotFound{}):
 			return backups.NewBackupsRestoreNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errUnprocessable):
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -277,13 +267,11 @@ func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	err := s.manager.Cancel(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		var forbidden authZerrors.Forbidden
-		var errUnprocessable backup.ErrUnprocessable
 		switch {
-		case errors.As(err, &forbidden):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsCancelForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errUnprocessable):
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsCancelUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -303,13 +291,12 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 		params.HTTPRequest.Context(), principal, params.Backend)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		var forbidden authZerrors.Forbidden
-		var errUnprocessable backup.ErrUnprocessable
 		switch {
-		case errors.As(err, &forbidden):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &errUnprocessable):
+
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -349,10 +336,10 @@ func newBackupRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus
 }
 
 func (e *backupRequestsTotal) logError(className string, err error) {
-	switch err.(type) {
-	case authZerrors.Forbidden:
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
 		e.logUserError(className)
-	case backup.ErrUnprocessable, backup.ErrNotFound:
+	case errors.As(err, &backup.ErrUnprocessable{}) || errors.As(err, &backup.ErrNotFound{}):
 		e.logUserError(className)
 	default:
 		e.logServerError(className, err)

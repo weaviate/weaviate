@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -375,8 +376,8 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 			currUpdateTime = localObj.LastUpdateTimeUnix()
 		} else if errors.Is(err, lsmkv.Deleted) {
 			locallyDeleted = true
-			errDeleted, ok := err.(lsmkv.ErrDeleted)
-			if ok {
+			var errDeleted lsmkv.ErrDeleted
+			if errors.As(err, &errDeleted) {
 				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
 			} // otherwise an unknown deletion time
 		} else if !errors.Is(err, lsmkv.NotFound) {
