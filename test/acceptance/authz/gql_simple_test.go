@@ -13,11 +13,13 @@ package authz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	gql "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/models"
@@ -82,23 +84,23 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 	t.Run("fail with 403 to query with Get due to lack of read all collections permission", func(t *testing.T) {
 		_, err := queryGQL(t, "{ Get { Books { title } } }", customKey)
 		require.NotNil(t, err)
-		_, forbidden := err.(*gql.GraphqlPostForbidden)
-		require.True(t, forbidden)
+		var cErr *gql.GraphqlPostForbidden
+		require.True(t, errors.As(err, &cErr))
 	})
 
 	t.Run("fail with 403 to query with Aggregate due to lack of read all collections permission", func(t *testing.T) {
 		_, err := queryGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
 		require.NotNil(t, err)
-		_, forbidden := err.(*gql.GraphqlPostForbidden)
-		require.True(t, forbidden)
+		var cErr *gql.GraphqlPostForbidden
+		require.True(t, errors.As(err, &cErr))
 	})
 
 	t.Run("fail with 403 to query with Explore due to lack of read all collections permission", func(t *testing.T) {
 		query := fmt.Sprintf("{ Explore(nearObject:{id:%s}) { className }}", books.Objects()[0].ID)
 		_, err = queryGQL(t, query, customKey)
 		require.NotNil(t, err)
-		_, forbidden := err.(*gql.GraphqlPostForbidden)
-		require.True(t, forbidden)
+		var cErr *gql.GraphqlPostForbidden
+		require.True(t, errors.As(err, &cErr))
 	})
 
 	t.Run("add the read all collections permission to the role", func(t *testing.T) {
@@ -233,16 +235,16 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
 		_, err := queryGQL(t, query, customKey)
 		require.NotNil(t, err)
-		_, forbidden := err.(*gql.GraphqlPostForbidden)
-		require.True(t, forbidden)
+		var cErr *gql.GraphqlPostForbidden
+		require.True(t, errors.As(err, &cErr))
 	})
 
 	t.Run("fail with 403 to query with Aggregate due to lack of read all collections permission", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Aggregate { %s(tenant:"%s") { meta { count } } } }`, class.Class, customUser)
 		_, err = queryGQL(t, query, customKey)
 		require.NotNil(t, err)
-		_, forbidden := err.(*gql.GraphqlPostForbidden)
-		require.True(t, forbidden)
+		var cErr *gql.GraphqlPostForbidden
+		require.True(t, errors.As(err, &cErr))
 	})
 
 	t.Run("add the read all collections permission to the role", func(t *testing.T) {

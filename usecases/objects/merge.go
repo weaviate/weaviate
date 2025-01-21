@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
@@ -65,9 +66,8 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	ctx = classcache.ContextWithClassCache(ctx)
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
-		var errMultiTenancy ErrMultiTenancy
 		switch {
-		case errors.As(err, &errMultiTenancy):
+		case errors.As(err, &ErrMultiTenancy{}):
 			return &Error{"repo.object", StatusUnprocessableEntity, err}
 		default:
 			if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {

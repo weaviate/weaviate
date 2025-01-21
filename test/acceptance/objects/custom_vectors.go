@@ -14,10 +14,10 @@ package test
 import (
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
@@ -73,9 +73,6 @@ func customVectors(t *testing.T) {
 			Vector:     []float32{0.4, 0.3},
 		})
 		_, err := helper.Client(t).Objects.ObjectsPatch(params, nil)
-		if err != nil {
-			spew.Dump(err.(*objects.ObjectsPatchInternalServerError).Payload.Error[0])
-		}
 		require.Nil(t, err, "patch should succeed")
 	})
 

@@ -24,31 +24,29 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-
-	"github.com/pkg/errors"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -58,7 +56,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
-	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -668,10 +666,10 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	shardName, err := i.determineObjectShard(ctx, object.ID(), object.Object.Tenant)
 	if err != nil {
-		switch err.(type) {
-		case objects.ErrMultiTenancy:
+		switch {
+		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
-		case authErrs.Forbidden:
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return fmt.Errorf("determine shard: %w", err)
 		default:
 			return objects.NewErrInvalidUserInput("determine shard: %v", err)
@@ -1056,12 +1054,10 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
-		var errMultiTenancy objects.ErrMultiTenancy
-		var forbidden authErrs.Forbidden
 		switch {
-		case errors.As(err, &errMultiTenancy):
+		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
-		case errors.As(err, &forbidden):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return nil, fmt.Errorf("determine shard: %w", err)
 		default:
 			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
@@ -1151,10 +1147,10 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	for pos, id := range query {
 		shardName, err := i.determineObjectShard(ctx, strfmt.UUID(id.ID), tenant)
 		if err != nil {
-			switch err.(type) {
-			case objects.ErrMultiTenancy:
+			switch {
+			case errors.As(err, &objects.ErrMultiTenancy{}):
 				return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
-			case authErrs.Forbidden:
+			case errors.As(err, &authzerrors.Forbidden{}):
 				return nil, fmt.Errorf("determine shard: %w", err)
 			default:
 				return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
@@ -1227,12 +1223,10 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
-		var errMultiTenancy objects.ErrMultiTenancy
-		var forbidden authErrs.Forbidden
 		switch {
-		case errors.As(err, &errMultiTenancy):
+		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return false, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
-		case errors.As(err, &forbidden):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return false, fmt.Errorf("determine shard: %w", err)
 		default:
 			return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
@@ -1798,12 +1792,10 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
-		var errMultiTenancy objects.ErrMultiTenancy
-		var forbidden authErrs.Forbidden
 		switch {
-		case errors.As(err, &errMultiTenancy):
+		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
-		case errors.As(err, &forbidden):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return fmt.Errorf("determine shard: %w", err)
 		default:
 			return objects.NewErrInvalidUserInput("determine shard: %v", err)
@@ -1977,10 +1969,10 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 
 	shardName, err := i.determineObjectShard(ctx, merge.ID, tenant)
 	if err != nil {
-		switch err.(type) {
-		case objects.ErrMultiTenancy:
+		switch {
+		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
-		case authErrs.Forbidden:
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return fmt.Errorf("determine shard: %w", err)
 		default:
 			return objects.NewErrInvalidUserInput("determine shard: %v", err)

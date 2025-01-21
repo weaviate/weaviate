@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -119,9 +120,8 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds, tenant)
 	}
 	if err != nil {
-		var errMultiTenancy ErrMultiTenancy
 		switch {
-		case errors.As(err, &errMultiTenancy):
+		case errors.As(err, &ErrMultiTenancy{}):
 			return nil, NewErrMultiTenancy(fmt.Errorf("repo: object by id: %w", err))
 		default:
 			if errors.As(err, &authzerrs.Forbidden{}) {
@@ -138,7 +138,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	if m.modulesProvider != nil {
 		res, err = m.modulesProvider.GetObjectAdditionalExtend(ctx, res, adds.ModuleParams)
 		if err != nil {
-			return nil, fmt.Errorf("get extend: %v", err)
+			return nil, fmt.Errorf("get extend: %w", err)
 		}
 	}
 

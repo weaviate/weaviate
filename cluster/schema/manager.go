@@ -392,7 +392,7 @@ func (op applyOp) validate() error {
 // apply does apply commands from RAFT to schema 1st and then db
 func (s *SchemaManager) apply(op applyOp) error {
 	if err := op.validate(); err != nil {
-		return fmt.Errorf("could not validate raft apply op: %s", err)
+		return fmt.Errorf("could not validate raft apply op: %w", err)
 	}
 
 	// schema applied 1st to make sure any validation happen before applying it to db

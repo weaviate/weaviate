@@ -222,7 +222,7 @@ func (s *segment) close() error {
 	}
 
 	if munmapErr != nil || fileCloseErr != nil {
-		return fmt.Errorf("close segment: munmap: %v, close contents file: %w", munmapErr, fileCloseErr)
+		return fmt.Errorf("close segment: munmap: %w, close contents file: %w", munmapErr, fileCloseErr)
 	}
 
 	return nil

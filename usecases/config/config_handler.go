@@ -529,12 +529,12 @@ func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, erro
 	case "json":
 		err := json.Unmarshal(file, &config)
 		if err != nil {
-			return config, fmt.Errorf("error unmarshalling the json config file: %s", err)
+			return config, fmt.Errorf("error unmarshalling the json config file: %w", err)
 		}
 	case "yaml":
 		err := yaml.Unmarshal(file, &config)
 		if err != nil {
-			return config, fmt.Errorf("error unmarshalling the yaml config file: %s", err)
+			return config, fmt.Errorf("error unmarshalling the yaml config file: %w", err)
 		}
 	default:
 		return config, fmt.Errorf("unsupported config file extension '%s', use .yaml or .json", m[1])
@@ -575,5 +575,5 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 }
 
 func configErr(err error) error {
-	return fmt.Errorf("invalid config: %v", err)
+	return fmt.Errorf("invalid config: %w", err)
 }

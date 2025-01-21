@@ -17,15 +17,15 @@ import (
 	"fmt"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	libfilters "github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -147,7 +147,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 	}
 
 	if err := c.assignNewID(&params); err != nil {
-		return nil, fmt.Errorf("classification: assign id: %v", err)
+		return nil, fmt.Errorf("classification: assign id: %w", err)
 	}
 
 	params.Status = models.ClassificationStatusRunning
@@ -156,7 +156,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 	}
 
 	if err := c.repo.Put(ctx, params); err != nil {
-		return nil, fmt.Errorf("classification: put: %v", err)
+		return nil, fmt.Errorf("classification: put: %w", err)
 	}
 
 	// asynchronously trigger the classification
@@ -177,17 +177,17 @@ func (c *Classifier) extractFilters(principal *models.Principal, params models.C
 
 	source, err := filterext.Parse(params.Filters.SourceWhere, params.Class)
 	if err != nil {
-		return classificationFilters{}, fmt.Errorf("field 'sourceWhere': %v", err)
+		return classificationFilters{}, fmt.Errorf("field 'sourceWhere': %w", err)
 	}
 
 	trainingSet, err := filterext.Parse(params.Filters.TrainingSetWhere, params.Class)
 	if err != nil {
-		return classificationFilters{}, fmt.Errorf("field 'trainingSetWhere': %v", err)
+		return classificationFilters{}, fmt.Errorf("field 'trainingSetWhere': %w", err)
 	}
 
 	target, err := filterext.Parse(params.Filters.TargetWhere, params.Class)
 	if err != nil {
-		return classificationFilters{}, fmt.Errorf("field 'targetWhere': %v", err)
+		return classificationFilters{}, fmt.Errorf("field 'targetWhere': %w", err)
 	}
 
 	filters := classificationFilters{
@@ -206,19 +206,19 @@ func (c *Classifier) extractFilters(principal *models.Principal, params models.C
 func (c *Classifier) validateFilters(principal *models.Principal, params *models.Classification, filters *classificationFilters) (err error) {
 	if params.Type == TypeKNN {
 		if err = c.validateFilter(principal, filters.Source()); err != nil {
-			return fmt.Errorf("invalid sourceWhere: %s", err)
+			return fmt.Errorf("invalid sourceWhere: %w", err)
 		}
 		if err = c.validateFilter(principal, filters.TrainingSet()); err != nil {
-			return fmt.Errorf("invalid trainingSetWhere: %s", err)
+			return fmt.Errorf("invalid trainingSetWhere: %w", err)
 		}
 	}
 
 	if params.Type == TypeContextual || params.Type == TypeZeroShot {
 		if err = c.validateFilter(principal, filters.Source()); err != nil {
-			return fmt.Errorf("invalid sourceWhere: %s", err)
+			return fmt.Errorf("invalid sourceWhere: %w", err)
 		}
 		if err = c.validateFilter(principal, filters.Target()); err != nil {
-			return fmt.Errorf("invalid targetWhere: %s", err)
+			return fmt.Errorf("invalid targetWhere: %w", err)
 		}
 	}
 

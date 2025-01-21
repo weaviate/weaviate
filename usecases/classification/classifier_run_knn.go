@@ -33,7 +33,7 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int,
 		item.ClassName,
 		params.ClassifyProperties, int(*settings.K), filters.TrainingSet())
 	if err != nil {
-		return fmt.Errorf("classify %s/%s: %v", item.ClassName, item.ID, err)
+		return fmt.Errorf("classify %s/%s: %w", item.ClassName, item.ID, err)
 	}
 
 	var classified []string
@@ -55,7 +55,7 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int,
 	c.extendItemWithObjectMeta(&item, params, classified)
 	err = writer.Store(item)
 	if err != nil {
-		return fmt.Errorf("store %s/%s: %v", item.ClassName, item.ID, err)
+		return fmt.Errorf("store %s/%s: %w", item.ClassName, item.ID, err)
 	}
 
 	return nil

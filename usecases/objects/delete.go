@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
@@ -102,8 +103,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID, dele
 	for {
 		objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil, "")
 		if err != nil {
-			_, ok := err.(ErrNotFound)
-			if ok {
+			if errors.As(err, &ErrNotFound{}) {
 				if deleteCounter == 0 {
 					return err
 				}

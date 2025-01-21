@@ -962,7 +962,7 @@ func (p *Provider) VectorFromInput(ctx context.Context,
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if mod.Name() == targetModule {
+		if p.isModuleNameEqual(mod, targetModule) {
 			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
 				if found, vector, err := vectorFromInput[[]float32](ctx, mod, class, input, targetVector); found {
 					return vector, err
@@ -984,7 +984,7 @@ func (p *Provider) MultiVectorFromInput(ctx context.Context,
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if mod.Name() == targetModule {
+		if p.isModuleNameEqual(mod, targetModule) {
 			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
 				if found, vector, err := vectorFromInput[[][]float32](ctx, mod, class, input, targetVector); found {
 					return vector, err

@@ -184,7 +184,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 func generateUUID() (strfmt.UUID, error) {
 	id, err := uuid.NewRandom()
 	if err != nil {
-		return "", fmt.Errorf("could not generate uuid v4: %v", err)
+		return "", fmt.Errorf("could not generate uuid v4: %w", err)
 	}
 
 	return strfmt.UUID(id.String()), nil

@@ -18,16 +18,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -238,8 +238,9 @@ func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, fi
 
 func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Results, *Error) {
 	args := f.Called(q)
-	res, err := args.Get(0).([]search.Result), args.Error(1).(*Error)
-	return res, err
+	var customEr *Error
+	errors.As(args.Error(1), &customEr)
+	return args.Get(0).([]search.Result), customEr
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,

@@ -13,10 +13,15 @@ package authz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
@@ -24,9 +29,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 )
 
 func TestAuthzAutoTenantActivation(t *testing.T) {
@@ -87,8 +89,8 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	t.Run("fail with 403 when trying to create an object in an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
 		_, err := createObject(t, obj, customKey)
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*objects.ObjectsCreateForbidden)
-		if !forbidden {
+		var parsed *objects.ObjectsCreateForbidden
+		if !errors.As(err, &parsed) {
 			helper.AssertRequestOk(t, nil, err, nil)
 		}
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
@@ -97,8 +99,8 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	t.Run("fail with 403 when trying to read an object in an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
 		_, err := getObject(t, obj2.Class, obj2.ID, &obj2.Tenant, customKey)
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*objects.ObjectsClassGetForbidden)
-		if !forbidden {
+		var parsed *objects.ObjectsClassGetForbidden
+		if !errors.As(err, &parsed) {
 			helper.AssertRequestOk(t, nil, err, nil)
 		}
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
@@ -107,8 +109,8 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	t.Run("fail with 403 when trying to update an object in an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
 		_, err := updateObject(t, obj, customKey)
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*objects.ObjectsClassPatchForbidden)
-		if !forbidden {
+		var parsed *objects.ObjectsClassPatchForbidden
+		if !errors.As(err, &parsed) {
 			helper.AssertRequestOk(t, nil, err, nil)
 		}
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
@@ -117,8 +119,8 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	t.Run("fail with 403 when trying to delete an object in an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
 		_, err := deleteObject(t, obj.Class, obj.ID, &obj.Tenant, customKey)
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*objects.ObjectsClassDeleteForbidden)
-		if !forbidden {
+		var parsed *objects.ObjectsClassDeleteForbidden
+		if !errors.As(err, &parsed) {
 			helper.AssertRequestOk(t, nil, err, nil)
 		}
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
@@ -259,8 +261,8 @@ func TestAuthzAutoTenantCreation(t *testing.T) {
 	t.Run("fail with 403 when trying to create an object in a non-existent tenant due to lacking authorization.CreateCollections for autoTenantCreation", func(t *testing.T) {
 		err := helper.CreateObjectAuth(t, obj, customKey)
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*objects.ObjectsCreateForbidden)
-		require.True(t, forbidden)
+		var parsed *objects.ObjectsCreateForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 

@@ -48,7 +48,7 @@ func (p SearchParams) Validate() error {
 	}
 
 	if err := p.validateCertaintyOrWeight(p.Certainty); err != nil {
-		return fmt.Errorf("invalid Certainty: %s", err)
+		return fmt.Errorf("invalid Certainty: %w", err)
 	}
 
 	if p.SearchType != SearchTypeClass && p.SearchType != SearchTypeProperty {

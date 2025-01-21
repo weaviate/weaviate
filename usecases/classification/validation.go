@@ -44,7 +44,7 @@ func (v *Validator) Do() error {
 
 	err := v.errors.ToError()
 	if err != nil {
-		return fmt.Errorf("invalid classification: %v", err)
+		return fmt.Errorf("invalid classification: %w", err)
 	}
 
 	return nil
