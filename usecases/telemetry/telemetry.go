@@ -194,14 +194,14 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 	}
 
 	return &Payload{
-		MachineID:      tel.machineID,
-		Type:           payloadType,
-		Version:        config.ServerVersion,
-		NumObjects:     objs,
-		OS:             runtime.GOOS,
-		Arch:           runtime.GOARCH,
-		UsedModules:    usedMods,
-		NumCollections: cols,
+		MachineID:        tel.machineID,
+		Type:             payloadType,
+		Version:          config.ServerVersion,
+		ObjectsCount:     objs,
+		OS:               runtime.GOOS,
+		Arch:             runtime.GOARCH,
+		UsedModules:      usedMods,
+		CollectionsCount: cols,
 	}, nil
 }
 
