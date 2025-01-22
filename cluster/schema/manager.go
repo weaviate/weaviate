@@ -19,6 +19,7 @@ import (
 	"io"
 
 	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -40,7 +41,7 @@ type SchemaManager struct {
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, db),
+		schema: NewSchema(nodeId, db, prometheus.DefaultRegisterer),
 		db:     db,
 		parser: parser,
 		log:    log,
