@@ -20,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -819,16 +818,6 @@ func (index *flat) PostStartup() {
 		"took":     took,
 		"index_id": index.id,
 	}).Debugf("pre-loaded %d vectors in %s", count, took)
-}
-
-func (index *flat) Dump(labels ...string) {
-	if len(labels) > 0 {
-		fmt.Printf("--------------------------------------------------\n")
-		fmt.Printf("--  %s\n", strings.Join(labels, ", "))
-	}
-	fmt.Printf("--------------------------------------------------\n")
-	fmt.Printf("ID: %s\n", index.id)
-	fmt.Printf("--------------------------------------------------\n")
 }
 
 func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {
