@@ -228,7 +228,7 @@ func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer
 			Namespace: "weaviate",
 			Name:      "schema_collections",
 			Help:      "Number of collections per node",
-		}, []string{"node"}),
+		}, []string{"nodeID"}),
 	}
 	return s
 }
