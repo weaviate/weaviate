@@ -15,10 +15,11 @@ import (
 	"context"
 	"errors"
 
+	"github.com/weaviate/weaviate/entities/classcache"
+
 	"github.com/weaviate/weaviate/entities/schema"
 
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -36,6 +37,8 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	if err != nil {
 		return err
 	}
+
+	ctx = classcache.ContextWithClassCache(ctx)
 	fetchedClasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		return err
@@ -47,7 +50,6 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	}
 	defer unlock()
 
-	ctx = classcache.ContextWithClassCache(ctx)
 	err = m.validateObjectAndNormalizeNames(ctx, repl, obj, nil, fetchedClasses)
 	if err != nil {
 		var forbidden autherrs.Forbidden
