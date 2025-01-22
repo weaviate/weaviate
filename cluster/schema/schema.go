@@ -217,8 +217,7 @@ type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
-func NewSchema(nodeID string, shardReader shardReader) *schema {
-	reg := prometheus.DefaultRegisterer
+func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer) *schema {
 	r := promauto.With(reg)
 
 	s := &schema{
