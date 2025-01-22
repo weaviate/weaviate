@@ -47,10 +47,6 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	ctx = classcache.ContextWithClassCache(ctx)
 	input.Class = schema.UppercaseClassName(input.Class)
 
-	if err := validateReferenceName(input.Class, input.Property); err != nil {
-		return &Error{err.Error(), StatusBadRequest, err}
-	}
-
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
@@ -74,6 +70,10 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{"source object", StatusInternalServerError, err}
 	}
 	input.Class = res.ClassName
+
+	if err := validateReferenceName(input.Class, input.Property); err != nil {
+		return &Error{err.Error(), StatusBadRequest, err}
+	}
 
 	class, schemaVersion, _, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
 	if typedErr != nil {
