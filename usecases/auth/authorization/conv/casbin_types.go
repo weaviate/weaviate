@@ -377,7 +377,6 @@ func validResource(input string) bool {
 	for _, pattern := range resourcePatterns {
 		matched, err := regexp.MatchString(pattern, input)
 		if err != nil {
-			fmt.Printf("Error matching pattern: %v\n", err)
 			return false
 		}
 		if matched {
