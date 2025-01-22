@@ -14,18 +14,18 @@ package dynamic
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -39,7 +39,6 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	bolt "go.etcd.io/bbolt"
 )
 
 const composerUpgradedKey = "upgraded"
@@ -316,16 +315,6 @@ func (dynamic *dynamic) PostStartup() {
 	dynamic.Lock()
 	defer dynamic.Unlock()
 	dynamic.index.PostStartup()
-}
-
-func (dynamic *dynamic) Dump(labels ...string) {
-	if len(labels) > 0 {
-		fmt.Printf("--------------------------------------------------\n")
-		fmt.Printf("--  %s\n", strings.Join(labels, ", "))
-	}
-	fmt.Printf("--------------------------------------------------\n")
-	fmt.Printf("ID: %s\n", dynamic.id)
-	fmt.Printf("--------------------------------------------------\n")
 }
 
 func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {

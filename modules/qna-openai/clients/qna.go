@@ -23,13 +23,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/qna-openai/config"
 	"github.com/weaviate/weaviate/modules/qna-openai/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func buildUrl(baseURL, resourceName, deploymentID string) (string, error) {
@@ -88,7 +88,8 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	if err != nil {
 		return nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
-	fmt.Printf("using the OpenAI URL: %v\n", oaiUrl)
+	v.logger.WithField("URL", oaiUrl).Info("using OpenAI")
+
 	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
 		bytes.NewReader(body))
 	if err != nil {
