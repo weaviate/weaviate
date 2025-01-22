@@ -16,10 +16,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/classcache"
+
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -51,8 +52,18 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(updates.Class)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+
+	className := schema.UppercaseClassName(updates.Class)
+	updates.Class = className
+
+	ctx = classcache.ContextWithClassCache(ctx)
+	fetchedClass, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	if err != nil {
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
+
+		return &Error{err.Error(), StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
 
 	m.metrics.MergeObjectInc()
@@ -63,7 +74,6 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{err.Error(), StatusInternalServerError, err}
 	}
 
-	ctx = classcache.ContextWithClassCache(ctx)
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		switch {
@@ -84,13 +94,8 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"not found", StatusNotFound, err}
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, schema.UppercaseClassName(updates.Class))
-	if err != nil {
-		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
-	}
-
-	maxSchemaVersion := vclasses[schema.UppercaseClassName(updates.Class)].Version
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, vclasses, updates)
+	maxSchemaVersion := fetchedClass[className].Version
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
 	if err != nil {
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
@@ -108,8 +113,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 
 	prevObj := obj.Object()
-	if err := m.validateObjectAndNormalizeNames(
-		ctx, principal, repl, updates, prevObj); err != nil {
+	if err := m.validateObjectAndNormalizeNames(ctx, repl, updates, prevObj, fetchedClass); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 
