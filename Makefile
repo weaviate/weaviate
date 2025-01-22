@@ -89,3 +89,6 @@ monitoring: ## Run the prometheus and grafana for monitoring
 
 local: ## Run the local development setup with single node
 	./tools/dev/run_dev_server.sh local-single-node
+
+banner: ## Add Weaviate banner with license details
+	./tools/gen-code-from-swagger.sh
