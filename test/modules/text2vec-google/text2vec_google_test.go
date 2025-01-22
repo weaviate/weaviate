@@ -100,25 +100,8 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 						})
 					}
 				})
-				// vector search with gql
-				t.Run("perform vector search with gql", func(t *testing.T) {
-					companies.PerformVectorSearchTest(t, rest, class.Class)
-				})
-				// vector search with grpc
-				t.Run("perform vector search with grpc", func(t *testing.T) {
-					companies.PerformVectorSearchGRPCTest(t, grpc, class.Class)
-				})
-				// hybrid search with gql
-				t.Run("perform hybrid search with gql", func(t *testing.T) {
-					companies.PerformHybridSearchTest(t, rest, class.Class)
-				})
-				// hybrid search with grpc
-				t.Run("perform hybrid search with grpc", func(t *testing.T) {
-					companies.PerformHybridSearchGRPCTest(t, grpc, class.Class)
-				})
-				// hybrid search
-				t.Run("perform hybrid search", func(t *testing.T) {
-					companies.PerformHybridSearchTest(t, host, class.Class)
+				t.Run("search tests", func(t *testing.T) {
+					companies.PerformAllSearchTests(t, rest, grpc, class.Class)
 				})
 			})
 		}

@@ -129,6 +129,25 @@ func BatchInsertObjects(t *testing.T, host string, className string) {
 	})
 }
 
+func PerformAllSearchTests(t *testing.T, rest, grpc string, className string) {
+	// vector search with gql
+	t.Run("perform vector search with gql", func(t *testing.T) {
+		PerformVectorSearchTest(t, rest, className)
+	})
+	// vector search with grpc
+	t.Run("perform vector search with grpc", func(t *testing.T) {
+		PerformVectorSearchGRPCTest(t, grpc, className)
+	})
+	// hybrid search with gql
+	t.Run("perform hybrid search with gql", func(t *testing.T) {
+		PerformHybridSearchTest(t, rest, className)
+	})
+	// hybrid search with grpc
+	t.Run("perform hybrid search with grpc", func(t *testing.T) {
+		PerformHybridSearchGRPCTest(t, grpc, className)
+	})
+}
+
 func PerformVectorSearchTest(t *testing.T, host string, className string) {
 	query := fmt.Sprintf(`
 				{
