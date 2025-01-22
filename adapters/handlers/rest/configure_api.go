@@ -26,11 +26,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/fgprof"
-
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	armonmetrics "github.com/armon/go-metrics"
 	armonprometheus "github.com/armon/go-metrics/prometheus"
+	"github.com/getsentry/sentry-go"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
@@ -40,6 +39,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -125,8 +126,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
-
-	"github.com/getsentry/sentry-go"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -1437,7 +1436,9 @@ func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
 	enterrors.GoWrapper(func() {
 		portNumber := config.Profiling.Port
 		if portNumber == 0 {
-			fmt.Println(http.ListenAndServe(":6060", nil))
+			if err := http.ListenAndServe(":6060", nil); err != nil {
+				logger.Error("error listinening and serve :6060 : %w", err)
+			}
 		} else {
 			http.ListenAndServe(fmt.Sprintf(":%d", portNumber), nil)
 		}

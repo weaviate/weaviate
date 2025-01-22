@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
