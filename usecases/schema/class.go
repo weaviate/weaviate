@@ -159,6 +159,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, err
 	}
+	h.metrics.collectionsCountInc()
 	return cls, version, err
 }
 
@@ -213,7 +214,11 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	shardingState.MigrateFromOldFormat()
 	shardingState.ApplyNodeMapping(m)
 	_, err = h.schemaManager.RestoreClass(ctx, class, &shardingState)
-	return err
+	if err != nil {
+		return err
+	}
+	h.metrics.collectionsCountInc()
+	return nil
 }
 
 // DeleteClass from the schema
@@ -229,7 +234,11 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 	class = schema.UppercaseClassName(class)
 
 	_, err = h.schemaManager.DeleteClass(ctx, class)
-	return err
+	if err != nil {
+		return err
+	}
+	h.metrics.collectionsCountDec()
+	return nil
 }
 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,

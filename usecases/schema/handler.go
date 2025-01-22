@@ -128,6 +128,7 @@ type Handler struct {
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	parser                  Parser
+	metrics                 schemaMetrics
 }
 
 // NewHandler creates a new handler
@@ -141,6 +142,7 @@ func NewHandler(
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
+	metrics schemaMetrics,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
@@ -157,6 +159,7 @@ func NewHandler(
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
+		metrics:                 metrics,
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)

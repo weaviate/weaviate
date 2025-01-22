@@ -43,6 +43,7 @@ type PrometheusMetrics struct {
 	BatchDeleteTime                     *prometheus.SummaryVec
 	BatchCount                          *prometheus.CounterVec
 	BatchCountBytes                     *prometheus.CounterVec
+	CollectionsCount                    prometheus.Gauge
 	ObjectsTime                         *prometheus.SummaryVec
 	LSMBloomFilters                     *prometheus.SummaryVec
 	AsyncOperations                     *prometheus.GaugeVec
@@ -355,6 +356,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "batch_objects_processed_bytes",
 			Help: "Number of bytes processed in a batch",
 		}, []string{"class_name", "shard_name"}),
+
+		CollectionsCount: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "collections_count",
+			Help: "Number of collections in schema",
+		}),
 
 		ObjectsTime: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "objects_durations_ms",
