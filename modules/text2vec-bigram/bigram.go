@@ -122,23 +122,26 @@ func ord(letter rune) int {
 	return int(letter)
 }
 
-func stripNonAlphabets(input string) string {
+func stripNonAlphabets(input string) (string, error) {
 	reg, err := regexp.Compile("[^a-zA-Z]+")
 	if err != nil {
-		fmt.Println("Error compiling regex:", err)
+		return "", err
 	}
-	return reg.ReplaceAllString(input, "")
+	return reg.ReplaceAllString(input, ""), nil
 }
 
 func alphabet2Vector(input string) ([]float32, error) {
-	// Strip everything out of the input that is not a letter
+	// Strip everything out of the in that is not a letter
 	// and convert to lower case
-	input = stripNonAlphabets(input)
-	input = strings.ToLower(input)
+	in, err := stripNonAlphabets(input)
+	if err != nil {
+		return nil, err
+	}
+	in = strings.ToLower(in)
 	vector := make([]float32, 26*26)
-	for i := 0; i < len(input)-1; i++ {
-		first := alphabetOrdinal(rune(input[i]))
-		second := alphabetOrdinal(rune(input[i+1]))
+	for i := 0; i < len(in)-1; i++ {
+		first := alphabetOrdinal(rune(in[i]))
+		second := alphabetOrdinal(rune(in[i+1]))
 		index := first*26 + second
 		vector[index] = vector[index] + 1
 	}
