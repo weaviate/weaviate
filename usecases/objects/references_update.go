@@ -76,6 +76,10 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	}
 	input.Class = res.ClassName
 
+	if err := validateReferenceName(input.Class, input.Property); err != nil {
+		return &Error{err.Error(), StatusBadRequest, err}
+	}
+
 	class, schemaVersion, _, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
 	if typedErr != nil {
 		return typedErr
@@ -149,9 +153,6 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 }
 
 func (req *PutReferenceInput) validate(v *validation.Validator, class *models.Class) ([]*crossref.Ref, error) {
-	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return nil, err
-	}
 	refs, err := v.ValidateMultipleRef(req.Refs)
 	if err != nil {
 		return nil, err
@@ -165,23 +166,6 @@ func (req *PutReferenceInput) validateExistence(
 	v *validation.Validator, tenant string, ref *crossref.Ref,
 ) error {
 	return v.ValidateExistence(ctx, ref, "validate reference", tenant)
-}
-
-// validateNames validates class and property names
-func validateReferenceName(class, property string) error {
-	if _, err := schema.ValidateClassName(class); err != nil {
-		return err
-	}
-
-	if err := schema.ValidateReservedPropertyName(property); err != nil {
-		return err
-	}
-
-	if _, err := schema.ValidatePropertyName(property); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func validateReferenceSchema(c *models.Class, property string) error {

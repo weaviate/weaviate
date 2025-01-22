@@ -57,3 +57,20 @@ func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.
 
 	return fetchedClass[className].Class, fetchedClass[className].Version, fetchedClass, nil
 }
+
+// validateNames validates class and property names
+func validateReferenceName(class, property string) error {
+	if _, err := schema.ValidateClassName(class); err != nil {
+		return err
+	}
+
+	if err := schema.ValidateReservedPropertyName(property); err != nil {
+		return err
+	}
+
+	if _, err := schema.ValidatePropertyName(property); err != nil {
+		return err
+	}
+
+	return nil
+}

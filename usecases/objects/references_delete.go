@@ -47,6 +47,10 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	ctx = classcache.ContextWithClassCache(ctx)
 	input.Class = schema.UppercaseClassName(input.Class)
 
+	if err := validateReferenceName(input.Class, input.Property); err != nil {
+		return &Error{err.Error(), StatusBadRequest, err}
+	}
+
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
@@ -97,7 +101,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	defer unlock()
 
-	if input.validate(class) != nil {
+	if input.validateSchema(class) != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}
 		}
@@ -139,11 +143,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	return nil
 }
 
-func (req *DeleteReferenceInput) validate(class *models.Class) error {
-	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return err
-	}
-
+func (req *DeleteReferenceInput) validateSchema(class *models.Class) error {
 	return validateReferenceSchema(class, req.Property)
 }
 

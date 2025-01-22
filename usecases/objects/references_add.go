@@ -65,6 +65,10 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		input.Class = objectRes.Object().Class
 	}
 
+	if err := validateReferenceName(input.Class, input.Property); err != nil {
+		return &Error{err.Error(), StatusBadRequest, err}
+	}
+
 	class, schemaVersion, fetchedClass, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
 	if typedErr != nil {
 		return typedErr
@@ -178,9 +182,6 @@ func (req *AddReferenceInput) validate(
 	v *validation.Validator,
 	class *models.Class,
 ) (*crossref.Ref, error) {
-	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return nil, err
-	}
 	ref, err := v.ValidateSingleRef(&req.Ref)
 	if err != nil {
 		return nil, err
