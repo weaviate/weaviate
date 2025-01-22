@@ -16,11 +16,12 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/versioned"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/entities/versioned"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
@@ -40,19 +41,19 @@ func (m *Manager) autodetectToClass(class *models.Class, fromProperty string, be
 	return strfmt.URI(toClass), strfmt.URI(toBeacon), true, nil
 }
 
-func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.Principal, className string) (versioned.Classes, *Error) {
+func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.Principal, className string) (*models.Class, uint64, versioned.Classes, *Error) {
 	fetchedClass, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		if errors.As(err, &autherrs.Forbidden{}) {
-			return nil, &Error{err.Error(), StatusForbidden, err}
+			return nil, 0, nil, &Error{err.Error(), StatusForbidden, err}
 		}
 
-		return nil, &Error{err.Error(), StatusBadRequest, err}
+		return nil, 0, nil, &Error{err.Error(), StatusBadRequest, err}
 	}
 	if _, ok := fetchedClass[className]; !ok {
 		err := fmt.Errorf("collection %q not found in schema", className)
-		return nil, &Error{"collection not found", StatusBadRequest, err}
+		return nil, 0, nil, &Error{"collection not found", StatusBadRequest, err}
 	}
 
-	return fetchedClass, nil
+	return fetchedClass[className].Class, fetchedClass[className].Version, fetchedClass, nil
 }

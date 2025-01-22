@@ -65,13 +65,10 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		input.Class = objectRes.Object().Class
 	}
 
-	fetchedClass, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
+	class, schemaVersion, fetchedClass, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
 	if typedErr != nil {
 		return typedErr
 	}
-
-	schemaVersion := fetchedClass[input.Class].Version
-	class := fetchedClass[input.Class].Class
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {

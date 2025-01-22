@@ -76,13 +76,10 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	}
 	input.Class = res.ClassName
 
-	fetchedClass, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
+	class, schemaVersion, _, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
 	if typedErr != nil {
 		return typedErr
 	}
-
-	schemaVersion := fetchedClass[input.Class].Version
-	class := fetchedClass[input.Class].Class
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {

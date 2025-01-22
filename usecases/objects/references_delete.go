@@ -71,13 +71,10 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	input.Class = res.ClassName
 
-	fetchedClass, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
+	class, schemaVersion, _, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
 	if typedErr != nil {
 		return typedErr
 	}
-
-	schemaVersion := fetchedClass[input.Class].Version
-	class := fetchedClass[input.Class].Class
 
 	beacon, err := crossref.Parse(input.Reference.Beacon.String())
 	if err != nil {
