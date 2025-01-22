@@ -89,8 +89,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	className := getClassName(params.Body)
 
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	object, err := h.manager.AddObject(ctx,
-		principal, params.Body, repl)
+	object, err := h.manager.AddObject(ctx, principal, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
