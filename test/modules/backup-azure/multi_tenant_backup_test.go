@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/journey"
@@ -52,6 +53,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
+		azureBackupJourneyContainerName := "azure-single-node"
 		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
 
 		compose, err := docker.New().
@@ -81,6 +83,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 
 	t.Run("multiple node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
+		azureBackupJourneyContainerName := "azure-multiple-nodes"
 		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
 
 		compose, err := docker.New().

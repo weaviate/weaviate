@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -75,6 +76,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
+		gcsBackupJourneyBucketName := "gcp-single-node"
 		t.Setenv(envGCSCredentials, "")
 		t.Setenv(envGCSProjectID, gcsBackupJourneyProjectID)
 		t.Setenv(envGCSBucket, gcsBackupJourneyBucketName)
@@ -114,6 +116,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 
 	t.Run("multiple node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
+		gcsBackupJourneyBucketName := "gcp-multiple-nodes"
 		t.Setenv(envGCSCredentials, "")
 		t.Setenv(envGCSProjectID, gcsBackupJourneyProjectID)
 		t.Setenv(envGCSBucket, gcsBackupJourneyBucketName)
