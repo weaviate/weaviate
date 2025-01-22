@@ -244,7 +244,11 @@ func (h *hnsw) restoreDocMappings() error {
 	h.vecIDcounter = maxNodeID + 1
 	h.maxDocID = maxDocID
 	h.Unlock()
-	h.cache.GrowMultiCache(maxDocID)
+	if h.compressed.Load() {
+		h.compressor.GrowMultiCache(maxDocID)
+	} else {
+		h.cache.GrowMultiCache(maxDocID)
+	}
 	return nil
 }
 
