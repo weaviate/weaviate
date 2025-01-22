@@ -233,6 +233,28 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 				return jsonData, nil
 			}
 
+			if strings.Contains(itemSchema.Ref.String(), "SingleRef") {
+				ref := &models.SingleRef{
+					Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/ABC/%s", uuid.New().String())),
+				}
+				jsonData, err := json.Marshal(ref)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal mock data: %w", err)
+				}
+				return jsonData, nil
+			}
+
+			if strings.Contains(itemSchema.Ref.String(), "MultipleRef") {
+				ref := &models.MultipleRef{
+					&models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/ABC/%s", uuid.New().String()))},
+				}
+				jsonData, err := json.Marshal(ref)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal mock data: %w", err)
+				}
+				return jsonData, nil
+			}
+
 			if itemSchema.Ref.String() != "" {
 				refSchema, err := resolveReference(itemSchema.Ref.String(), definitions)
 				if err != nil {
