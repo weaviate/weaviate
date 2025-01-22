@@ -126,7 +126,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, PayloadType.Init, payload.Type)
 			assert.Equal(t, config.ServerVersion, payload.Version)
 			assert.Equal(t, int64(0), payload.NumObjects)
-			assert.Equal(t, 5, payload.CollectionsCount)
+			assert.Equal(t, 5, payload.NumCollections)
 			assert.Equal(t, runtime.GOOS, payload.OS)
 			assert.Equal(t, runtime.GOARCH, payload.Arch)
 			assert.NotEmpty(t, payload.UsedModules)
@@ -361,7 +361,7 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	assert.Equal(h.t, runtime.GOOS, payload.OS)
 	assert.Equal(h.t, runtime.GOARCH, payload.Arch)
-	assert.NotEmpty(h.t, payload.CollectionsCount)
+	assert.NotEmpty(h.t, payload.NumCollections)
 	assert.NotEmpty(h.t, payload.UsedModules)
 	assert.Len(h.t, payload.UsedModules, 3)
 	assert.Contains(h.t, payload.UsedModules, "text2vec-google-ai-studio")

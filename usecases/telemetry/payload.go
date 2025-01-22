@@ -28,12 +28,12 @@ var PayloadType = struct {
 
 // Payload is the object transmitted for telemetry purposes
 type Payload struct {
-	MachineID        strfmt.UUID `json:"machineId"`
-	Type             string      `json:"type"`
-	Version          string      `json:"version"`
-	NumObjects       int64       `json:"objs"`
-	OS               string      `json:"os"`
-	Arch             string      `json:"arch"`
-	UsedModules      []string    `json:"usedModules,omitempty"`
-	CollectionsCount int         `json:"collectionsCount"`
+	MachineID      strfmt.UUID `json:"machineId"`
+	Type           string      `json:"type"`
+	Version        string      `json:"version"`
+	NumObjects     int64       `json:"objs"`
+	OS             string      `json:"os"`
+	Arch           string      `json:"arch"`
+	UsedModules    []string    `json:"usedModules,omitempty"`
+	NumCollections int         `json:"numCollections"`
 }
