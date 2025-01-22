@@ -21,9 +21,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
 
-func testText2VecAWS(host, region string) func(t *testing.T) {
+func testText2VecAWS(rest, grpc, region string) func(t *testing.T) {
 	return func(t *testing.T) {
-		helper.SetupClient(host)
+		helper.SetupClient(rest)
 		// Data
 		data := companies.Companies
 		className := "VectorizerTest"
@@ -71,7 +71,7 @@ func testText2VecAWS(host, region string) func(t *testing.T) {
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					companies.InsertObjects(t, host, class.Class)
+					companies.InsertObjects(t, rest, class.Class)
 				})
 				t.Run("check objects existence", func(t *testing.T) {
 					for _, company := range data {
@@ -85,13 +85,21 @@ func testText2VecAWS(host, region string) func(t *testing.T) {
 						})
 					}
 				})
-				// vector search
-				t.Run("perform vector search", func(t *testing.T) {
-					companies.PerformVectorSearchTest(t, host, class.Class)
+				// vector search with gql
+				t.Run("perform vector search with gql", func(t *testing.T) {
+					companies.PerformVectorSearchTest(t, rest, class.Class)
 				})
-				// hybird search
-				t.Run("perform hybrid search", func(t *testing.T) {
-					companies.PerformHybridSearchTest(t, host, class.Class)
+				// vector search with grpc
+				t.Run("perform vector search with grpc", func(t *testing.T) {
+					companies.PerformVectorSearchGRPCTest(t, grpc, class.Class)
+				})
+				// hybrid search with gql
+				t.Run("perform hybrid search with gql", func(t *testing.T) {
+					companies.PerformHybridSearchTest(t, rest, class.Class)
+				})
+				// hybrid search with grpc
+				t.Run("perform hybrid search with grpc", func(t *testing.T) {
+					companies.PerformHybridSearchGRPCTest(t, grpc, class.Class)
 				})
 			})
 		}

@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
 
-func testText2ColBERTJinaAI(host string) func(t *testing.T) {
+func testText2ColBERTJinaAI(host, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
@@ -56,6 +56,11 @@ func testText2ColBERTJinaAI(host string) func(t *testing.T) {
 				// create schema
 				helper.CreateClass(t, class)
 				defer helper.DeleteClass(t, class.Class)
+				// check that multivector is enabled
+				t.Run("check multivector config", func(t *testing.T) {
+					cls := helper.GetClass(t, class.Class)
+					assert.True(t, cls.VectorConfig["description"].VectorIndexConfig.(map[string]any)["multivector"].(map[string]any)["enabled"].(bool))
+				})
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
 					companies.InsertObjects(t, host, class.Class)
@@ -71,13 +76,21 @@ func testText2ColBERTJinaAI(host string) func(t *testing.T) {
 						})
 					}
 				})
-				// vector search
-				t.Run("perform vector search", func(t *testing.T) {
+				// vector search with gql
+				t.Run("perform vector search with gql", func(t *testing.T) {
 					companies.PerformVectorSearchTest(t, host, class.Class)
 				})
-				// hybird search
-				t.Run("perform hybrid search", func(t *testing.T) {
+				// vector search with grpc
+				t.Run("perform vector search with grpc", func(t *testing.T) {
+					companies.PerformVectorSearchGRPCTest(t, grpc, class.Class)
+				})
+				// hybrid search with gql
+				t.Run("perform hybrid search with gql", func(t *testing.T) {
 					companies.PerformHybridSearchTest(t, host, class.Class)
+				})
+				// hybrid search with grpc
+				t.Run("perform hybrid search with grpc", func(t *testing.T) {
+					companies.PerformHybridSearchGRPCTest(t, grpc, class.Class)
 				})
 			})
 		}
