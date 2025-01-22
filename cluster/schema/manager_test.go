@@ -32,9 +32,7 @@ var errAny = errors.New("any error")
 func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	var (
 		ctx = context.Background()
-		sc  = &schema{
-			Classes: make(map[string]*metaClass),
-		}
+		sc  = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
 		vsc = VersionedSchemaReader{
 			schema:        sc,
 			WaitForUpdate: func(ctx context.Context, version uint64) error { return nil },
@@ -66,10 +64,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 		retErr error
 		f      = func(ctx context.Context, version uint64) error { return retErr }
 		nodes  = []string{"N1", "N2"}
-		s      = &schema{
-			Classes:     make(map[string]*metaClass),
-			shardReader: &MockShardReader{},
-		}
+		s      = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
 
 		sc = VersionedSchemaReader{s, f}
 	)
@@ -169,9 +164,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 }
 
 func TestSchemaReaderShardReplicas(t *testing.T) {
-	sc := &schema{
-		Classes: make(map[string]*metaClass),
-	}
+	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
 	rsc := SchemaReader{sc, VersionedSchemaReader{}}
 	// class not found
 	_, _, err := sc.ShardReplicas("C", "S")
@@ -196,11 +189,8 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 func TestSchemaReaderClass(t *testing.T) {
 	var (
 		nodes = []string{"N1", "N2"}
-		s     = &schema{
-			Classes:     make(map[string]*metaClass),
-			shardReader: &MockShardReader{},
-		}
-		sc = SchemaReader{s, VersionedSchemaReader{}}
+		s     = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
+		sc    = SchemaReader{s, VersionedSchemaReader{}}
 	)
 
 	// class not found
