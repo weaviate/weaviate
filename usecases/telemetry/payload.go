@@ -35,5 +35,5 @@ type Payload struct {
 	OS               string      `json:"os"`
 	Arch             string      `json:"arch"`
 	UsedModules      []string    `json:"usedModules,omitempty"`
-	CollectionsCount int         `json:"numCollections"`
+	CollectionsCount int         `json:"collectionsCount"`
 }
