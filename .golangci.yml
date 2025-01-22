@@ -20,6 +20,9 @@ linters-settings:
       # Optional message that gets included in error reports.
       - p: ^fmt\.Print.*$
         msg: Do not commit print statements.      
+      # Forbid spew Dump, whether it is called as function or method.
+      # Depends on analyze-types below.
+      - ^spew\.(ConfigState\.)?Dump$
     # Exclude godoc examples from forbidigo checks.
     # Default: true
     exclude-godoc-examples: true
