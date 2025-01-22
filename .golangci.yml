@@ -96,9 +96,6 @@ issues:
       path: tools/*
     - linters: # exclude file
         - forbidigo
-      path: cmd/libweaviate/libweaviate.go
-    - linters: # exclude file
-        - forbidigo
       path: adapters/repos/db/vector/hnsw/debug.go
     - linters: # exclude file
         - forbidigo
