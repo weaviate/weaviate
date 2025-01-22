@@ -855,7 +855,7 @@ func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidate
 	for resultsQueue.Len() > 0 {
 		element := resultsQueue.Pop()
 		ids[i] = element.ID
-		distances[i] = element.Dist
+		distances[i] = -element.Dist
 		i--
 	}
 
