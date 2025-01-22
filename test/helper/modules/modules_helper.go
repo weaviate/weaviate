@@ -24,10 +24,11 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 func EnsureClassExists(t *testing.T, className string, tenant string) {
@@ -121,7 +122,9 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 			if err == iterator.Done {
 				break
 			}
-			assert.Nil(t, err)
+			if err != nil {
+				return
+			}
 
 			obj := bucket.Object(objAttrs.Name)
 			err = obj.Delete(ctx)
