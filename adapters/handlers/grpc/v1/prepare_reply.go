@@ -237,7 +237,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 			vectorfmt, ok2 := vector.([]float32)
 			if ok2 {
 				metadata.Vector = vectorfmt // deprecated, remove in a bit
-				metadata.VectorBytes = byteops.Float32ToByteVector(vectorfmt)
+				metadata.VectorBytes = byteops.Fp32SliceToBytes(vectorfmt)
 			}
 		}
 	}
@@ -252,19 +252,16 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 					switch vec := vector.(type) {
 					case []float32:
 						metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
-							VectorBytes: byteops.Float32ToByteVector(vec),
+							VectorBytes: byteops.Fp32SliceToBytes(vec),
 							Name:        name,
-							Type:        pb.VectorType_VECTOR_TYPE_FP32,
+							Type:        pb.VectorType_VECTOR_TYPE_SINGLE_FP32,
 						})
 					case [][]float32:
-						for i := range vec {
-							metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
-								VectorBytes: byteops.Float32ToByteVector(vec[i]),
-								Name:        name,
-								Index:       uint64(i),
-								Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
-							})
-						}
+						metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
+							VectorBytes: byteops.Fp32SliceOfSlicesToBytes(vec),
+							Name:        name,
+							Type:        pb.VectorType_VECTOR_TYPE_MULTI_FP32,
+						})
 					default:
 						// do nothing
 					}
@@ -828,7 +825,7 @@ func extractArrayTypes(rawProps map[string]interface{}, props *pb.ObjectProperti
 			}
 			props.NumberArrayProperties = append(
 				props.NumberArrayProperties,
-				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: byteops.Float64ToByteVector(propFloat), Values: propFloat},
+				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: byteops.Fp64SliceToBytes(propFloat), Values: propFloat},
 			)
 			delete(rawProps, propName)
 		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeUUIDArray:

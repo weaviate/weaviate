@@ -249,7 +249,7 @@ func (m *Mapper) newListValueDate(v interface{}) (*pb.Value, error) {
 func (m *Mapper) newListValueNumber(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
 	makeListValue := func(v []float64) *pb.ListValue {
-		return &pb.ListValue{Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: byteops.Float64ToByteVector(v)}}}
+		return &pb.ListValue{Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: byteops.Fp64SliceToBytes(v)}}}
 	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {
