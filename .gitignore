@@ -114,3 +114,9 @@ cmd/weaviate-server/__debug_bin*
 venv
 **/__pycache__
 *.pyc
+
+# weaviate binaries
+cmd/weaviate/weaviate
+/weaviate
+cmd/weaviate-server/weviate-server
+weaviate-server
