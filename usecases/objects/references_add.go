@@ -104,6 +104,9 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 	}
 
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(targetRef.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
 	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
 		return &Error{"validate existence", StatusBadRequest, err}
 	}

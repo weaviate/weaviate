@@ -99,6 +99,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		return &Error{"bad inputs", StatusBadRequest, err}
 	}
 
+	previouslyAuthorized := map[string]struct{}{}
 	for i := range input.Refs {
 		if parsedTargetRefs[i].Class == "" {
 			toClass, toBeacon, replace, err := m.autodetectToClass(class, input.Property, parsedTargetRefs[i])
@@ -111,6 +112,15 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				input.Refs[i].Beacon = toBeacon
 				parsedTargetRefs[i].Class = string(toClass)
 			}
+		}
+
+		// only check authZ once per class/tenant combination
+		checkName := parsedTargetRefs[i].Class + "#" + tenant
+		if _, ok := previouslyAuthorized[checkName]; !ok {
+			if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(parsedTargetRefs[i].Class, tenant)...); err != nil {
+				return &Error{err.Error(), StatusForbidden, err}
+			}
+			previouslyAuthorized[checkName] = struct{}{}
 		}
 
 		if err := input.validateExistence(ctx, validator, tenant, parsedTargetRefs[i]); err != nil {
