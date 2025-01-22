@@ -139,7 +139,12 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		_, err = validateReferenceMultiTenancy(ctx, principal,
 			m.schemaManager, m.vectorRepo, source, target, tenant, fetchedClass)
 		if err != nil {
-			return &Error{"multi-tenancy violation", StatusInternalServerError, err}
+			switch {
+			case errors.As(err, &autherrs.Forbidden{}):
+				return &Error{"validation", StatusForbidden, err}
+			default:
+				return &Error{"multi-tenancy violation", StatusInternalServerError, err}
+			}
 		}
 	}
 
