@@ -187,15 +187,44 @@ func (bo *ReadWriter) WriteByte(b byte) {
 	bo.Position += 1
 }
 
-func Float32ToByteVector(floats []float32) []byte {
-	vector := make([]byte, len(floats)*uint32Len)
-	for i := 0; i < len(floats); i++ {
-		binary.LittleEndian.PutUint32(vector[i*uint32Len:(i+1)*uint32Len], math.Float32bits(floats[i]))
+func Fp32SliceToBytes(slice []float32) []byte {
+	if len(slice) == 0 {
+		return []byte{}
+	}
+	vector := make([]byte, len(slice)*uint32Len)
+	for i := 0; i < len(slice); i++ {
+		binary.LittleEndian.PutUint32(vector[i*uint32Len:(i+1)*uint32Len], math.Float32bits(slice[i]))
 	}
 	return vector
 }
 
-func Float64ToByteVector(floats []float64) []byte {
+// Fp32SliceOfSlicesToBytes converts a slice of slices of float64 to a byte slice
+//
+// Within the byte slice, it encodes the first two bytes as the number of dimensions with uint16 type
+// The rest of the bytes are the float32 values.
+//
+// If the outer slice is empty, it returns an empty byte slice.
+// If the first slice is empty, it returns an empty byte slice.
+func Fp32SliceOfSlicesToBytes(slices [][]float32) []byte {
+	if len(slices) == 0 {
+		return []byte{}
+	}
+	if len(slices[0]) == 0 {
+		return []byte{}
+	}
+	dimensions := len(slices[0])
+	// make a byte slice with size 2 and capacity 2 + (number of slices * number of floats * 4)
+	bytes := make([]byte, uint16Len, uint16Len+len(slices)*dimensions*uint32Len)
+	// write the number of dimensions to the first 2 bytes
+	binary.LittleEndian.PutUint16(bytes[:uint16Len], uint16(dimensions))
+	// append the rest of the bytes by looping over the slices and converting them to bytes
+	for _, slice := range slices {
+		bytes = append(bytes, Fp32SliceToBytes(slice)...)
+	}
+	return bytes
+}
+
+func Fp64SliceToBytes(floats []float64) []byte {
 	vector := make([]byte, len(floats)*uint64Len)
 	for i := 0; i < len(floats); i++ {
 		binary.LittleEndian.PutUint64(vector[i*uint64Len:(i+1)*uint64Len], math.Float64bits(floats[i]))
@@ -203,9 +232,8 @@ func Float64ToByteVector(floats []float64) []byte {
 	return vector
 }
 
-func Float32FromByteVector(vector []byte) []float32 {
+func Fp32SliceFromBytes(vector []byte) []float32 {
 	floats := make([]float32, len(vector)/uint32Len)
-
 	for i := 0; i < len(floats); i++ {
 		asUint := binary.LittleEndian.Uint32(vector[i*uint32Len : (i+1)*uint32Len])
 		floats[i] = math.Float32frombits(asUint)
@@ -213,9 +241,36 @@ func Float32FromByteVector(vector []byte) []float32 {
 	return floats
 }
 
-func Float64FromByteVector(vector []byte) []float64 {
-	floats := make([]float64, len(vector)/uint64Len)
+// Fp32SliceOfSlicesToBytes converts a slice of slices of float64 to a byte slice
+//
+// Within the byte slice, it determines the dimensions of the inner slices using the first two bytes inferred as uint16 type
+// The rest of the bytes are the float32 values.
+//
+// If the byte slice is empty, it returns an empty slice of slices.
+// If the dimension is found to be 0 then an error is returned as this is invalid.
+func Fp32SliceOfSlicesFromBytes(bytes []byte) ([][]float32, error) {
+	if len(bytes) == 0 {
+		return [][]float32{}, nil
+	}
+	// read the first 2 bytes to get the dimension of the internal slices
+	dimension := int(binary.LittleEndian.Uint16(bytes[:uint16Len]))
+	if dimension == 0 {
+		return nil, errors.New("dimension cannot be 0")
+	}
+	// discard the first 2 bytes
+	bytes = bytes[uint16Len:]
+	// calculate how many slices there are
+	howMany := len(bytes) / (dimension * uint32Len)
+	vectors := make([][]float32, howMany)
+	// loop through the bytes pulling out the slices based on the dimension
+	for i := 0; i < howMany; i++ {
+		vectors[i] = Fp32SliceFromBytes(bytes[i*dimension*uint32Len : (i+1)*dimension*uint32Len])
+	}
+	return vectors, nil
+}
 
+func Fp64SliceFromBytes(vector []byte) []float64 {
+	floats := make([]float64, len(vector)/uint64Len)
 	for i := 0; i < len(floats); i++ {
 		asUint := binary.LittleEndian.Uint64(vector[i*uint64Len : (i+1)*uint64Len])
 		floats[i] = math.Float64frombits(asUint)

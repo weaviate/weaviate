@@ -244,7 +244,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 				return dto.GetParams{}, fmt.Errorf("hybrid: %w", err)
 			}
 		} else if len(hs.VectorBytes) > 0 {
-			vector = byteops.Float32FromByteVector(hs.VectorBytes)
+			vector = byteops.Fp32SliceFromBytes(hs.VectorBytes)
 		} else if len(hs.Vector) > 0 {
 			vector = hs.Vector
 		}
@@ -1150,7 +1150,7 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 			return nil, fmt.Errorf("near_vector: %w", err)
 		}
 	} else if len(nv.VectorBytes) > 0 {
-		vector = byteops.Float32FromByteVector(nv.VectorBytes)
+		vector = byteops.Fp32SliceFromBytes(nv.VectorBytes)
 	} else if len(nv.Vector) > 0 {
 		vector = nv.Vector
 	}
@@ -1188,7 +1188,7 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 					return nil, fmt.Errorf("near_vector: vector for targets: extract vectors[%v]: %w", i, err)
 				}
 			} else {
-				vectors[i] = byteops.Float32FromByteVector(nv.VectorForTargets[i].VectorBytes)
+				vectors[i] = byteops.Fp32SliceFromBytes(nv.VectorForTargets[i].VectorBytes)
 			}
 		}
 
@@ -1198,7 +1198,7 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 		}
 		for i, target := range targetVectorsTmp {
 			if vec, ok := nv.VectorPerTarget[target]; ok {
-				vectors[i] = byteops.Float32FromByteVector(vec)
+				vectors[i] = byteops.Fp32SliceFromBytes(vec)
 			} else {
 				var allNames []string
 				for k := range nv.VectorPerTarget {
@@ -1254,17 +1254,18 @@ OUTER:
 
 func extractVector(vectors []*pb.Vectors) (models.Vector, error) {
 	if len(vectors) > 0 {
-		switch vectors[0].Type {
-		case *pb.VectorType_VECTOR_TYPE_UNSPECIFIED.Enum(), *pb.VectorType_VECTOR_TYPE_FP32.Enum():
-			return byteops.Float32FromByteVector(vectors[0].VectorBytes), nil
-		case *pb.VectorType_VECTOR_TYPE_COLBERT_FP32.Enum():
-			multiVector := make([][]float32, len(vectors))
-			for i := range vectors {
-				multiVector[i] = byteops.Float32FromByteVector(vectors[i].VectorBytes)
+		vec := vectors[0]
+		switch vec.Type {
+		case *pb.VectorType_VECTOR_TYPE_UNSPECIFIED.Enum(), *pb.VectorType_VECTOR_TYPE_SINGLE_FP32.Enum():
+			return byteops.Fp32SliceFromBytes(vec.VectorBytes), nil
+		case *pb.VectorType_VECTOR_TYPE_MULTI_FP32.Enum():
+			out, err := byteops.Fp32SliceOfSlicesFromBytes(vec.VectorBytes)
+			if err != nil {
+				return nil, fmt.Errorf("extract vector: %w", err)
 			}
-			return multiVector, nil
+			return out, nil
 		default:
-			return nil, fmt.Errorf("cannot extract vector: unknown vector type: %T", vectors[0].Type)
+			return nil, fmt.Errorf("cannot extract vector: unknown vector type: %T", vec.Type)
 		}
 	}
 	return nil, fmt.Errorf("cannot extract vector: empty vectors")

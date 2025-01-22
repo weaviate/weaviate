@@ -549,6 +549,8 @@ github.com/weaviate/tiktoken-go v0.0.2 h1:lkwTMEoXSFSXxYvw1c44/xz3OOAh27L3+3vvNN
 github.com/weaviate/tiktoken-go v0.0.2/go.mod h1:u47qSckEGSi4sOcVJmUnd3xoHpDV9/5FDDi3KUCFUq4=
 github.com/weaviate/weaviate-go-client/v4 v4.16.2-0.20250114164249-96aa13255192 h1:uz7CJTVy3KHvEW4RGHIYe9c5lD+/q4FgyDZjFtSKIVQ=
 github.com/weaviate/weaviate-go-client/v4 v4.16.2-0.20250114164249-96aa13255192/go.mod h1:CcQM4R9A607hANEtG39571vIiw6XE2TPAE87ZwJa5oI=
+github.com/weaviate/weaviate-go-client/v4 v4.16.2-0.20250122141651-2c9c3b9492a8 h1:fGDdijhsIXGNbLs4VZ0B/cVHa1lBu7Je2yUUScn3cAw=
+github.com/weaviate/weaviate-go-client/v4 v4.16.2-0.20250122141651-2c9c3b9492a8/go.mod h1:iMzBxgiIf9r7YzbuJ6zJHQmxAGEBeChg9CG5zAuc7Ew=
 github.com/willf/bitset v1.1.11 h1:N7Z7E9UvjW+sGsEl7k/SJrvY2reP1A07MrGuCjIOjRE=
 github.com/willf/bitset v1.1.11/go.mod h1:83CECat5yLh5zVOf4P1ErAgKA5UDvKtgyUABdr3+MjI=
 github.com/xdg-go/pbkdf2 v1.0.0/go.mod h1:jrpuAogTd400dnrH08LKmI/xc1MbPOebTwRqcT5RDeI=
