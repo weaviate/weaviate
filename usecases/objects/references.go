@@ -13,19 +13,19 @@ package objects
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/versioned"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-func (m *Manager) autodetectToClass(ctx context.Context, principal *models.Principal, fromClass, fromProperty string, beaconRef *crossref.Ref) (strfmt.URI, strfmt.URI, bool, *Error) {
+func (m *Manager) autodetectToClass(class *models.Class, fromProperty string, beaconRef *crossref.Ref) (strfmt.URI, strfmt.URI, bool, *Error) {
 	// autodetect to class from schema if not part of reference
-	class, err := m.schemaManager.GetClass(ctx, principal, fromClass)
-	if err != nil {
-		return "", "", false, &Error{"cannot get class", StatusInternalServerError, err}
-	}
 	prop, err := schema.GetPropertyByName(class, schema.LowercaseFirstLetter(fromProperty))
 	if err != nil {
 		return "", "", false, &Error{"cannot get property", StatusInternalServerError, err}
@@ -38,4 +38,21 @@ func (m *Manager) autodetectToClass(ctx context.Context, principal *models.Princ
 	toBeacon := crossref.NewLocalhost(toClass, beaconRef.TargetID).String()
 
 	return strfmt.URI(toClass), strfmt.URI(toBeacon), true, nil
+}
+
+func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.Principal, className string) (versioned.Classes, *Error) {
+	fetchedClass, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	if err != nil {
+		if errors.As(err, &autherrs.Forbidden{}) {
+			return nil, &Error{err.Error(), StatusForbidden, err}
+		}
+
+		return nil, &Error{err.Error(), StatusBadRequest, err}
+	}
+	if _, ok := fetchedClass[className]; !ok {
+		err := fmt.Errorf("collection %q not found in schema", className)
+		return nil, &Error{"collection not found", StatusBadRequest, err}
+	}
+
+	return fetchedClass, nil
 }

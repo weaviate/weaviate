@@ -49,11 +49,9 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	defer m.metrics.UpdateReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
+	input.Class = schema.UppercaseClassName(input.Class)
 
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
-	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(input.Class)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
@@ -78,6 +76,14 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	}
 	input.Class = res.ClassName
 
+	fetchedClass, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
+	if typedErr != nil {
+		return typedErr
+	}
+
+	schemaVersion := fetchedClass[input.Class].Version
+	class := fetchedClass[input.Class].Class
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return &Error{"cannot lock", StatusInternalServerError, err}
@@ -85,7 +91,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	defer unlock()
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
-	parsedTargetRefs, schemaVersion, err := input.validate(ctx, principal, validator, m.schemaManager, tenant)
+	parsedTargetRefs, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"bad inputs", StatusUnprocessableEntity, err}
@@ -95,7 +101,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 
 	for i := range input.Refs {
 		if parsedTargetRefs[i].Class == "" {
-			toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, parsedTargetRefs[i])
+			toClass, toBeacon, replace, err := m.autodetectToClass(class, input.Property, parsedTargetRefs[i])
 			if err != nil {
 				return err
 			}
@@ -106,14 +112,10 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				parsedTargetRefs[i].Class = string(toClass)
 			}
 		}
-		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(input.Refs[i].Class.String())...); err != nil {
-			return &Error{err.Error(), StatusForbidden, err}
-		}
 
 		if err := input.validateExistence(ctx, validator, tenant, parsedTargetRefs[i]); err != nil {
 			return &Error{"validate existence", StatusBadRequest, err}
 		}
-
 	}
 
 	obj := res.Object()
@@ -139,27 +141,16 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	return nil
 }
 
-func (req *PutReferenceInput) validate(
-	ctx context.Context,
-	principal *models.Principal,
-	v *validation.Validator,
-	sm schemaManager, tenant string,
-) ([]*crossref.Ref, uint64, error) {
+func (req *PutReferenceInput) validate(v *validation.Validator, class *models.Class) ([]*crossref.Ref, error) {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	refs, err := v.ValidateMultipleRef(ctx, req.Refs, "validate references", tenant)
+	refs, err := v.ValidateMultipleRef(req.Refs)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	vclasses, err := sm.GetCachedClass(ctx, principal, req.Class)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	vclass := vclasses[req.Class]
-	return refs, vclass.Version, validateReferenceSchema(vclass.Class, req.Property)
+	return refs, validateReferenceSchema(class, req.Property)
 }
 
 func (req *PutReferenceInput) validateExistence(

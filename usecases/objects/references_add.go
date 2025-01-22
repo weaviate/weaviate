@@ -40,6 +40,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	defer m.metrics.AddReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
+	input.Class = schema.UppercaseClassName(input.Class)
 
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
@@ -64,15 +65,13 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		input.Class = objectRes.Object().Class
 	}
 
-	fetchedClass, err := m.schemaManager.GetCachedClass(ctx, principal, input.Class)
-	if err != nil {
-		if errors.As(err, &autherrs.Forbidden{}) {
-			return &Error{err.Error(), StatusForbidden, err}
-		}
-
-		return &Error{err.Error(), StatusBadRequest, err}
+	fetchedClass, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
+	if typedErr != nil {
+		return typedErr
 	}
+
 	schemaVersion := fetchedClass[input.Class].Version
+	class := fetchedClass[input.Class].Class
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
@@ -80,7 +79,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
-	targetRef, reqClass, err := input.validate(validator, fetchedClass[input.Class].Class)
+	targetRef, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"validate inputs", StatusUnprocessableEntity, err}
@@ -94,7 +93,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	if input.Class != "" && targetRef.Class == "" {
-		toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, targetRef)
+		toClass, toBeacon, replace, err := m.autodetectToClass(class, input.Property, targetRef)
 		if err != nil {
 			return err
 		}
@@ -103,9 +102,6 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 			input.Ref.Beacon = toBeacon
 			targetRef.Class = string(toClass)
 		}
-	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(targetRef.Class)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
@@ -155,7 +151,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant, reqClass, schemaVersion); err != nil {
+	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant, class, schemaVersion); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 
@@ -181,16 +177,16 @@ type AddReferenceInput struct {
 func (req *AddReferenceInput) validate(
 	v *validation.Validator,
 	class *models.Class,
-) (*crossref.Ref, *models.Class, error) {
+) (*crossref.Ref, error) {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	ref, err := v.ValidateSingleRef(&req.Ref)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return ref, class, validateReferenceSchema(class, req.Property)
+	return ref, validateReferenceSchema(class, req.Property)
 }
 
 func (req *AddReferenceInput) validateExistence(

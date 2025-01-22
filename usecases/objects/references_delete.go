@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
@@ -44,11 +45,9 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	defer m.metrics.DeleteReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
+	input.Class = schema.UppercaseClassName(input.Class)
 
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
-	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(input.Class)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
@@ -59,26 +58,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 	}
 
-	beacon, err := crossref.Parse(input.Reference.Beacon.String())
-	if err != nil {
-		return &Error{"cannot parse beacon", StatusBadRequest, err}
-	}
-	if input.Class != "" && beacon.Class == "" {
-		toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, beacon)
-		if err != nil {
-			return err
-		}
-		if replace {
-			input.Reference.Class = toClass
-			input.Reference.Beacon = toBeacon
-		}
-	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(input.Reference.Class.String())...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
-	}
-
-	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
-		additional.Properties{}, nil, tenant)
+	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
 	if err != nil {
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {
@@ -91,14 +71,36 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	input.Class = res.ClassName
 
+	fetchedClass, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
+	if typedErr != nil {
+		return typedErr
+	}
+
+	schemaVersion := fetchedClass[input.Class].Version
+	class := fetchedClass[input.Class].Class
+
+	beacon, err := crossref.Parse(input.Reference.Beacon.String())
+	if err != nil {
+		return &Error{"cannot parse beacon", StatusBadRequest, err}
+	}
+	if input.Class != "" && beacon.Class == "" {
+		toClass, toBeacon, replace, err := m.autodetectToClass(class, input.Property, beacon)
+		if err != nil {
+			return err
+		}
+		if replace {
+			input.Reference.Class = toClass
+			input.Reference.Beacon = toBeacon
+		}
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return &Error{"cannot lock", StatusInternalServerError, err}
 	}
 	defer unlock()
 
-	class, schemaVersion, err := input.validate(ctx, principal, m.schemaManager)
-	if err != nil {
+	if input.validate(class) != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}
 		}
@@ -140,21 +142,12 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	return nil
 }
 
-func (req *DeleteReferenceInput) validate(
-	ctx context.Context,
-	principal *models.Principal,
-	sm schemaManager,
-) (*models.Class, uint64, error) {
+func (req *DeleteReferenceInput) validate(class *models.Class) error {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return nil, 0, err
+		return err
 	}
 
-	vclasses, err := sm.GetCachedClass(ctx, principal, req.Class)
-	if err != nil {
-		return nil, 0, err
-	}
-	vclass := vclasses[req.Class]
-	return vclass.Class, vclass.Version, validateReferenceSchema(vclass.Class, req.Property)
+	return validateReferenceSchema(class, req.Property)
 }
 
 // removeReference removes ref from object obj with property prop.
