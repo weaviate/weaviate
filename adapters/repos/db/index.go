@@ -1680,10 +1680,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	dists := make([]float32, 0, shardCap)
 	for _, shardName := range shardNames {
 		shardName := shardName
-		eg.Go(func() error {
 			shard, release, err := i.GetShard(ctx, shardName)
 			if err != nil {
-				return nil
+				return nil, nil, err
 			}
 
 			func(ctx context.Context, searchVectors []models.Vector,
@@ -1732,8 +1731,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			}
 		}(ctx, searchVectors, targetVectors, dist, limit, filteren, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
 
-			return nil
-		}, shardName)
+
 	}
 
 	if err := eg.Wait(); err != nil {
