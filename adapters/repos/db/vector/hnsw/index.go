@@ -126,10 +126,10 @@ type hnsw struct {
 	id       string
 	rootPath string
 
-	logger            logrus.FieldLogger
-	distancerProvider distancer.Provider
-
-	pools *pools
+	logger                 logrus.FieldLogger
+	distancerProvider      distancer.Provider
+	multiDistancerProvider distancer.Provider
+	pools                  *pools
 
 	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
 
@@ -334,6 +334,7 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 
 	if uc.Multivector.Enabled {
+		index.multiDistancerProvider = distancer.NewDotProductProvider()
 		err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
 		if err != nil {
 			return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
