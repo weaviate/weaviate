@@ -119,6 +119,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzDeleteRoleHandler: authz.DeleteRoleHandlerFunc(func(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.DeleteRole has not yet been implemented")
 		}),
+		AuthzGetInfoForOwnUserHandler: authz.GetInfoForOwnUserHandlerFunc(func(params authz.GetInfoForOwnUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetInfoForOwnUser has not yet been implemented")
+		}),
 		AuthzGetRoleHandler: authz.GetRoleHandlerFunc(func(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRole has not yet been implemented")
 		}),
@@ -367,6 +370,8 @@ type WeaviateAPI struct {
 	AuthzCreateRoleHandler authz.CreateRoleHandler
 	// AuthzDeleteRoleHandler sets the operation handler for the delete role operation
 	AuthzDeleteRoleHandler authz.DeleteRoleHandler
+	// AuthzGetInfoForOwnUserHandler sets the operation handler for the get info for own user operation
+	AuthzGetInfoForOwnUserHandler authz.GetInfoForOwnUserHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
 	AuthzGetRoleHandler authz.GetRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
@@ -599,6 +604,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzDeleteRoleHandler == nil {
 		unregistered = append(unregistered, "authz.DeleteRoleHandler")
+	}
+	if o.AuthzGetInfoForOwnUserHandler == nil {
+		unregistered = append(unregistered, "authz.GetInfoForOwnUserHandler")
 	}
 	if o.AuthzGetRoleHandler == nil {
 		unregistered = append(unregistered, "authz.GetRoleHandler")
@@ -915,6 +923,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/authz/roles/{id}"] = authz.NewDeleteRole(o.context, o.AuthzDeleteRoleHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/users/own-info"] = authz.NewGetInfoForOwnUser(o.context, o.AuthzGetInfoForOwnUserHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

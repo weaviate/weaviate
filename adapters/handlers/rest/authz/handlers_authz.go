@@ -63,6 +63,7 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 	api.AuthzAssignRoleHandler = authz.AssignRoleHandlerFunc(h.assignRole)
 	api.AuthzRevokeRoleHandler = authz.RevokeRoleHandlerFunc(h.revokeRole)
 	api.AuthzGetRolesForOwnUserHandler = authz.GetRolesForOwnUserHandlerFunc(h.getRolesForOwnUser)
+	api.AuthzGetInfoForOwnUserHandler = authz.GetInfoForOwnUserHandlerFunc(h.getInfoForOwnUser)
 }
 
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
@@ -439,6 +440,22 @@ func (h *authZHandlers) getRolesForOwnUser(params authz.GetRolesForOwnUserParams
 	}).Info("roles requested")
 
 	return authz.NewGetRolesForOwnUserOK().WithPayload(response)
+}
+
+func (h *authZHandlers) getInfoForOwnUser(_ authz.GetInfoForOwnUserParams, principal *models.Principal) middleware.Responder {
+	if principal == nil {
+		return authz.NewGetInfoForOwnUserUnauthorized()
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action":    "get_info_for_own_user",
+		"component": authorization.ComponentName,
+		"user":      principal.Username,
+	}).Info("info requested")
+
+	return authz.NewGetInfoForOwnUserOK().WithPayload(&models.User{
+		Username: &principal.Username,
+	})
 }
 
 func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {

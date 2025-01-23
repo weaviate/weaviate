@@ -95,3 +95,26 @@ func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
 		require.Equal(t, "*", *role.Permissions[0].Collections.Collection)
 	})
 }
+
+func TestAuthzInfoForOwnUser(t *testing.T) {
+	adminUser := "admin"
+	adminKey := "admin"
+	similar := "similarRoleKeyUserName"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{similar: similar}, nil)
+	defer down()
+
+	t.Run("get info for own user success", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.GetInfoForOwnUser(authz.NewGetInfoForOwnUserParams(), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.Equal(t, adminUser, *res.Payload.Username)
+	})
+
+	t.Run("get info for own user unauthenticated", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.GetInfoForOwnUser(authz.NewGetInfoForOwnUserParams(), helper.CreateAuth("invalid"))
+		require.NotNil(t, err)
+		var targetErr *authz.GetInfoForOwnUserUnauthorized
+		require.True(t, errors.As(err, &targetErr))
+		require.Equal(t, 401, targetErr.Code())
+	})
+}

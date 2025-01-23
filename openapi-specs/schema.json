@@ -5,6 +5,16 @@
     "application/json"
   ],
   "definitions": {
+    "User": {
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "description": "The username of the user"
+        }
+      },
+      "required": ["username"]
+    },
     "Role": {
       "type": "object",
       "properties": {
@@ -3258,6 +3268,35 @@
             "description": "Role assigned to own users",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/users/own-info": {
+      "get": {
+        "summary": "get info about own user",
+        "operationId": "getInfoForOwnUser",
+        "x-serviceIds": [
+          "weaviate.authz.get.users.own-info"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "responses": {
+          "200": {
+            "description": "Info about the own user",
+            "schema": {
+              "$ref": "#/definitions/User"
             }
           },
           "401": {
