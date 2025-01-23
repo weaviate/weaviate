@@ -11,7 +11,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/tailor-inc/graphql v0.5.7
 	github.com/weaviate/weaviate v1.28.2
-	github.com/weaviate/weaviate-go-client/v4 v4.16.2-0.20250114164249-96aa13255192
+	github.com/weaviate/weaviate-go-client/v4 v4.16.2-0.20250122141651-2c9c3b9492a8
 )
 
 require (

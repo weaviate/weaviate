@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -161,7 +162,8 @@ func TestBytePairs2Vector(t *testing.T) {
 func TestStripNonAlphabets(t *testing.T) {
 	input := "hello, world!"
 	expected := "helloworld"
-	output := stripNonAlphabets(input)
+	output, err := stripNonAlphabets(input)
+	require.NoError(t, err)
 	assert.Equal(t, expected, output)
 }
 
