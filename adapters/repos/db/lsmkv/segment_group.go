@@ -570,7 +570,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, erro
 
 	// start with first and do not exit
 	for _, segment := range sg.segments {
-		rs, err := segment.roaringSetGet(key)
+		layer, err := segment.roaringSetGet(key)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
@@ -579,7 +579,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, erro
 			return nil, err
 		}
 
-		out = append(out, rs)
+		out = append(out, layer)
 	}
 
 	return out, nil

@@ -76,6 +76,9 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 		if err != nil {
 			return nil, nil, err
 		}
+		if allowList != nil {
+			defer allowList.Close()
+		}
 
 		res, dists, err := fa.objectVectorSearch(ctx, vec, allowList)
 		if err != nil {
@@ -107,6 +110,9 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 	allowList, err := fa.buildAllowList(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if allowList != nil {
+		defer allowList.Close()
 	}
 
 	isVectorEmpty, err := dto.IsVectorEmpty(fa.params.SearchVector)
