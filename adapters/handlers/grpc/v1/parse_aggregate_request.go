@@ -18,17 +18,17 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-type AggreagateParser struct {
+type AggregateParser struct {
 	authorizedGetClass func(string) (*models.Class, error)
 }
 
-func NewAggreagateParser(authorizedGetClass func(string) (*models.Class, error)) *AggreagateParser {
-	return &AggreagateParser{
+func NewAggregateParser(authorizedGetClass func(string) (*models.Class, error)) *AggregateParser {
+	return &AggregateParser{
 		authorizedGetClass: authorizedGetClass,
 	}
 }
 
-func (p *AggreagateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Params, error) {
+func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Params, error) {
 	params := &aggregation.Params{}
 	class, err := p.authorizedGetClass(req.Collection)
 	if err != nil {

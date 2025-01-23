@@ -89,7 +89,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 
-	parser := NewAggreagateParser(
+	parser := NewAggregateParser(
 		s.classGetterWithAuthzFunc(principal),
 	)
 

@@ -48,17 +48,15 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 
-	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	testGraphQL(t)
+	testGraphQL(t, compose.GetWeaviate().URI())
 }
 
 func TestGraphQL_SyncIndexing(t *testing.T) {
-	testGraphQL(t)
+	testGraphQL(t, "localhost:8080")
 }
 
-func testGraphQL(t *testing.T) {
+func testGraphQL(t *testing.T, host string) {
+	helper.SetupClient(host)
 	// tests with classes that have objects with same uuids
 	t.Run("import test data (near object search class)", addTestDataNearObjectSearch)
 
@@ -70,8 +68,8 @@ func testGraphQL(t *testing.T) {
 	deleteObjectClass(t, "NearObjectSearchShadow")
 
 	// setup tests
-	t.Run("setup test schema", addTestSchema)
-	t.Run("import test data (city, country, airport)", addTestDataCityAirport)
+	t.Run("setup test schema", func(t *testing.T) { addTestSchema(t, host) })
+	t.Run("import test data (city, country, airport)", func(t *testing.T) { addTestDataCityAirport(t, host) })
 	t.Run("import test data (companies)", addTestDataCompanies)
 	t.Run("import test data (person)", addTestDataPersons)
 	t.Run("import test data (pizzas)", addTestDataPizzas)
@@ -152,7 +150,8 @@ func testGraphQL(t *testing.T) {
 }
 
 func TestAggregateHybrid(t *testing.T) {
-	t.Run("setup test schema", addTestSchema)
+	host := "localhost:8080"
+	t.Run("setup test schema", func(t *testing.T) { addTestSchema(t, host) })
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
@@ -177,7 +176,8 @@ func TestAggregateHybrid(t *testing.T) {
 }
 
 func TestGroupBy(t *testing.T) {
-	t.Run("setup test schema", addTestSchema)
+	host := "localhost:8080"
+	t.Run("setup test schema", func(t *testing.T) { addTestSchema(t, host) })
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
@@ -211,9 +211,9 @@ func boolRef(a bool) *bool {
 	return &a
 }
 
-func addTestSchema(t *testing.T) {
+func addTestSchema(t *testing.T, host string) {
 	// Country, City, Airport schema
-	cities.CreateCountryCityAirportSchema(t)
+	cities.CreateCountryCityAirportSchema(t, host)
 
 	createObjectClass(t, &models.Class{
 		Class: "Company",
@@ -454,8 +454,8 @@ var (
 	historyDusseldorf = cities.HistoryDusseldorf
 )
 
-func addTestDataCityAirport(t *testing.T) {
-	cities.InsertCountryCityAirportObjects(t)
+func addTestDataCityAirport(t *testing.T, host string) {
+	cities.InsertCountryCityAirportObjects(t, host)
 }
 
 func addTestDataCompanies(t *testing.T) {
@@ -914,15 +914,6 @@ func addDateFieldClass(t *testing.T) {
 			},
 		})
 	}
-}
-
-func mustParseYear(year string) time.Time {
-	date := fmt.Sprintf("%s-01-01T00:00:00+02:00", year)
-	asTime, err := time.Parse(time.RFC3339, date)
-	if err != nil {
-		panic(err)
-	}
-	return asTime
 }
 
 func waitForIndexing(t *testing.T, className string) {

@@ -52,7 +52,8 @@ const (
 	HistoryDusseldorf = "The first written mention of Düsseldorf (then called Dusseldorp in the local Low Rhenish dialect) dates back to 1135. Under Emperor Friedrich Barbarossa the small town of Kaiserswerth to the north of Düsseldorf became a well-fortified outpost, where soldiers kept a watchful eye on every movement on the Rhine. Kaiserswerth eventually became a suburb of Düsseldorf in 1929. In 1186, Düsseldorf came under the rule of the Counts of Berg. 14 August 1288 is one of the most important dates in the history of Düsseldorf. On this day the sovereign Count Adolf VIII of Berg granted the village on the banks of the Düssel town privileges. Before this, a bloody struggle for power had taken place between the Archbishop of Cologne and the count of Berg, culminating in the Battle of Worringen"
 )
 
-func CreateCountryCityAirportSchema(t *testing.T) {
+func CreateCountryCityAirportSchema(t *testing.T, host string) {
+	helper.SetupClient(host)
 	helper.CreateClass(t, &models.Class{
 		Class: Country,
 		ModuleConfig: map[string]interface{}{
@@ -222,7 +223,8 @@ func CreateCountryCityAirportSchema(t *testing.T) {
 	})
 }
 
-func InsertCountryCityAirportObjects(t *testing.T) {
+func InsertCountryCityAirportObjects(t *testing.T, host string) {
+	helper.SetupClient(host)
 	// countries
 	helper.CreateObject(t, &models.Object{
 		Class: Country,
@@ -425,6 +427,13 @@ func InsertCountryCityAirportObjects(t *testing.T) {
 			},
 		},
 	})
+}
+
+func DeleteCountryCityAirportSchema(t *testing.T, host string) {
+	helper.SetupClient(host)
+	helper.DeleteClassObject(t, Airport)
+	helper.DeleteClassObject(t, City)
+	helper.DeleteClassObject(t, Country)
 }
 
 func mustParseYear(year string) time.Time {
