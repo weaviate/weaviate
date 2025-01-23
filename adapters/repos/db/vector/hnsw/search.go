@@ -714,13 +714,20 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		strategy = SWEEPING
 	}
 
+	allIds := make([]uint64, 0)
 	if allowList != nil && useAcorn {
 		it := allowList.Iterator()
 		idx, _ := it.Next()
 		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
 		eps.Insert(idx, entryPointDistance)
+		allIds = append(allIds, idx)
 	}
+
 	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
+	if res.Len() == 0 {
+		h.logger.Error("DEBUG-RRE", allIds, allowList.Contains(allIds[0]))
+	}
+
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
@@ -755,6 +762,9 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		i--
 	}
 	h.pools.pqResults.Put(res)
+	if len(ids) == 0 {
+		h.logger.Error("DEBUG-RRE-IDS", allIds, allowList.Contains(allIds[0]))
+	}
 	return ids, dists, nil
 }
 
