@@ -729,7 +729,12 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 	if allowList != nil && useAcorn {
 		it := allowList.Iterator()
-		idx, _ := it.Next()
+		idx, ok := it.Next()
+		h.shardedNodeLocks.RLockAll()
+		for ; ok && h.nodes[idx] == nil && h.hasTombstone(idx); idx, ok = it.Next() {
+		}
+		h.shardedNodeLocks.RUnlockAll()
+
 		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
 		eps.Insert(idx, entryPointDistance)
 	}
