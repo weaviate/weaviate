@@ -293,11 +293,16 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 }
 
 func (s *Service) classGetterWithAuthzFunc(principal *models.Principal) func(string) (*models.Class, error) {
+	authorizedCollections := map[string]*models.Class{}
 	return func(name string) (*models.Class, error) {
-		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
-			return nil, err
+		class, ok := authorizedCollections[name]
+		if !ok {
+			if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+				return nil, err
+			}
+			class = s.schemaManager.ReadOnlyClass(name)
+			authorizedCollections[name] = class
 		}
-		class := s.schemaManager.ReadOnlyClass(name)
 		if class == nil {
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}
