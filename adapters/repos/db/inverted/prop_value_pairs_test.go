@@ -22,7 +22,7 @@ import (
 )
 
 func TestPropValuePairs_Merging(t *testing.T) {
-	t.Run("always creates new underlying bitmap", func(t *testing.T) {
+	t.Run("reuses one of underlying bitmaps", func(t *testing.T) {
 		type testCase struct {
 			name string
 
@@ -93,7 +93,8 @@ func TestPropValuePairs_Merging(t *testing.T) {
 					pv.children[i] = &propValuePair{
 						operator: filters.OperatorEqual,
 						docIDs: docBitmap{
-							docIDs: tc.bitmaps[i],
+							docIDs:  tc.bitmaps[i],
+							release: noopRelease,
 						},
 					}
 				}
@@ -102,9 +103,14 @@ func TestPropValuePairs_Merging(t *testing.T) {
 
 				require.Nil(t, err)
 				assert.ElementsMatch(t, tc.expectedIds, dbm.IDs())
-				assert.False(t, tc.bitmaps[0] == dbm.docIDs)
-				assert.False(t, tc.bitmaps[1] == dbm.docIDs)
-				assert.False(t, tc.bitmaps[2] == dbm.docIDs)
+
+				sameCounter := 0
+				for _, bm := range tc.bitmaps {
+					if bm == dbm.docIDs {
+						sameCounter++
+					}
+				}
+				assert.Equal(t, 1, sameCounter)
 			})
 		}
 	})
