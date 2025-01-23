@@ -466,8 +466,10 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
 	visitedList visited.ListSet, allowList helpers.AllowList,
 ) {
+	allIds := make([]uint64, 0)
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
+		allIds = append(allIds, ep.ID)
 		visitedList.Visit(ep.ID)
 		candidates.Insert(ep.ID, ep.Dist)
 		if level == 0 && allowList != nil {
@@ -481,10 +483,14 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 		}
 
 		if h.hasTombstone(ep.ID) {
+			h.logger.Error("DEBUG-RRE-tombstone ", ep.ID)
 			continue
 		}
 
 		results.Insert(ep.ID, ep.Dist)
+	}
+	if results.Len() == 0 {
+		h.logger.Error("DEBUG-RRE-complete", allIds)
 	}
 }
 
