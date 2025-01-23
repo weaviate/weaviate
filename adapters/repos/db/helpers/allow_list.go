@@ -17,6 +17,8 @@ import (
 )
 
 type AllowList interface {
+	Close()
+
 	Insert(ids ...uint64)
 	Contains(id uint64) bool
 	DeepCopy() AllowList
@@ -44,7 +46,11 @@ func NewAllowList(ids ...uint64) AllowList {
 }
 
 func NewAllowListFromBitmap(bm *sroar.Bitmap) AllowList {
-	return &bitmapAllowList{bm: bm}
+	return NewAllowListCloseableFromBitmap(bm, func() {})
+}
+
+func NewAllowListCloseableFromBitmap(bm *sroar.Bitmap, release func()) AllowList {
+	return &bitmapAllowList{bm: bm, release: release}
 }
 
 func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap) AllowList {
@@ -52,7 +58,12 @@ func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap) AllowList {
 }
 
 type bitmapAllowList struct {
-	bm *sroar.Bitmap
+	bm      *sroar.Bitmap
+	release func()
+}
+
+func (al *bitmapAllowList) Close() {
+	al.release()
 }
 
 func (al *bitmapAllowList) Insert(ids ...uint64) {

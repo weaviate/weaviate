@@ -332,6 +332,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			}
 
 			filterDocIds = objs
+			defer objs.Close()
 		}
 
 		className := s.index.Config.ClassName
@@ -472,6 +473,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			dists []float32
 		)
 		eg.Go(func() error {
+			if allowList != nil {
+				defer allowList.Close()
+			}
+
 			vidx, err := s.getVectorIndex(targetVector)
 			if err != nil {
 				return err
