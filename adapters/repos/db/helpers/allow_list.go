@@ -50,77 +50,77 @@ func NewAllowListFromBitmap(bm *sroar.Bitmap) AllowList {
 }
 
 func NewAllowListCloseableFromBitmap(bm *sroar.Bitmap, release func()) AllowList {
-	return &bitmapAllowList{bm: bm, release: release}
+	return &BitmapAllowList{Bm: bm, release: release}
 }
 
 func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap) AllowList {
 	return NewAllowListFromBitmap(bm.Clone())
 }
 
-type bitmapAllowList struct {
-	bm      *sroar.Bitmap
+type BitmapAllowList struct {
+	Bm      *sroar.Bitmap
 	release func()
 }
 
-func (al *bitmapAllowList) Close() {
+func (al *BitmapAllowList) Close() {
 	al.release()
 }
 
-func (al *bitmapAllowList) Insert(ids ...uint64) {
-	al.bm.SetMany(ids)
+func (al *BitmapAllowList) Insert(ids ...uint64) {
+	al.Bm.SetMany(ids)
 }
 
-func (al *bitmapAllowList) Contains(id uint64) bool {
-	return al.bm.Contains(id)
+func (al *BitmapAllowList) Contains(id uint64) bool {
+	return al.Bm.Contains(id)
 }
 
-func (al *bitmapAllowList) DeepCopy() AllowList {
-	return NewAllowListFromBitmapDeepCopy(al.bm)
+func (al *BitmapAllowList) DeepCopy() AllowList {
+	return NewAllowListFromBitmapDeepCopy(al.Bm)
 }
 
-func (al *bitmapAllowList) WrapOnWrite() AllowList {
+func (al *BitmapAllowList) WrapOnWrite() AllowList {
 	return newWrappedAllowList(al)
 }
 
-func (al *bitmapAllowList) Slice() []uint64 {
-	return al.bm.ToArray()
+func (al *BitmapAllowList) Slice() []uint64 {
+	return al.Bm.ToArray()
 }
 
-func (al *bitmapAllowList) IsEmpty() bool {
-	return al.bm.IsEmpty()
+func (al *BitmapAllowList) IsEmpty() bool {
+	return al.Bm.IsEmpty()
 }
 
-func (al *bitmapAllowList) Len() int {
-	return al.bm.GetCardinality()
+func (al *BitmapAllowList) Len() int {
+	return al.Bm.GetCardinality()
 }
 
-func (al *bitmapAllowList) Min() uint64 {
-	return al.bm.Minimum()
+func (al *BitmapAllowList) Min() uint64 {
+	return al.Bm.Minimum()
 }
 
-func (al *bitmapAllowList) Max() uint64 {
-	return al.bm.Maximum()
+func (al *BitmapAllowList) Max() uint64 {
+	return al.Bm.Maximum()
 }
 
-func (al *bitmapAllowList) Size() uint64 {
+func (al *BitmapAllowList) Size() uint64 {
 	// TODO provide better size estimation
-	return uint64(1.5 * float64(len(al.bm.ToBuffer())))
+	return uint64(1.5 * float64(len(al.Bm.ToBuffer())))
 }
 
-func (al *bitmapAllowList) Truncate(upTo uint64) AllowList {
-	card := al.bm.GetCardinality()
+func (al *BitmapAllowList) Truncate(upTo uint64) AllowList {
+	card := al.Bm.GetCardinality()
 	if upTo < uint64(card) {
-		al.bm.RemoveRange(upTo, uint64(al.bm.GetCardinality()+1))
+		al.Bm.RemoveRange(upTo, uint64(al.Bm.GetCardinality()+1))
 	}
 	return al
 }
 
-func (al *bitmapAllowList) Iterator() AllowListIterator {
+func (al *BitmapAllowList) Iterator() AllowListIterator {
 	return al.LimitedIterator(0)
 }
 
-func (al *bitmapAllowList) LimitedIterator(limit int) AllowListIterator {
-	return newBitmapAllowListIterator(al.bm, limit)
+func (al *BitmapAllowList) LimitedIterator(limit int) AllowListIterator {
+	return newBitmapAllowListIterator(al.Bm, limit)
 }
 
 type bitmapAllowListIterator struct {
