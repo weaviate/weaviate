@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -149,25 +150,25 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 		}
 	}
 
-	var mergeFn func(*sroar.Bitmap) *sroar.Bitmap
+	var mergeFn func(*sroar.Bitmap, int) *sroar.Bitmap
 	if pv.operator == filters.OperatorOr {
 		// biggest to smallest, so smaller bitmaps are merged into biggest one,
 		// minimising chance of expanding destination bitmap (memory allocations)
 		sort.Slice(dbms, func(i, j int) bool {
 			return dbms[i].docIDs.CompareNumKeys(dbms[j].docIDs) > 0
 		})
-		mergeFn = dbms[0].docIDs.Or
+		mergeFn = dbms[0].docIDs.OrConc
 	} else {
 		// smallest to biggest, so data is removed from smallest bitmap
 		// allowing bigger bitmaps to be garbage collected asap
 		sort.Slice(dbms, func(i, j int) bool {
 			return dbms[i].docIDs.CompareNumKeys(dbms[j].docIDs) < 0
 		})
-		mergeFn = dbms[0].docIDs.And
+		mergeFn = dbms[0].docIDs.AndConc
 	}
 
 	for i := 1; i < len(dbms); i++ {
-		mergeFn(dbms[i].docIDs)
+		mergeFn(dbms[i].docIDs, concurrency.SROAR_MERGE)
 		dbms[i].release()
 	}
 	return dbms[0], nil

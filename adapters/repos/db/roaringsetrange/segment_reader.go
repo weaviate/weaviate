@@ -23,8 +23,8 @@ import (
 )
 
 type SegmentReader struct {
-	cursor    SegmentCursor
-	sroarBufs [][]uint16
+	cursor      SegmentCursor
+	concurrency int
 }
 
 func NewSegmentReader(cursor *GaplessSegmentCursor) *SegmentReader {
@@ -32,14 +32,9 @@ func NewSegmentReader(cursor *GaplessSegmentCursor) *SegmentReader {
 }
 
 func NewSegmentReaderConcurrent(cursor *GaplessSegmentCursor, concurrency int) *SegmentReader {
-	sroarBufs := make([][]uint16, concurrency)
-	for i := range sroarBufs {
-		sroarBufs[i] = make([]uint16, 4100) // sroar.maxContainerSize
-	}
-
 	return &SegmentReader{
-		cursor:    cursor,
-		sroarBufs: sroarBufs,
+		cursor:      cursor,
+		concurrency: concurrency,
 	}
 }
 
@@ -150,7 +145,7 @@ func (r *SegmentReader) readNotEqual(ctx context.Context, value uint64,
 		return roaringset.BitmapLayer{}, err
 	}
 
-	neq.AndNotToSuperset(eq, r.sroarBufs...)
+	neq.AndNotConc(eq, r.concurrency)
 	return roaringset.BitmapLayer{
 		Additions: neq,
 		Deletions: firstLayer.Deletions,
@@ -178,7 +173,7 @@ func (r *SegmentReader) readLessThan(ctx context.Context, value uint64,
 		return roaringset.BitmapLayer{}, err
 	}
 
-	lt.AndNotToSuperset(gte, r.sroarBufs...)
+	lt.AndNotConc(gte, r.concurrency)
 	return roaringset.BitmapLayer{
 		Additions: lt,
 		Deletions: firstLayer.Deletions,
@@ -203,7 +198,7 @@ func (r *SegmentReader) readLessThanEqual(ctx context.Context, value uint64,
 		return roaringset.BitmapLayer{}, err
 	}
 
-	lte.AndNotToSuperset(gte1, r.sroarBufs...)
+	lte.AndNotConc(gte1, r.concurrency)
 	return roaringset.BitmapLayer{
 		Additions: lte,
 		Deletions: firstLayer.Deletions,
@@ -277,9 +272,9 @@ func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
 
 		if value&(1<<(bit-1)) != 0 {
 			ANDed = true
-			result.AndToSuperset(layer.Additions, r.sroarBufs...)
+			result.AndConc(layer.Additions, r.concurrency)
 		} else if ANDed {
-			result.OrToSuperset(layer.Additions, r.sroarBufs...)
+			result.OrConc(layer.Additions, r.concurrency)
 		}
 	}
 
@@ -317,20 +312,20 @@ func (r *SegmentReader) mergeBetween(ctx context.Context, valueMinInc, valueMaxE
 
 		if valueMinInc&b != 0 {
 			ANDedMin = true
-			resultMin.AndToSuperset(layer.Additions, r.sroarBufs...)
+			resultMin.AndConc(layer.Additions, r.concurrency)
 		} else if ANDedMin {
-			resultMin.OrToSuperset(layer.Additions, r.sroarBufs...)
+			resultMin.OrConc(layer.Additions, r.concurrency)
 		}
 
 		if valueMaxExc&b != 0 {
 			ANDedMax = true
-			resultMax.AndToSuperset(layer.Additions, r.sroarBufs...)
+			resultMax.AndConc(layer.Additions, r.concurrency)
 		} else if ANDedMax {
-			resultMax.OrToSuperset(layer.Additions, r.sroarBufs...)
+			resultMax.OrConc(layer.Additions, r.concurrency)
 		}
 	}
 
-	resultMin.AndNotToSuperset(resultMax, r.sroarBufs...)
+	resultMin.AndNotConc(resultMax, r.concurrency)
 
 	return resultMin, nil
 }

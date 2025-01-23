@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 // A BitmapLayer contains all the bitmap related delta-information stored for a
@@ -93,8 +94,8 @@ func (bml BitmapLayers) Flatten(clone bool) *sroar.Bitmap {
 	}
 
 	for i := 1; i < len(bml); i++ {
-		merged.AndNot(bml[i].Deletions)
-		merged.Or(bml[i].Additions)
+		merged.AndNotConc(bml[i].Deletions, concurrency.SROAR_MERGE)
+		merged.OrConc(bml[i].Additions, concurrency.SROAR_MERGE)
 	}
 
 	return merged
@@ -116,12 +117,12 @@ func (bml BitmapLayers) Merge() (BitmapLayer, error) {
 	left, right := bml[0], bml[1]
 
 	additions := left.Additions.Clone()
-	additions.AndNot(right.Deletions)
-	additions.Or(right.Additions)
+	additions.AndNotConc(right.Deletions, concurrency.SROAR_MERGE)
+	additions.OrConc(right.Additions, concurrency.SROAR_MERGE)
 
 	deletions := left.Deletions.Clone()
-	deletions.AndNot(right.Additions)
-	deletions.Or(right.Deletions)
+	deletions.AndNotConc(right.Additions, concurrency.SROAR_MERGE)
+	deletions.OrConc(right.Deletions, concurrency.SROAR_MERGE)
 
 	out.Additions = additions
 	out.Deletions = deletions
