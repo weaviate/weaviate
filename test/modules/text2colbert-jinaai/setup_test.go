@@ -31,15 +31,17 @@ func TestText2VecJinaAI(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	rest := compose.GetWeaviate().URI()
+	grpc := compose.GetWeaviate().GrpcURI()
 
-	t.Run("tests", testText2ColBERTJinaAI(endpoint))
+	t.Run("tests", testText2ColBERTJinaAI(rest, grpc))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, jinaApiKey string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(jinaApiKey).
 		WithWeaviate().
+		WithWeaviateWithGRPC().
 		Start(ctx)
 	return
 }
