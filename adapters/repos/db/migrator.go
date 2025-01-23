@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -539,7 +540,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 // DeleteTenants deletes tenants
 // CAUTION: will not delete inactive tenants (shard files will not be removed)
-func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []string) error {
+func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
 	indexID := indexID(schema.ClassName(class))
 
 	m.classLocks.Lock(indexID)
@@ -550,15 +551,25 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []st
 		return nil
 	}
 
-	if err := idx.dropShards(tenants); err != nil {
+	// Collect tenant names and frozen tenant names
+	allTenantNames := make([]string, 0, len(tenants))
+	frozenTenants := make([]string, 0, len(tenants))
+
+	for _, tenant := range tenants {
+		allTenantNames = append(allTenantNames, tenant.Name)
+		if tenant.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			tenant.ActivityStatus == models.TenantActivityStatusFREEZING {
+			frozenTenants = append(frozenTenants, tenant.Name)
+		}
+	}
+
+	if err := idx.dropShards(allTenantNames); err != nil {
 		return err
 	}
 
-	if m.cloud != nil {
-		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
-		// better to filter the passed shards and get the frozen only
-		if err := idx.dropCloudShards(ctx, m.cloud, tenants, m.nodeId); err != nil {
-			return fmt.Errorf("drop tenant shards %v during update index: %w", tenants, err)
+	if m.cloud != nil && len(frozenTenants) > 0 {
+		if err := idx.dropCloudShards(ctx, m.cloud, frozenTenants, m.nodeId); err != nil {
+			return fmt.Errorf("drop tenant shards %v during update index: %w", frozenTenants, err)
 		}
 	}
 

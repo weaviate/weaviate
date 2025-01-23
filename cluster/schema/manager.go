@@ -20,9 +20,10 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
+	gproto "google.golang.org/protobuf/proto"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 var (
@@ -342,11 +343,24 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	tenants, err := s.schema.getTenants(cmd.Class, req.Tenants)
+	if err != nil {
+		// error will be caught by schema that's why it's ignored, instead
+		// we log it, the need to this because we have detect tenant status before
+		// deleting them from schema in order in the db layer decide if we shall
+		// send the delete request to cloud provider
+		s.log.WithFields(logrus.Fields{
+			"class":   cmd.Class,
+			"tenants": req.Tenants,
+			"error":   err.Error(),
+		}).Error("error getting tenants")
+	}
+
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
-			updateStore:  func() error { return s.db.DeleteTenants(cmd.Class, req) },
+			updateStore:  func() error { return s.db.DeleteTenants(cmd.Class, tenants) },
 			schemaOnly:   schemaOnly,
 		},
 	)
