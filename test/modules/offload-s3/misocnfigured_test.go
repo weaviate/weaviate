@@ -87,12 +87,10 @@ func Test_DeleteTenantsWhileMisconfigured(t *testing.T) {
 
 			select {
 			case err := <-errChan:
-				if err != nil {
-					t.Fatalf("expected no error, but got: %v", err)
-				}
+				require.NoError(t, err, "got error while expecting none")
 
 			case <-customCtx.Done():
-				t.Fatalf("operation took longer than timeout: %v", customCtx.Err())
+				require.FailNowf(t, "operation took longer than timeout: %v", customCtx.Err().Error())
 			}
 		})
 
@@ -176,12 +174,10 @@ func Test_DeleteTenantsWhileProviderIsDown(t *testing.T) {
 
 			select {
 			case err := <-errChan:
-				if err != nil {
-					t.Fatalf("expected no error, but got: %v", err)
-				}
+				require.NoError(t, err, "got error while expecting none")
 
 			case <-customCtx.Done():
-				t.Fatalf("operation took longer than timeout: %v", customCtx.Err())
+				require.FailNowf(t, "operation took longer than timeout: %v", customCtx.Err().Error())
 			}
 		})
 
