@@ -70,7 +70,7 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	segments, err := b.disk.roaringSetGet(key)
+	layers, err := b.disk.roaringSetGet(key)
 	if err != nil {
 		return nil, err
 	}
@@ -82,18 +82,18 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 				return nil, err
 			}
 		} else {
-			segments = append(segments, flushing)
+			layers = append(layers, flushing)
 		}
 	}
 
-	memtable, err := b.active.roaringSetGet(key)
+	active, err := b.active.roaringSetGet(key)
 	if err != nil {
 		if !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	} else {
-		segments = append(segments, memtable)
+		layers = append(layers, active)
 	}
 
-	return segments.Flatten(), nil
+	return layers.Flatten(false), nil
 }
