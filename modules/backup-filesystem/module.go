@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -75,9 +74,9 @@ func (m *Module) Init(ctx context.Context,
 
 func (m *Module) HomeDir(backupID, overrideBucket, overridePath string) string {
 	if overridePath != "" {
-		return path.Join(overridePath, backupID)
+		return filepath.Join(overridePath, backupID)
 	} else {
-		return path.Join(m.makeBackupDirPath(m.backupsPath, backupID))
+		return filepath.Join(m.makeBackupDirPath(m.backupsPath, backupID))
 	}
 }
 
@@ -91,14 +90,14 @@ func (m *Module) AllBackups(context.Context) ([]*backup.DistributedBackupDescrip
 		if !bak.IsDir() {
 			continue
 		}
-		backupPath := path.Join(m.backupsPath, bak.Name())
+		backupPath := filepath.Join(m.backupsPath, bak.Name())
 		contents, err := os.ReadDir(backupPath)
 		if err != nil {
 			return nil, fmt.Errorf("read backup contents: %w", err)
 		}
 		for _, file := range contents {
 			if file.Name() == ubak.GlobalBackupFile {
-				fileName := path.Join(backupPath, file.Name())
+				fileName := filepath.Join(backupPath, file.Name())
 				bytes, err := os.ReadFile(fileName)
 				if err != nil {
 					return nil, fmt.Errorf("read backup meta file %q: %w",
@@ -107,7 +106,7 @@ func (m *Module) AllBackups(context.Context) ([]*backup.DistributedBackupDescrip
 				var desc backup.DistributedBackupDescriptor
 				if err := json.Unmarshal(bytes, &desc); err != nil {
 					return nil, fmt.Errorf("unmarshal backup meta file %q: %w",
-						path.Join(backupPath, file.Name()), err)
+						filepath.Join(backupPath, file.Name()), err)
 				}
 				meta = append(meta, &desc)
 			}

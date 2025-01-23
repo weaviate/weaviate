@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -127,7 +126,7 @@ func (s *Store) init() error {
 }
 
 func (s *Store) bucketDir(bucketName string) string {
-	return path.Join(s.dir, bucketName)
+	return filepath.Join(s.dir, bucketName)
 }
 
 // CreateOrLoadBucket registers a bucket with the given name. If state on disk

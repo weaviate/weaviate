@@ -17,7 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path"
+	"path/filepath"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -34,7 +34,7 @@ func NewRemoteNode(httpClient *http.Client) *RemoteNode {
 func (c *RemoteNode) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
 	p := "/nodes/status"
 	if className != "" {
-		p = path.Join(p, className)
+		p = filepath.Join(p, className)
 	}
 	method := http.MethodGet
 	params := url.Values{"output": []string{output}}

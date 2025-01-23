@@ -14,7 +14,6 @@ package fs
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -38,7 +37,7 @@ func MigrateToHierarchicalFS(rootPath string, s schemaGetter) error {
 
 	for newRoot, parts := range plan.partsByShard {
 		for _, part := range parts {
-			newPath := path.Join(newRoot, part.newRelPath)
+			newPath := filepath.Join(newRoot, part.newRelPath)
 			absDir, _ := filepath.Split(newPath)
 			if err := os.MkdirAll(absDir, os.ModePerm); err != nil {
 				return fmt.Errorf("mkdir %q: %w", absDir, err)
@@ -69,17 +68,17 @@ func newMigrationPlan(rootPath string) *migrationPlan {
 }
 
 func (p *migrationPlan) append(class, shard, oldRootRelPath, newShardRelPath string) {
-	shardRoot := path.Join(p.rootPath, strings.ToLower(class), shard)
+	shardRoot := filepath.Join(p.rootPath, strings.ToLower(class), shard)
 	p.partsByShard[shardRoot] = append(p.partsByShard[shardRoot], migrationPart{
-		oldAbsPath: path.Join(p.rootPath, oldRootRelPath),
+		oldAbsPath: filepath.Join(p.rootPath, oldRootRelPath),
 		newRelPath: newShardRelPath,
 	})
 }
 
 func (p *migrationPlan) prepend(class, shard, oldRootRelPath, newShardRelPath string) {
-	shardRoot := path.Join(p.rootPath, strings.ToLower(class), shard)
+	shardRoot := filepath.Join(p.rootPath, strings.ToLower(class), shard)
 	p.partsByShard[shardRoot] = append([]migrationPart{{
-		oldAbsPath: path.Join(p.rootPath, oldRootRelPath),
+		oldAbsPath: filepath.Join(p.rootPath, oldRootRelPath),
 		newRelPath: newShardRelPath,
 	}}, p.partsByShard[shardRoot]...)
 }
@@ -109,14 +108,14 @@ func assembleFSMigrationPlan(entries []os.DirEntry, rootPath string, fm *fileMat
 		} else if ok, css := fm.isPqDir(entry); ok {
 			for _, cs := range css {
 				plan.append(cs.class, cs.shard,
-					path.Join(strings.ToLower(entry.Name()), cs.shard, "compressed_objects"),
-					path.Join("lsm", helpers.VectorsCompressedBucketLSM))
+					filepath.Join(strings.ToLower(entry.Name()), cs.shard, "compressed_objects"),
+					filepath.Join("lsm", helpers.VectorsCompressedBucketLSM))
 			}
 
 			// explicitly rename Class directory starting with uppercase to lowercase
 			// as MkdirAll will not create lowercased dir if uppercased one exists
-			oldClassRoot := path.Join(rootPath, entry.Name())
-			newClassRoot := path.Join(rootPath, strings.ToLower(entry.Name()))
+			oldClassRoot := filepath.Join(rootPath, entry.Name())
+			newClassRoot := filepath.Join(rootPath, strings.ToLower(entry.Name()))
 			if err := os.Rename(oldClassRoot, newClassRoot); err != nil {
 				return nil, fmt.Errorf(
 					"rename pq index dir to avoid collision, old: %q, new: %q, err: %w",
@@ -269,7 +268,7 @@ func (fm *fileMatcher) isPqDir(entry os.DirEntry) (bool, []*classShard) {
 	resultcss := []*classShard{}
 	if css, ok := fm.classes[entry.Name()]; ok {
 		for _, cs := range css {
-			pqDir := path.Join(fm.rootPath, cs.class, cs.shard, "compressed_objects")
+			pqDir := filepath.Join(fm.rootPath, cs.class, cs.shard, "compressed_objects")
 			if info, err := os.Stat(pqDir); err == nil && info.IsDir() {
 				resultcss = append(resultcss, cs)
 			}

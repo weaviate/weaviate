@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
@@ -88,7 +88,7 @@ func TestBackup_ListFiles(t *testing.T) {
 		// checking to ensure that the commitlog root does
 		// contain a file. this is the one that was ignored
 		// in the check above.
-		ls, err := os.ReadDir(path.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID)))
+		ls, err := os.ReadDir(filepath.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID)))
 		require.Nil(t, err)
 		require.Len(t, ls, 1)
 		// filename should just be a 10 digit int

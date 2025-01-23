@@ -17,7 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -335,8 +335,8 @@ type filterableToSearchableMigrationFiles struct {
 
 func newFilterableToSearchableMigrationFiles(rootPath string) *filterableToSearchableMigrationFiles {
 	return &filterableToSearchableMigrationFiles{
-		flagFileName:  path.Join(rootPath, "migration1.19.filter2search.skip.flag"),
-		stateFileName: path.Join(rootPath, "migration1.19.filter2search.state"),
+		flagFileName:  filepath.Join(rootPath, "migration1.19.filter2search.skip.flag"),
+		stateFileName: filepath.Join(rootPath, "migration1.19.filter2search.state"),
 	}
 }
 

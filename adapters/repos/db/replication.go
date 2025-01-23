@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"time"
 
@@ -326,7 +325,7 @@ func (s *Shard) filePutter(ctx context.Context,
 	// TODO: validate file prefix to rule out that we're accidentally writing
 	// into another shard
 	finalPath := filepath.Join(s.Index().Config.RootPath, filePath)
-	dir := path.Dir(finalPath)
+	dir := filepath.Dir(finalPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("create parent folder for %s: %w", filePath, err)
 	}

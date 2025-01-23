@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"sync/atomic"
@@ -467,7 +466,7 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 		sourcer:    sourcer,
 		backend:    backend,
 		destDir:    destDir,
-		tempDir:    path.Join(destDir, TempDirectory),
+		tempDir:    filepath.Join(destDir, TempDirectory),
 		movedFiles: make([]string, 0, 64),
 		compressed: compressed,
 		GoPoolSize: routinePoolSize(50),
@@ -487,7 +486,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, o
 	if len(desc.Shards) == 0 { // nothing to copy
 		return nil
 	}
-	classTempDir := path.Join(fw.tempDir, desc.Name)
+	classTempDir := filepath.Join(fw.tempDir, desc.Name)
 
 	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc); err != nil {
 		return fmt.Errorf("get files: %w", err)
@@ -545,8 +544,8 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 
 func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir, overrideBucket, overridePath string) error {
 	for _, key := range sd.Files {
-		destPath := path.Join(classTempDir, key)
-		destDir := path.Dir(destPath)
+		destPath := filepath.Join(classTempDir, key)
+		destDir := filepath.Dir(destPath)
 		if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
 			return fmt.Errorf("create folder %s: %w", destDir, err)
 		}
@@ -554,15 +553,15 @@ func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescri
 			return fmt.Errorf("write file %s: %w", destPath, err)
 		}
 	}
-	destPath := path.Join(classTempDir, sd.DocIDCounterPath)
+	destPath := filepath.Join(classTempDir, sd.DocIDCounterPath)
 	if err := os.WriteFile(destPath, sd.DocIDCounter, os.ModePerm); err != nil {
 		return fmt.Errorf("write counter file %s: %w", destPath, err)
 	}
-	destPath = path.Join(classTempDir, sd.PropLengthTrackerPath)
+	destPath = filepath.Join(classTempDir, sd.PropLengthTrackerPath)
 	if err := os.WriteFile(destPath, sd.PropLengthTracker, os.ModePerm); err != nil {
 		return fmt.Errorf("write prop file %s: %w", destPath, err)
 	}
-	destPath = path.Join(classTempDir, sd.ShardVersionPath)
+	destPath = filepath.Join(classTempDir, sd.ShardVersionPath)
 	if err := os.WriteFile(destPath, sd.Version, os.ModePerm); err != nil {
 		return fmt.Errorf("write version file %s: %w", destPath, err)
 	}
@@ -602,8 +601,8 @@ func RestoreClassDir(dataPath string) func(class string) error {
 		destDir := dataPath
 
 		for _, key := range files {
-			from := path.Join(classTempDir, key.Name())
-			to := path.Join(destDir, key.Name())
+			from := filepath.Join(classTempDir, key.Name())
+			to := filepath.Join(destDir, key.Name())
 			if err := os.Rename(from, to); err != nil {
 				return fmt.Errorf("move %s %s: %w", from, to, err)
 			}

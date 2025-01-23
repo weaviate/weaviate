@@ -12,7 +12,7 @@
 package lsmkv
 
 import (
-	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -24,7 +24,7 @@ import (
 func TestMemtableRoaringSet(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	memPath := func() string {
-		return path.Join(t.TempDir(), "fake")
+		return filepath.Join(t.TempDir(), "fake")
 	}
 
 	t.Run("inserting individual entries", func(t *testing.T) {

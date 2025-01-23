@@ -14,7 +14,7 @@ package segmentindex
 import (
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -59,7 +59,7 @@ var contentsWithChecksum = []byte{
 
 func TestSegmentFile_ValidateChecksum(t *testing.T) {
 	dir := t.TempDir()
-	fname := path.Join(dir, "tmp.db")
+	fname := filepath.Join(dir, "tmp.db")
 
 	{
 		// setup

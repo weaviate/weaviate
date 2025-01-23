@@ -15,7 +15,7 @@ import (
 	"context"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -89,7 +89,7 @@ func TestCreateBloomInit(t *testing.T) {
 		fname, ok := findFileWithExt(files, ext)
 		require.True(t, ok)
 
-		err = os.RemoveAll(path.Join(dirName, fname))
+		err = os.RemoveAll(filepath.Join(dirName, fname))
 		require.Nil(t, err)
 
 		files, err = os.ReadDir(dirName)
@@ -135,7 +135,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 	require.True(t, ok)
 
 	// now corrupt the bloom filter by randomly overriding data
-	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
+	require.Nil(t, corruptBloomFile(filepath.Join(dirName, fname)))
 	// on Windows we have to shutdown the bucket before opening it again
 	require.Nil(t, b.Shutdown(ctx))
 
@@ -173,7 +173,7 @@ func TestRepairTooShortBloomOnInit(t *testing.T) {
 	b.Shutdown(ctx)
 
 	// now corrupt the bloom filter by randomly overriding data
-	require.Nil(t, corruptBloomFileByTruncatingIt(path.Join(dirName, fname)))
+	require.Nil(t, corruptBloomFileByTruncatingIt(filepath.Join(dirName, fname)))
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
@@ -209,7 +209,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	require.True(t, ok)
 
 	// now corrupt the file by replacing the count value without adapting the checksum
-	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
+	require.Nil(t, corruptBloomFile(filepath.Join(dirName, fname)))
 	// on Windows we have to shutdown the bucket before opening it again
 	require.Nil(t, b.Shutdown(ctx))
 
@@ -261,7 +261,7 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 	b.Shutdown(ctx)
 
 	// now corrupt the file by replacing the count value without adapting the checksum
-	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
+	require.Nil(t, corruptBloomFile(filepath.Join(dirName, fname)))
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
@@ -298,7 +298,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 
 	b.Shutdown(ctx)
 	// now corrupt the file by replacing the count value without adapting the checksum
-	require.Nil(t, corruptBloomFileByTruncatingIt(path.Join(dirName, fname)))
+	require.Nil(t, corruptBloomFileByTruncatingIt(filepath.Join(dirName, fname)))
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
@@ -316,13 +316,13 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 func TestLoadWithChecksumErrorCases(t *testing.T) {
 	t.Run("file does not exist", func(t *testing.T) {
 		dirName := t.TempDir()
-		_, err := loadWithChecksum(path.Join(dirName, "my-file"), -1)
+		_, err := loadWithChecksum(filepath.Join(dirName, "my-file"), -1)
 		assert.NotNil(t, err)
 	})
 
 	t.Run("file has incorrect length", func(t *testing.T) {
 		dirName := t.TempDir()
-		fName := path.Join(dirName, "my-file")
+		fName := filepath.Join(dirName, "my-file")
 		f, err := os.Create(fName)
 		require.Nil(t, err)
 
@@ -331,7 +331,7 @@ func TestLoadWithChecksumErrorCases(t *testing.T) {
 
 		require.Nil(t, f.Close())
 
-		_, err = loadWithChecksum(path.Join(dirName, "my-file"), 17)
+		_, err = loadWithChecksum(filepath.Join(dirName, "my-file"), 17)
 		assert.NotNil(t, err)
 	})
 }

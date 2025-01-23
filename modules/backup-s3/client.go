@@ -19,7 +19,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/minio/minio-go/v7"
@@ -87,8 +87,8 @@ func (s *s3Client) getClient(ctx context.Context) (*minio.Client, error) {
 }
 
 func (s *s3Client) makeObjectName(parts ...string) string {
-	base := path.Join(parts...)
-	return path.Join(s.config.BackupPath, base)
+	base := filepath.Join(parts...)
+	return filepath.Join(s.config.BackupPath, base)
 }
 
 func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string {
@@ -96,14 +96,14 @@ func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string
 	remotePath := s.config.BackupPath
 
 	if overridePath != "" {
-		remotePath = path.Join(overridePath)
+		remotePath = filepath.Join(overridePath)
 	}
 
 	if overrideBucket != "" {
 		remoteBucket = overrideBucket
 	}
 
-	return "s3://" + path.Join(remoteBucket, remotePath, s.makeObjectName(backupID))
+	return "s3://" + filepath.Join(remoteBucket, remotePath, s.makeObjectName(backupID))
 }
 
 func (s *s3Client) AllBackups(ctx context.Context,
@@ -145,7 +145,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 	remotePath := s.makeObjectName(backupID, key)
 
 	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
+		remotePath = filepath.Join(overridePath, backupID, key)
 	}
 
 	bucket := s.config.Bucket
@@ -191,7 +191,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 	objectSize := int64(len(byes))
 
 	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
+		remotePath = filepath.Join(overridePath, backupID, key)
 	}
 
 	bucket := s.config.Bucket
@@ -241,7 +241,7 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, ove
 	}
 	remotePath := s.makeObjectName(backupID, key)
 	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
+		remotePath = filepath.Join(overridePath, backupID, key)
 	}
 
 	bucket := s.config.Bucket
@@ -276,7 +276,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 	}
 
 	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
+		remotePath = filepath.Join(overridePath, backupID, key)
 	}
 
 	bucket := s.config.Bucket
@@ -305,7 +305,7 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 	remotePath := s.makeObjectName(backupID, key)
 
 	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
+		remotePath = filepath.Join(overridePath, backupID, key)
 	}
 
 	bucket := s.config.Bucket

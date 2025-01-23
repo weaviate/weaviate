@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -70,7 +70,7 @@ func precomputeSegmentMeta_Replace(ctx context.Context, t *testing.T, opts []Buc
 		fname, ok := findFileWithExt(files, ext)
 		require.True(t, ok)
 
-		err = os.RemoveAll(path.Join(dirName, fname))
+		err = os.RemoveAll(filepath.Join(dirName, fname))
 		require.Nil(t, err)
 
 		files, err = os.ReadDir(dirName)
@@ -87,8 +87,8 @@ func precomputeSegmentMeta_Replace(ctx context.Context, t *testing.T, opts []Buc
 	fname, ok := findFileWithExt(files, ".db")
 	require.True(t, ok)
 
-	segmentTmp := path.Join(dirName, fmt.Sprintf("%s.tmp", fname))
-	err = os.Rename(path.Join(dirName, fname), segmentTmp)
+	segmentTmp := filepath.Join(dirName, fmt.Sprintf("%s.tmp", fname))
+	err = os.Rename(filepath.Join(dirName, fname), segmentTmp)
 	require.Nil(t, err)
 
 	fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true, false)
@@ -129,7 +129,7 @@ func precomputeSegmentMeta_Set(ctx context.Context, t *testing.T, opts []BucketO
 	fname, ok := findFileWithExt(files, ".bloom")
 	require.True(t, ok)
 
-	err = os.RemoveAll(path.Join(dirName, fname))
+	err = os.RemoveAll(filepath.Join(dirName, fname))
 	require.Nil(t, err)
 
 	// verify it's actually gone
@@ -144,8 +144,8 @@ func precomputeSegmentMeta_Set(ctx context.Context, t *testing.T, opts []BucketO
 	fname, ok = findFileWithExt(files, ".db")
 	require.True(t, ok)
 
-	segmentTmp := path.Join(dirName, fmt.Sprintf("%s.tmp", fname))
-	err = os.Rename(path.Join(dirName, fname), segmentTmp)
+	segmentTmp := filepath.Join(dirName, fmt.Sprintf("%s.tmp", fname))
+	err = os.Rename(filepath.Join(dirName, fname), segmentTmp)
 	require.Nil(t, err)
 
 	fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true, false)
@@ -180,7 +180,7 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 	t.Run("segment header can't be parsed", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		dirName := t.TempDir()
-		segmentName := path.Join(dirName, "my-segment.tmp")
+		segmentName := filepath.Join(dirName, "my-segment.tmp")
 
 		header := &segmentindex.Header{
 			Version: 100, // only supported versions as of writing this test are [0,1]
@@ -203,7 +203,7 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 	t.Run("unsupported strategy", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		dirName := t.TempDir()
-		segmentName := path.Join(dirName, "my-segment.tmp")
+		segmentName := filepath.Join(dirName, "my-segment.tmp")
 
 		header := &segmentindex.Header{
 			Version:  segmentindex.SegmentV1,
