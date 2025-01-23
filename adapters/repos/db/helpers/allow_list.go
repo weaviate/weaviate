@@ -57,6 +57,9 @@ func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap) AllowList {
 	return NewAllowListFromBitmap(bm.Clone())
 }
 
+// this was changed to be public to allow for accessing the underlying bitmap and intersecting it with other *sroar.Bitmap for faster keyword retrieval
+// We should consider making this private again and adding a method to intersect two AllowLists, but at the same time, it would also make the interface bloated
+// and add the burden of supporting this method in all (future, if any) implementations of AllowList
 type BitmapAllowList struct {
 	Bm      *sroar.Bitmap
 	release func()
