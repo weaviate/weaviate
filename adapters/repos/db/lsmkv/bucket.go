@@ -1449,7 +1449,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }
 
-func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]terms.TermInterface, *sync.RWMutex, error) {
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, *sync.RWMutex, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1468,49 +1468,57 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	}()
 
 	segmentsDisk := b.disk.segments
-	output := make([][]terms.TermInterface, len(segmentsDisk)+2)
+	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))
 
 	// flusing memtable
-	output[len(segmentsDisk)] = make([]terms.TermInterface, 0, len(query))
+	output[len(segmentsDisk)] = make([]*SegmentBlockMax, 0, len(query))
 
 	// active memtable
-	output[len(segmentsDisk)+1] = make([]terms.TermInterface, 0, len(query))
+	output[len(segmentsDisk)+1] = make([]*SegmentBlockMax, 0, len(query))
+
+	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
+
+	allTombstones[len(segmentsDisk)] = sroar.NewBitmap()
+	allTombstones[len(segmentsDisk)+1] = sroar.NewBitmap()
 
 	for i, queryTerm := range query {
 		key := []byte(queryTerm)
 		n := uint64(0)
 
-		flushing := terms.NewTerm(queryTerm, i, propertyBoost, config)
-		active := terms.NewTerm(queryTerm, i, propertyBoost, config)
-		if b.flushing != nil {
-			mapPairs, err := b.flushing.getMap(key)
-			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return nil, lock, err
-			}
-			n2, err := addDataToTerm(mapPairs, filterDocIds, flushing)
-			if err != nil {
-				return nil, lock, err
-			}
-			n += n2
-			if n2 > 0 {
-				output[len(segmentsDisk)] = append(output[len(segmentsDisk)], flushing)
-			}
-		}
+		active := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
+		flushing := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
 
 		if b.active != nil {
-			mapPairs, err := b.active.getMap(key)
-			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return nil, lock, err
-			}
-			n2, err := addDataToTerm(mapPairs, filterDocIds, active)
-			if err != nil {
-				return nil, lock, err
-			}
-			n += n2
+			memtable := b.active
+			n2, _ := fillTerm(memtable, key, active, filterDocIds)
 			if n2 > 0 {
 				output[len(segmentsDisk)+1] = append(output[len(segmentsDisk)+1], active)
 			}
+			n += n2
+			tombstones, err := b.active.GetTombstones()
+			if err != nil {
+				return nil, lock, err
+			}
+			allTombstones[len(segmentsDisk)+1] = tombstones
+
+		}
+
+		if b.flushing != nil {
+			memtable := b.flushing
+			n2, _ := fillTerm(memtable, key, flushing, filterDocIds)
+			if n2 > 0 {
+				output[len(segmentsDisk)] = append(output[len(segmentsDisk)], flushing)
+			}
+			n += n2
+
+			tombstones, err := b.flushing.GetTombstones()
+			if err != nil {
+				return nil, lock, err
+			}
+			allTombstones[len(segmentsDisk)] = sroar.Or(allTombstones[len(segmentsDisk)+1], tombstones)
+			flushing.tombstones = allTombstones[len(segmentsDisk)+1]
+
 		}
 
 		for _, segment := range segmentsDisk {
@@ -1519,53 +1527,54 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 		}
 
+		// we can only know the full n after we have checked all segments and all memtables
 		idfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoosts[i])
-		flushing.SetIdf(idfs[i])
-		active.SetIdf(idfs[i])
 
+		active.idf = idfs[i]
+		active.currentBlockImpact = float32(idfs[i])
+
+		flushing.idf = idfs[i]
+		flushing.currentBlockImpact = float32(idfs[i])
 	}
 
-	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
-
-	if b.flushing != nil {
-		tombstones, err := b.flushing.GetTombstones()
-		if err != nil {
-			return nil, lock, err
-		}
-		allTombstones[len(segmentsDisk)] = tombstones
-
-	}
-
-	tombstones, err := b.active.GetTombstones()
-	if err != nil {
-		return nil, lock, err
-	}
-	allTombstones[len(segmentsDisk)+1] = tombstones
-
-	for i, segment := range segmentsDisk {
+	for j, segment := range segmentsDisk {
+		output[j] = make([]*SegmentBlockMax, 0, len(query))
 		tombstones, err := segment.GetTombstones()
 		if err != nil {
 			return nil, lock, err
 		}
-
-		allTombstones[i] = tombstones
-	}
-
-	for j, segment := range segmentsDisk {
-		output[j] = make([]terms.TermInterface, 0, len(query))
+		allTombstones[j] = sroar.Or(allTombstones[j+1], tombstones)
 		for i, key := range query {
-			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones[j], filterDocIds, averagePropLength, config)
+
+			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones[j+1], filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
 		}
+
 	}
 	return output, lock, nil
 }
 
-func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *terms.Term) (uint64, error) {
+func fillTerm(memtable *Memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {
+	mapPairs, err := memtable.getMap(key)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return 0, err
+	}
+	n, err := addDataToTerm(mapPairs, filterDocIds, blockmax)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentBlockMax) (uint64, error) {
 	n := uint64(0)
-	data := make([]terms.DocPointerWithScore, 0, len(mem))
+	term.blockDataDecoded = &terms.BlockDataDecoded{
+		DocIds: make([]uint64, 0, len(mem)),
+		Tfs:    make([]uint64, 0, len(mem)),
+	}
+	term.propLengths = make(map[uint64]uint32)
 
 	for _, v := range mem {
 		if v.Tombstone {
@@ -1583,14 +1592,24 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *terms.Te
 		if filterDocIds != nil && !filterDocIds.Contains(d.Id) {
 			continue
 		}
-		data = append(data, d)
+		term.blockDataDecoded.DocIds = append(term.blockDataDecoded.DocIds, d.Id)
+		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
+		term.propLengths[d.Id] = uint32(d.PropLength)
 
 	}
-	if len(data) == 0 {
+	if len(term.blockDataDecoded.DocIds) == 0 {
 		return n, nil
 	}
-	term.Data = data
-	term.SetPosPointer(0)
-	term.SetIdPointer(term.Data[0].Id)
+
+	term.blockEntries = make([]*terms.BlockEntry, 1)
+	term.blockEntries[0] = &terms.BlockEntry{
+		MaxId:  term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
+		Offset: 0,
+	}
+
+	term.currentBlockMaxId = term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1]
+	term.docCount = uint64(len(term.blockDataDecoded.DocIds))
+	term.blockDataSize = len(term.blockDataDecoded.DocIds)
+	term.idPointer = term.blockDataDecoded.DocIds[0]
 	return n, nil
 }
