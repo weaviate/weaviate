@@ -400,7 +400,7 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 
 func (s *schema) Close() error {
 	if ok := prometheus.Unregister(s.collectionsCount); !ok {
-		fmt.Errorf("%w: for collectionsCount", ErrUnRegisterMetrics)
+		return fmt.Errorf("%w: for collectionsCount", ErrUnRegisterMetrics)
 	}
 	return nil
 }
