@@ -95,7 +95,7 @@ func TestDynamic(t *testing.T) {
 	assert.Nil(t, err)
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
-		err = dynamic.Add(ctx, i, vectors[i])
+		err := dynamic.Add(ctx, i, vectors[i])
 		require.NoError(t, err)
 	})
 	shouldUpgrade, at := dynamic.ShouldUpgrade()
