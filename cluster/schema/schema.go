@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -56,6 +57,9 @@ type schema struct {
 	// metrics
 	// collectionsCount represents the number of collections on this specific node.
 	collectionsCount *prometheus.GaugeVec
+
+	// shardsCount represents the number of shards (of all collections) on this specific node.
+	shardsCount *prometheus.GaugeVec
 }
 
 func (s *schema) ClassInfo(class string) ClassInfo {
@@ -216,17 +220,26 @@ type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
-func NewSchema(nodeID string, shardReader shardReader) *schema {
+func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer) *schema {
+	// this also registers the prometheus metrics with given `reg` in addition to just creating it.
+	r := promauto.With(reg)
+
 	s := &schema{
 		nodeID:      nodeID,
 		Classes:     make(map[string]*metaClass, 128),
 		shardReader: shardReader,
-		collectionsCount: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		collectionsCount: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: "weaviate",
 			Name:      "schema_collections",
 			Help:      "Number of collections per node",
 		}, []string{"nodeID"}),
+		shardsCount: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "schema_shards",
+			Help:      "Number of shards per node",
+		}, []string{"nodeID"}),
 	}
+
 	return s
 }
 
@@ -305,6 +318,13 @@ func (s *schema) replaceStatesNodeName(new string) {
 func (s *schema) deleteClass(name string) {
 	s.Lock()
 	defer s.Unlock()
+
+	// since `delete(map, key)` is no-op if `key` doesn't exist, check before deleting
+	// so that we can increment the `collectionsCount` correctly.
+	if _, ok := s.Classes[name]; !ok {
+		return
+	}
+
 	delete(s.Classes, name)
 	s.collectionsCount.WithLabelValues(s.nodeID).Dec()
 }
@@ -323,11 +343,19 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {
 	req.Tenants = removeNilTenants(req.Tenants)
 
-	if ok, meta, info, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, info, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
 	}
+
+	tc := len(req.Tenants)
+	err = meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
+	if err != nil {
+		return err
+	}
+
+	s.shardsCount.WithLabelValues(s.nodeID).Add(float64(tc))
+	return nil
 }
 
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {
@@ -398,8 +426,13 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 }
 
 // Close clean up the state of schema. Currently doesn't require to return any error.
-func (s *schema) Close() {
-	prometheus.Unregister(s.collectionsCount)
+func (s *schema) Close(reg prometheus.Registerer) {
+	if reg == nil {
+		reg = prometheus.DefaultRegisterer
+	}
+
+	reg.Unregister(s.collectionsCount)
+	reg.Unregister(s.shardsCount)
 }
 
 func makeTenant(name, status string) *models.Tenant {
