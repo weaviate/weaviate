@@ -83,14 +83,24 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 					vectors = append(vectors, single)
 					targets = append(targets, target)
 				} else {
-					multiple, okMulti := vectorPerTarget[target].([][]float32)
-					if !okMulti {
+					// TODO clean up
+					multipleNormalVectors, okMultipleNormalVectors := vectorPerTarget[target].([][]float32)
+					multipleMultiVectors, okMultipleMultiVectors := vectorPerTarget[target].([][][]float32)
+					if !okMultipleNormalVectors && !okMultipleMultiVectors {
 						return searchparams.NearVector{}, nil,
-							fmt.Errorf("vectorPerTarget should be a map with strings as keys and list of floats or list of lists of floats as values. Received %T", vectorPerTarget[target])
+							fmt.Errorf("vectorPerTarget should be a map with strings as keys and a normal vector, list of vectors, or list of multi-vectors as values. Received %T", vectorPerTarget[target])
 					}
-					for j := range multiple {
-						vectors = append(vectors, multiple[j])
-						targets = append(targets, target)
+					if okMultipleNormalVectors {
+						for j := range multipleNormalVectors {
+							vectors = append(vectors, multipleNormalVectors[j])
+							targets = append(targets, target)
+						}
+					}
+					if okMultipleMultiVectors {
+						for j := range multipleMultiVectors {
+							vectors = append(vectors, multipleMultiVectors[j])
+							targets = append(targets, target)
+						}
 					}
 				}
 			}
@@ -119,8 +129,16 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 						}
 						vectors[i+j] = w
 					}
+				} else if multiVectorsIn, ok := vectorPerTargetParsed.([][][]float32); ok {
+					// TODO dry and clean up
+					for j, w := range multiVectorsIn {
+						if i+j >= len(targetVectors) || targetVectors[i+j] != target {
+							return searchparams.NearVector{}, nil, fmt.Errorf("target %s is not in the correct order", target)
+						}
+						vectors[i+j] = w
+					}
 				} else {
-					return searchparams.NearVector{}, nil, fmt.Errorf("weight for target %s is not a float, got %v", target, vectorPerTargetParsed)
+					return searchparams.NearVector{}, nil, fmt.Errorf("could not handle type of near vector for target %s, got %v", target, vectorPerTargetParsed)
 				}
 			}
 		}
