@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -230,9 +231,9 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 	return nil
 }
 
-func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) error {
+func (e *executor) DeleteTenants(class string, tenants []*models.Tenant) error {
 	ctx := context.Background()
-	if err := e.migrator.DeleteTenants(ctx, class, req.Tenants); err != nil {
+	if err := e.migrator.DeleteTenants(ctx, class, tenants); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "delete_tenants",
 			"class":  class,

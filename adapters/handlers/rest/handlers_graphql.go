@@ -67,7 +67,9 @@ func setupGraphQLHandlers(
 			switch {
 			case errors.As(err, &authzerrors.Forbidden{}):
 				return graphql.NewGraphqlPostForbidden().
-					WithPayload(errPayloadFromSingleErr(err))
+					WithPayload(errPayloadFromSingleErr(
+						fmt.Errorf("due to GraphQL introspection, this role must have the permission to `read_collections` on `*` (all) collections: %w", err),
+					))
 			default:
 				return graphql.NewGraphqlPostUnprocessableEntity().
 					WithPayload(errPayloadFromSingleErr(err))
