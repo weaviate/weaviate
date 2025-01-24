@@ -149,28 +149,8 @@ func (h *hnsw) shouldRescore() bool {
 	return h.compressed.Load() && !h.doNotRescore
 }
 
-func (h *hnsw) cacheSize() int64 {
-	var size int64
-	if h.compressed.Load() {
-		size = h.compressor.CountVectors()
-	} else {
-		size = h.cache.CountVectors()
-	}
-	return size
-}
-
 func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
-	if allowList == nil || !h.acornSearch.Load() {
-		return false
-	}
-
-	cacheSize := h.cacheSize()
-	allowListSize := allowList.Len()
-	if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > defaultAcornMaxFilterPercentage {
-		return false
-	}
-
-	return true
+	return allowList != nil && h.acornSearch.Load()
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
