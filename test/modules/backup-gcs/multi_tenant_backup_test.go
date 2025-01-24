@@ -27,14 +27,13 @@ import (
 const numTenants = 50
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
-	ctx := context.Background()
-
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
 		tenantNames[i] = fmt.Sprintf("Tenant%d", i)
 	}
 
 	t.Run("single node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		gcsBackupJourneyBucketName := "gcp-single-node"
 		t.Setenv(envGCSCredentials, "")
@@ -69,6 +68,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		gcsBackupJourneyBucketName := "gcp-multiple-nodes"
 		t.Setenv(envGCSCredentials, "")
