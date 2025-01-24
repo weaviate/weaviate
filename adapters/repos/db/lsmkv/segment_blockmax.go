@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"io"
 	"math"
 
 	"github.com/weaviate/sroar"
@@ -83,18 +84,18 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	return entries, docCount, nil, nil
 }
 
-func (s *segment) loadBlockDataReusable(offsetStart, offsetEnd uint64, buf []byte, encoded *terms.BlockData) error {
+func (s *segment) loadBlockDataReusable(sectionReader *io.SectionReader, offset, offsetStart, offsetEnd uint64, buf []byte, encoded *terms.BlockData) error {
 	if s.mmapContents {
 		terms.DecodeBlockDataReusable(s.contents[offsetStart:offsetEnd], encoded)
 		return nil
 	} else {
 
-		r, err := s.newNodeReader(nodeOffset{offsetStart, offsetEnd})
+		_, err := sectionReader.Seek(int64(offsetStart-offset), io.SeekStart)
 		if err != nil {
 			return err
 		}
 
-		_, err = r.Read(buf)
+		_, err = sectionReader.Read(buf[:offsetEnd-offsetStart])
 		if err != nil {
 			return err
 		}
@@ -150,6 +151,8 @@ type SegmentBlockMax struct {
 
 	propLengths    map[uint64]uint32
 	blockDatasTest []*terms.BlockData
+
+	sectionReader *io.SectionReader
 }
 
 func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
@@ -166,6 +169,8 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		decoders[i].Init(terms.BLOCK_SIZE)
 	}
 
+	sectionReader := io.NewSectionReader(s.contentFile, int64(node.Start), int64(node.End))
+
 	output := &SegmentBlockMax{
 		segment:           s,
 		node:              node,
@@ -178,6 +183,7 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		propertyBoost:     propertyBoost,
 		filterDocIds:      filterDocIds,
 		tombstones:        tombstones,
+		sectionReader:     sectionReader,
 	}
 
 	err = output.reset()
@@ -338,7 +344,7 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		if s.blockEntryIdx < len(s.blockEntries)-1 {
 			endOffset = uint64(s.blockEntries[s.blockEntryIdx+1].Offset) + s.blockDataStartOffset
 		}
-		err = s.segment.loadBlockDataReusable(startOffset, endOffset, s.blockDataBuffer, s.blockDataEncoded)
+		err = s.segment.loadBlockDataReusable(s.sectionReader, s.node.Start, startOffset, endOffset, s.blockDataBuffer, s.blockDataEncoded)
 		if err != nil {
 			return err
 		}
