@@ -127,10 +127,8 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
-	if err := s.db.Close(ctx); err != nil {
-		return err
-	}
-	return s.schema.Close()
+	s.schema.Close()
+	return s.db.Close(ctx)
 }
 
 func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool) error {

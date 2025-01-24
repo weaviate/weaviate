@@ -27,11 +27,10 @@ import (
 )
 
 var (
-	ErrClassExists       = errors.New("class already exists")
-	ErrClassNotFound     = errors.New("class not found")
-	ErrShardNotFound     = errors.New("shard not found")
-	ErrMTDisabled        = errors.New("multi-tenancy is not enabled")
-	ErrUnRegisterMetrics = errors.New("schema metric unregister failed")
+	ErrClassExists   = errors.New("class already exists")
+	ErrClassNotFound = errors.New("class not found")
+	ErrShardNotFound = errors.New("shard not found")
+	ErrMTDisabled    = errors.New("multi-tenancy is not enabled")
 )
 
 type ClassInfo struct {
@@ -398,11 +397,9 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return s.Classes
 }
 
-func (s *schema) Close() error {
-	if ok := prometheus.Unregister(s.collectionsCount); !ok {
-		return fmt.Errorf("%w: for collectionsCount", ErrUnRegisterMetrics)
-	}
-	return nil
+// Close clean up the state of schema. Currently doesn't require to return any error.
+func (s *schema) Close() {
+	prometheus.Unregister(s.collectionsCount)
 }
 
 func makeTenant(name, status string) *models.Tenant {
