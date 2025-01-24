@@ -48,7 +48,7 @@ func Test_schemaMetrics(t *testing.T) {
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.collectionsCount))
 
 	// should un-register the metrics. So that creating new schema shouldn't panic with duplicate metrics
-	assert.NoError(t, s.Close())
+	s.Close()
 	assert.NotPanics(t, func() {
 		NewSchema("testNode", nil) // creating new schema
 	})
