@@ -37,14 +37,14 @@ jobs:
         run: |
           # Add community label
           curl -X POST \
-            -H "Authorization: Bearer ${{ secrets.GH_ORG_Members_PAT }}" \
+            -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels" \
             -d '{"labels":["community"]}'
 
           # Send Slack notification
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "📢 A Pull Request has been opened by a *community*:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.pull_request.title }}\n*Labels:* `{{ join(github.event.pull_request.labels.*.name, ', ') }}`\n*Link:* ${{ github.event.pull_request.html_url }}"
+            "text": "📢 A Pull Request has been opened by a *community*:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.pull_request.title }}\n*Labels:* `${{ join(github.event.pull_request.labels.*.name, ', ') }}`\n*Link:* ${{ github.event.pull_request.html_url }}"
           }' $SLACK_WEBHOOK_URL
 
       - name: Send Slack Notification for All Issues
@@ -56,7 +56,7 @@ jobs:
           # Add community label only for non-members
           if [ "${{ steps.check_user.outputs.is_non_member }}" = "true" ]; then
             curl -X POST \
-              -H "Authorization: Bearer ${{ secrets.GH_ORG_Members_PAT }}" \
+              -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/labels" \
               -d '{"labels":["community"]}'
@@ -64,5 +64,5 @@ jobs:
 
           # Send Slack notification
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "🚨 A new Issue has been opened:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.issue.title }}\n*Labels:* `{{ join(github.event.issue.labels.*.name, ', ') }}`\n*Link:* ${{ github.event.issue.html_url }}"
+            "text": "🚨 A new Issue has been opened:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.issue.title }}\n*Labels:* `${{ join(github.event.issue.labels.*.name, ', ') }}`\n*Link:* ${{ github.event.issue.html_url }}"
           }' $SLACK_WEBHOOK_URL
