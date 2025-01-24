@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic_test
+package dynamic
 
 import (
 	"context"
@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -70,7 +69,7 @@ func TestBackup_Integration(t *testing.T) {
 		db.Close()
 	})
 
-	config := dynamic.Config{
+	config := Config{
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logger,
@@ -99,7 +98,7 @@ func TestBackup_Integration(t *testing.T) {
 
 	store := testinghelpers.NewDummyStore(t)
 
-	idx, err := dynamic.New(config, uc, store)
+	idx, err := New(config, uc, store)
 	require.Nil(t, err)
 	idx.PostStartup()
 
@@ -118,7 +117,7 @@ func TestBackup_Integration(t *testing.T) {
 
 	assert.Nil(t, idx.Flush())
 	assert.Nil(t, idx.Shutdown(context.Background()))
-	idx, err = dynamic.New(config, uc, store)
+	idx, err = New(config, uc, store)
 	require.Nil(t, err)
 	idx.PostStartup()
 

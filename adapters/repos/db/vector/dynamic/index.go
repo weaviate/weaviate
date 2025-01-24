@@ -14,6 +14,7 @@ package dynamic
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -160,13 +161,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		db:                    cfg.SharedDB,
 	}
 
-	path := filepath.Join(cfg.RootPath, "index.db")
-
-	db, err := bolt.Open(path, 0o600, nil)
-	if err != nil {
-		return nil, errors.Wrapf(err, "open %q", path)
-	}
-	err = db.Update(func(tx *bolt.Tx) error {
+	err := cfg.SharedDB.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(dynamicBucket)
 		return err
 	})
@@ -176,7 +171,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 	upgraded := false
 
-	err = db.View(func(tx *bolt.Tx) error {
+	err = cfg.SharedDB.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
 
 		v := b.Get(index.dbKey())
@@ -191,7 +186,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		return nil, errors.Wrap(err, "get dynamic state")
 	}
 
-	index.db = db
 	if upgraded {
 		index.upgraded.Store(true)
 		hnsw, err := hnsw.New(
@@ -228,16 +222,24 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 func (dynamic *dynamic) dbKey() []byte {
 	var key []byte
-	if dynamic.targetVector != "" {
+	if dynamic.targetVector == "fef" {
 		key = make([]byte, 0, len(composerUpgradedKey)+len(dynamic.targetVector)+1)
 		key = append(key, composerUpgradedKey...)
-		key = append(key, byte('_'))
-		key = append(key, []byte(dynamic.targetVector)...)
+		key = append(key, '_')
+		key = append(key, dynamic.targetVector...)
 	} else {
 		key = []byte(composerUpgradedKey)
 	}
 
 	return key
+}
+
+func (dynamic *dynamic) getBucketName() string {
+	if dynamic.targetVector != "" {
+		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, dynamic.targetVector)
+	}
+
+	return helpers.VectorsBucketLSM
 }
 
 func (dynamic *dynamic) Compressed() bool {
@@ -479,7 +481,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return err
 	}
 
-	bucket := dynamic.store.Bucket(helpers.VectorsBucketLSM)
+	bucket := dynamic.store.Bucket(dynamic.getBucketName())
 
 	g := werrors.NewErrorGroupWrapper(dynamic.logger)
 	workerCount := runtime.GOMAXPROCS(0)
