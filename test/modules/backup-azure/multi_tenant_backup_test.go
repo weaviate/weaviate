@@ -29,14 +29,13 @@ const (
 )
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
-	ctx := context.Background()
-
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
 		tenantNames[i] = fmt.Sprintf("Tenant%d", i)
 	}
 
 	t.Run("single node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		azureBackupJourneyContainerName := "azure-single-node"
 		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
@@ -67,6 +66,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		azureBackupJourneyContainerName := "azure-multiple-nodes"
 		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)

@@ -105,6 +105,8 @@ func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName st
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 		assert.Nil(t, err)
+		defer client.Close()
+
 		assert.Nil(t, client.Bucket(bucketName).Create(ctx, projectID, nil))
 	}, 5*time.Second, 500*time.Millisecond)
 }
@@ -113,6 +115,7 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 		assert.Nil(t, err)
+		defer client.Close()
 
 		bucket := client.Bucket(bucketName)
 		// we do iterate over objects because GCP doesn't allow deleting non-empty buckets

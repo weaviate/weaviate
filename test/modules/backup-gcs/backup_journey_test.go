@@ -38,9 +38,8 @@ const (
 )
 
 func Test_BackupJourney(t *testing.T) {
-	ctx := context.Background()
-
 	t.Run("single node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		gcsBackupJourneyBucketName := "gcp-single-node"
 		t.Setenv(envGCSCredentials, "")
@@ -74,6 +73,7 @@ func Test_BackupJourney(t *testing.T) {
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		gcsBackupJourneyBucketName := "gcp-multiple-nodes"
 		t.Setenv(envGCSCredentials, "")
