@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -77,8 +78,8 @@ func (m *MockSchemaExecutor) UpdateTenantsProcess(class string, req *cmd.TenantP
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) error {
-	args := m.Called(class, req)
+func (m *MockSchemaExecutor) DeleteTenants(class string, tenants []*models.Tenant) error {
+	args := m.Called(class, tenants)
 	return args.Error(0)
 }
 

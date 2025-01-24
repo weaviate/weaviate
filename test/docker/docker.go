@@ -146,6 +146,12 @@ func (d *DockerCompose) GetMinIO() *DockerContainer {
 	return d.getContainerByName(MinIO)
 }
 
+func (d *DockerCompose) StopMinIO(ctx context.Context) error {
+	minio := d.getContainerByName(MinIO)
+
+	return minio.container.Stop(ctx, nil)
+}
+
 func (d *DockerCompose) GetGCS() *DockerContainer {
 	return d.getContainerByName(GCS)
 }
