@@ -18,7 +18,6 @@ import (
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -28,10 +27,11 @@ import (
 )
 
 var (
-	ErrClassExists   = errors.New("class already exists")
-	ErrClassNotFound = errors.New("class not found")
-	ErrShardNotFound = errors.New("shard not found")
-	ErrMTDisabled    = errors.New("multi-tenancy is not enabled")
+	ErrClassExists       = errors.New("class already exists")
+	ErrClassNotFound     = errors.New("class not found")
+	ErrShardNotFound     = errors.New("shard not found")
+	ErrMTDisabled        = errors.New("multi-tenancy is not enabled")
+	ErrUnRegisterMetrics = errors.New("schema metric unregister failed")
 )
 
 type ClassInfo struct {
@@ -217,14 +217,12 @@ type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
-func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer) *schema {
-	r := promauto.With(reg)
-
+func NewSchema(nodeID string, shardReader shardReader) *schema {
 	s := &schema{
 		nodeID:      nodeID,
 		Classes:     make(map[string]*metaClass, 128),
 		shardReader: shardReader,
-		collectionsCount: r.NewGaugeVec(prometheus.GaugeOpts{
+		collectionsCount: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: "weaviate",
 			Name:      "schema_collections",
 			Help:      "Number of collections per node",
@@ -398,6 +396,13 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	defer s.RUnlock()
 
 	return s.Classes
+}
+
+func (s *schema) Close() error {
+	if ok := prometheus.Unregister(s.collectionsCount); !ok {
+		fmt.Errorf("%w: for collectionsCount", ErrUnRegisterMetrics)
+	}
+	return nil
 }
 
 func makeTenant(name, status string) *models.Tenant {

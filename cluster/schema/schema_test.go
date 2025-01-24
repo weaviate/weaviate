@@ -14,7 +14,6 @@ package schema
 import (
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,8 +22,7 @@ import (
 )
 
 func Test_schemaMetrics(t *testing.T) {
-	r := prometheus.NewPedanticRegistry()
-	s := NewSchema("testNode", nil, r)
+	s := NewSchema("testNode", nil)
 	ss := &sharding.State{}
 
 	c1 := &models.Class{
@@ -48,4 +46,10 @@ func Test_schemaMetrics(t *testing.T) {
 	// delete c1
 	s.deleteClass("collection2")
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.collectionsCount))
+
+	// should un-register the metrics. So that creating new schema shouldn't panic with duplicate metrics
+	assert.NoError(t, s.Close())
+	assert.NotPanics(t, func() {
+		NewSchema("testNode", nil) // creating new schema
+	})
 }
