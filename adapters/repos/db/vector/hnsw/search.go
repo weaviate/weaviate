@@ -179,28 +179,35 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
 ) (*priorityqueue.Queue[any], error,
 ) {
-	if h.acornEnabled(allowList) {
-		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, ACORN)
+	h.pools.visitedListsLock.RLock()
+	visited := h.pools.visitedLists.Borrow()
+	visitedExp := h.pools.visitedLists.Borrow()
+	h.pools.visitedListsLock.RUnlock()
+
+	defer func() {
+		h.pools.visitedListsLock.RLock()
+		h.pools.visitedLists.Return(visited)
+		h.pools.visitedLists.Return(visitedExp)
+		h.pools.visitedListsLock.RUnlock()
+	}()
+
+	if h.acornParams(allowList) {
+		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, ACORN, visited, visitedExp)
 	}
-	return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, SWEEPING)
+	return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, SWEEPING, visited, visitedExp)
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
-	strategy FilterStrategy) (*priorityqueue.Queue[any], error,
+	strategy FilterStrategy, visited visited.ListSet, visitedExp visited.ListSet) (*priorityqueue.Queue[any], error,
 ) {
 	start := time.Now()
 	defer func() {
 		took := time.Since(start)
 		helpers.AnnotateSlowQueryLog(ctx, fmt.Sprintf("knn_search_layer_%d_took", level), took)
 	}()
-	h.pools.visitedListsLock.RLock()
-	visited := h.pools.visitedLists.Borrow()
-	visitedExp := h.pools.visitedLists.Borrow()
-	h.pools.visitedListsLock.RUnlock()
-
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
 	var floatDistancer distancer.Distancer
@@ -245,10 +252,6 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
-			h.pools.visitedListsLock.RLock()
-			h.pools.visitedLists.Return(visited)
-			h.pools.visitedListsLock.RUnlock()
-
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_layer")
 			return nil, err
 		}
@@ -402,10 +405,6 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					h.handleDeletedNode(e.DocID, "searchLayerByVectorWithDistancer")
 					continue
 				} else {
-					h.pools.visitedListsLock.RLock()
-					h.pools.visitedLists.Return(visited)
-					h.pools.visitedLists.Return(visitedExp)
-					h.pools.visitedListsLock.RUnlock()
 					return nil, errors.Wrap(err, "calculate distance between candidate and query")
 				}
 			}
@@ -453,11 +452,6 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	}
 
 	h.pools.pqCandidates.Put(candidates)
-
-	h.pools.visitedListsLock.RLock()
-	h.pools.visitedLists.Return(visited)
-	h.pools.visitedLists.Return(visitedExp)
-	h.pools.visitedListsLock.RUnlock()
 
 	return results, nil
 }
@@ -727,12 +721,113 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		}
 		h.shardedNodeLocks.RUnlockAll()
 
-		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
-		eps.Insert(idx, entryPointDistance)
+		idxDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
+		eps.Insert(idx, idxDistance)
 	}
-	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
+	h.pools.visitedListsLock.RLock()
+	visited := h.pools.visitedLists.Borrow()
+	visitedExp := h.pools.visitedLists.Borrow()
+	h.pools.visitedListsLock.RUnlock()
+
+	defer func() {
+		h.pools.visitedListsLock.RLock()
+		h.pools.visitedLists.Return(visited)
+		h.pools.visitedLists.Return(visitedExp)
+		h.pools.visitedListsLock.RUnlock()
+	}()
+	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy, visited, visitedExp)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+	}
+
+	if strategy == RRE {
+		h.pools.visitedListsLock.RLock()
+		visitedRRE := h.pools.visitedLists.Borrow()
+		visitedRes := h.pools.visitedLists.Borrow()
+		h.pools.visitedListsLock.RUnlock()
+
+		defer func() {
+			h.pools.visitedListsLock.RLock()
+			h.pools.visitedLists.Return(visitedRRE)
+			h.pools.visitedLists.Return(visitedRes)
+			h.pools.visitedListsLock.RUnlock()
+		}()
+
+		eps.Reset()
+		eps.Insert(entryPointID, entryPointDistance)
+		//entryPoint without filter
+		resEntryPoint, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, 1, 0, nil, compressorDistancer, strategy, visited, visitedExp)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+		}
+		elem := resEntryPoint.Pop()
+		h.pools.pqResults.Put(resEntryPoint)
+		unfilteredEntryPointID := elem.ID
+		unfilteredEntryPointDist := elem.Dist
+		h.shardedNodeLocks.RLock(unfilteredEntryPointID)
+		unfilteredEntryPointNode := h.nodes[unfilteredEntryPointID]
+		h.shardedNodeLocks.RUnlock(unfilteredEntryPointID)
+		if unfilteredEntryPointNode == nil {
+			return nil, nil, fmt.Errorf("knn search: search layer at level 0")
+		}
+
+		//init visitedRes
+		for _, elem := range res.Elements() {
+			visitedRes.Visit(elem.ID)
+		}
+
+		for i := 0; i < 10; i++ {
+			//search next seed
+			currentNode := unfilteredEntryPointNode
+			currentDist := unfilteredEntryPointDist
+			moreToVisit := true
+			for currentDist < res.Top().Dist && moreToVisit && (!allowList.Contains(currentNode.id) || h.hasTombstone(currentNode.id)) {
+				moreToVisit = false
+				maxDist := float32(-math.MaxFloat32)
+				var nextId uint64
+				for _, conn := range currentNode.connections[0] {
+					if visitedRRE.Visited(conn) {
+						continue
+					}
+					moreToVisit = true
+					visitedRRE.Visit(conn)
+					dist, _ := h.distToNode(compressorDistancer, conn, searchVec)
+					if dist > maxDist {
+						maxDist = dist
+						nextId = conn
+					}
+				}
+				if moreToVisit {
+					h.shardedNodeLocks.RLock(nextId)
+					currentNode = h.nodes[nextId]
+					h.shardedNodeLocks.RUnlock(nextId)
+					if currentNode == nil {
+						return nil, nil, fmt.Errorf("knn search: search layer at level 0")
+					}
+					currentDist = maxDist
+				}
+			}
+
+			//if valid seed, search again
+			if allowList.Contains(currentNode.id) && !h.hasTombstone(currentNode.id) {
+				resTemp, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy, visited, visitedExp)
+				if err != nil {
+					return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+				}
+
+				//and merge results
+				for resTemp.Len() > 0 {
+					elem = resTemp.Pop()
+					if visitedRes.Visited(elem.ID) {
+						continue
+					}
+					visitedRes.Visit(elem.ID)
+					res.Pop()
+					res.Insert(elem.ID, elem.Dist)
+				}
+				h.pools.pqResults.Put(resTemp)
+			}
+		}
 	}
 
 	beforeRescore := time.Now()
