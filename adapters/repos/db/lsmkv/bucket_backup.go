@@ -33,37 +33,7 @@ func (b *Bucket) FlushMemtable() error {
 		return errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
 	}
 
-	// this lock does not currently _need_ to be
-	// obtained, as the only other place that
-	// grabs this lock is the flush cycle, which
-	// has just been stopped above.
-	//
-	// that being said, we will lock here anyway
-	// as flushLock may be added elsewhere in the
-	// future
-	b.flushLock.Lock()
-	if b.active == nil && b.flushing == nil {
-		b.flushLock.Unlock()
-		return nil
-	}
-	b.flushLock.Unlock()
-
-	stat, err := b.active.commitlog.file.Stat()
-	if err != nil {
-		b.logger.WithField("action", "lsm_wal_stat").
-			WithField("path", b.dir).
-			WithError(err).
-			Fatal("bucket backup memtable flush failed")
-	}
-
-	// attempting a flush&switch on when the active memtable
-	// or WAL is empty results in a corrupted backup attempt
-	if b.active.Size() > 0 || stat.Size() > 0 {
-		if err := b.FlushAndSwitch(); err != nil {
-			return err
-		}
-	}
-	return nil
+	return b.FlushAndSwitch()
 }
 
 // ListFiles lists all files that currently exist in the Bucket. The files are only

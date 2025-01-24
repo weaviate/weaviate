@@ -17,11 +17,141 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/integrity"
 )
+
+type memtableCommitLogger interface {
+	writeEntry(commitType CommitType, nodeBytes []byte) error
+	put(node segmentReplaceNode) error
+	append(node segmentCollectionNode) error
+	add(node *roaringset.SegmentNodeList) error
+	getPath() string
+	setPath(path string)
+	size() int64
+	flushBuffers() error
+	close() error
+	delete() error
+}
+
+var (
+	_ memtableCommitLogger = (*lazyCommitLogger)(nil)
+	_ memtableCommitLogger = (*commitLogger)(nil)
+)
+
+type lazyCommitLogger struct {
+	path         string
+	commitLogger *commitLogger
+	mux          sync.Mutex
+}
+
+func (cl *lazyCommitLogger) mayInitCommitLogger() error {
+	cl.mux.Lock()
+	defer cl.mux.Unlock()
+
+	if cl.commitLogger != nil {
+		return nil
+	}
+
+	commitLogger, err := newCommitLogger(cl.path)
+	if err != nil {
+		return err
+	}
+
+	cl.commitLogger = commitLogger
+	return nil
+}
+
+func (cl *lazyCommitLogger) writeEntry(commitType CommitType, nodeBytes []byte) error {
+	err := cl.mayInitCommitLogger()
+	if err != nil {
+		return err
+	}
+
+	return cl.commitLogger.writeEntry(commitType, nodeBytes)
+}
+
+func (cl *lazyCommitLogger) put(node segmentReplaceNode) error {
+	err := cl.mayInitCommitLogger()
+	if err != nil {
+		return err
+	}
+
+	return cl.commitLogger.put(node)
+}
+
+func (cl *lazyCommitLogger) append(node segmentCollectionNode) error {
+	err := cl.mayInitCommitLogger()
+	if err != nil {
+		return err
+	}
+
+	return cl.commitLogger.append(node)
+}
+
+func (cl *lazyCommitLogger) add(node *roaringset.SegmentNodeList) error {
+	err := cl.mayInitCommitLogger()
+	if err != nil {
+		return err
+	}
+
+	return cl.commitLogger.add(node)
+}
+
+func (cl *lazyCommitLogger) getPath() string {
+	return cl.path
+}
+
+func (cl *lazyCommitLogger) setPath(path string) {
+	cl.path = path
+}
+
+func (cl *lazyCommitLogger) size() int64 {
+	cl.mux.Lock()
+	defer cl.mux.Unlock()
+
+	if cl.commitLogger == nil {
+		return 0
+	}
+
+	return cl.commitLogger.size()
+}
+
+func (cl *lazyCommitLogger) flushBuffers() error {
+	cl.mux.Lock()
+	defer cl.mux.Unlock()
+
+	if cl.commitLogger == nil {
+		return nil
+	}
+
+	return cl.commitLogger.flushBuffers()
+}
+
+func (cl *lazyCommitLogger) close() error {
+	cl.mux.Lock()
+	defer cl.mux.Unlock()
+
+	if cl.commitLogger == nil {
+		return nil
+	}
+
+	return cl.commitLogger.close()
+}
+
+func (cl *lazyCommitLogger) delete() error {
+	cl.mux.Lock()
+	defer cl.mux.Unlock()
+
+	if cl.commitLogger == nil {
+		return nil
+	}
+
+	return cl.commitLogger.delete()
+}
 
 type commitLogger struct {
 	file   *os.File
@@ -87,6 +217,12 @@ func (ct CommitType) Is(checkedCommitType CommitType) bool {
 	return ct == checkedCommitType
 }
 
+func newLazyCommitLogger(path string) (*lazyCommitLogger, error) {
+	return &lazyCommitLogger{
+		path: path,
+	}, nil
+}
+
 func newCommitLogger(path string) (*commitLogger, error) {
 	out := &commitLogger{
 		path: path + ".wal",
@@ -105,6 +241,15 @@ func newCommitLogger(path string) (*commitLogger, error) {
 	out.bufNode = bytes.NewBuffer(nil)
 
 	return out, nil
+}
+
+func (cl *commitLogger) getPath() string {
+	return cl.path
+}
+
+// TODO: introduced to maintain current behaviour
+func (cl *commitLogger) setPath(path string) {
+	cl.path = path
 }
 
 func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) error {
@@ -199,7 +344,7 @@ func (cl *commitLogger) add(node *roaringset.SegmentNodeList) error {
 // Size returns the amount of data that has been written since the commit
 // logger was initialized. After a flush a new logger is initialized which
 // automatically resets the logger.
-func (cl *commitLogger) Size() int64 {
+func (cl *commitLogger) size() int64 {
 	return cl.n.Load()
 }
 

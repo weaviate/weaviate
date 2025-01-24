@@ -508,11 +508,11 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 	bucket.dir = newBucketDir
 	if bucket.active != nil {
 		bucket.active.path = updatePath(bucket.active.path)
-		bucket.active.commitlog.path = updatePath(bucket.active.commitlog.path)
+		bucket.active.commitlog.setPath(updatePath(bucket.active.commitlog.getPath()))
 	}
 	if bucket.flushing != nil {
 		bucket.flushing.path = updatePath(bucket.flushing.path)
-		bucket.flushing.commitlog.path = updatePath(bucket.flushing.commitlog.path)
+		bucket.flushing.commitlog.setPath(updatePath(bucket.flushing.commitlog.getPath()))
 	}
 	bucket.flushLock.Unlock()
 
