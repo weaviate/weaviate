@@ -26,6 +26,7 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"go.etcd.io/bbolt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -238,6 +239,10 @@ type Shard struct {
 	bitmapFactory  *roaringset.BitmapFactory
 
 	activityTracker atomic.Int32
+
+	// shared bolt database for dynamic vector indexes.
+	// nil if there is no configured dynamic vector index
+	dynamicVectorIndexDB *bbolt.DB
 
 	// indicates whether shard is shut down or dropped (or ongoing)
 	shut bool

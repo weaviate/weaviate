@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.etcd.io/bbolt"
 	bolt "go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -114,7 +115,7 @@ type dynamic struct {
 	upgraded              atomic.Bool
 	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
 	hnswUC                hnswent.UserConfig
-	db                    *bolt.DB
+	db                    *bbolt.DB
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -156,6 +157,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		threshold:             uc.Threshold,
 		tombstoneCallbacks:    cfg.TombstoneCallbacks,
 		hnswUC:                uc.HnswUC,
+		db:                    cfg.SharedDB,
 	}
 
 	path := filepath.Join(cfg.RootPath, "index.db")
@@ -173,9 +175,11 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	upgraded := false
+
 	err = db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		v := b.Get([]byte(composerUpgradedKey))
+
+		v := b.Get(index.dbKey())
 		if v == nil {
 			return nil
 		}
@@ -220,6 +224,20 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	return index, nil
+}
+
+func (dynamic *dynamic) dbKey() []byte {
+	var key []byte
+	if dynamic.targetVector != "" {
+		key = make([]byte, 0, len(composerUpgradedKey)+len(dynamic.targetVector)+1)
+		key = append(key, composerUpgradedKey...)
+		key = append(key, byte('_'))
+		key = append(key, []byte(dynamic.targetVector)...)
+	} else {
+		key = []byte(composerUpgradedKey)
+	}
+
+	return key
 }
 
 func (dynamic *dynamic) Compressed() bool {
@@ -511,7 +529,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 	err = dynamic.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		return b.Put([]byte(composerUpgradedKey), []byte{1})
+		return b.Put(dynamic.dbKey(), []byte{1})
 	})
 	if err != nil {
 		return errors.Wrap(err, "update dynamic")
