@@ -782,7 +782,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 					currentNode = h.nodes[nextId]
 					h.shardedNodeLocks.RUnlock(nextId)
 					if currentNode == nil {
-						return nil, nil, fmt.Errorf("knn search: search layer at level 0")
+						break
 					}
 					currentDist = maxDist
 				}
