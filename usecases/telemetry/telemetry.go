@@ -24,13 +24,12 @@ import (
 	"strings"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -189,14 +188,20 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		}
 	}
 
+	cols, err := tel.getCollectionsCount(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get collections count: %w", err)
+	}
+
 	return &Payload{
-		MachineID:   tel.machineID,
-		Type:        payloadType,
-		Version:     config.ServerVersion,
-		NumObjects:  objs,
-		OS:          runtime.GOOS,
-		Arch:        runtime.GOARCH,
-		UsedModules: usedMods,
+		MachineID:        tel.machineID,
+		Type:             payloadType,
+		Version:          config.ServerVersion,
+		ObjectsCount:     objs,
+		OS:               runtime.GOOS,
+		Arch:             runtime.GOARCH,
+		UsedModules:      usedMods,
+		CollectionsCount: cols,
 	}, nil
 }
 
@@ -249,4 +254,12 @@ func (tel *Telemeter) getObjectCount(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("received nil node stats")
 	}
 	return status.Stats.ObjectCount, nil
+}
+
+func (tel *Telemeter) getCollectionsCount(context.Context) (int, error) {
+	sch := tel.schemaManager.GetSchemaSkipAuth()
+	if sch.Objects == nil {
+		return 0, nil
+	}
+	return len(sch.Objects.Classes), nil
 }

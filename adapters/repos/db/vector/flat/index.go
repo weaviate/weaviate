@@ -19,13 +19,13 @@ import (
 	"math"
 	"os"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -768,16 +768,6 @@ func (index *flat) PostStartup() {
 		"took":     took,
 		"index_id": index.id,
 	}).Debugf("pre-loaded %d vectors in %s", count, took)
-}
-
-func (index *flat) Dump(labels ...string) {
-	if len(labels) > 0 {
-		fmt.Printf("--------------------------------------------------\n")
-		fmt.Printf("--  %s\n", strings.Join(labels, ", "))
-	}
-	fmt.Printf("--------------------------------------------------\n")
-	fmt.Printf("ID: %s\n", index.id)
-	fmt.Printf("--------------------------------------------------\n")
 }
 
 func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {

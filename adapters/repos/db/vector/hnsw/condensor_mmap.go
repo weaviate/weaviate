@@ -15,7 +15,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 )
 
@@ -50,8 +49,6 @@ func (c *MmapCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "read uncondensed into mmap file")
 	}
 
-	spew.Dump(index)
-	spew.Dump(index.Size())
 	return nil
 }
 
