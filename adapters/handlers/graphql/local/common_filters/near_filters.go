@@ -12,12 +12,12 @@
 package common_filters
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 
-	"github.com/tailor-inc/graphql/language/ast"
-
 	"github.com/tailor-inc/graphql"
+	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 
@@ -109,52 +109,118 @@ var vectorPerTarget = graphql.NewScalar(graphql.ScalarConfig{
 	ParseValue: func(value interface{}) interface{} {
 		return value
 	},
-	ParseLiteral: func(valueAST ast.Value) interface{} {
-		switch v := valueAST.(type) {
-		case *ast.ObjectValue:
-			result := make(map[string]interface{})
-			for _, field := range v.Fields {
-				key := field.Name.Value
-				switch value := field.Value.(type) {
-				case *ast.ListValue:
-					if len(value.Values) > 0 {
-						switch value.Values[0].(type) {
-						case *ast.ListValue:
-							// Handle list of lists of floats
-							listOfLists := make([][]float32, len(value.Values))
-							for i, listValue := range value.Values {
-								innerList := listValue.(*ast.ListValue)
-								floatValues := make([]float32, len(innerList.Values))
-								for j, innerValue := range innerList.Values {
-									floatValue, err := strconv.ParseFloat(innerValue.GetValue().(string), 64)
-									if err != nil {
-										return nil
-									}
-									floatValues[j] = float32(floatValue)
-								}
-								listOfLists[i] = floatValues
-							}
-							result[key] = listOfLists
-						default:
-							// Handle list of floats
-							floatValues := make([]float32, len(value.Values))
-							for i, value := range value.Values {
-								floatValue, err := strconv.ParseFloat(value.GetValue().(string), 64)
-								if err != nil {
-									return nil
-								}
-								floatValues[i] = float32(floatValue)
-							}
-							result[key] = floatValues
-						}
-					}
-				default:
-					return nil
-				}
-			}
-			return result
-		default:
-			return nil
-		}
-	},
+	ParseLiteral: vectorPerTargetParseLiteral,
 })
+
+func vectorPerTargetParseLiteral(valueAST ast.Value) interface{} {
+	switch v := valueAST.(type) {
+	case *ast.ObjectValue:
+		result := make(map[string]interface{})
+		for _, field := range v.Fields {
+			key := field.Name.Value
+			switch value := field.Value.(type) {
+			case *ast.ListValue:
+				if len(value.Values) > 0 {
+					switch value.Values[0].(type) {
+					case *ast.ListValue:
+						areMultiVectors, err := valuesAreMultiVectors(value.Values)
+						if err != nil {
+							return nil
+						}
+						if areMultiVectors {
+							r, err := getListOfMultiVectors(value.Values)
+							if err != nil {
+								return nil
+							}
+							result[key] = r
+						} else {
+							r, err := getListOfNormalVectors(value.Values)
+							if err != nil {
+								return nil
+							}
+							result[key] = r
+						}
+					default:
+						normalVector, err := getNormalVector(value.Values)
+						if err != nil {
+							return nil
+						}
+						result[key] = normalVector
+					}
+				}
+			default:
+				return nil
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func getNormalVector(values []ast.Value) ([]float32, error) {
+	normalVector := make([]float32, len(values))
+	for i, value := range values {
+		floatValue, err := strconv.ParseFloat(value.GetValue().(string), 64)
+		if err != nil {
+			return nil, err
+		}
+		normalVector[i] = float32(floatValue)
+	}
+	return normalVector, nil
+}
+
+func getListOfNormalVectors(values []ast.Value) ([][]float32, error) {
+	normalVectors := make([][]float32, len(values))
+	for i, value := range values {
+		vector := value.(*ast.ListValue)
+		v, err := getNormalVector(vector.Values)
+		if err != nil {
+			return nil, err
+		}
+		normalVectors[i] = v
+	}
+	return normalVectors, nil
+}
+
+func getListOfMultiVectors(values []ast.Value) ([][][]float32, error) {
+	multiVectors := make([][][]float32, len(values))
+	for i, value := range values {
+		multiVector := value.(*ast.ListValue)
+		mv, err := getListOfNormalVectors(multiVector.Values)
+		if err != nil {
+			return nil, err
+		}
+		multiVectors[i] = mv
+	}
+	return multiVectors, nil
+}
+
+func valuesAreMultiVectors(values []ast.Value) (bool, error) {
+	if len(values) == 0 {
+		return false, errors.New(("values are empty"))
+	}
+	firstValue := values[0]
+	switch firstValue.(type) {
+	case *ast.ListValue:
+		switch firstValue.(type) {
+		case *ast.ListValue:
+			vList := firstValue.(*ast.ListValue)
+			if len(vList.Values) == 0 {
+				return false, errors.New("empty list")
+			}
+			vv := vList.Values[0]
+			if _, vvIsList := vv.(*ast.ListValue); vvIsList {
+				return true, nil
+			}
+			// TODO test intvalue, etc
+			if _, vvIsFloat := vv.(*ast.FloatValue); vvIsFloat {
+				return false, nil
+			}
+			return false, errors.New("unknown type")
+		}
+	default:
+		return false, errors.New("not list value")
+	}
+	return false, errors.New("failed to determine")
+}
