@@ -89,10 +89,4 @@ func Test_schemaMetrics(t *testing.T) {
 	// delete c1
 	s.deleteClass("collection1")
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.collectionsCount))
-
-	// Close() should un-register the metrics. So that creating new schema with same `prometheus.Registry` shouldn't panic with duplicate metrics
-	s.Close(r)
-	assert.NotPanics(t, func() {
-		NewSchema("testNode", nil, r) // creating new schema
-	})
 }

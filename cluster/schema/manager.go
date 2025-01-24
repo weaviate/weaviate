@@ -39,9 +39,9 @@ type SchemaManager struct {
 	log    *logrus.Logger
 }
 
-func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logger) *SchemaManager {
+func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, db, prometheus.DefaultRegisterer),
+		schema: NewSchema(nodeId, db, reg),
 		db:     db,
 		parser: parser,
 		log:    log,
@@ -128,7 +128,6 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
-	s.schema.Close(prometheus.DefaultRegisterer)
 	return s.db.Close(ctx)
 }
 

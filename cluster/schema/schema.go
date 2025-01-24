@@ -425,16 +425,6 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return s.Classes
 }
 
-// Close clean up the state of schema. Currently doesn't require to return any error.
-func (s *schema) Close(reg prometheus.Registerer) {
-	if reg == nil {
-		reg = prometheus.DefaultRegisterer
-	}
-
-	reg.Unregister(s.collectionsCount)
-	reg.Unregister(s.shardsCount)
-}
-
 func makeTenant(name, status string) *models.Tenant {
 	return &models.Tenant{
 		Name:           name,
