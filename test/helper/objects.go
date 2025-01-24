@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/meta"
 	"github.com/weaviate/weaviate/client/objects"
@@ -333,6 +334,13 @@ func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExis
 func DeleteTenants(t *testing.T, class string, tenants []string) error {
 	t.Helper()
 	params := schema.NewTenantsDeleteParams().WithClassName(class).WithTenants(tenants)
+	_, err := Client(t).Schema.TenantsDelete(params, nil)
+	return err
+}
+
+func DeleteTenantsWithContext(t *testing.T, ctx context.Context, class string, tenants []string) error {
+	t.Helper()
+	params := schema.NewTenantsDeleteParams().WithContext(ctx).WithClassName(class).WithTenants(tenants)
 	_, err := Client(t).Schema.TenantsDelete(params, nil)
 	return err
 }
