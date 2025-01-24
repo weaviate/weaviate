@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -51,6 +52,10 @@ type schema struct {
 	shardReader shardReader
 	sync.RWMutex
 	Classes map[string]*metaClass
+
+	// metrics
+	// collectionsCount represents the number of collections on this specific node.
+	collectionsCount *prometheus.GaugeVec
 }
 
 func (s *schema) ClassInfo(class string) ClassInfo {
@@ -212,11 +217,17 @@ type shardReader interface {
 }
 
 func NewSchema(nodeID string, shardReader shardReader) *schema {
-	return &schema{
+	s := &schema{
 		nodeID:      nodeID,
 		Classes:     make(map[string]*metaClass, 128),
 		shardReader: shardReader,
+		collectionsCount: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "schema_collections",
+			Help:      "Number of collections per node",
+		}, []string{"nodeID"}),
 	}
+	return s
 }
 
 func (s *schema) len() int {
@@ -247,7 +258,11 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 		return ErrClassExists
 	}
 
-	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v}
+	s.Classes[cls.Class] = &metaClass{
+		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
+	}
+
+	s.collectionsCount.WithLabelValues(s.nodeID).Inc()
 	return nil
 }
 
@@ -291,6 +306,7 @@ func (s *schema) deleteClass(name string) {
 	s.Lock()
 	defer s.Unlock()
 	delete(s.Classes, name)
+	s.collectionsCount.WithLabelValues(s.nodeID).Dec()
 }
 
 func (s *schema) addProperty(class string, v uint64, props ...*models.Property) error {
@@ -379,6 +395,11 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	defer s.RUnlock()
 
 	return s.Classes
+}
+
+// Close clean up the state of schema. Currently doesn't require to return any error.
+func (s *schema) Close() {
+	prometheus.Unregister(s.collectionsCount)
 }
 
 func makeTenant(name, status string) *models.Tenant {

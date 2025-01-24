@@ -127,6 +127,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
+	s.schema.Close()
 	return s.db.Close(ctx)
 }
 
