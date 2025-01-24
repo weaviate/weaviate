@@ -245,8 +245,6 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 		freqDecoded:       true,
 	}
 
-	output.advanceOnTombstoneOrFilter()
-
 	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
 	output.Metrics.DocCountTotal += output.docCount
 	output.Metrics.LastAddedBlock = -1

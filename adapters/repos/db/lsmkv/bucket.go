@@ -1518,6 +1518,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 			allTombstones[len(segmentsDisk)] = sroar.Or(allTombstones[len(segmentsDisk)+1], tombstones)
 			flushing.tombstones = allTombstones[len(segmentsDisk)+1]
+			flushing.advanceOnTombstoneOrFilter()
 
 		}
 
