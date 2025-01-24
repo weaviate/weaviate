@@ -14,6 +14,7 @@ package dynamic_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -30,6 +31,7 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"go.etcd.io/bbolt"
 )
 
 func TestBackup_Integration(t *testing.T) {
@@ -62,6 +64,12 @@ func TestBackup_Integration(t *testing.T) {
 		VectorCacheMaxObjects: 1_000_000,
 	}
 
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
 	config := dynamic.Config{
 		RootPath:         dirName,
 		ID:               indexID,
@@ -79,6 +87,7 @@ func TestBackup_Integration(t *testing.T) {
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
+		SharedDB:             db,
 	}
 
 	uc := ent.UserConfig{

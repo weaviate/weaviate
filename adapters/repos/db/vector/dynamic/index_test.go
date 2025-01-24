@@ -15,12 +15,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -32,6 +34,7 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"go.etcd.io/bbolt"
 )
 
 var logger, _ = test.NewNullLogger()
@@ -45,6 +48,12 @@ func TestDynamic(t *testing.T) {
 	vectors_size := 10_000
 	queries_size := 10
 	k := 10
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
 
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
 	rootPath := t.TempDir()
@@ -76,6 +85,7 @@ func TestDynamic(t *testing.T) {
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
+		SharedDB:             db,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -117,8 +127,14 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 	fuc := flatent.UserConfig{}
 	fuc.SetDefaults()
 	hnswuc := hnswent.NewDefaultUserConfig()
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
 	distancer := distancer.NewL2SquaredProvider()
-	_, err := dynamic.New(dynamic.Config{
+	_, err = dynamic.New(dynamic.Config{
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -128,6 +144,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(nil),
 		TombstoneCallbacks:   noopCallback,
+		SharedDB:             db,
 	}, ent.UserConfig{
 		Threshold: uint64(100),
 		Distance:  distancer.Type(),
