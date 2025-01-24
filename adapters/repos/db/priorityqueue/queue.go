@@ -100,6 +100,10 @@ func (q *Queue[T]) Len() int {
 	return len(q.items)
 }
 
+func (q *Queue[T]) Elements() []Item[T] {
+	return q.items
+}
+
 // Cap returns the remaining capacity of the queue
 func (q *Queue[T]) Cap() int {
 	return cap(q.items)
