@@ -345,10 +345,10 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 
 	tenants, err := s.schema.getTenants(cmd.Class, req.Tenants)
 	if err != nil {
-		// error will be caught by schema that's why it's ignored, instead
-		// we log it, the need to this because we have detect tenant status before
-		// deleting them from schema in order in the db layer decide if we shall
-		// send the delete request to cloud provider
+		// error are handled by the updateSchema, so they are ignored here.
+		// Instead, we log the error to detect tenant status before deleting
+		// them from the schema. this allows the database layer to decide whether
+		// to send the delete request to the cloud provider.
 		s.log.WithFields(logrus.Fields{
 			"class":   cmd.Class,
 			"tenants": req.Tenants,
