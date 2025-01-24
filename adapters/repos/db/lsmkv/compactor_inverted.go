@@ -18,6 +18,7 @@ import (
 	"encoding/gob"
 	"io"
 	"maps"
+	"math"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
@@ -203,11 +204,12 @@ func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, erro
 	return len(tombstonesBuffer) + 8, nil
 }
 
-func (c *compactorInverted) combinePropertyLengths() (uint64, uint64) {
+func (c *compactorInverted) combinePropertyLengths() (uint64, float64) {
 	count := c.c1.segment.invertedData.avgPropertyLengthsCount + c.c2.segment.invertedData.avgPropertyLengthsCount
-	sum := c.c1.segment.invertedData.avgPropertyLengthsSum + c.c2.segment.invertedData.avgPropertyLengthsSum
+	average := c.c1.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c1.segment.invertedData.avgPropertyLengthsCount) / float64(count))
+	average += c.c2.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c2.segment.invertedData.avgPropertyLengthsCount) / float64(count))
 
-	return count, sum
+	return count, average
 }
 
 func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) (int, error) {
@@ -221,11 +223,11 @@ func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 		return 0, err
 	}
 
-	count, sum := c.combinePropertyLengths()
+	count, average := c.combinePropertyLengths()
 
 	buf := make([]byte, 8)
 
-	binary.LittleEndian.PutUint64(buf, sum)
+	binary.LittleEndian.PutUint64(buf, math.Float64bits(average))
 	if _, err := c.bufw.Write(buf); err != nil {
 		return 0, err
 	}

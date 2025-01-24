@@ -164,7 +164,9 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 	b := new(bytes.Buffer)
 
-	binary.LittleEndian.PutUint64(buf, propLengthSum)
+	propLengthAvg := float64(propLengthSum) / float64(propLengthCount)
+
+	binary.LittleEndian.PutUint64(buf, math.Float64bits(propLengthAvg))
 	if _, err := f.Write(buf); err != nil {
 		return nil, nil, err
 	}
