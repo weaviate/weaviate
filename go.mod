@@ -11,7 +11,7 @@ require (
 	github.com/go-jose/go-jose/v3 v3.0.3
 	github.com/go-openapi/errors v0.22.0
 	github.com/go-openapi/loads v0.22.0
-	github.com/go-openapi/runtime v0.28.0
+	github.com/go-openapi/runtime v0.24.2
 	github.com/go-openapi/spec v0.21.0
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/go-openapi/swag v0.23.0
