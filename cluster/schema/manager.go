@@ -343,7 +343,7 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	tenants, err := s.schema.getTenants(cmd.Class, req.Tenants)
+	tenantsResponse, err := s.schema.getTenants(cmd.Class, req.Tenants)
 	if err != nil {
 		// error are handled by the updateSchema, so they are ignored here.
 		// Instead, we log the error to detect tenant status before deleting
@@ -354,6 +354,11 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 			"tenants": req.Tenants,
 			"error":   err.Error(),
 		}).Error("error getting tenants")
+	}
+
+	tenants := make([]*models.Tenant, len(tenantsResponse))
+	for i := range tenantsResponse {
+		tenants[i] = &tenantsResponse[i].Tenant
 	}
 
 	return s.apply(
