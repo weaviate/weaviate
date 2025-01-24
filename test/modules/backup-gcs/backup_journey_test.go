@@ -72,9 +72,8 @@ func Test_BackupJourney(t *testing.T) {
 }
 
 func runBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-	gcsBackupJourneyBucketName := containerName
-
 	t.Run("single node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		gcsBackupJourneyBucketName := "gcp-single-node"
 		t.Setenv(envGCSCredentials, "")
@@ -115,6 +114,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		gcsBackupJourneyBucketName := "gcp-multiple-nodes"
 		t.Setenv(envGCSCredentials, "")

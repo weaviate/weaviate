@@ -38,7 +38,6 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 }
 
 func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-	azureBackupJourneyContainerName := containerName
 	azureBackupJourneyBackupIDCluster := "azure-backup-cluster-multi-tenant"
 	azureBackupJourneyBackupIDSingleNode := "azure-backup-single-node-multi-tenant"
 	if override {
@@ -52,6 +51,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 	}
 
 	t.Run("single node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		azureBackupJourneyContainerName := "azure-single-node"
 		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
@@ -82,6 +82,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		azureBackupJourneyContainerName := "azure-multiple-nodes"
 		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
