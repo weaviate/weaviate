@@ -166,7 +166,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "create dynamic bolt bucket")
 	}
 
 	upgraded := false

@@ -63,7 +63,9 @@ func TestBackup_Integration(t *testing.T) {
 		VectorCacheMaxObjects: 1_000_000,
 	}
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "index.db")
+	db, err := bbolt.Open(dbPath, 0o666, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		db.Close()
@@ -117,6 +119,12 @@ func TestBackup_Integration(t *testing.T) {
 
 	assert.Nil(t, idx.Flush())
 	assert.Nil(t, idx.Shutdown(context.Background()))
+
+	// open the db again
+	db, err = bbolt.Open(dbPath, 0o666, nil)
+	require.NoError(t, err)
+	config.SharedDB = db
+
 	idx, err = New(config, uc, store)
 	require.Nil(t, err)
 	idx.PostStartup()
