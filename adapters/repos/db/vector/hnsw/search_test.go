@@ -169,7 +169,7 @@ func TestQueryMultiVectorDistancer(t *testing.T) {
 	require.NotNil(t, dist)
 	distance, err := dist.DistanceToNode(0)
 	require.Nil(t, err)
-	require.Equal(t, float32(1.2), distance)
+	require.Equal(t, float32(-1.2), distance)
 
 	// get distance for non-existing node
 	_, err = dist.DistanceToNode(1032)

@@ -35,16 +35,18 @@ func TestText2VecGoogle_VertexAI_SingleNode(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	rest := compose.GetWeaviate().URI()
+	grpc := compose.GetWeaviate().GrpcURI()
 
-	t.Run("text2vec-google", testText2VecGoogle(endpoint, gcpProject, "text2vec-google"))
-	t.Run("text2vec-palm", testText2VecGoogle(endpoint, gcpProject, "text2vec-palm"))
+	t.Run("text2vec-google", testText2VecGoogle(rest, grpc, gcpProject, "text2vec-google"))
+	t.Run("text2vec-palm", testText2VecGoogle(rest, grpc, gcpProject, "text2vec-palm"))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(googleApiKey).
 		WithWeaviate().
+		WithWeaviateWithGRPC().
 		Start(ctx)
 	return
 }
