@@ -62,6 +62,29 @@ type schema struct {
 	shardsCount *prometheus.GaugeVec
 }
 
+func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer) *schema {
+	// this also registers the prometheus metrics with given `reg` in addition to just creating it.
+	r := promauto.With(reg)
+
+	s := &schema{
+		nodeID:      nodeID,
+		Classes:     make(map[string]*metaClass, 128),
+		shardReader: shardReader,
+		collectionsCount: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "schema_collections",
+			Help:      "Number of collections per node",
+		}, []string{"nodeID"}),
+		shardsCount: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "schema_shards",
+			Help:      "Number of shards per node with corresponding status",
+		}, []string{"nodeID"}), // TODO: status: HOT, INACTIVE, FROZEN
+	}
+
+	return s
+}
+
 func (s *schema) ClassInfo(class string) ClassInfo {
 	s.RLock()
 	defer s.RUnlock()
@@ -220,29 +243,6 @@ type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
-func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer) *schema {
-	// this also registers the prometheus metrics with given `reg` in addition to just creating it.
-	r := promauto.With(reg)
-
-	s := &schema{
-		nodeID:      nodeID,
-		Classes:     make(map[string]*metaClass, 128),
-		shardReader: shardReader,
-		collectionsCount: r.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: "weaviate",
-			Name:      "schema_collections",
-			Help:      "Number of collections per node",
-		}, []string{"nodeID"}),
-		shardsCount: r.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: "weaviate",
-			Name:      "schema_shards",
-			Help:      "Number of shards per node",
-		}, []string{"nodeID"}),
-	}
-
-	return s
-}
-
 func (s *schema) len() int {
 	s.RLock()
 	defer s.RUnlock()
@@ -353,17 +353,21 @@ func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsReque
 	if err != nil {
 		return err
 	}
-
 	s.shardsCount.WithLabelValues(s.nodeID).Add(float64(tc))
 	return nil
 }
 
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {
-	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, _, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.DeleteTenants(req, v)
 	}
+	count, err := meta.DeleteTenants(req, v)
+	if err != nil {
+		return err
+	}
+	s.shardsCount.WithLabelValues(s.nodeID).Sub(float64(count))
+	return nil
 }
 
 func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) error {

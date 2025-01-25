@@ -149,6 +149,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
+	fmt.Println("Debug!!!!!!!!!!!!!!!!!!! Am i here??")
 	if err := h.Authorizer.Authorize(principal, "delete", tenantsPath); err != nil {
 		return err
 	}

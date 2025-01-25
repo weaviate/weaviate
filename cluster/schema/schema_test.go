@@ -12,7 +12,6 @@
 package schema
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -43,6 +42,7 @@ func Test_schemaMetrics(t *testing.T) {
 		},
 	}
 
+	// Collection metrics
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.collectionsCount.WithLabelValues("testNode")))
 	require.NoError(t, s.addClass(c1, ss, 0)) // adding c1 collection
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.collectionsCount))
@@ -50,10 +50,9 @@ func Test_schemaMetrics(t *testing.T) {
 	require.NoError(t, s.addClass(c2, ss, 0))
 	assert.Equal(t, float64(2), testutil.ToFloat64(s.collectionsCount)) // adding c2 collection
 
-	// Check shard metric
-
+	// Shard metrics
 	// no shards now.
-	// assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount))
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode")))
 
 	// add shard to c1 collection
 	err := s.addTenants(c1.Class, 0, &api.AddTenantsRequest{
@@ -81,11 +80,24 @@ func Test_schemaMetrics(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, float64(2), testutil.ToFloat64(s.shardsCount))
 
+	// delete "existing" tenant
+	err = s.deleteTenants(c1.Class, 0, &api.DeleteTenantsRequest{
+		Tenants: []string{"tenant1"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount))
+
+	// delete "non-existing" tenant
+	err = s.deleteTenants(c1.Class, 0, &api.DeleteTenantsRequest{
+		Tenants: []string{"tenant1"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount))
+
 	// delete c2
 	s.deleteClass("collection2")
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.collectionsCount))
 
-	fmt.Println("Debug!!", s.Classes)
 	// delete c1
 	s.deleteClass("collection1")
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.collectionsCount))

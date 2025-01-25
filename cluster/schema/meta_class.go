@@ -234,15 +234,21 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 	return nil
 }
 
-func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) error {
+// DeleteTenants try to delete the tenants from given request and returns
+// total number of deleted tenants.
+func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) (int, error) {
 	m.Lock()
 	defer m.Unlock()
 
+	count := 0
+
 	for _, name := range req.Tenants {
-		m.Sharding.DeletePartition(name)
+		if m.Sharding.DeletePartition(name) {
+			count++
+		}
 	}
 	m.ShardVersion = v
-	return nil
+	return count, nil
 }
 
 func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) error {
