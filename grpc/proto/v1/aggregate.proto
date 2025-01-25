@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package weaviate.v1;
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoAggregate";
+
+message AggregateRequest {
+  //required
+  string collection = 1;
+
+  // what is returned
+  bool meta_count = 20;
+
+  // affects aggregation results
+  optional uint32 object_limit = 30;
+
+  // parameters
+  string tenant = 10;
+}
+
+message AggregateReply {
+  float took = 1;
+  AggregateResult result = 2;
+}
+
+message AggregateResult {
+  repeated AggregateGroupResult groups = 1;
+}
+
+message AggregateGroupResult {
+  int64 count = 1;
+}
