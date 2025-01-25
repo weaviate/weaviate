@@ -24,7 +24,7 @@ func TestGRPCAggregateReply(t *testing.T) {
 	tests := []struct {
 		name      string
 		res       interface{}
-		outRes    *pb.AggregateResult
+		outRes    *pb.AggregateReply_Result
 		wantError error
 	}{
 		{
@@ -36,10 +36,10 @@ func TestGRPCAggregateReply(t *testing.T) {
 					},
 				},
 			},
-			outRes: &pb.AggregateResult{
-				Groups: []*pb.AggregateGroupResult{
+			outRes: &pb.AggregateReply_Result{
+				Groups: []*pb.AggregateGroup{
 					{
-						Count: 11,
+						ObjectsCount: ptInt64(11),
 					},
 				},
 			},

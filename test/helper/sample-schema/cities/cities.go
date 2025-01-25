@@ -55,7 +55,8 @@ const (
 func CreateCountryCityAirportSchema(t *testing.T, host string) {
 	helper.SetupClient(host)
 	helper.CreateClass(t, &models.Class{
-		Class: Country,
+		Class:      Country,
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": true,
@@ -75,7 +76,8 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 	// to not to downgrade the distance/certainty result on which the
 	// aggregate tests are based on.
 	helper.CreateClass(t, &models.Class{
-		Class: City,
+		Class:      City,
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": true,
@@ -188,7 +190,8 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 	})
 
 	helper.CreateClass(t, &models.Class{
-		Class: Airport,
+		Class:      Airport,
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": true,
