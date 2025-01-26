@@ -139,13 +139,12 @@ message GeoCoordinatesFilter {
   float distance = 3;
 }
 
-enum VectorType {
-  VECTOR_TYPE_UNSPECIFIED = 0;
-  VECTOR_TYPE_SINGLE_FP32 = 1;
-  VECTOR_TYPE_MULTI_FP32 = 2;
-}
-
 message Vectors {
+  enum VectorType {
+    VECTOR_TYPE_UNSPECIFIED = 0;
+    VECTOR_TYPE_SINGLE_FP32 = 1;
+    VECTOR_TYPE_MULTI_FP32 = 2;
+  }
   string name = 1;
   uint64 index = 2 [deprecated = true];  // for multi-vec
   bytes vector_bytes = 3;

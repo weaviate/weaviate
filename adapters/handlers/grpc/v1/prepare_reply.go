@@ -254,13 +254,13 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 						metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
 							VectorBytes: byteops.Fp32SliceToBytes(vec),
 							Name:        name,
-							Type:        pb.VectorType_VECTOR_TYPE_SINGLE_FP32,
+							Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
 						})
 					case [][]float32:
 						metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
 							VectorBytes: byteops.Fp32SliceOfSlicesToBytes(vec),
 							Name:        name,
-							Type:        pb.VectorType_VECTOR_TYPE_MULTI_FP32,
+							Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
 						})
 					default:
 						// do nothing

@@ -1256,9 +1256,9 @@ func extractVector(vectors []*pb.Vectors) (models.Vector, error) {
 	if len(vectors) > 0 {
 		vec := vectors[0]
 		switch vec.Type {
-		case *pb.VectorType_VECTOR_TYPE_UNSPECIFIED.Enum(), *pb.VectorType_VECTOR_TYPE_SINGLE_FP32.Enum():
+		case *pb.Vectors_VECTOR_TYPE_UNSPECIFIED.Enum(), *pb.Vectors_VECTOR_TYPE_SINGLE_FP32.Enum():
 			return byteops.Fp32SliceFromBytes(vec.VectorBytes), nil
-		case *pb.VectorType_VECTOR_TYPE_MULTI_FP32.Enum():
+		case *pb.Vectors_VECTOR_TYPE_MULTI_FP32.Enum():
 			out, err := byteops.Fp32SliceOfSlicesFromBytes(vec.VectorBytes)
 			if err != nil {
 				return nil, fmt.Errorf("extract vector: %w", err)
