@@ -56,7 +56,7 @@ type schema struct {
 
 	// metrics
 	// collectionsCount represents the number of collections on this specific node.
-	collectionsCount *prometheus.GaugeVec
+	collectionsCount prometheus.Gauge
 
 	// shardsCount represents the number of shards (of all collections) on this specific node.
 	shardsCount *prometheus.GaugeVec
@@ -70,17 +70,18 @@ func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer
 		nodeID:      nodeID,
 		Classes:     make(map[string]*metaClass, 128),
 		shardReader: shardReader,
-		collectionsCount: r.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: "weaviate",
-			Name:      "schema_collections",
-			Help:      "Number of collections per node",
-		}, []string{"nodeID"}),
+		collectionsCount: r.NewGauge(prometheus.GaugeOpts{
+			Namespace:   "weaviate",
+			Name:        "schema_collections",
+			Help:        "Number of collections per node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
 		shardsCount: r.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: "weaviate",
-			Name:      "schema_shards",
-			Help:      "Number of shards per node with corresponding status",
-		}, []string{"nodeID", "status"}), // status: HOT, WARM, COLD, FROZEN
-		// TODO: Can we have `ConstLabels` of `nodeID`?
+			Namespace:   "weaviate",
+			Name:        "schema_shards",
+			Help:        "Number of shards per node with corresponding status",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}, []string{"status"}), // status: HOT, WARM, COLD, FROZEN
 	}
 
 	return s
@@ -276,7 +277,7 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
 	}
 
-	s.collectionsCount.WithLabelValues(s.nodeID).Inc()
+	s.collectionsCount.Inc()
 	return nil
 }
 
@@ -327,7 +328,7 @@ func (s *schema) deleteClass(name string) {
 	}
 
 	delete(s.Classes, name)
-	s.collectionsCount.WithLabelValues(s.nodeID).Dec()
+	s.collectionsCount.Dec()
 }
 
 func (s *schema) addProperty(class string, v uint64, props ...*models.Property) error {
@@ -354,7 +355,7 @@ func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsReque
 		return err
 	}
 	for status, count := range sc {
-		s.shardsCount.WithLabelValues(s.nodeID, status).Add(float64(count))
+		s.shardsCount.WithLabelValues(status).Add(float64(count))
 	}
 
 	return nil
@@ -371,7 +372,7 @@ func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenant
 	}
 
 	for status, count := range sc {
-		s.shardsCount.WithLabelValues(s.nodeID, status).Sub(float64(count))
+		s.shardsCount.WithLabelValues(status).Sub(float64(count))
 	}
 
 	return nil
@@ -387,7 +388,7 @@ func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenant
 	sc, err := meta.UpdateTenants(s.nodeID, req, v)
 	for status, count := range sc {
 		// count can be positive or negative.
-		s.shardsCount.WithLabelValues(s.nodeID, status).Add(float64(count))
+		s.shardsCount.WithLabelValues(status).Add(float64(count))
 	}
 
 	if err != nil {

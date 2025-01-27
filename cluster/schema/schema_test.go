@@ -43,7 +43,7 @@ func Test_schemaCollectionMetrics(t *testing.T) {
 	}
 
 	// Collection metrics
-	assert.Equal(t, float64(0), testutil.ToFloat64(s.collectionsCount.WithLabelValues("testNode")))
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.collectionsCount))
 	require.NoError(t, s.addClass(c1, ss, 0)) // adding c1 collection
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.collectionsCount))
 
@@ -83,7 +83,7 @@ func Test_schemaShardMetrics(t *testing.T) {
 
 	// Shard metrics
 	// no shards now.
-	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "")))
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("")))
 
 	// add shard to c1 collection
 	err := s.addTenants(c1.Class, 0, &api.AddTenantsRequest{
@@ -97,7 +97,7 @@ func Test_schemaShardMetrics(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "HOT")))
+	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
 
 	// add shard to c2 collection
 	err = s.addTenants(c2.Class, 0, &api.AddTenantsRequest{
@@ -111,29 +111,29 @@ func Test_schemaShardMetrics(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "FROZEN")))
+	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
 
 	// delete "existing" tenant
 	err = s.deleteTenants(c1.Class, 0, &api.DeleteTenantsRequest{
 		Tenants: []string{"tenant1"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "HOT")))
-	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "FROZEN")))
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
+	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
 
 	// delete "non-existing" tenant
 	err = s.deleteTenants(c1.Class, 0, &api.DeleteTenantsRequest{
 		Tenants: []string{"tenant1"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "HOT")))
-	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "FROZEN")))
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
+	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
 
 	// update tenant status
 	err = s.updateTenants(c2.Class, 0, &api.UpdateTenantsRequest{
 		Tenants: []*api.Tenant{{Name: "tenant2", Status: "HOT"}}, // FROZEN -> HOT
 	})
 	require.NoError(t, err)
-	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "HOT")))
-	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "FROZEN")))
+	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
 }
