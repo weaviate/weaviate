@@ -84,14 +84,6 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.userHasRolesPermission(principal, policies[roleName]); err != nil {
-		return authz.NewCreateRoleForbidden().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(
-				fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err),
-			),
-		)
-	}
-
 	roles, err := h.controller.GetRoles(roleName)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -99,6 +91,14 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	if len(roles) > 0 {
 		return authz.NewCreateRoleConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role with name %s already exists", *params.Body.Name)))
+	}
+
+	if err := h.userHasRolesPermission(principal, policies[roleName]); err != nil {
+		return authz.NewCreateRoleForbidden().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(
+				fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err),
+			),
+		)
 	}
 
 	if err = h.controller.UpsertRolesPermissions(policies); err != nil {
@@ -137,14 +137,6 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.userHasRolesPermission(principal, policies[params.ID]); err != nil {
-		return authz.NewCreateRoleForbidden().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(
-				fmt.Errorf("can only add permission to roles with less or equal permissions as the current user: %w", err),
-			),
-		)
-	}
-
 	roles, err := h.controller.GetRoles(params.ID)
 	if err != nil {
 		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -152,6 +144,14 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 
 	if len(roles) == 0 { // i.e. new role
 		return authz.NewAddPermissionsNotFound()
+	}
+
+	if err := h.userHasRolesPermission(principal, policies[params.ID]); err != nil {
+		return authz.NewCreateRoleForbidden().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(
+				fmt.Errorf("can only add permission to roles with less or equal permissions as the current user: %w", err),
+			),
+		)
 	}
 
 	if err := h.controller.UpsertRolesPermissions(policies); err != nil {

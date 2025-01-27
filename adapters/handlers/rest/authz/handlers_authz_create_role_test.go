@@ -338,6 +338,7 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 			require.Nil(t, err)
 
 			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.CREATE, "schema/collections/.*/shards/#").Return(nil)
 			controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 			controller.On("UpsertRolesPermissions", policies).Return(tt.upsertErr)
 
