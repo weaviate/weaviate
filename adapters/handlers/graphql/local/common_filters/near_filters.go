@@ -213,11 +213,13 @@ func valuesAreMultiVectors(values []ast.Value) (bool, error) {
 			if _, vvIsList := vv.(*ast.ListValue); vvIsList {
 				return true, nil
 			}
-			// TODO test intvalue, etc
 			if _, vvIsFloat := vv.(*ast.FloatValue); vvIsFloat {
 				return false, nil
 			}
-			return false, errors.New("unknown type")
+			if _, vvIsInt := vv.(*ast.IntValue); vvIsInt {
+				return false, nil
+			}
+			return false, fmt.Errorf("unknown type: %T", vv)
 		}
 	default:
 		return false, errors.New("not list value")
