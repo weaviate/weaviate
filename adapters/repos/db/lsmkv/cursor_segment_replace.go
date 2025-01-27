@@ -133,7 +133,7 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End},
 		s.segment.contents[node.Start:node.End])
 	if err != nil {
-		return s.keyFn(s.reusableNode), nil, err
+		return nil, nil, err
 	}
 
 	return s.keyFn(s.reusableNode), s.reusableNode.value, nil
@@ -154,7 +154,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset},
 		s.segment.contents[s.currOffset:])
 	if err != nil {
-		return s.keyFn(s.reusableNode), nil, err
+		return nil, nil, err
 	}
 
 	return s.keyFn(s.reusableNode), s.reusableNode.value, nil
@@ -171,7 +171,7 @@ func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset},
 		s.segment.contents[s.currOffset:])
 	if err != nil {
-		return s.keyFn(s.reusableNode), nil, err
+		return nil, nil, err
 	}
 
 	return s.keyFn(s.reusableNode), s.reusableNode.value, nil
