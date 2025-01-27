@@ -92,9 +92,9 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 			parsedMultiVectors := make(map[string][][]float32)
 			for _, vec := range obj.Vectors {
 				switch vec.Type {
-				case *pb.VectorType_VECTOR_TYPE_UNSPECIFIED.Enum(), *pb.VectorType_VECTOR_TYPE_SINGLE_FP32.Enum():
+				case *pb.Vectors_VECTOR_TYPE_UNSPECIFIED.Enum(), *pb.Vectors_VECTOR_TYPE_SINGLE_FP32.Enum():
 					parsedVectors[vec.Name] = byteops.Fp32SliceFromBytes(vec.VectorBytes)
-				case *pb.VectorType_VECTOR_TYPE_MULTI_FP32.Enum():
+				case *pb.Vectors_VECTOR_TYPE_MULTI_FP32.Enum():
 					out, err := byteops.Fp32SliceOfSlicesFromBytes(vec.VectorBytes)
 					if err != nil {
 						objectErrors[i] = err

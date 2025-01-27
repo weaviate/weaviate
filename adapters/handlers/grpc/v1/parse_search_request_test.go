@@ -308,7 +308,7 @@ func TestGRPCRequest(t *testing.T) {
 						Vectors: []*pb.Vectors{
 							{
 								VectorBytes: byteops.Fp32SliceToBytes([]float32{1, 2, 3}),
-								Type:        pb.VectorType_VECTOR_TYPE_SINGLE_FP32,
+								Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
 							},
 						},
 					},
@@ -356,7 +356,7 @@ func TestGRPCRequest(t *testing.T) {
 									{11, 22, 33},
 									{111, 222, 333},
 								}),
-								Type: pb.VectorType_VECTOR_TYPE_MULTI_FP32,
+								Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32,
 							},
 						},
 					},
@@ -395,7 +395,7 @@ func TestGRPCRequest(t *testing.T) {
 					Vectors: []*pb.Vectors{
 						{
 							VectorBytes: byteops.Fp32SliceToBytes([]float32{1, 2, 3}),
-							Type:        pb.VectorType_VECTOR_TYPE_SINGLE_FP32,
+							Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
 						},
 					},
 					TargetVectors: []string{"custom"},
@@ -426,7 +426,7 @@ func TestGRPCRequest(t *testing.T) {
 					Vectors: []*pb.Vectors{
 						{
 							VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}}),
-							Type:        pb.VectorType_VECTOR_TYPE_MULTI_FP32,
+							Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
 						},
 					},
 					TargetVectors: []string{"custom"},
@@ -603,7 +603,7 @@ func TestGRPCRequest(t *testing.T) {
 				Properties: &pb.PropertiesRequest{},
 				NearVector: &pb.NearVector{
 					Vectors: []*pb.Vectors{
-						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}, {1, 2, 3}}), Type: pb.VectorType_VECTOR_TYPE_MULTI_FP32},
+						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}, {1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
 					},
 					TargetVectors: []string{"custom"},
 				},
@@ -1683,7 +1683,7 @@ func TestGRPCRequest(t *testing.T) {
 				GroupBy: &pb.GroupBy{Path: []string{"ref"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
 				NearVector: &pb.NearVector{
 					Vectors: []*pb.Vectors{
-						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}, {11, 22, 33}, {111, 222, 333}}), Index: 0, Type: pb.VectorType_VECTOR_TYPE_MULTI_FP32},
+						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}, {11, 22, 33}, {111, 222, 333}}), Index: 0, Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
 					},
 				},
 				Properties: &pb.PropertiesRequest{},
@@ -2122,9 +2122,9 @@ func TestGRPCRequest(t *testing.T) {
 					Targets: &pb.Targets{TargetVectors: []string{"regular_no_type", "regular_unspecified", "regular_fp32", "regular_fp32_and_name"}},
 					VectorForTargets: []*pb.VectorForTarget{
 						{Name: "regular_no_type", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}},
-						{Name: "regular_unspecified", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{11, 22, 33}), Type: pb.VectorType_VECTOR_TYPE_UNSPECIFIED}}},
-						{Name: "regular_fp32", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{111, 222, 333}), Type: pb.VectorType_VECTOR_TYPE_SINGLE_FP32}}},
-						{Name: "regular_fp32_and_name", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3}), Type: pb.VectorType_VECTOR_TYPE_SINGLE_FP32, Name: "regular_fp32_and_name"}}},
+						{Name: "regular_unspecified", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{11, 22, 33}), Type: pb.Vectors_VECTOR_TYPE_UNSPECIFIED}}},
+						{Name: "regular_fp32", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{111, 222, 333}), Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32}}},
+						{Name: "regular_fp32_and_name", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3}), Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32, Name: "regular_fp32_and_name"}}},
 					},
 				},
 				Metadata: &pb.MetadataRequest{Certainty: true},
@@ -2151,11 +2151,11 @@ func TestGRPCRequest(t *testing.T) {
 					Targets: &pb.Targets{TargetVectors: []string{"regular_no_type", "regular_unspecified", "regular_fp32", "regular_fp32_and_name", "colbert_fp32"}},
 					VectorForTargets: []*pb.VectorForTarget{
 						{Name: "regular_no_type", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}},
-						{Name: "regular_unspecified", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{11, 22, 33}), Type: pb.VectorType_VECTOR_TYPE_UNSPECIFIED}}},
-						{Name: "regular_fp32", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{111, 222, 333}), Type: pb.VectorType_VECTOR_TYPE_SINGLE_FP32}}},
-						{Name: "regular_fp32_and_name", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3}), Type: pb.VectorType_VECTOR_TYPE_SINGLE_FP32, Name: "regular_fp32_and_name"}}},
+						{Name: "regular_unspecified", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{11, 22, 33}), Type: pb.Vectors_VECTOR_TYPE_UNSPECIFIED}}},
+						{Name: "regular_fp32", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{111, 222, 333}), Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32}}},
+						{Name: "regular_fp32_and_name", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3}), Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32, Name: "regular_fp32_and_name"}}},
 						{Name: "colbert_fp32", Vectors: []*pb.Vectors{
-							{VectorBytes: byteVectorMulti([][]float32{{1, 2, 3}, {1, 2, 3}}), Type: pb.VectorType_VECTOR_TYPE_MULTI_FP32, Name: "colbert_fp32"},
+							{VectorBytes: byteVectorMulti([][]float32{{1, 2, 3}, {1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32, Name: "colbert_fp32"},
 						}},
 					},
 				},
@@ -2183,10 +2183,10 @@ func TestGRPCRequest(t *testing.T) {
 					Targets: &pb.Targets{TargetVectors: []string{"colbert_fp32", "colbert_fp32_2"}},
 					VectorForTargets: []*pb.VectorForTarget{
 						{Name: "colbert_fp32", Vectors: []*pb.Vectors{
-							{VectorBytes: byteVectorMulti([][]float32{{1, 2, 3}, {1, 2, 3}}), Index: 0, Type: pb.VectorType_VECTOR_TYPE_MULTI_FP32, Name: "colbert_fp32"},
+							{VectorBytes: byteVectorMulti([][]float32{{1, 2, 3}, {1, 2, 3}}), Index: 0, Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32, Name: "colbert_fp32"},
 						}},
 						{Name: "colbert_fp32_2", Vectors: []*pb.Vectors{
-							{VectorBytes: byteVectorMulti([][]float32{{11, 22, 33}, {11, 22, 33}}), Type: pb.VectorType_VECTOR_TYPE_MULTI_FP32},
+							{VectorBytes: byteVectorMulti([][]float32{{11, 22, 33}, {11, 22, 33}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
 						}},
 					},
 				},
