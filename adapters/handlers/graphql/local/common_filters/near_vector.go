@@ -83,24 +83,24 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 					vectors = append(vectors, single)
 					targets = append(targets, target)
 				} else {
-					// TODO clean up
-					multipleNormalVectors, okMultipleNormalVectors := vectorPerTarget[target].([][]float32)
-					multipleMultiVectors, okMultipleMultiVectors := vectorPerTarget[target].([][][]float32)
-					if !okMultipleNormalVectors && !okMultipleMultiVectors {
+					if normalVectors, ok := vectorPerTarget[target].([][]float32); ok {
+						for j := range normalVectors {
+							vectors = append(vectors, normalVectors[j])
+							targets = append(targets, target)
+						}
+					} else if multiVectors, ok := vectorPerTarget[target].([][][]float32); ok {
+						// NOTE the type of multiVectors is [][][]float32 (vs normalVectors which is [][]float32),
+						// so there are two similar loops here to handle the different types, if there is a simpler
+						// way to handle this, feel free to change it
+						for j := range multiVectors {
+							vectors = append(vectors, multiVectors[j])
+							targets = append(targets, target)
+						}
+					} else {
 						return searchparams.NearVector{}, nil,
-							fmt.Errorf("vectorPerTarget should be a map with strings as keys and a normal vector, list of vectors, or list of multi-vectors as values. Received %T", vectorPerTarget[target])
-					}
-					if okMultipleNormalVectors {
-						for j := range multipleNormalVectors {
-							vectors = append(vectors, multipleNormalVectors[j])
-							targets = append(targets, target)
-						}
-					}
-					if okMultipleMultiVectors {
-						for j := range multipleMultiVectors {
-							vectors = append(vectors, multipleMultiVectors[j])
-							targets = append(targets, target)
-						}
+							fmt.Errorf(
+								"vectorPerTarget should be a map with strings as keys and a normal vector, list of vectors, "+
+									"or list of multi-vectors as values. Received %T", vectorPerTarget[target])
 					}
 				}
 			}
@@ -124,16 +124,18 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 				} else if vectorsIn, ok := vectorPerTargetParsed.([][]float32); ok {
 					// if one target vector has multiple search vectors, the target vector needs to be repeated multiple times
 					for j, w := range vectorsIn {
-						if i+j >= len(targetVectors) || targetVectors[i+j] != target {
+						if !targetVectorOrderMatches(i, j, targetVectors, target) {
 							return searchparams.NearVector{}, nil, fmt.Errorf("target %s is not in the correct order", target)
 						}
 						vectors[i+j] = w
 					}
 				} else if multiVectorsIn, ok := vectorPerTargetParsed.([][][]float32); ok {
-					// TODO dry and clean up
+					// NOTE the type of multiVectorsIn is [][][]float32 (vs vectorsIn which is [][]float32),
+					// so there are two similar loops here to handle the different types, if there is a simpler
+					// way to handle this, feel free to change it
 					for j, w := range multiVectorsIn {
-						if i+j >= len(targetVectors) || targetVectors[i+j] != target {
-							return searchparams.NearVector{}, nil, fmt.Errorf("target %s is not in the correct order", target)
+						if !targetVectorOrderMatches(i, j, targetVectors, target) {
+							return searchparams.NearVector{}, nil, fmt.Errorf("multivector target %s is not in the correct order", target)
 						}
 						vectors[i+j] = w
 					}
@@ -146,4 +148,8 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 	}
 
 	return args, combination, nil
+}
+
+func targetVectorOrderMatches(i, j int, targetVectors []string, target string) bool {
+	return i+j < len(targetVectors) && targetVectors[i+j] == target
 }

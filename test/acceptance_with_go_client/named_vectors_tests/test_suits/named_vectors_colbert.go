@@ -283,7 +283,7 @@ func testColBERT(host string) func(t *testing.T) {
 				performNearVector(t, client, className)
 				performNearObject(t, client, className)
 			})
-			t.Run("WithVectorPerTarget searches", func(t *testing.T) {
+			t.Run("WithVector[s]PerTarget searches", func(t *testing.T) {
 				withVectorPerTargetTests := []struct {
 					name       string
 					nearVector *graphql.NearVectorArgumentBuilder
@@ -296,20 +296,103 @@ func testColBERT(host string) func(t *testing.T) {
 							}).
 							WithTargetVectors(normalVector2dName),
 					},
-					// TODO this errors because it gets interpreted as a multivector
-					// {
-					// 	name: "NormalVector_dim3x2",
-					// 	nearVector: client.GraphQL().NearVectorArgBuilder().
-					// 		WithVectorPerTarget(map[string]models.Vector{
-					// 			normalVector2dName: [][]float32{{0.1, 0.1}, {0.1, 0.1}, {0.1, 0.1}},
-					// 		}).
-					// 		WithTargetVectors(normalVector2dName),
-					// },
+					{
+						name: "NormalVectors_dim3x2",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorsPerTarget(map[string][]models.Vector{
+								normalVector2dName: {[]float32{0.1, 0.1}, []float32{0.1, 0.1}, []float32{0.1, 0.1}},
+							}).
+							WithTargetVectors(normalVector2dName),
+					},
 					{
 						name: "MultiVector_dim3x2",
 						nearVector: client.GraphQL().NearVectorArgBuilder().
 							WithVectorPerTarget(map[string]models.Vector{
 								multiVector2dName: [][]float32{{0.1, 0.1}, {0.1, 0.1}, {0.1, 0.1}},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVectors_dim1x3x2",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorsPerTarget(map[string][]models.Vector{
+								multiVector2dName: {
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}, {0.1, 0.1}},
+								},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVectors_dim2x3x2",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorsPerTarget(map[string][]models.Vector{
+								multiVector2dName: {
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}, {0.1, 0.1}},
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}, {0.1, 0.1}},
+								},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVector_1d2d3d",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorPerTarget(map[string]models.Vector{
+								multiVector1dName: [][]float32{{0.1}, {0.1}},
+								multiVector2dName: [][]float32{{0.1, 0.1}, {0.1, 0.1}},
+								multiVector3dName: [][]float32{{0.1, 0.1, 0.1}, {0.1, 0.1, 0.1}},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVectors_1d2d3d",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorsPerTarget(map[string][]models.Vector{
+								multiVector1dName: {
+									[][]float32{{0.1}, {0.1}},
+									[][]float32{{0.1}, {0.1}},
+									[][]float32{{0.1}, {0.1}},
+								},
+								multiVector2dName: {
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}},
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}},
+								},
+								multiVector3dName: {
+									[][]float32{{0.1, 0.1, 0.1}, {0.1, 0.1, 0.1}},
+								},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVector_all",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorPerTarget(map[string]models.Vector{
+								normalVector2dName: []float32{0.1, 0.1},
+								multiVector1dName:  [][]float32{{0.1}, {0.1}},
+								multiVector2dName:  [][]float32{{0.1, 0.1}, {0.1, 0.1}},
+								multiVector3dName:  [][]float32{{0.1, 0.1, 0.1}, {0.1, 0.1, 0.1}},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVectors_all",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorsPerTarget(map[string][]models.Vector{
+								normalVector2dName: {
+									[]float32{0.1, 0.1},
+									[]float32{0.1, 0.1},
+								},
+								multiVector1dName: {
+									[][]float32{{0.1}, {0.1}},
+									[][]float32{{0.1}, {0.1}},
+								},
+								multiVector2dName: {
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}},
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}},
+								},
+								multiVector3dName: {
+									[][]float32{{0.1, 0.1, 0.1}, {0.1, 0.1, 0.1}},
+									[][]float32{{0.1, 0.1, 0.1}, {0.1, 0.1, 0.1}},
+								},
 							}).
 							WithTargetVectors(multiVector2dName),
 					},
@@ -327,9 +410,6 @@ func testColBERT(host string) func(t *testing.T) {
 						assert.Len(t, ids, len(objects))
 					})
 				}
-			})
-			t.Run("WithVectorsPerTarget searches", func(t *testing.T) {
-				// TODO
 			})
 		})
 
