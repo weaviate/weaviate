@@ -642,6 +642,9 @@ func (s *FastSet) Truncate(uint64) helpers.AllowList {
 	panic("DeepCopy")
 }
 
+func (s *FastSet) Close() {
+}
+
 func (s *FastSet) Iterator() helpers.AllowListIterator {
 	return &fastIterator{
 		source:  s,
@@ -836,7 +839,7 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 }
 
 func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidateSet map[uint64]struct{}) ([]uint64, []float32, error) {
-	resultsQueue := priorityqueue.NewMin[any](1)
+	resultsQueue := priorityqueue.NewMax[any](1)
 	for docID := range candidateSet {
 		sim, err := h.computeScore(queryVectors, docID)
 		if err != nil {
@@ -855,7 +858,7 @@ func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidate
 	for resultsQueue.Len() > 0 {
 		element := resultsQueue.Pop()
 		ids[i] = element.ID
-		distances[i] = -element.Dist
+		distances[i] = element.Dist
 		i--
 	}
 
@@ -887,12 +890,17 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 
 	similarity := float32(0.0)
 
+	var distancer distancer.Distancer
 	for _, searchVec := range searchVecs {
-		maxSim := float32(-math.MaxFloat32)
+		maxSim := float32(math.MaxFloat32)
+		distancer = h.multiDistancerProvider.New(searchVec)
 
 		for _, docVec := range docVecs {
-			dist := h.distancerProvider.Step(searchVec, docVec)
-			if dist > maxSim {
+			dist, err := distancer.Distance(docVec)
+			if err != nil {
+				return 0.0, errors.Wrap(err, "calculate distance between candidate and query")
+			}
+			if dist < maxSim {
 				maxSim = dist
 			}
 		}

@@ -257,6 +257,18 @@ func TestGRPC(t *testing.T) {
 		require.Len(t, resp.GroupByResults, 1)
 	})
 
+	t.Run("Aggregate", func(t *testing.T) {
+		resp, err := grpcClient.Aggregate(context.TODO(), &pb.AggregateRequest{
+			Collection: booksClass.Class,
+			MetaCount:  true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Result)
+		require.Len(t, resp.Result.Groups, 1)
+		require.Equal(t, int64(3), resp.Result.Groups[0].Count)
+	})
+
 	t.Run("Batch delete", func(t *testing.T) {
 		resp, err := grpcClient.BatchDelete(context.TODO(), &pb.BatchDeleteRequest{
 			Collection: "Books",

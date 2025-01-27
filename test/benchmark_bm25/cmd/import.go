@@ -44,11 +44,12 @@ func init() {
 func parseData(data []lib.Corpus, datasetId string, batch *batch.ObjectsBatcher, i int) int {
 	total := 0
 	for _, corp := range data {
-		id := uuid.MustParse(fmt.Sprintf("%032x", i)).String()
+		index := i + total
+		id := uuid.MustParse(fmt.Sprintf("%032x", index)).String()
 		props := map[string]interface{}{
-			"modulo_10":   i % 10,
-			"modulo_100":  i % 100,
-			"modulo_1000": i % 1000,
+			"modulo_10":   index % 10,
+			"modulo_100":  index % 100,
+			"modulo_1000": index % 1000,
 		}
 
 		for key, value := range corp {

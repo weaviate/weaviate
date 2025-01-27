@@ -215,6 +215,12 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 			vectorIndexType)
 	}
 
+	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && isMultiVector {
+		return nil, errors.Errorf(
+			"parse vector index config: multi vector index is not supported for vector index type: %q, only supported type is hnsw",
+			vectorIndexType)
+	}
+
 	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType, isMultiVector)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse vector index config")

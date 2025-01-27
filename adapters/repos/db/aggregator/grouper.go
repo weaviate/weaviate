@@ -95,6 +95,10 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 	if err != nil {
 		return nil, err
 	}
+	if allowList != nil {
+		defer allowList.Close()
+	}
+
 	isVectorEmpty, err := dto.IsVectorEmpty(g.params.SearchVector)
 	if err != nil {
 		return nil, fmt.Errorf("grouper: fetch doc ids: %w", err)

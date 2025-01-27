@@ -20,8 +20,11 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
+
+var noopRelease = func() {}
 
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,
@@ -72,12 +75,14 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
-	var readFn ReadFn = func(k []byte, docIDs *sroar.Bitmap) (bool, error) {
+	var readFn ReadFn = func(k []byte, docIDs *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = docIDs
+			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(docIDs)
+			out.docIDs.OrConc(docIDs, concurrency.SROAR_MERGE)
+			release()
 		}
 
 		// NotEqual requires the full set of potentially existing doc ids
@@ -119,6 +124,7 @@ func (s *Searcher) docBitmapInvertedRoaringSetRange(ctx context.Context, b *lsmk
 
 	out := newUninitializedDocBitmap()
 	out.docIDs = docIds
+	out.release = noopRelease
 	return out, nil
 }
 
@@ -127,12 +133,14 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
-	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
+	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = ids
+			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.docIDs.OrConc(ids, concurrency.SROAR_MERGE)
+			release()
 		}
 
 		// NotEqual requires the full set of potentially existing doc ids
@@ -162,12 +170,14 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
-	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
+	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = ids
+			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.docIDs.OrConc(ids, concurrency.SROAR_MERGE)
+			release()
 		}
 
 		// NotEqual requires the full set of potentially existing doc ids

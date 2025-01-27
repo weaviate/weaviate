@@ -42,7 +42,7 @@ func (s *segment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
 
 	return roaringsetrange.NewSegmentReaderConcurrent(
 		roaringsetrange.NewGaplessSegmentCursor(segmentCursor),
-		concurrency.NUMCPU_2)
+		concurrency.SROAR_MERGE)
 }
 
 func (s *segment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {

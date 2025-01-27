@@ -608,6 +608,58 @@ func testColBERT(host string) func(t *testing.T) {
 				require.True(t, ok)
 				assert.True(t, mv["enabled"].(bool))
 			})
+			t.Run("multi vector index with flat vector index type", func(t *testing.T) {
+				cleanup()
+				class := &models.Class{
+					Class: "NamedVectorVectorizerWithMultiVectorIndex",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"colbert": {
+							Vectorizer: map[string]interface{}{
+								"text2colbert-jinaai": map[string]interface{}{
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexType: "flat",
+						},
+					},
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				// Weaviate overrides the multivector setting if it finds that someone has enabled
+				// multi vector vectorizer
+				require.Error(t, err)
+				assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"flat\", only supported type is hnsw`)
+			})
+			t.Run("multi vector index with dynamic vector index type", func(t *testing.T) {
+				cleanup()
+				class := &models.Class{
+					Class: "NamedVectorVectorizerWithMultiVectorIndex",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"colbert": {
+							Vectorizer: map[string]interface{}{
+								"text2colbert-jinaai": map[string]interface{}{
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexType: "dynamic",
+						},
+					},
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				// Weaviate overrides the multivector setting if it finds that someone has enabled
+				// multi vector vectorizer
+				require.Error(t, err)
+				assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"dynamic\", only supported type is hnsw`)
+			})
 		})
 
 		t.Run("validate multi vector dimensions", func(t *testing.T) {
