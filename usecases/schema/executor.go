@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -59,10 +60,10 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 	wg := sync.WaitGroup{}
 	wg.Add(len(all))
 	for i, u := range all {
-		defer wg.Done()
 		i := i
 		u := u
 		enterrors.GoWrapper(func() {
+			defer wg.Done()
 			e.logger.WithField("index", u.Class.Class).Info("reload local index")
 			cs[i] = u.Class
 			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
