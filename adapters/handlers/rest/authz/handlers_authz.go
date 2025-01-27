@@ -84,11 +84,12 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	// check if user has permissions to do the things the new role should do
-	for _, policy := range policies[roleName] {
-		if err := h.authorizer.Authorize(principal, policy.Verb, policy.Resource); err != nil {
-			return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-		}
+	if err := h.userHasRolesPermission(principal, policies[roleName]); err != nil {
+		return authz.NewCreateRoleForbidden().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(
+				fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err),
+			),
+		)
 	}
 
 	roles, err := h.controller.GetRoles(roleName)
@@ -134,6 +135,14 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.ID)...); err != nil {
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if err := h.userHasRolesPermission(principal, policies[params.ID]); err != nil {
+		return authz.NewCreateRoleForbidden().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(
+				fmt.Errorf("can only add permission to roles with less or equal permissions as the current user: %w", err),
+			),
+		)
 	}
 
 	roles, err := h.controller.GetRoles(params.ID)
@@ -518,6 +527,20 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 	}).Info("roles revoked")
 
 	return authz.NewRevokeRoleOK()
+}
+
+func (h *authZHandlers) userHasRolesPermission(principal *models.Principal, policies []authorization.Policy) error {
+	var errs []error
+	// check if user has permissions to do the things the new role should do
+	for _, policy := range policies {
+		if err := h.authorizer.Authorize(principal, policy.Verb, policy.Resource); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("list of missing permissions: %w", errors.Join(errs...))
+	}
+	return nil
 }
 
 func (h *authZHandlers) userExists(user string) bool {
