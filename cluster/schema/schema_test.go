@@ -128,4 +128,12 @@ func Test_schemaShardMetrics(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "HOT")))
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "FROZEN")))
+
+	// update tenant status
+	err = s.updateTenants(c2.Class, 0, &api.UpdateTenantsRequest{
+		Tenants: []*api.Tenant{{Name: "tenant2", Status: "HOT"}}, // FROZEN -> HOT
+	})
+	require.NoError(t, err)
+	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "HOT")))
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("testNode", "FROZEN")))
 }
