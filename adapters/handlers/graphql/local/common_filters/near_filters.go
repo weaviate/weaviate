@@ -161,7 +161,11 @@ func vectorPerTargetParseLiteral(valueAST ast.Value) interface{} {
 func getNormalVector(values []ast.Value) ([]float32, error) {
 	normalVector := make([]float32, len(values))
 	for i, value := range values {
-		floatValue, err := strconv.ParseFloat(value.GetValue().(string), 64)
+		vStr, ok := value.GetValue().(string)
+		if !ok {
+			return nil, fmt.Errorf("value is not a string: %T", value)
+		}
+		floatValue, err := strconv.ParseFloat(vStr, 64)
 		if err != nil {
 			return nil, err
 		}
@@ -173,7 +177,10 @@ func getNormalVector(values []ast.Value) ([]float32, error) {
 func getListOfNormalVectors(values []ast.Value) ([][]float32, error) {
 	normalVectors := make([][]float32, len(values))
 	for i, value := range values {
-		vector := value.(*ast.ListValue)
+		vector, ok := value.(*ast.ListValue)
+		if !ok {
+			return nil, fmt.Errorf("value is not a list: %T", value)
+		}
 		v, err := getNormalVector(vector.Values)
 		if err != nil {
 			return nil, err
@@ -186,7 +193,10 @@ func getListOfNormalVectors(values []ast.Value) ([][]float32, error) {
 func getListOfMultiVectors(values []ast.Value) ([][][]float32, error) {
 	multiVectors := make([][][]float32, len(values))
 	for i, value := range values {
-		multiVector := value.(*ast.ListValue)
+		multiVector, ok := value.(*ast.ListValue)
+		if !ok {
+			return nil, fmt.Errorf("value is not a multivector list: %T", value)
+		}
 		mv, err := getListOfNormalVectors(multiVector.Values)
 		if err != nil {
 			return nil, err
