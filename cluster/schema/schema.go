@@ -79,7 +79,8 @@ func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer
 			Namespace: "weaviate",
 			Name:      "schema_shards",
 			Help:      "Number of shards per node with corresponding status",
-		}, []string{"nodeID"}), // TODO: status: HOT, INACTIVE, FROZEN
+		}, []string{"nodeID", "status"}), // status: HOT, WARM, COLD, FROZEN
+		// TODO: Can we have `ConstLabels` of `nodeID`?
 	}
 
 	return s
@@ -348,12 +349,14 @@ func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsReque
 		return err
 	}
 
-	tc := len(req.Tenants)
-	err = meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
+	sc, err := meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
 	if err != nil {
 		return err
 	}
-	s.shardsCount.WithLabelValues(s.nodeID).Add(float64(tc))
+	for status, count := range sc {
+		s.shardsCount.WithLabelValues(s.nodeID, status).Add(float64(count))
+	}
+
 	return nil
 }
 
@@ -362,20 +365,36 @@ func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenant
 	if !ok {
 		return err
 	}
-	count, err := meta.DeleteTenants(req, v)
+	sc, err := meta.DeleteTenants(req, v)
 	if err != nil {
 		return err
 	}
-	s.shardsCount.WithLabelValues(s.nodeID).Sub(float64(count))
+
+	for status, count := range sc {
+		s.shardsCount.WithLabelValues(s.nodeID, status).Sub(float64(count))
+	}
+
 	return nil
 }
 
 func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) error {
-	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, _, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.UpdateTenants(s.nodeID, req, v)
 	}
+	// TODO: What happens if it returns error because of missingShards, but still some shards are updated in `s.Sharding.Physical`?
+	// Basically. Is partial error possible?
+	sc, err := meta.UpdateTenants(s.nodeID, req, v)
+	for status, count := range sc {
+		// count can be positive or negative.
+		s.shardsCount.WithLabelValues(s.nodeID, status).Add(float64(count))
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {

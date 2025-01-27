@@ -191,10 +191,12 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 	return mergedProps
 }
 
-func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, replFactor int64, v uint64) error {
+func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, replFactor int64, v uint64) (map[string]int, error) {
 	req.Tenants = removeNilTenants(req.Tenants)
 	m.Lock()
 	defer m.Unlock()
+
+	sc := make(map[string]int)
 
 	// TODO-RAFT: Optimize here and avoid iteration twice on the req.Tenants array
 	names := make([]string, len(req.Tenants))
@@ -204,7 +206,7 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 	// First determine the partition based on the node *present at the time of the log entry being created*
 	partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, names, replFactor)
 	if err != nil {
-		return fmt.Errorf("get partitions: %w", err)
+		return nil, fmt.Errorf("get partitions: %w", err)
 	}
 
 	// Iterate over requested tenants and assign them, if found, a partition
@@ -228,32 +230,36 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 		if !slices.Contains(part, nodeID) {
 			req.Tenants[i] = nil // is owned by another node
 		}
+		sc[p.Status]++
 	}
 	m.ShardVersion = v
 	req.Tenants = removeNilTenants(req.Tenants)
-	return nil
+	return sc, nil
 }
 
 // DeleteTenants try to delete the tenants from given request and returns
 // total number of deleted tenants.
-func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) (int, error) {
+func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
 
-	count := 0
+	count := make(map[string]int)
 
 	for _, name := range req.Tenants {
-		if m.Sharding.DeletePartition(name) {
-			count++
+		if status, ok := m.Sharding.DeletePartition(name); ok {
+			count[status]++
 		}
 	}
 	m.ShardVersion = v
 	return count, nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) error {
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
+
+	// sc tracks number of tenants updated by "status"
+	sc := make(map[string]int)
 
 	// For each requested tenant update we'll check if we the schema is missing that shard. If we have any missing shard
 	// we'll return an error but any other successful shard will be updated.
@@ -262,27 +268,33 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	missingShards := []string{}
 	writeIndex := 0
 	for _, requestTenant := range req.Tenants {
-		schemaTenant, ok := m.Sharding.Physical[requestTenant.Name]
+		oldTenant, ok := m.Sharding.Physical[requestTenant.Name]
 		// If we can't find the shard add it to missing shards to error later
 		if !ok {
 			missingShards = append(missingShards, requestTenant.Name)
 			continue
 		}
 		// If the status is currently the same as the one requested just ignore
-		if schemaTenant.ActivityStatus() == requestTenant.Status {
+		if oldTenant.ActivityStatus() == requestTenant.Status {
 			continue
 		}
-		schemaTenant = schemaTenant.DeepCopy()
-		schemaTenant.Status = requestTenant.Status
+
+		newTenant := oldTenant.DeepCopy()
+		newTenant.Status = requestTenant.Status
 		// Update the schema tenant representation with the deep copy (necessary as the initial is a shallow copy from
 		// the map read
-		m.Sharding.Physical[schemaTenant.Name] = schemaTenant
+		m.Sharding.Physical[oldTenant.Name] = newTenant
 
 		// If the shard is not stored on that node skip updating the request tenant as there will be nothing to load on
 		// the DB side
-		if !slices.Contains(schemaTenant.BelongsToNodes, nodeID) {
+		if !slices.Contains(oldTenant.BelongsToNodes, nodeID) {
 			continue
 		}
+
+		// At this point we know, we are going to change the status of a tenant from old-state to new-state.
+		// TODO: what happes if it's stored on `m.Sharding.Physical` but returned if nodeID not present on `oldTenant.BelongsToNodes`?
+		sc[oldTenant.ActivityStatus()]--
+		sc[newTenant.ActivityStatus()]++
 
 		// Save the "valid" tenant on writeIndex and increment. This allows us to filter in place in req.Tenants the
 		// tenants that actually have a change to process
@@ -300,7 +312,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// Update the version of the shard to the current version
 	m.ShardVersion = v
 
-	return err
+	return sc, err
 }
 
 // LockGuard provides convenient mechanism for owning mutex by function which mutates the state.
