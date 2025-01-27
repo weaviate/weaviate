@@ -10,8 +10,8 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/tailor-inc/graphql v0.5.7
-	github.com/weaviate/weaviate v1.28.2
-	github.com/weaviate/weaviate-go-client/v4 v4.16.2-0.20250122141651-2c9c3b9492a8
+	github.com/weaviate/weaviate v1.28.5-0.20250126214405-c3c12e7623bf
+	github.com/weaviate/weaviate-go-client/v4 v4.16.2-0.20250127073049-5b267cd41195
 )
 
 require (
