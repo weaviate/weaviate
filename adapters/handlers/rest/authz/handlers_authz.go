@@ -66,7 +66,8 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 }
 
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
-	if *params.Body.Name == "" {
+	roleName := *params.Body.Name
+	if roleName == "" {
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
@@ -75,15 +76,22 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
+	if slices.Contains(authorization.BuiltInRoles, roleName) {
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles(*params.Body.Name)...); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles(roleName)...); err != nil {
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	roles, err := h.controller.GetRoles(*params.Body.Name)
+	// check if user has permissions to do the things the new role should do
+	for _, policy := range policies[roleName] {
+		if err := h.authorizer.Authorize(principal, policy.Verb, policy.Resource); err != nil {
+			return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+	}
+
+	roles, err := h.controller.GetRoles(roleName)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
