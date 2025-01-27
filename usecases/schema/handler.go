@@ -79,7 +79,7 @@ type SchemaReader interface {
 	MultiTenancy(class string) models.MultiTenancyConfig
 	ClassInfo(class string) (ci clusterSchema.ClassInfo)
 	ReadOnlyClass(name string) *models.Class
-	ReadOnlyVersionedClass(name string) (versioned.Class, error)
+	ReadOnlyVersionedClass(name string) versioned.Class
 	ReadOnlySchema() models.Schema
 	CopyShardingState(class string) *sharding.State
 	ShardReplicas(class, shard string) ([]string, error)

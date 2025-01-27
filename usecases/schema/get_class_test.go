@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
+	shardingCfg "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 func TestClassGetterFromSchema(t *testing.T) {
@@ -34,9 +35,9 @@ func TestClassGetterFromSchema(t *testing.T) {
 			strategy:      config.LeaderOnly,
 			schemaExpect: func(f *fakeSchemaManager) {
 				f.On("QueryReadOnlyClasses", []string{"class1", "class2", "class3"}).Return(map[string]versioned.Class{
-					"class1": {Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw"}},
-					"class2": {Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw"}},
-					"class3": {Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw"}},
+					"class1": {Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw", ShardingConfig: make(map[string]interface{})}},
+					"class2": {Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw", ShardingConfig: make(map[string]interface{})}},
+					"class3": {Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw", ShardingConfig: make(map[string]interface{})}},
 				}, nil)
 			},
 		},
@@ -45,9 +46,9 @@ func TestClassGetterFromSchema(t *testing.T) {
 			getFromSchema: []string{"class1", "class2", "class3"},
 			strategy:      config.LocalOnly,
 			schemaExpect: func(f *fakeSchemaManager) {
-				f.On("ReadOnlyVersionedClass", "class1").Return(versioned.Class{Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw"}}, nil)
-				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw"}}, nil)
-				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw"}}, nil)
+				f.On("ReadOnlyVersionedClass", "class1").Return(versioned.Class{Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
+				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
+				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
 			},
 		},
 		{
@@ -62,9 +63,9 @@ func TestClassGetterFromSchema(t *testing.T) {
 					"class3": 6,
 				}, nil)
 				// Then we check the local version
-				f.On("ReadOnlyVersionedClass", "class1").Return(versioned.Class{Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw"}}, nil)
-				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw"}}, nil)
-				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw"}}, nil)
+				f.On("ReadOnlyVersionedClass", "class1").Return(versioned.Class{Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
+				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
+				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
 				// Then we fetch what we need to update
 				f.On("QueryReadOnlyClasses", []string{"class1", "class2", "class3"}).Return(map[string]versioned.Class{
 					"class1": {Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw"}},
@@ -85,9 +86,9 @@ func TestClassGetterFromSchema(t *testing.T) {
 					"class3": 6,
 				}, nil)
 				// Then we check the local version
-				f.On("ReadOnlyVersionedClass", "class1").Return(versioned.Class{Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw"}}, nil)
-				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw"}}, nil)
-				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw"}}, nil)
+				f.On("ReadOnlyVersionedClass", "class1").Return(versioned.Class{Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
+				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
+				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
 				// Then we fetch what we need to update
 				f.On("QueryReadOnlyClasses", []string{"class3"}).Return(map[string]versioned.Class{
 					"class3": {Version: 6, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw"}},
@@ -105,9 +106,9 @@ func TestClassGetterFromSchema(t *testing.T) {
 					"class2": 2,
 					"class3": 3,
 				}, nil)
-				f.On("ReadOnlyVersionedClass", "class1").Return(versioned.Class{Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw"}}, nil)
-				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw"}}, nil)
-				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw"}}, nil)
+				f.On("ReadOnlyVersionedClass", "class1").Return(versioned.Class{Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
+				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
+				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
 			},
 		},
 		{
@@ -122,9 +123,9 @@ func TestClassGetterFromSchema(t *testing.T) {
 					"class3": 3,
 				}, nil)
 				// Here we assume a delay between the leader returning the version and a change, so local > leader
-				f.On("ReadOnlyVersionedClass", "class1").Return(versioned.Class{Version: 4, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw"}}, nil)
-				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 5, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw"}}, nil)
-				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 6, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw"}}, nil)
+				f.On("ReadOnlyVersionedClass", "class1").Return(versioned.Class{Version: 4, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
+				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 5, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
+				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 6, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
 			},
 		},
 	}

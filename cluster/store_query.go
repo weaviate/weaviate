@@ -19,7 +19,7 @@ import (
 )
 
 func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
-	st.log.WithField("type", req.Type).Debug("server.query")
+	st.log.WithFields(logrus.Fields{"type": req.Type, "type_name": req.Type.String()}).Debug("server.query")
 
 	var payload []byte
 	var err error

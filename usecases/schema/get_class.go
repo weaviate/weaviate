@@ -108,27 +108,14 @@ func (cg *classGetterLeaderOnly) getClasses(names []string) (map[string]versione
 func (cg *classGetterLocalOnly) getClasses(names []string) (map[string]versioned.Class, error) {
 	vclasses := map[string]versioned.Class{}
 	for _, name := range names {
-		vc, err := cg.schemaReader.ReadOnlyVersionedClass(name)
-		if err != nil {
+		vc := cg.schemaReader.ReadOnlyVersionedClass(name)
+		if vc.Class == nil {
 			cg.logger.WithFields(logrus.Fields{
-				"class": vc.Class.Class,
-				"error": err,
-			}).Warn("error reading local class")
+				"class": name,
+			}).Debug("could not find class in local schema")
 			continue
 		}
 		vclasses[name] = vc
-	}
-
-	for _, vclass := range vclasses {
-		if err := cg.parser.ParseClass(vclass.Class); err != nil {
-			// remove invalid classes
-			cg.logger.WithFields(logrus.Fields{
-				"class": vclass.Class.Class,
-				"error": err,
-			}).Warn("parsing class error")
-			delete(vclasses, vclass.Class.Class)
-			continue
-		}
 	}
 
 	// Check if we have all the classes from the local schema
@@ -155,16 +142,25 @@ func (cg *classGetterLeaderOnMismatch) getClasses(names []string) (map[string]ve
 	versionedClassesToReturn := map[string]versioned.Class{}
 	versionedClassesToQueryFromLeader := []string{}
 	for _, name := range names {
-		localVclass, err := cg.schemaReader.ReadOnlyVersionedClass(name)
+		localVclass := cg.schemaReader.ReadOnlyVersionedClass(name)
+		// First check if we have the class locally, if not make sure we'll query from leader
+		if localVclass.Class == nil {
+			versionedClassesToQueryFromLeader = append(versionedClassesToQueryFromLeader, name)
+			continue
+		}
+
+		// We have the class locally, compare the version from leader (if any) and add to query to leader if we have to refresh the version
 		leaderClassVersion, ok := classVersions[name]
 		// < leaderClassVersion instead of != because there is some chance that the local version
 		// could be ahead of the version returned by the leader if the response from the leader was
 		// delayed and i don't think it would be helpful to query the leader again in that case as
 		// it would likely return a version that is at least as large as the local version.
-		if err != nil || !ok || localVclass.Version < leaderClassVersion {
+		if !ok || localVclass.Version < leaderClassVersion {
 			versionedClassesToQueryFromLeader = append(versionedClassesToQueryFromLeader, name)
 			continue
 		}
+
+		// We can use the local class version has not changed
 		versionedClassesToReturn[name] = localVclass
 	}
 	if len(versionedClassesToQueryFromLeader) == 0 {
@@ -182,6 +178,8 @@ func (cg *classGetterLeaderOnMismatch) getClasses(names []string) (map[string]ve
 		return versionedClassesToReturn, err
 	}
 
+	// We only need to ParseClass the ones we receive from the leader due to the Class model containing `interface{}` that are broken on
+	// marshall/unmarshall with gRPC.
 	for _, vclass := range versionedClassesFromLeader {
 		if err := cg.parser.ParseClass(vclass.Class); err != nil {
 			// silently remove invalid classes to match previous behavior

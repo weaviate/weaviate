@@ -83,15 +83,12 @@ func (rs SchemaReader) ReadOnlyClass(class string) (cls *models.Class) {
 
 // ReadOnlyVersionedClass returns a shallow copy of a class along with its version.
 // The copy is read-only and should not be modified.
-func (rs SchemaReader) ReadOnlyVersionedClass(class string) (versioned.Class, error) {
-	mc := rs.metaClass(class)
-	if mc == nil {
-		return versioned.Class{}, ErrClassNotFound
-	}
+func (rs SchemaReader) ReadOnlyVersionedClass(className string) versioned.Class {
+	class, version := rs.schema.ReadOnlyClass(className)
 	return versioned.Class{
-		Class:   &mc.Class,
-		Version: mc.ClassVersion,
-	}, nil
+		Class:   class,
+		Version: version,
+	}
 }
 
 func (rs SchemaReader) metaClass(class string) (meta *metaClass) {
