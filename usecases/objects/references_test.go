@@ -465,7 +465,7 @@ func Test_ReferenceDelete(t *testing.T) {
 		},
 		{
 			Name: "get schema",
-			Req:  req, Stage: 2,
+			Req:  req, Stage: 1,
 			ErrSchema: anyErr,
 			WantCode:  StatusBadRequest,
 		},
@@ -486,12 +486,12 @@ func Test_ReferenceDelete(t *testing.T) {
 		},
 		{
 			Name: "reserved property name",
-			Req:  DeleteReferenceInput{Class: cls, ID: id, Property: "_id"}, Stage: 2,
+			Req:  DeleteReferenceInput{Class: cls, ID: id, Property: "_id"}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
 			Name: "valid property name",
-			Req:  DeleteReferenceInput{Class: cls, ID: id, Property: "-"}, Stage: 2,
+			Req:  DeleteReferenceInput{Class: cls, ID: id, Property: "-"}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{

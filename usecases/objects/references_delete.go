@@ -47,15 +47,42 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	ctx = classcache.ContextWithClassCache(ctx)
 	input.Class = schema.UppercaseClassName(input.Class)
 
+	// We are fetching the existing object and get to know if the UUID exists
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	deprecatedEndpoint := input.Class == ""
+	// we need to know which collection an object belongs to, so for the deprecated case we first need to fetch the
+	// object from any collection, to then know its collection to check for the correct permissions after wards
 	if deprecatedEndpoint {
 		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData()...); err != nil {
 			return &Error{err.Error(), StatusForbidden, err}
 		}
+		res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
+		if err != nil {
+			errnf := ErrNotFound{}
+			if errors.As(err, &errnf) {
+				return &Error{"source object", StatusNotFound, err}
+			} else if errors.As(err, &ErrMultiTenancy{}) {
+				return &Error{"source object", StatusUnprocessableEntity, err}
+			}
+
+			return &Error{"source object", StatusInternalServerError, err}
+		}
+		input.Class = res.ClassName
+	}
+
+	if err := validateReferenceName(input.Class, input.Property); err != nil {
+		return &Error{err.Error(), StatusBadRequest, err}
+	}
+
+	class, schemaVersion, _, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
+	if typedErr != nil {
+		return typedErr
 	}
 
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
@@ -68,16 +95,6 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 
 		return &Error{"source object", StatusInternalServerError, err}
-	}
-	input.Class = res.ClassName
-
-	if err := validateReferenceName(input.Class, input.Property); err != nil {
-		return &Error{err.Error(), StatusBadRequest, err}
-	}
-
-	class, schemaVersion, _, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
-	if typedErr != nil {
-		return typedErr
 	}
 
 	beacon, err := crossref.Parse(input.Reference.Beacon.String())
