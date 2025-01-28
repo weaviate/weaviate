@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 
@@ -37,6 +38,8 @@ var (
 	errReplicas = errors.New("cannot reach enough replicas")
 	errRepair   = errors.New("read repair error")
 	errRead     = errors.New("read error")
+
+	ErrNoDiffFound = errors.New("no diff found")
 )
 
 type (
@@ -306,20 +309,27 @@ func (f *Finder) NodeName() string {
 }
 
 func (f *Finder) CollectShardDifferences(ctx context.Context,
-	shardName string, ht hashtree.AggregatedHashTree,
-) (replyCh <-chan _Result[*ShardDifferenceReader], hosts []string, err error) {
-	coord := newReadCoordinator[*ShardDifferenceReader](f, shardName,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
+	shardName string, ht hashtree.AggregatedHashTree, diffTimeout time.Duration,
+) (*ShardDifferenceReader, error) {
+	state, err := f.resolver.State(shardName, One, "")
+	if err != nil {
+		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
+	}
 
 	sourceHost, ok := f.resolver.NodeHostname(f.NodeName())
 	if !ok {
-		return nil, nil, fmt.Errorf("getting host %s", f.NodeName())
+		return nil, fmt.Errorf("getting host %s", f.NodeName())
 	}
 
-	op := func(ctx context.Context, host string, fullRead bool) (*ShardDifferenceReader, error) {
+	ec := errorcompounder.New()
+
+	for _, host := range state.Hosts {
 		if host == sourceHost {
-			return nil, hashtree.ErrNoMoreRanges
+			continue
 		}
+
+		ctx, cancel := context.WithTimeout(ctx, diffTimeout)
+		defer cancel()
 
 		diff := hashtree.NewBitset(hashtree.NodesCount(ht.Height()))
 
@@ -331,23 +341,23 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		for l := 0; l < ht.Height(); l++ {
 			_, err := ht.Level(l, diff, digests)
 			if err != nil {
-				return nil, fmt.Errorf("%q: %w", host, err)
+				ec.Add(fmt.Errorf("%q: %w", host, err))
+				continue
 			}
 
 			levelDigests, err := f.client.HashTreeLevel(ctx, host, f.class, shardName, l, diff)
 			if err != nil {
-				return nil, fmt.Errorf("%q: %w", host, err)
+				ec.Add(fmt.Errorf("%q: %w", host, err))
+				continue
 			}
 			if len(levelDigests) == 0 {
-				return nil, hashtree.ErrNoMoreRanges
+				continue
 			}
 
 			levelDiffCount := hashtree.LevelDiff(l, diff, digests, levelDigests)
 			if levelDiffCount == 0 {
 				// no difference was found
-				// an error is returned to ensure some existent difference is found if another
-				// consistency level than All is used
-				return nil, hashtree.ErrNoMoreRanges
+				continue
 			}
 		}
 
@@ -357,12 +367,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}, nil
 	}
 
-	replyCh, state, err := coord.Pull(ctx, One, op, "", 20*time.Second)
+	err = ec.ToError()
 	if err != nil {
-		return nil, nil, fmt.Errorf("pull shard: %w", err)
+		return nil, err
 	}
 
-	return replyCh, state.Hosts, nil
+	return nil, ErrNoDiffFound
 }
 
 func (f *Finder) DigestObjectsInTokenRange(ctx context.Context,

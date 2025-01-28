@@ -78,7 +78,10 @@ func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 			}
 			return next.Start, nil
 		},
-		reusableNode: &segmentReplaceNode{},
+		reusableNode: &segmentReplaceNode{
+			secondaryIndexCount: s.secondaryIndexCount,
+			secondaryKeys:       make([][]byte, s.secondaryIndexCount),
+		},
 		reusableBORW: byteops.NewReadWriter(nil),
 	}
 }
