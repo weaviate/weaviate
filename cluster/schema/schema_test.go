@@ -136,4 +136,9 @@ func Test_schemaShardMetrics(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
+
+	// Deleting collection with non-zero shards should decrement the shards count as well.
+	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
+	require.True(t, s.deleteClass(c2.Class))
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
 }

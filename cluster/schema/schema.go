@@ -317,18 +317,33 @@ func (s *schema) replaceStatesNodeName(new string) {
 	}
 }
 
-func (s *schema) deleteClass(name string) {
+func (s *schema) deleteClass(name string) bool {
 	s.Lock()
 	defer s.Unlock()
 
+	// sc tracks number of shards in this collection to be deleted by status.
+	sc := make(map[string]int)
+
 	// since `delete(map, key)` is no-op if `key` doesn't exist, check before deleting
 	// so that we can increment the `collectionsCount` correctly.
-	if _, ok := s.Classes[name]; !ok {
-		return
+	co, ok := s.Classes[name]
+	if !ok {
+		return false
+	}
+
+	// need to decrement shards count on this class.
+	for _, s := range co.Sharding.Physical {
+		sc[s.Status]++
 	}
 
 	delete(s.Classes, name)
+
 	s.collectionsCount.Dec()
+	for status, count := range sc {
+		s.shardsCount.WithLabelValues(status).Sub(float64(count))
+	}
+
+	return true
 }
 
 func (s *schema) addProperty(class string, v uint64, props ...*models.Property) error {
