@@ -127,6 +127,11 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		ec.AddWrap(err, "stop lsmkv store")
 	}
 
+	if s.dynamicVectorIndexDB != nil {
+		err = s.dynamicVectorIndexDB.Close()
+		ec.AddWrap(err, "stop dynamic vector index db")
+	}
+
 	if s.dimensionTrackingInitialized.Load() {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// _and_ when initialization completed, that's why we are trying to stop it

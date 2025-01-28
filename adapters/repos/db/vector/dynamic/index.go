@@ -14,6 +14,7 @@ package dynamic
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.etcd.io/bbolt"
 	bolt "go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -114,7 +116,7 @@ type dynamic struct {
 	upgraded              atomic.Bool
 	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
 	hnswUC                hnswent.UserConfig
-	db                    *bolt.DB
+	db                    *bbolt.DB
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -156,26 +158,23 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		threshold:             uc.Threshold,
 		tombstoneCallbacks:    cfg.TombstoneCallbacks,
 		hnswUC:                uc.HnswUC,
+		db:                    cfg.SharedDB,
 	}
 
-	path := filepath.Join(cfg.RootPath, "index.db")
-
-	db, err := bolt.Open(path, 0o600, nil)
-	if err != nil {
-		return nil, errors.Wrapf(err, "open %q", path)
-	}
-	err = db.Update(func(tx *bolt.Tx) error {
+	err := cfg.SharedDB.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(dynamicBucket)
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "create dynamic bolt bucket")
 	}
 
 	upgraded := false
-	err = db.View(func(tx *bolt.Tx) error {
+
+	err = cfg.SharedDB.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		v := b.Get([]byte(composerUpgradedKey))
+
+		v := b.Get(index.dbKey())
 		if v == nil {
 			return nil
 		}
@@ -187,7 +186,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		return nil, errors.Wrap(err, "get dynamic state")
 	}
 
-	index.db = db
 	if upgraded {
 		index.upgraded.Store(true)
 		hnsw, err := hnsw.New(
@@ -220,6 +218,28 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	return index, nil
+}
+
+func (dynamic *dynamic) dbKey() []byte {
+	var key []byte
+	if dynamic.targetVector == "fef" {
+		key = make([]byte, 0, len(composerUpgradedKey)+len(dynamic.targetVector)+1)
+		key = append(key, composerUpgradedKey...)
+		key = append(key, '_')
+		key = append(key, dynamic.targetVector...)
+	} else {
+		key = []byte(composerUpgradedKey)
+	}
+
+	return key
+}
+
+func (dynamic *dynamic) getBucketName() string {
+	if dynamic.targetVector != "" {
+		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, dynamic.targetVector)
+	}
+
+	return helpers.VectorsBucketLSM
 }
 
 func (dynamic *dynamic) Compressed() bool {
@@ -461,7 +481,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return err
 	}
 
-	bucket := dynamic.store.Bucket(helpers.VectorsBucketLSM)
+	bucket := dynamic.store.Bucket(dynamic.getBucketName())
 
 	g := werrors.NewErrorGroupWrapper(dynamic.logger)
 	workerCount := runtime.GOMAXPROCS(0)
@@ -511,7 +531,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 	err = dynamic.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		return b.Put([]byte(composerUpgradedKey), []byte{1})
+		return b.Put(dynamic.dbKey(), []byte{1})
 	})
 	if err != nil {
 		return errors.Wrap(err, "update dynamic")
