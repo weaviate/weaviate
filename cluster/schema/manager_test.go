@@ -19,6 +19,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/models"
@@ -31,7 +32,7 @@ var errAny = errors.New("any error")
 func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	var (
 		ctx = context.Background()
-		sc  = NewSchema(t.Name(), nil)
+		sc  = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
 		vsc = VersionedSchemaReader{
 			schema:        sc,
 			WaitForUpdate: func(ctx context.Context, version uint64) error { return nil },
@@ -63,7 +64,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 		retErr error
 		f      = func(ctx context.Context, version uint64) error { return retErr }
 		nodes  = []string{"N1", "N2"}
-		s      = NewSchema(t.Name(), &MockShardReader{})
+		s      = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
 		sc     = VersionedSchemaReader{s, f}
 	)
 
@@ -162,7 +163,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 }
 
 func TestSchemaReaderShardReplicas(t *testing.T) {
-	sc := NewSchema(t.Name(), nil)
+	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
 	rsc := SchemaReader{sc, VersionedSchemaReader{}}
 	// class not found
 	_, _, err := sc.ShardReplicas("C", "S")
@@ -187,7 +188,7 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 func TestSchemaReaderClass(t *testing.T) {
 	var (
 		nodes = []string{"N1", "N2"}
-		s     = NewSchema(t.Name(), &MockShardReader{})
+		s     = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
 		sc    = SchemaReader{s, VersionedSchemaReader{}}
 	)
 
@@ -255,7 +256,7 @@ func TestSchemaReaderClass(t *testing.T) {
 func TestSchemaSnapshot(t *testing.T) {
 	var (
 		node   = "N1"
-		sc     = NewSchema(node, fakes.NewMockSchemaExecutor())
+		sc     = NewSchema(node, fakes.NewMockSchemaExecutor(), prometheus.NewPedanticRegistry())
 		parser = fakes.NewMockParser()
 
 		cls = &models.Class{Class: "C"}
@@ -275,7 +276,7 @@ func TestSchemaSnapshot(t *testing.T) {
 	assert.Nil(t, sc.Persist(sink))
 
 	// restore snapshot
-	sc2 := NewSchema("N1", fakes.NewMockSchemaExecutor())
+	sc2 := NewSchema("N1", fakes.NewMockSchemaExecutor(), prometheus.NewPedanticRegistry())
 	assert.Nil(t, sc2.Restore(sink, parser))
 	assert.Equal(t, sc.Classes, sc2.Classes)
 
