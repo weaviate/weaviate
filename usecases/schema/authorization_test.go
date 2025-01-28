@@ -154,7 +154,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			testedMethods[i] = test.methodName
 		}
 
-		for _, method := range allExportedMethods(&Handler{}) {
+		for _, method := range allExportedMethods(&Handler{classGetter: nil}) {
 			switch method {
 			case "RegisterSchemaUpdateCallback",
 				// introduced by sync.Mutex in go 1.18

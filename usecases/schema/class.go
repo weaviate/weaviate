@@ -24,7 +24,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -67,6 +66,9 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	return class, 0, err
 }
 
+// GetCachedClass will return the class from the cache if it exists. Note that the context cache
+// will likely be at the "request" or "operation" level and not be shared between requests.
+// Uses the Handler's getClassMethod to determine how to get the class data.
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
@@ -75,28 +77,7 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	}
 
 	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
-		vclasses, err := h.schemaManager.QueryReadOnlyClasses(names...)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(vclasses) == 0 {
-			return nil, nil
-		}
-
-		for _, vclass := range vclasses {
-			if err := h.parser.ParseClass(vclass.Class); err != nil {
-				// remove invalid classes
-				h.logger.WithFields(logrus.Fields{
-					"Class": vclass.Class.Class,
-					"Error": err,
-				}).Warn("parsing class error")
-				delete(vclasses, vclass.Class.Class)
-				continue
-			}
-		}
-
-		return vclasses, nil
+		return h.classGetter.getClasses(names)
 	}, names...)
 }
 

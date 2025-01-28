@@ -35,10 +35,31 @@ const (
 	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
 	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
 	// on a single node cluster.
-	DefaultRaftBootstrapTimeout = 600
-	DefaultRaftBootstrapExpect  = 1
-	DefaultRaftDir              = "raft"
+	DefaultRaftBootstrapTimeout        = 600
+	DefaultRaftBootstrapExpect         = 1
+	DefaultRaftDir                     = "raft"
+	SchemaRetrievalStrategyEnvVariable = "COLLECTION_RETRIEVAL_STRATEGY"
 )
+
+type SchemaRetrievalStrategy int
+
+const (
+	LeaderOnly SchemaRetrievalStrategy = iota
+	LocalOnly
+	LeaderOnMismatch
+)
+
+var schemaRetrievalStrategyToEnum = map[string]SchemaRetrievalStrategy{
+	"LeaderOnly":       LeaderOnly,
+	"LocalOnly":        LocalOnly,
+	"LeaderOnMismatch": LeaderOnMismatch,
+}
+
+var SchemaRetrievalStrategyToString = map[SchemaRetrievalStrategy]string{
+	LeaderOnly:       "LeaderOnly",
+	LocalOnly:        "LocalOnly",
+	LeaderOnMismatch: "LeaderOnMismatch",
+}
 
 // FromEnv takes a *Config as it will respect initial config that has been
 // provided by other means (e.g. a config file) and will only extend those that
@@ -477,6 +498,13 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
 		config.HNSWStartupWaitForVectorCache = true
+	}
+
+	config.SchemaRetrievalStrategy = LeaderOnly
+	if v := os.Getenv(SchemaRetrievalStrategyEnvVariable); v != "" {
+		if enum, ok := schemaRetrievalStrategyToEnum[v]; ok {
+			config.SchemaRetrievalStrategy = enum
+		}
 	}
 
 	// explicitly reset sentry config

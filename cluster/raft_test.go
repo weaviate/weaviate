@@ -113,6 +113,11 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.NotNil(t, readOnlyVClass[cls.Class].Class)
 	assert.Equal(t, cls, readOnlyVClass[cls.Class].Class)
 
+	// QueryClassVersions
+	classVersions, err := srv.QueryClassVersions(cls.Class)
+	assert.NoError(t, err)
+	assert.Equal(t, readOnlyVClass[cls.Class].Version, classVersions[cls.Class])
+
 	// QuerySchema
 	getSchema, err := srv.QuerySchema()
 	assert.NoError(t, err)
