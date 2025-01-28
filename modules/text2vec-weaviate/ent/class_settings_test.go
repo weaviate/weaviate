@@ -43,6 +43,23 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 		},
 		{
+			name: "Explicit correct model",
+			cfg: &fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model": "Snowflake/snowflake-arctic-embed-m-v1.5",
+				},
+			},
+		},
+		{
+			name: "Explicit wrong model",
+			cfg: &fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model": "not-available-model",
+				},
+			},
+			wantErr: errors.New("wrong model name, available model names are: [Snowflake/snowflake-arctic-embed-l-v2.0 Snowflake/snowflake-arctic-embed-m-v1.5]"),
+		},
+		{
 			name: "Explicit correct dimensions",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -54,10 +71,10 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Explicit wrong dimensions",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"dimensions": 123,
+					"dimensions": 768,
 				},
 			},
-			wantErr: errors.New("available dimensions for model Snowflake/snowflake-arctic-embed-m-v1.5 are: [256 768]. Got 123"),
+			wantErr: errors.New("wrong dimensions setting for Snowflake/snowflake-arctic-embed-l-v2.0 model, available dimensions are: [256 1024]"),
 		},
 	}
 	for _, tt := range tests {
