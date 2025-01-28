@@ -38,7 +38,7 @@ DEBUG_DYN_GO_FLAGS := -gcflags "all=-N -l" -ldflags "$(GO_LDFLAGS)" -tags netgo
 
 # Docker images
 IMAGE_PREFIX           ?= semitechnologies
-IMAGE_TAG              ?= $(shell jq -r '.info.version' < openapi-specs/schema.json)
+IMAGE_TAG              ?= $(shell ./tools/dev/image-tag.sh)
 WEAVIATE_IMAGE         ?= $(IMAGE_PREFIX)/weaviate:$(IMAGE_TAG)
 
 # OCI (Docker) setup
@@ -50,7 +50,7 @@ OCI_TAG        := docker tag
 
 ifeq ($(CI),true)
   # buildx is used on the CI for cross-platform builds
-	_               := $(shell ./tools/ensure-buildx-builder.sh)
+	_               := $(shell ./tools/dev/ensure-buildx-builder.sh)
 	OCI_BUILD       := DOCKER_BUILDKIT=1 docker buildx build $(OCI_PLATFORMS) $(OCI_BUILD_ARGS)
 else
 	OCI_BUILD       := DOCKER_BUILDKIT=1 docker build $(OCI_BUILD_ARGS)
