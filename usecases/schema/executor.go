@@ -247,15 +247,19 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 	e.callbacksLock.RLock()
 	defer e.callbacksLock.RUnlock()
 
+	wg := sync.WaitGroup{}
+	wg.Add(len(e.callbacks))
 	for _, cb := range e.callbacks {
 		cb := cb
 		enterrors.GoWrapper(func() {
+			wg.Done()
 			s := e.schemaReader.ReadOnlySchema()
 			cb(schema.Schema{
 				Objects: &s,
 			})
 		}, e.logger)
 	}
+	wg.Wait()
 }
 
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
