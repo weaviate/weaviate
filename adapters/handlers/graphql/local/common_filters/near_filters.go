@@ -113,6 +113,7 @@ var vectorPerTarget = graphql.NewScalar(graphql.ScalarConfig{
 })
 
 func vectorPerTargetParseLiteral(valueAST ast.Value) interface{} {
+	fmt.Println("trigger new build, TODO remove me")
 	switch v := valueAST.(type) {
 	case *ast.ObjectValue:
 		result := make(map[string]interface{})

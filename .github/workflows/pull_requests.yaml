@@ -481,7 +481,7 @@ jobs:
   Push-Docker-Amd:
     if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') && github.triggering_actor != 'dependabot[bot]' }} # no PRs from fork
     # needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
-    name: push-docker
+    name: push-docker-amd
     runs-on: ubuntu-latest-8-cores
     steps:
       - uses: actions/checkout@v4
@@ -503,7 +503,7 @@ jobs:
   Push-Docker-Arm:
     if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') && github.triggering_actor != 'dependabot[bot]' }} # no PRs from fork
     # needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
-    name: push-docker
+    name: push-docker-arm
     runs-on: ubuntu-latest-8-cores
     steps:
       - uses: actions/checkout@v4
