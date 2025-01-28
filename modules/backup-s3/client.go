@@ -24,6 +24,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -129,7 +130,7 @@ func (s *s3Client) PutFile(ctx context.Context, backupID, key string, srcPath st
 
 func (s *s3Client) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
 	objectName := s.makeObjectName(backupID, key)
-	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
+	opt := minio.PutObjectOptions{ContentType: "application/octet-stream", PartSize: 16 * 1024 * 1024}
 	reader := bytes.NewReader(byes)
 	objectSize := int64(len(byes))
 
@@ -185,6 +186,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key string, r io.ReadClo
 	opt := minio.PutObjectOptions{
 		ContentType:      "application/octet-stream",
 		DisableMultipart: false,
+		PartSize:         16 * 1024 * 1024, // 16MB
 	}
 
 	info, err := s.client.PutObject(ctx, s.config.Bucket, path, r, -1, opt)
