@@ -136,8 +136,8 @@ func TestClassGetterFromSchema(t *testing.T) {
 			// Configure test setup
 			handler, fakeSchema := newTestHandler(t, &fakeDB{})
 			log, _ := test.NewNullLogger()
-			classGetter, err := NewClassGetter(testCase.strategy, &handler.parser, fakeSchema, fakeSchema, log)
-			require.NoError(t, err)
+			classGetter := NewClassGetter(testCase.strategy, &handler.parser, fakeSchema, fakeSchema, log)
+			require.NotNil(t, classGetter)
 
 			// Configure expectation
 			testCase.schemaExpect(fakeSchema)

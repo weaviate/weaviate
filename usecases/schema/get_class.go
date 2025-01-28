@@ -12,75 +12,50 @@
 package schema
 
 import (
-	"fmt"
-
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-type classGetter interface {
-	getClasses(names []string) (map[string]versioned.Class, error)
-}
-
-func NewClassGetter(schemaRetrievalStrategy config.SchemaRetrievalStrategy, schemaParser *Parser, schemaManager SchemaManager, schemaReader SchemaReader, logger logrus.FieldLogger) (classGetter, error) {
-	switch schemaRetrievalStrategy {
-	case config.LeaderOnly:
-		return newClassGetterLeaderOnly(schemaParser, schemaManager, logger), nil
-	case config.LocalOnly:
-		return newClassGetterLocalOnly(schemaParser, schemaReader, logger), nil
-	case config.LeaderOnMismatch:
-		return newClassGetterLeaderOnMismatch(schemaParser, schemaReader, schemaManager, logger), nil
-	default:
-		return nil, fmt.Errorf("unknown class getter method: %s", config.SchemaRetrievalStrategyToString[schemaRetrievalStrategy])
-	}
-}
-
-type classGetterLeaderOnly struct {
-	parser        *Parser
-	schemaManager SchemaManager
-	logger        logrus.FieldLogger
-}
-
-func newClassGetterLeaderOnly(parser *Parser, schemaManager SchemaManager, logger logrus.FieldLogger) *classGetterLeaderOnly {
-	return &classGetterLeaderOnly{
-		parser:        parser,
-		schemaManager: schemaManager,
-		logger:        logger,
-	}
-}
-
-type classGetterLocalOnly struct {
-	parser       *Parser
-	schemaReader SchemaReader
-	logger       logrus.FieldLogger
-}
-
-func newClassGetterLocalOnly(parser *Parser, schemaReader SchemaReader, logger logrus.FieldLogger) *classGetterLocalOnly {
-	return &classGetterLocalOnly{
-		parser:       parser,
-		schemaReader: schemaReader,
-		logger:       logger,
-	}
-}
-
-type classGetterLeaderOnMismatch struct {
+type ClassGetter struct {
 	parser        *Parser
 	schemaReader  SchemaReader
 	schemaManager SchemaManager
 	logger        logrus.FieldLogger
+
+	schemaRetrievalStrategy *configRuntime.FeatureFlag[string]
 }
 
-func newClassGetterLeaderOnMismatch(parser *Parser, schemaReader SchemaReader, schemaManager SchemaManager, logger logrus.FieldLogger) *classGetterLeaderOnMismatch {
-	return &classGetterLeaderOnMismatch{
-		parser:        parser,
+func NewClassGetter(schemaRetrievalStrategy config.SchemaRetrievalStrategy, schemaParser *Parser, schemaManager SchemaManager, schemaReader SchemaReader, logger logrus.FieldLogger) *ClassGetter {
+	return &ClassGetter{
+		parser:        schemaParser,
 		schemaReader:  schemaReader,
 		schemaManager: schemaManager,
 		logger:        logger,
+		schemaRetrievalStrategy: configRuntime.NewFeatureFlag(
+			"collection-retrieval-strategy",
+			string(schemaRetrievalStrategy),
+		).WithEnvDefault("COLLECTION_STRATEGY_RETRIEVAL").WithLogOnChange(logger),
 	}
 }
 
-func (cg *classGetterLeaderOnly) getClasses(names []string) (map[string]versioned.Class, error) {
+func (cg *ClassGetter) getClasses(names []string) (map[string]versioned.Class, error) {
+	switch config.SchemaRetrievalStrategy(cg.schemaRetrievalStrategy.Get()) {
+	case config.LeaderOnly:
+		return cg.getClassesLeaderOnly(names)
+	case config.LeaderOnMismatch:
+		return cg.getClassesLeaderOnMismatch(names)
+	case config.LocalOnly:
+		return cg.getClassesLocalOnly(names)
+
+		// This can happen if the feature flag gets configured with an invalid strategy
+	default:
+		return cg.getClassesLeaderOnly(names)
+	}
+}
+
+func (cg *ClassGetter) getClassesLeaderOnly(names []string) (map[string]versioned.Class, error) {
 	vclasses, err := cg.schemaManager.QueryReadOnlyClasses(names...)
 	if err != nil {
 		return nil, err
@@ -105,7 +80,7 @@ func (cg *classGetterLeaderOnly) getClasses(names []string) (map[string]versione
 	return vclasses, nil
 }
 
-func (cg *classGetterLocalOnly) getClasses(names []string) (map[string]versioned.Class, error) {
+func (cg *ClassGetter) getClassesLocalOnly(names []string) (map[string]versioned.Class, error) {
 	vclasses := map[string]versioned.Class{}
 	for _, name := range names {
 		vc := cg.schemaReader.ReadOnlyVersionedClass(name)
@@ -134,7 +109,7 @@ func (cg *classGetterLocalOnly) getClasses(names []string) (map[string]versioned
 	return vclasses, nil
 }
 
-func (cg *classGetterLeaderOnMismatch) getClasses(names []string) (map[string]versioned.Class, error) {
+func (cg *ClassGetter) getClassesLeaderOnMismatch(names []string) (map[string]versioned.Class, error) {
 	classVersions, err := cg.schemaManager.QueryClassVersions(names...)
 	if err != nil {
 		return nil, err

@@ -41,18 +41,18 @@ const (
 	SchemaRetrievalStrategyEnvVariable = "COLLECTION_RETRIEVAL_STRATEGY"
 )
 
-type SchemaRetrievalStrategy int
+type SchemaRetrievalStrategy string
 
 const (
-	LeaderOnly SchemaRetrievalStrategy = iota
-	LocalOnly
-	LeaderOnMismatch
+	LeaderOnly       SchemaRetrievalStrategy = "LeaderOnly"
+	LocalOnly        SchemaRetrievalStrategy = "LocalOnly"
+	LeaderOnMismatch SchemaRetrievalStrategy = "LeaderOnMismatch"
 )
 
-var schemaRetrievalStrategyToEnum = map[string]SchemaRetrievalStrategy{
-	"LeaderOnly":       LeaderOnly,
-	"LocalOnly":        LocalOnly,
-	"LeaderOnMismatch": LeaderOnMismatch,
+var schemaRetrievalStrategyToEnum = map[SchemaRetrievalStrategy]struct{}{
+	LeaderOnly:       {},
+	LocalOnly:        {},
+	LeaderOnMismatch: {},
 }
 
 var SchemaRetrievalStrategyToString = map[SchemaRetrievalStrategy]string{
@@ -502,8 +502,9 @@ func FromEnv(config *Config) error {
 
 	config.SchemaRetrievalStrategy = LeaderOnly
 	if v := os.Getenv(SchemaRetrievalStrategyEnvVariable); v != "" {
-		if enum, ok := schemaRetrievalStrategyToEnum[v]; ok {
-			config.SchemaRetrievalStrategy = enum
+		vAsEnum := SchemaRetrievalStrategy(v)
+		if _, ok := schemaRetrievalStrategyToEnum[vAsEnum]; ok {
+			config.SchemaRetrievalStrategy = vAsEnum
 		}
 	}
 
