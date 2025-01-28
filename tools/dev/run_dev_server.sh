@@ -9,6 +9,7 @@ export GO111MODULE=on
 export LOG_LEVEL=${LOG_LEVEL:-"debug"}
 export LOG_FORMAT=${LOG_FORMAT:-"text"}
 export PROMETHEUS_MONITORING_ENABLED=${PROMETHEUS_MONITORING_ENABLED:-"true"}
+export PROMETHEUS_MONITORING_PORT=${PROMETHEUS_MONITORING_PORT:-"2112"}
 export GO_BLOCK_PROFILE_RATE=${GO_BLOCK_PROFILE_RATE:-"20"}
 export GO_MUTEX_PROFILE_FRACTION=${GO_MUTEX_PROFILE_FRACTION:-"20"}
 export PERSISTENCE_DATA_PATH=${PERSISTENCE_DATA_PATH:-"./data"}
@@ -68,6 +69,8 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      PROMETHEUS_MONITORING_ENABLED=true \
+      PROMETHEUS_MONITORING_PORT="${PROMETHEUS_MONITORING_PORT}" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
       go_run ./cmd/weaviate-server \
@@ -88,7 +91,8 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
-      PROMETHEUS_MONITORING_PORT="2113" \
+      PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 1))" \
+      PROMETHEUS_MONITORING_ENABLED=true \
       RAFT_PORT="8302" \
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
@@ -114,7 +118,8 @@ case $CONFIG in
         CLUSTER_GOSSIP_BIND_PORT="7104" \
         CLUSTER_DATA_BIND_PORT="7105" \
         CLUSTER_JOIN="localhost:7100" \
-      PROMETHEUS_MONITORING_PORT="2114" \
+      PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 2))" \
+        PROMETHEUS_MONITORING_ENABLED=true \
         RAFT_PORT="8304" \
         RAFT_INTERNAL_RPC_PORT="8305" \
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
@@ -678,7 +683,75 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
+    
+  local-prometheus)
+    echo "Starting monitoring setup..."
+      
+    cleanup() {
+      echo "Cleaning up existing containers and volumes..."
+      docker stop prometheus grafana 2>/dev/null || true
+      docker rm -f prometheus grafana 2>/dev/null || true
+      docker volume rm grafana_data 2>/dev/null || true
+      docker network rm monitoring 2>/dev/null || true
+      echo "Cleanup complete."
+    }
+    
+    cleanup
 
+    echo "Creating new setup..."
+    
+    docker network create monitoring 2>/dev/null || true
+
+    
+    echo "Starting Prometheus..."
+    docker run -d \
+      --name prometheus \
+      --network monitoring \
+      -p 9090:9090 \
+      --add-host=host.docker.internal:host-gateway \
+      -v "$(pwd)/tools/dev/prometheus_config/prometheus.yml:/etc/prometheus/prometheus.yml" \
+      prom/prometheus
+
+    
+    echo "Starting Grafana..."
+    docker run -d \
+      --name grafana \
+      --network monitoring \
+      -p 3000:3000 \
+      -e "GF_SECURITY_ADMIN_PASSWORD=admin" \
+      -e "GF_LOG_LEVEL=debug" \
+      -v "$(pwd)/tools/dev/grafana/datasources:/etc/grafana/provisioning/datasources" \
+      -v "$(pwd)/tools/dev/grafana/dashboards/dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml" \
+      -v "$(pwd)/tools/dev/grafana/dashboards:/etc/grafana/dashboards" \
+      grafana/grafana
+    
+    echo "Waiting for services to start..."
+    sleep 5
+
+    if docker ps | grep -q prometheus; then
+      echo "Prometheus is running"
+      echo "Checking Prometheus targets..."
+      curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job:.job, state:.health}'
+    else
+      echo "Error: Prometheus failed to start"
+      docker logs prometheus
+    fi
+
+    if docker ps | grep -q grafana; then
+      echo "Grafana is running"
+      echo "Checking Grafana logs..."
+      docker logs grafana
+    else
+      echo "Error: Grafana failed to start"
+      docker logs grafana
+    fi
+
+    echo "Setup complete! Services are available at:"
+    echo "Prometheus: http://localhost:9090"
+    echo "Grafana: http://localhost:3000 (admin/admin)"
+    echo "Dashboards should be available at:"
+    echo "- Overview: http://localhost:3000/d/weaviate-overview/weaviate-overview"
+    ;;
   *)
     echo "Invalid config" 2>&1
     exit 1
