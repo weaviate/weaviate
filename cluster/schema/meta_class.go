@@ -196,8 +196,6 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 	m.Lock()
 	defer m.Unlock()
 
-	sc := make(map[string]int)
-
 	// TODO-RAFT: Optimize here and avoid iteration twice on the req.Tenants array
 	names := make([]string, len(req.Tenants))
 	for i, tenant := range req.Tenants {
@@ -208,6 +206,9 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 	if err != nil {
 		return nil, fmt.Errorf("get partitions: %w", err)
 	}
+
+	// sc tracks number of shards in this collection to be added by status.
+	sc := make(map[string]int)
 
 	// Iterate over requested tenants and assign them, if found, a partition
 	for i, t := range req.Tenants {

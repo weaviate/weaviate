@@ -321,15 +321,15 @@ func (s *schema) deleteClass(name string) bool {
 	s.Lock()
 	defer s.Unlock()
 
-	// sc tracks number of shards in this collection to be deleted by status.
-	sc := make(map[string]int)
-
 	// since `delete(map, key)` is no-op if `key` doesn't exist, check before deleting
 	// so that we can increment the `collectionsCount` correctly.
 	co, ok := s.Classes[name]
 	if !ok {
 		return false
 	}
+
+	// sc tracks number of shards in this collection to be deleted by status.
+	sc := make(map[string]int)
 
 	// need to decrement shards count on this class.
 	for _, s := range co.Sharding.Physical {
@@ -405,11 +405,7 @@ func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenant
 		s.shardsCount.WithLabelValues(status).Add(float64(count))
 	}
 
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
