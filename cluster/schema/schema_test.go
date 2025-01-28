@@ -141,4 +141,16 @@ func Test_schemaShardMetrics(t *testing.T) {
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
 	require.True(t, s.deleteClass(c2.Class))
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
+
+	// Adding class with non empty shard should increase the shard count
+	ss = &sharding.State{
+		Physical: make(map[string]sharding.Physical),
+	}
+	ss.Physical["random"] = sharding.Physical{
+		Name:   "random",
+		Status: "",
+	}
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("")))
+	require.NoError(t, s.addClass(c2, ss, 0))
+	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("")))
 }
