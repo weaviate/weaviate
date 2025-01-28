@@ -718,7 +718,8 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		it := allowList.Iterator()
 		idx, ok := it.Next()
 		h.shardedNodeLocks.RLockAll()
-		for ; ok && h.nodes[idx] == nil && h.hasTombstone(idx); idx, ok = it.Next() {
+		for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
+			idx, ok = it.Next()
 		}
 		h.shardedNodeLocks.RUnlockAll()
 
