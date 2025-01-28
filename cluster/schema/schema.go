@@ -383,9 +383,8 @@ func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenant
 	if !ok {
 		return err
 	}
-	// TODO: What happens if it returns error because of missingShards, but still some shards are updated in `s.Sharding.Physical`?
-	// Basically. Is partial error possible?
 	sc, err := meta.UpdateTenants(s.nodeID, req, v)
+	// partial update possible
 	for status, count := range sc {
 		// count can be positive or negative.
 		s.shardsCount.WithLabelValues(status).Add(float64(count))

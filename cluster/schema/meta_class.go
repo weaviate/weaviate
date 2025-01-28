@@ -285,16 +285,15 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		// the map read
 		m.Sharding.Physical[oldTenant.Name] = newTenant
 
+		// At this point we know, we are going to change the status of a tenant from old-state to new-state.
+		sc[oldTenant.ActivityStatus()]--
+		sc[newTenant.ActivityStatus()]++
+
 		// If the shard is not stored on that node skip updating the request tenant as there will be nothing to load on
 		// the DB side
 		if !slices.Contains(oldTenant.BelongsToNodes, nodeID) {
 			continue
 		}
-
-		// At this point we know, we are going to change the status of a tenant from old-state to new-state.
-		// TODO: what happes if it's stored on `m.Sharding.Physical` but returned if nodeID not present on `oldTenant.BelongsToNodes`?
-		sc[oldTenant.ActivityStatus()]--
-		sc[newTenant.ActivityStatus()]++
 
 		// Save the "valid" tenant on writeIndex and increment. This allows us to filter in place in req.Tenants the
 		// tenants that actually have a change to process
