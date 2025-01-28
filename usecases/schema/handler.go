@@ -130,7 +130,7 @@ type Handler struct {
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	parser                  Parser
-	classGetter             classGetter
+	classGetter             *ClassGetter
 }
 
 // NewHandler creates a new handler
@@ -144,7 +144,7 @@ func NewHandler(
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
-	parser Parser, classGetter classGetter,
+	parser Parser, classGetter *ClassGetter,
 ) (Handler, error) {
 	logger.WithField("schema_retrieval_strategy", config.SchemaRetrievalStrategy).Debug("creating schema handler")
 	handler := Handler{
