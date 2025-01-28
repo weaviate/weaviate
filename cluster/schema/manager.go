@@ -374,6 +374,5 @@ func (s *SchemaManager) apply(op applyOp) error {
 	if op.enableSchemaCallback {
 		s.db.TriggerSchemaUpdateCallbacks()
 	}
-
 	return nil
 }
