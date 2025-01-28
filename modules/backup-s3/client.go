@@ -186,7 +186,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 	}
 
 	remotePath := s.makeObjectName(backupID, key)
-	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
+	opt := minio.PutObjectOptions{ContentType: "application/octet-stream", PartSize: 16 * 1024 * 1024}
 	reader := bytes.NewReader(byes)
 	objectSize := int64(len(byes))
 
@@ -273,6 +273,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 	opt := minio.PutObjectOptions{
 		ContentType:      "application/octet-stream",
 		DisableMultipart: false,
+		PartSize:         16 * 1024 * 1024, // 16MB
 	}
 
 	if overridePath != "" {
