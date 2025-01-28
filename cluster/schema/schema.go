@@ -278,6 +278,11 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 	}
 
 	s.collectionsCount.Inc()
+
+	for _, shard := range ss.Physical {
+		s.shardsCount.WithLabelValues(shard.Status).Inc()
+	}
+
 	return nil
 }
 
@@ -323,7 +328,7 @@ func (s *schema) deleteClass(name string) bool {
 
 	// since `delete(map, key)` is no-op if `key` doesn't exist, check before deleting
 	// so that we can increment the `collectionsCount` correctly.
-	co, ok := s.Classes[name]
+	class, ok := s.Classes[name]
 	if !ok {
 		return false
 	}
@@ -332,8 +337,8 @@ func (s *schema) deleteClass(name string) bool {
 	sc := make(map[string]int)
 
 	// need to decrement shards count on this class.
-	for _, s := range co.Sharding.Physical {
-		sc[s.Status]++
+	for _, shard := range class.Sharding.Physical {
+		sc[shard.Status]++
 	}
 
 	delete(s.Classes, name)
