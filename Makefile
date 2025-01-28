@@ -38,7 +38,7 @@ DEBUG_DYN_GO_FLAGS := -gcflags "all=-N -l" -ldflags "$(GO_LDFLAGS)" -tags netgo
 
 # Docker images
 IMAGE_PREFIX           ?= semitechnologies
-IMAGE_TAG              ?= $(shell jq -r '.info.version' < openapi-specs/schema.json)
+IMAGE_TAG              ?= $(shell ./tools/image-tag.sh)
 WEAVIATE_IMAGE         ?= $(IMAGE_PREFIX)/weaviate:$(IMAGE_TAG)
 
 # OCI (Docker) setup
