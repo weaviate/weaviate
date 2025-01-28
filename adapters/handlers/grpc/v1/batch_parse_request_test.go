@@ -320,7 +320,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 						{0.1, 0.2, 0.3},
 						{0.4, 0.5, 0.6},
 					}),
-					Type: pb.VectorType_VECTOR_TYPE_MULTI_FP32,
+					Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32,
 				},
 			}}},
 			out: []*models.Object{{
@@ -341,12 +341,12 @@ func TestGRPCBatchRequest(t *testing.T) {
 				{
 					Name:        "colbert",
 					VectorBytes: byteVectorMulti([][]float32{{0.1, 0.2, 0.3}, {0.3, 0.2, 0.1}}),
-					Type:        pb.VectorType_VECTOR_TYPE_MULTI_FP32,
+					Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
 				},
 				{
 					Name:        "colbert1",
 					VectorBytes: byteVectorMulti([][]float32{{0.1}}),
-					Type:        pb.VectorType_VECTOR_TYPE_MULTI_FP32,
+					Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
 				},
 			}}},
 			out: []*models.Object{{
@@ -369,13 +369,13 @@ func TestGRPCBatchRequest(t *testing.T) {
 					Name:        "regular_with_type",
 					Index:       0,
 					VectorBytes: byteVector([]float32{0.11, 0.22, 0.33}),
-					Type:        pb.VectorType_VECTOR_TYPE_SINGLE_FP32,
+					Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
 				},
 				{
 					Name:        "regular_with_explicit_unspecified_type",
 					Index:       0,
 					VectorBytes: byteVector([]float32{0.111, 0.222, 0.333}),
-					Type:        pb.VectorType_VECTOR_TYPE_UNSPECIFIED,
+					Type:        pb.Vectors_VECTOR_TYPE_UNSPECIFIED,
 				},
 			}}},
 			out: []*models.Object{{
@@ -397,22 +397,22 @@ func TestGRPCBatchRequest(t *testing.T) {
 				{
 					Name:        "regular_with_type",
 					VectorBytes: byteVector([]float32{0.11, 0.22, 0.33}),
-					Type:        pb.VectorType_VECTOR_TYPE_SINGLE_FP32,
+					Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
 				},
 				{
 					Name:        "regular_with_explicit_unspecified_type",
 					VectorBytes: byteVector([]float32{0.111, 0.222, 0.333}),
-					Type:        pb.VectorType_VECTOR_TYPE_UNSPECIFIED,
+					Type:        pb.Vectors_VECTOR_TYPE_UNSPECIFIED,
 				},
 				{
 					Name:        "colbert_fp32_1_token_level_embedding",
 					VectorBytes: byteVectorMulti([][]float32{{0.111}}),
-					Type:        pb.VectorType_VECTOR_TYPE_MULTI_FP32,
+					Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
 				},
 				{
 					Name:        "colbert_fp32_normal_case",
 					VectorBytes: byteVectorMulti([][]float32{{0.1, 0.1, 0.1}, {0.2, 0.2, 0.2}}),
-					Type:        pb.VectorType_VECTOR_TYPE_MULTI_FP32,
+					Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
 				},
 				{
 					Name:        "regular_with_only_one_value",

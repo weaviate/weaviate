@@ -9,21 +9,23 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic_test
+package dynamic
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -32,6 +34,7 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"go.etcd.io/bbolt"
 )
 
 var logger, _ = test.NewNullLogger()
@@ -45,6 +48,12 @@ func TestDynamic(t *testing.T) {
 	vectors_size := 10_000
 	queries_size := 10
 	k := 10
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
 
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
 	rootPath := t.TempDir()
@@ -62,7 +71,7 @@ func TestDynamic(t *testing.T) {
 		EF:                    32,
 		VectorCacheMaxObjects: 1_000_000,
 	}
-	dynamic, err := dynamic.New(dynamic.Config{
+	dynamic, err := New(Config{
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -76,6 +85,7 @@ func TestDynamic(t *testing.T) {
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
+		SharedDB:             db,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -85,7 +95,8 @@ func TestDynamic(t *testing.T) {
 	assert.Nil(t, err)
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
-		dynamic.Add(ctx, i, vectors[i])
+		err := dynamic.Add(ctx, i, vectors[i])
+		require.NoError(t, err)
 	})
 	shouldUpgrade, at := dynamic.ShouldUpgrade()
 	assert.True(t, shouldUpgrade)
@@ -96,9 +107,10 @@ func TestDynamic(t *testing.T) {
 	assert.True(t, recall1 > 0.99)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
-	dynamic.Upgrade(func() {
+	err = dynamic.Upgrade(func() {
 		wg.Done()
 	})
+	require.NoError(t, err)
 	wg.Wait()
 	shouldUpgrade, _ = dynamic.ShouldUpgrade()
 	assert.False(t, shouldUpgrade)
@@ -117,8 +129,14 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 	fuc := flatent.UserConfig{}
 	fuc.SetDefaults()
 	hnswuc := hnswent.NewDefaultUserConfig()
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
 	distancer := distancer.NewL2SquaredProvider()
-	_, err := dynamic.New(dynamic.Config{
+	_, err = New(Config{
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -128,6 +146,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(nil),
 		TombstoneCallbacks:   noopCallback,
+		SharedDB:             db,
 	}, ent.UserConfig{
 		Threshold: uint64(100),
 		Distance:  distancer.Type(),
@@ -137,7 +156,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func recallAndLatency(ctx context.Context, queries [][]float32, k int, index dynamic.VectorIndex, truths [][]uint64) (float32, float32) {
+func recallAndLatency(ctx context.Context, queries [][]float32, k int, index VectorIndex, truths [][]uint64) (float32, float32) {
 	var relevant uint64
 	retrieved := k * len(queries)
 
@@ -170,5 +189,95 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
 		dist, _ := provider.SingleDist(x, y)
 		return dist
+	}
+}
+
+func TestDynamicWithTargetVectors(t *testing.T) {
+	ctx := context.Background()
+	currentIndexing := os.Getenv("ASYNC_INDEXING")
+	os.Setenv("ASYNC_INDEXING", "true")
+	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
+	dimensions := 20
+	vectors_size := 10_000
+	queries_size := 10
+	k := 10
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+	rootPath := t.TempDir()
+	distancer := distancer.NewL2SquaredProvider()
+	truths := make([][]uint64, queries_size)
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
+	})
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	hnswuc := hnswent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        64,
+		EF:                    32,
+		VectorCacheMaxObjects: 1_000_000,
+	}
+
+	var indexes []*dynamic
+
+	for i := 0; i < 5; i++ {
+		dynamic, err := New(Config{
+			TargetVector:          "target_" + strconv.Itoa(i),
+			RootPath:              rootPath,
+			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+			DistanceProvider:      distancer,
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				vec := vectors[int(id)]
+				if vec == nil {
+					return nil, storobj.NewErrNotFoundf(id, "nil vec")
+				}
+				return vec, nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			TombstoneCallbacks:   noopCallback,
+			SharedDB:             db,
+		}, ent.UserConfig{
+			Threshold: uint64(vectors_size),
+			Distance:  distancer.Type(),
+			HnswUC:    hnswuc,
+			FlatUC:    fuc,
+		}, testinghelpers.NewDummyStore(t))
+		require.NoError(t, err)
+
+		indexes = append(indexes, dynamic)
+	}
+
+	for _, v := range indexes {
+		v := v
+		compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
+			v.Add(ctx, i, vectors[i])
+		})
+		shouldUpgrade, at := v.ShouldUpgrade()
+		assert.True(t, shouldUpgrade)
+		assert.Equal(t, vectors_size, at)
+		assert.False(t, v.Upgraded())
+		recall1, latency1 := recallAndLatency(ctx, queries, k, v, truths)
+		fmt.Println(recall1, latency1)
+		assert.True(t, recall1 > 0.99)
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		v.Upgrade(func() {
+			wg.Done()
+		})
+		wg.Wait()
+		shouldUpgrade, _ = v.ShouldUpgrade()
+		assert.False(t, shouldUpgrade)
+		recall2, latency2 := recallAndLatency(ctx, queries, k, v, truths)
+		fmt.Println(recall2, latency2)
+		assert.True(t, recall2 > 0.9)
+		assert.True(t, latency1 > latency2)
 	}
 }
