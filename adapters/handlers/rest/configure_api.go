@@ -486,17 +486,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	offloadmod, _ := appState.Modules.OffloadBackend("offload-s3")
 
-	classGetter, err := schema.NewClassGetter(
-		appState.ServerConfig.Config.SchemaRetrievalStrategy,
-		schemaParser,
-		appState.ClusterService.Raft,
-		appState.ClusterService.SchemaReader(),
-		appState.Logger,
-	)
-	if err != nil {
-		appState.Logger.WithError(err).Fatal("could not initialize class getter")
-		os.Exit(1)
-	}
 	schemaManager, err := schemaUC.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
@@ -504,7 +493,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, scaler,
-		offloadmod, *schemaParser, classGetter,
+		offloadmod, *schemaParser,
 	)
 	if err != nil {
 		appState.Logger.
