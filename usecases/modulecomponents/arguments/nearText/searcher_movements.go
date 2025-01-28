@@ -24,9 +24,9 @@ func newMovements[T dto.Embedding]() *movements[T] {
 	return &movements[T]{}
 }
 
-const (
-	moveToError   = "move to operations are not applicable for multivector embeddings"
-	moveAwayError = "move away from operations are not applicable for multivector embeddings"
+var (
+	errMoveToMultiVec       = errors.New("move to operations are not applicable for multivector embeddings")
+	errMoveAwayFromMultiVec = errors.New("move away from operations are not applicable for multivector embeddings")
 )
 
 // MoveTo moves one vector toward another
@@ -34,10 +34,10 @@ func (v *movements[T]) MoveTo(source T, target T, weight float32,
 ) (T, error) {
 	// the type of source/target should always be the same, but check both to be sure
 	if _, sourceOk := any(source).([][]float32); sourceOk {
-		return nil, errors.New(moveToError)
+		return nil, errMoveToMultiVec
 	}
 	if _, targetOk := any(target).([][]float32); targetOk {
-		return nil, errors.New(moveToError)
+		return nil, errMoveToMultiVec
 	}
 
 	multiplier := float32(0.5)
@@ -69,10 +69,10 @@ func (v *movements[T]) MoveAwayFrom(source T, target T, weight float32,
 ) (T, error) {
 	// the type of source/target should always be the same, but check both to be sure
 	if _, sourceOk := any(source).([][]float32); sourceOk {
-		return nil, errors.New(moveAwayError)
+		return nil, errMoveAwayFromMultiVec
 	}
 	if _, targetOk := any(target).([][]float32); targetOk {
-		return nil, errors.New(moveAwayError)
+		return nil, errMoveAwayFromMultiVec
 	}
 
 	multiplier := float32(0.5) // so the movement is fair in comparison with moveTo
