@@ -139,7 +139,7 @@ func (s *Shard) initAsyncReplication() error {
 
 		// data inserted before v1.26 does not contain the required secondary index
 		// to support async replication thus such data is not inserted into the hashtree
-		err := bucket.IterateObjectsWith(ctx, 2, func(object *storobj.Object) error {
+		err := bucket.IterateObjectDigests(ctx, 2, func(object *storobj.Object) error {
 			if time.Since(prevProgressLogging) > time.Second {
 				s.index.logger.
 					WithField("action", "async_replication").
@@ -577,19 +577,16 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
 		}
 
-		localDigestsByUUID := make(map[string]replica.RepairResponse, len(localDigests))
-
-		for _, d := range localDigests {
-			// deleted objects are not propagated
-			if !d.Deleted {
-				localDigestsByUUID[d.ID] = d
-			}
-		}
-
-		if len(localDigestsByUUID) == 0 {
+		if len(localDigests) == 0 {
 			// no more local objects need to be propagated in this iteration
 			localLastReadToken = newLocalLastReadToken
 			continue
+		}
+
+		localDigestsByUUID := make(map[string]replica.RepairResponse, len(localDigests))
+
+		for _, d := range localDigests {
+			localDigestsByUUID[d.ID] = d
 		}
 
 		localObjects += len(localDigestsByUUID)
@@ -615,12 +612,6 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 				if len(localDigestsByUUID) == 0 {
 					// no more local objects need to be propagated in this iteration
 					break
-				}
-
-				if d.Deleted {
-					// object was deleted in remote host
-					delete(localDigestsByUUID, d.ID)
-					continue
 				}
 
 				remoteObjects++
