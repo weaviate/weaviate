@@ -490,7 +490,7 @@ func Test_permission(t *testing.T) {
 			name:   "all roles",
 			policy: []string{"p", "/*", "", authorization.RolesDomain},
 			permission: &models.Permission{
-				Roles: authorization.AllRoles,
+				Roles: &models.PermissionRoles{Role: authorization.All},
 			},
 			tests: rolesTests,
 		},

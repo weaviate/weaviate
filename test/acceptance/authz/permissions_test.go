@@ -73,7 +73,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.ManageRoles), Roles: &models.PermissionRoles{Role: String("*")}},
+				{Action: String(authorization.ManageRoles), Roles: &models.PermissionRoles{Role: String("*"), Scope: String("all")}},
 			},
 		})
 		role := helper.GetRoleByName(t, adminKey, name)
