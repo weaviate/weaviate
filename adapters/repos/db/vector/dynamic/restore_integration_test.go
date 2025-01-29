@@ -13,7 +13,6 @@ package dynamic_test
 
 import (
 	"context"
-	"math"
 	"os"
 	"sync"
 	"testing"
@@ -108,11 +107,12 @@ func TestBackup_Integration(t *testing.T) {
 	recall1, _ := recallAndLatency(ctx, queries, k, idx, truths)
 	assert.True(t, recall1 > 0.9)
 
+	assert.Nil(t, idx.Flush())
 	assert.Nil(t, idx.Shutdown(context.Background()))
 	idx, err = dynamic.New(config, uc, store)
 	require.Nil(t, err)
 	idx.PostStartup()
 
 	recall2, _ := recallAndLatency(ctx, queries, k, idx, truths)
-	assert.True(t, math.Abs(float64(recall1-recall2)) <= 0.1)
+	assert.Equal(t, recall1, recall2)
 }

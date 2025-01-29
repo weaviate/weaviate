@@ -147,6 +147,18 @@ func generateValidRequestBody(param *spec.Parameter, definitions map[string]spec
 }
 
 func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) ([]byte, error) {
+	// needs to be at the top, because it contains a SingleRef
+	if strings.Contains(schema.Ref.String(), "MultipleRef") {
+		ref := &models.MultipleRef{
+			&models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/ABC/%s", uuid.New().String()))},
+		}
+		jsonData, err := json.Marshal(ref)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal mock data: %w", err)
+		}
+		return jsonData, nil
+	}
+
 	if schema.Ref.String() != "" {
 		ref := schema.Ref.String()
 
