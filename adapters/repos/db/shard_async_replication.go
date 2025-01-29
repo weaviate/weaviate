@@ -54,6 +54,8 @@ func (s *Shard) initAsyncReplication() error {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	s.asyncReplicationCancelFunc = cancelFunc
 
+	start := time.Now()
+
 	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
 		return err
 	}
@@ -120,6 +122,7 @@ func (s *Shard) initAsyncReplication() error {
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
 			WithField("shard_name", s.name).
+			WithField("took", fmt.Sprintf("%v", time.Since(start))).
 			Info("hashtree successfully initialized")
 
 		s.initHashBeater(ctx)
@@ -146,6 +149,7 @@ func (s *Shard) initAsyncReplication() error {
 					WithField("class_name", s.class.Class).
 					WithField("shard_name", s.name).
 					WithField("object_count", objCount).
+					WithField("took", fmt.Sprintf("%v", time.Since(start))).
 					Infof("hashtree initialization is progress...")
 				prevProgressLogging = time.Now()
 			}
@@ -194,6 +198,8 @@ func (s *Shard) initAsyncReplication() error {
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
 			WithField("shard_name", s.name).
+			WithField("object_count", objCount).
+			WithField("took", fmt.Sprintf("%v", time.Since(start))).
 			Info("hashtree successfully initialized")
 
 		s.asyncReplicationRWMux.Unlock()
