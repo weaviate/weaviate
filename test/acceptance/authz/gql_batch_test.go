@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/models"
@@ -68,19 +69,19 @@ func TestAuthZGQLBatchValidate(t *testing.T) {
 		}
 		helper.DeleteRole(t, adminKey, *role.Name)
 		helper.CreateRole(t, adminKey, role)
-		_, err := helper.Client(t).Authz.AssignRole(
-			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{roleName}}),
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}}),
 			adminAuth,
 		)
 		require.Nil(t, err)
 
 		paramsObj := graphql.NewGraphqlBatchParams().WithBody(
-			models.GraphQLQueries{{Query: "mutation assign role $role: AssignRoleInput!", OperationName: "POST"}})
+			models.GraphQLQueries{{Query: "mutation assign role $role: AssignRoleToUserInput!", OperationName: "POST"}})
 		_, err = helper.Client(t).Graphql.GraphqlBatch(paramsObj, customAuth)
 		require.Nil(t, err)
 
-		_, err = helper.Client(t).Authz.RevokeRole(
-			authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{roleName}}),
+		_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+			authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}}),
 			adminAuth,
 		)
 		require.Nil(t, err)
@@ -99,19 +100,19 @@ func TestAuthZGQLBatchValidate(t *testing.T) {
 			}
 			helper.DeleteRole(t, adminKey, roleName)
 			helper.CreateRole(t, adminKey, role)
-			_, err := helper.Client(t).Authz.AssignRole(
-				authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{roleName}}),
+			_, err := helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}}),
 				adminAuth,
 			)
 			require.Nil(t, err)
 
 			paramsObj := graphql.NewGraphqlBatchParams().WithBody(
-				models.GraphQLQueries{{Query: "mutation assign role $role: AssignRoleInput!", OperationName: "POST"}})
+				models.GraphQLQueries{{Query: "mutation assign role $role: AssignRoleToUserInput!", OperationName: "POST"}})
 			resp, err := helper.Client(t).Graphql.GraphqlBatch(paramsObj, customAuth)
 			require.NotNil(t, err)
 			require.Nil(t, resp)
-			_, err = helper.Client(t).Authz.RevokeRole(
-				authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{roleName}}),
+			_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+				authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}}),
 				adminAuth,
 			)
 			require.Nil(t, err)

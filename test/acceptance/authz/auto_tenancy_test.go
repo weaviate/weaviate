@@ -82,7 +82,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(), // all needed for gql search
 			},
 		})
-		_, err := helper.Client(t).Authz.AssignRole(authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}), adminAuth)
+		_, err := helper.Client(t).Authz.AssignRoleToUser(authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}), adminAuth)
 		require.Nil(t, err)
 	})
 
@@ -254,7 +254,7 @@ func TestAuthzAutoTenantCreation(t *testing.T) {
 				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(cls.Class).Permission(),
 			},
 		})
-		_, err := helper.Client(t).Authz.AssignRole(authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}), adminAuth)
+		_, err := helper.Client(t).Authz.AssignRoleToUser(authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}), adminAuth)
 		require.Nil(t, err)
 	})
 
