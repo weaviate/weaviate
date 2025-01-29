@@ -18,10 +18,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
-
 	"github.com/go-openapi/strfmt"
-
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,7 +47,7 @@ func TestAuthzViewerEndpoints(t *testing.T) {
 		{endpoint: "authz/roles/id", methods: []string{"GET", "DELETE"}, success: []bool{true, false}, arrayReq: false},
 		{endpoint: "authz/roles/id/users", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
 		{endpoint: "authz/users/id/roles", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
-		{endpoint: "authz/users/id/assign", methods: []string{"POST"}, success: []bool{false}, arrayReq: false},
+		{endpoint: "authz/users/id/assign", methods: []string{"POST"}, success: []bool{false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"roles\": [\"abc\"]}")}},
 		{endpoint: "authz/users/id/revoke", methods: []string{"POST"}, success: []bool{false}, arrayReq: false},
 		{endpoint: "batch/objects", methods: []string{"POST", "DELETE"}, success: []bool{false, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"objects\": [{\"class\": \"c\"}]}")}},
 		{endpoint: "batch/references", methods: []string{"POST"}, success: []bool{false}, arrayReq: true, body: map[string][]byte{"POST": []byte(fmt.Sprintf("[{\"from\": %q, \"to\": %q}]", uri+"/ref", uri))}},

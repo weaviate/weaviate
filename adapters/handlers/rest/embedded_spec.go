@@ -801,6 +801,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to user",
@@ -867,6 +868,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from the key or user",
@@ -7376,6 +7378,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to user",
@@ -7442,6 +7445,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from the key or user",
