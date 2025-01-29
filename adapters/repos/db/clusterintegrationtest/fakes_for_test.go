@@ -22,7 +22,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -56,7 +56,7 @@ type node struct {
 func (n *node) init(dirName string, shardStateRaw []byte,
 	allNodes *[]*node,
 ) {
-	localDir := path.Join(dirName, n.name)
+	localDir := filepath.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
 
 	var names []string
@@ -298,15 +298,15 @@ func (f *fakeBackupBackend) HomeDir(backupID, overrideBucket, overridePath strin
 	defer f.Unlock()
 	if overridePath != "" {
 		if overrideBucket != "" {
-			return path.Join(overrideBucket, overridePath, backupID)
+			return filepath.Join(overrideBucket, overridePath, backupID)
 		} else {
-			return path.Join(overridePath, backupID)
+			return filepath.Join(overridePath, backupID)
 		}
 	} else {
 		if overrideBucket != "" {
-			return path.Join(overrideBucket, f.backupsPath, backupID)
+			return filepath.Join(overrideBucket, f.backupsPath, backupID)
 		} else {
-			return path.Join(f.backupsPath, backupID)
+			return filepath.Join(f.backupsPath, backupID)
 		}
 	}
 }

@@ -18,7 +18,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -89,7 +89,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			require.Nil(t, err)
 			require.True(t, ok)
 
-			f, err := os.Create(path.Join(commitLogDirectory(rootPath, "corrupt_test"),
+			f, err := os.Create(filepath.Join(commitLogDirectory(rootPath, "corrupt_test"),
 				fmt.Sprintf("%s.condensed", input)))
 			require.Nil(t, err)
 

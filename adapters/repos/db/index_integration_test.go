@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"path"
 	"path/filepath"
 	"testing"
 	"time"
@@ -524,7 +523,7 @@ func invertedConfig() *models.InvertedIndexConfig {
 
 func getIndexFilenames(rootDir, indexName string) ([]string, error) {
 	var filenames []string
-	indexRoot, err := os.ReadDir(path.Join(rootDir, indexName))
+	indexRoot, err := os.ReadDir(filepath.Join(rootDir, indexName))
 	if err != nil {
 		if os.IsNotExist(err) {
 			// index was dropped, or never existed
@@ -535,7 +534,7 @@ func getIndexFilenames(rootDir, indexName string) ([]string, error) {
 	if len(indexRoot) == 0 {
 		return nil, fmt.Errorf("index root length is 0")
 	}
-	shardFiles, err := os.ReadDir(path.Join(rootDir, indexName, indexRoot[0].Name()))
+	shardFiles, err := os.ReadDir(filepath.Join(rootDir, indexName, indexRoot[0].Name()))
 	if err != nil {
 		return filenames, err
 	}

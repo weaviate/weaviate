@@ -14,7 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
-	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/schema"
@@ -164,7 +164,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 }
 
 func (s *Shard) initProplenTracker() error {
-	plPath := path.Join(s.path(), "proplengths")
+	plPath := filepath.Join(s.path(), "proplengths")
 	tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
 	if err != nil {
 		return fmt.Errorf("init prop length tracker: %w", err)
@@ -184,7 +184,7 @@ func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 	s.bitmapFactory = roaringset.NewBitmapFactory(func() uint64 { return s.counter.Get() - 1 })
 
 	dataPresent := s.counter.PreviewNext() != 0
-	versionPath := path.Join(s.path(), "version")
+	versionPath := filepath.Join(s.path(), "version")
 	versioner, err := newShardVersioner(versionPath, dataPresent)
 	if err != nil {
 		return fmt.Errorf("init shard versioner: %w", err)

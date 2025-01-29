@@ -15,7 +15,7 @@ import (
 	"context"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,12 +28,12 @@ import (
 
 func Test_RestartFromZeroSegments(t *testing.T) {
 	testPath := t.TempDir()
-	src := path.Join(".", "compression_tests", "fixtures", "restart-from-zero-segments", "1234567")
+	src := filepath.Join(".", "compression_tests", "fixtures", "restart-from-zero-segments", "1234567")
 	source, err := os.Open(src)
 	assert.Nil(t, err)
-	dstPath := path.Join(testPath, "main.hnsw.commitlog.d")
+	dstPath := filepath.Join(testPath, "main.hnsw.commitlog.d")
 	assert.Nil(t, os.Mkdir(dstPath, 0o777))
-	destination, err := os.Create(path.Join(dstPath, "1234567"))
+	destination, err := os.Create(filepath.Join(dstPath, "1234567"))
 	assert.Nil(t, err)
 	_, err = io.Copy(destination, source)
 	assert.Nil(t, err)

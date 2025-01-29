@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -76,7 +75,7 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 	}
 
 	if _, err := os.Stat(destinationPath); err != nil {
-		if err := os.MkdirAll(path.Dir(destinationPath), os.ModePerm); err != nil {
+		if err := os.MkdirAll(filepath.Dir(destinationPath), os.ModePerm); err != nil {
 			return 0, errors.Wrapf(err, "make dir %s", destinationPath)
 		}
 	}
@@ -102,12 +101,12 @@ func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, overrideP
 		m.logger.Info("bucket parameter not supported for filesystem backup module!")
 	}
 
-	backupPath := path.Join(m.makeBackupDirPath(m.backupsPath, backupID), key)
+	backupPath := filepath.Join(m.makeBackupDirPath(m.backupsPath, backupID), key)
 	if overridePath != "" {
-		backupPath = path.Join(overridePath, backupID, key)
+		backupPath = filepath.Join(overridePath, backupID, key)
 	}
 
-	dir := path.Dir(backupPath)
+	dir := filepath.Dir(backupPath)
 
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "make dir %s", dir)
@@ -162,7 +161,7 @@ func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overr
 	} else {
 		backupPath = filepath.Join(m.backupsPath, backupID, key)
 	}
-	dir := path.Dir(backupPath)
+	dir := filepath.Dir(backupPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return 0, fmt.Errorf("make dir %q: %w", dir, err)
 	}

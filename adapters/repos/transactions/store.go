@@ -16,7 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -48,7 +48,7 @@ func (s *Store) Open() error {
 		return fmt.Errorf("create root directory %q: %w", s.homeDir, err)
 	}
 
-	path := path.Join(s.homeDir, "tx.db")
+	path := filepath.Join(s.homeDir, "tx.db")
 	boltDB, err := initBoltDB(path)
 	if err != nil {
 		return fmt.Errorf("init bolt_db: %w", err)

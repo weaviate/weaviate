@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -105,10 +105,10 @@ func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
 
 func (g *gcsClient) HomeDir(backupID, overrideBucket, overridePath string) string {
 	if overridePath == "" && overrideBucket == "" {
-		return "gs://" + path.Join(g.config.Bucket,
+		return "gs://" + filepath.Join(g.config.Bucket,
 			g.makeObjectName("", []string{backupID}))
 	} else {
-		return "gs://" + path.Join(overrideBucket,
+		return "gs://" + filepath.Join(overrideBucket,
 			g.makeObjectName(overridePath, []string{backupID}))
 	}
 }
@@ -165,11 +165,11 @@ func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*sto
 
 func (g *gcsClient) makeObjectName(overridePath string, parts []string) string {
 	if overridePath != "" {
-		base := path.Join(parts...)
-		return path.Join(overridePath, base)
+		base := filepath.Join(parts...)
+		return filepath.Join(overridePath, base)
 	} else {
-		base := path.Join(parts...)
-		return path.Join(g.config.BackupPath, base)
+		base := filepath.Join(parts...)
+		return filepath.Join(g.config.BackupPath, base)
 	}
 }
 
@@ -265,7 +265,7 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, ov
 	}
 
 	// create empty file
-	dir := path.Dir(destPath)
+	dir := filepath.Dir(destPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return fmt.Errorf("os.mkdir for writetofile %q: %w", dir, err)
 	}

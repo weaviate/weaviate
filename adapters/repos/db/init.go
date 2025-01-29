@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -141,7 +141,7 @@ func (db *DB) LocalTenantActivity() tenantactivity.ByCollection {
 }
 
 func (db *DB) migrateFileStructureIfNecessary() error {
-	fsMigrationPath := path.Join(db.config.RootPath, "migration1.22.fs.hierarchy")
+	fsMigrationPath := filepath.Join(db.config.RootPath, "migration1.22.fs.hierarchy")
 	exists, err := diskio.FileExists(fsMigrationPath)
 	if err != nil {
 		return err

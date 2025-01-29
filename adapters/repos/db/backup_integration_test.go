@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"testing"
@@ -216,7 +215,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 			// contents of the ListFiles result. the only thing we can't
 			// know for sure is the actual name of the segment group, hence
 			// the `.*`
-			re := path.Clean(fmt.Sprintf("%s\\/.*\\.(wal|db|bloom|cna)", shard.Index().Config.RootPath))
+			re := filepath.Clean(fmt.Sprintf("%s\\/.*\\.(wal|db|bloom|cna)", shard.Index().Config.RootPath))
 
 			// we expect to see only four files inside the bucket at this point:
 			//   1. a *.db file - the segment itself

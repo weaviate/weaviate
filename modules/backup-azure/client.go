@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -114,16 +114,16 @@ func (a *azureClient) HomeDir(backupID, overrideBucket, overridePath string) str
 		overrideBucket = a.config.Container
 	}
 
-	return a.serviceURL + path.Join(overrideBucket, a.makeObjectName(overridePath, []string{backupID}))
+	return a.serviceURL + filepath.Join(overrideBucket, a.makeObjectName(overridePath, []string{backupID}))
 }
 
 func (g *azureClient) makeObjectName(overridePath string, parts []string) string {
 	if overridePath != "" {
-		base := path.Join(parts...)
-		return path.Join(overridePath, base)
+		base := filepath.Join(parts...)
+		return filepath.Join(overridePath, base)
 	} else {
-		base := path.Join(parts...)
-		return path.Join(g.config.BackupPath, base)
+		base := filepath.Join(parts...)
+		return filepath.Join(g.config.BackupPath, base)
 	}
 }
 
@@ -241,7 +241,7 @@ func (a *azureClient) Initialize(ctx context.Context, backupID, overrideBucket, 
 }
 
 func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	dir := path.Dir(destPath)
+	dir := filepath.Dir(destPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "make dir %s", dir)
 	}

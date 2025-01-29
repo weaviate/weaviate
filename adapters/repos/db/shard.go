@@ -19,7 +19,6 @@ import (
 	"io"
 	"math"
 	"os"
-	"path"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -261,11 +260,11 @@ func (s *Shard) path() string {
 }
 
 func (s *Shard) pathLSM() string {
-	return path.Join(s.path(), "lsm")
+	return filepath.Join(s.path(), "lsm")
 }
 
 func (s *Shard) pathHashTree() string {
-	return path.Join(s.path(), "hashtree")
+	return filepath.Join(s.path(), "hashtree")
 }
 
 func (s *Shard) vectorIndexID(targetVector string) string {
@@ -646,7 +645,7 @@ func shardId(indexId, shardName string) string {
 }
 
 func shardPath(indexPath, shardName string) string {
-	return path.Join(indexPath, shardName)
+	return filepath.Join(indexPath, shardName)
 }
 
 func bucketKeyPropertyLength(length int) ([]byte, error) {

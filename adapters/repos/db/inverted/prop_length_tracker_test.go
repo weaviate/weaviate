@@ -13,7 +13,7 @@ package inverted
 
 import (
 	"fmt"
-	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -23,7 +23,7 @@ import (
 
 func Test_PropertyLengthTracker(t *testing.T) {
 	dirName := t.TempDir()
-	trackerPath := path.Join(dirName, "my_test_shard")
+	trackerPath := filepath.Join(dirName, "my_test_shard")
 	l := logrus.New()
 
 	// This test suite doesn't actually test persistence, there is a separate
@@ -246,7 +246,7 @@ func create20PropsAndVerify(t *testing.T, tracker *JsonShardMetaData) {
 func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 	dirName := t.TempDir()
 
-	path := path.Join(dirName, "my_test_shard")
+	path := filepath.Join(dirName, "my_test_shard")
 
 	var tracker *JsonShardMetaData
 	l := logrus.New()
@@ -329,7 +329,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 func TestFormatConversion(t *testing.T) {
 	dirName := t.TempDir()
 
-	path := path.Join(dirName, "my_test_shard")
+	path := filepath.Join(dirName, "my_test_shard")
 
 	var tracker *PropertyLengthTracker
 
@@ -447,7 +447,7 @@ func create20PropsAndVerify_old(t *testing.T, tracker *PropertyLengthTracker) {
 
 func TestOldPropertyLengthTracker(t *testing.T) {
 	dirName := t.TempDir()
-	trackerPath := path.Join(dirName, "my_test_shard")
+	trackerPath := filepath.Join(dirName, "my_test_shard")
 
 	// This test suite doesn't actually test persistence, there is a separate
 	// one. However, we still need to supply a valid path. Since nothing is ever
@@ -614,7 +614,7 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 func TestOldPropertyLengthTracker_Persistence(t *testing.T) {
 	dirName := t.TempDir()
 
-	path := path.Join(dirName, "my_test_shard")
+	path := filepath.Join(dirName, "my_test_shard")
 
 	var tracker *PropertyLengthTracker
 
@@ -664,7 +664,7 @@ func TestOldPropertyLengthTracker_Persistence(t *testing.T) {
 
 func Test_PropertyLengthTracker_Overflow(t *testing.T) {
 	dirName := t.TempDir()
-	path := path.Join(dirName, "my_test_shard")
+	path := filepath.Join(dirName, "my_test_shard")
 
 	tracker, err := NewPropertyLengthTracker(path)
 	require.Nil(t, err)

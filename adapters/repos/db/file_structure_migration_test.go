@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -77,12 +77,12 @@ func TestFileStructureMigration(t *testing.T) {
 
 	t.Run("write test db files", func(t *testing.T) {
 		for _, f := range rootFiles {
-			require.Nil(t, os.WriteFile(path.Join(root, f), nil, os.ModePerm))
+			require.Nil(t, os.WriteFile(filepath.Join(root, f), nil, os.ModePerm))
 		}
 
 		for class, shards := range shardsByClass {
 			for _, shard := range shards {
-				idx := path.Join(root, fmt.Sprintf("%s_%s", strings.ToLower(class), shard))
+				idx := filepath.Join(root, fmt.Sprintf("%s_%s", strings.ToLower(class), shard))
 				for _, ext := range indexDirExts {
 					require.Nil(t, os.MkdirAll(idx+ext, os.ModePerm))
 				}
@@ -90,7 +90,7 @@ func TestFileStructureMigration(t *testing.T) {
 					require.Nil(t, os.WriteFile(idx+ext, nil, os.ModePerm))
 				}
 
-				pqDir := path.Join(root, class, shard, "compressed_objects")
+				pqDir := filepath.Join(root, class, shard, "compressed_objects")
 				require.Nil(t, os.MkdirAll(pqDir, os.ModePerm))
 			}
 		}
@@ -159,7 +159,7 @@ func TestFileStructureMigration(t *testing.T) {
 		for _, f := range files {
 			if f.IsDir() {
 				idx := f
-				shardsRoot, err := os.ReadDir(path.Join(root, idx.Name()))
+				shardsRoot, err := os.ReadDir(filepath.Join(root, idx.Name()))
 				require.Nil(t, err)
 				for _, shard := range shardsRoot {
 					assertShardRootContents(t, shardsByClass, root, idx, shard)
@@ -188,7 +188,7 @@ func assertShardRootContents(t *testing.T, shardsByClass map[string][]string, ro
 	// Now we will get a set of all expected files within the shard dir.
 	// Check to see if all of these files are found.
 	expected := expectedShardContents()
-	shardFiles, err := os.ReadDir(path.Join(root, idx.Name(), shard.Name()))
+	shardFiles, err := os.ReadDir(filepath.Join(root, idx.Name(), shard.Name()))
 	require.Nil(t, err)
 	for _, sf := range shardFiles {
 		expected[sf.Name()] = true
@@ -196,7 +196,7 @@ func assertShardRootContents(t *testing.T, shardsByClass map[string][]string, ro
 	expected.assert(t)
 
 	// Check if pq store was migrated to main store as "vectors_compressed" subdir
-	pqDir := path.Join(root, idx.Name(), shard.Name(), "lsm", helpers.VectorsCompressedBucketLSM)
+	pqDir := filepath.Join(root, idx.Name(), shard.Name(), "lsm", helpers.VectorsCompressedBucketLSM)
 	info, err := os.Stat(pqDir)
 	require.NoError(t, err)
 	assert.True(t, info.IsDir())

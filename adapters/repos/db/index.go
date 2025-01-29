@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	golangSort "sort"
@@ -220,7 +220,7 @@ func (i *Index) ID() string {
 }
 
 func (i *Index) path() string {
-	return path.Join(i.Config.RootPath, i.ID())
+	return filepath.Join(i.Config.RootPath, i.ID())
 }
 
 type nodeResolver interface {

@@ -18,7 +18,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -113,17 +113,17 @@ func TestBackup_Integration(t *testing.T) {
 			// checking to ensure that indeed there are only 2 files in the
 			// commit log directory, and that one of them is the one result
 			// from `ListFiles`, and that the other is not a .condensed file
-			ls, err := os.ReadDir(path.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID)))
+			ls, err := os.ReadDir(filepath.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID)))
 			require.Nil(t, err)
 			assert.Len(t, ls, 2)
 
 			var prevLogFound bool
 			for _, info := range ls {
-				if path.Base(files[0]) == info.Name() {
+				if filepath.Base(files[0]) == info.Name() {
 					prevLogFound = true
 				}
 
-				assert.Empty(t, path.Ext(info.Name()))
+				assert.Empty(t, filepath.Ext(info.Name()))
 			}
 			assert.True(t, prevLogFound, "previous commitlog not found in commitlog root dir")
 		})

@@ -12,7 +12,7 @@
 package lsmkv
 
 import (
-	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -30,7 +30,7 @@ func Test_MemtableSecondaryKeyBug(t *testing.T) {
 	cl, err := newCommitLogger(dir)
 	require.NoError(t, err)
 
-	m, err := newMemtable(path.Join(dir, "will-never-flush"), StrategyReplace, 1, cl, nil, logger, false)
+	m, err := newMemtable(filepath.Join(dir, "will-never-flush"), StrategyReplace, 1, cl, nil, logger, false)
 	require.Nil(t, err)
 	t.Cleanup(func() {
 		require.Nil(t, m.commitlog.close())

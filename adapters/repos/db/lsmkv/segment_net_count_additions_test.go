@@ -16,7 +16,7 @@ import (
 	"encoding/binary"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -94,7 +94,7 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	fname, ok := findFileWithExt(files, ".cna")
 	require.True(t, ok)
 
-	err = os.RemoveAll(path.Join(dirName, fname))
+	err = os.RemoveAll(filepath.Join(dirName, fname))
 	require.Nil(t, err)
 
 	files, err = os.ReadDir(dirName)
@@ -138,7 +138,7 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	require.True(t, ok)
 
 	// now corrupt the file by replacing the count value without adapting the checksum
-	require.Nil(t, corruptCNAFile(path.Join(dirName, fname), 12345))
+	require.Nil(t, corruptCNAFile(filepath.Join(dirName, fname), 12345))
 
 	// on Windows we have to shutdown the bucket before opening it again
 	require.Nil(t, b.Shutdown(ctx))

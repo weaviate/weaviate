@@ -18,7 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -128,7 +128,7 @@ func (r *store) Open() (err error) {
 		return fmt.Errorf("create root directory %q: %w", r.homeDir, err)
 	}
 	cfg := config{}
-	path := path.Join(r.homeDir, "schema.db")
+	path := filepath.Join(r.homeDir, "schema.db")
 	boltDB, err := initBoltDB(path, r.version, &cfg)
 	if err != nil {
 		return fmt.Errorf("init bolt_db: %w", err)

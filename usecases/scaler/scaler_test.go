@@ -14,7 +14,7 @@ package scaler
 import (
 	"context"
 	"os"
-	"path"
+	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -68,7 +68,7 @@ func TestScalerScaleOut(t *testing.T) {
 		}
 	)
 	for i := 1; i < 5; i++ {
-		file, err := os.Create(path.Join(dataDir, "f"+strconv.Itoa(i)))
+		file, err := os.Create(filepath.Join(dataDir, "f"+strconv.Itoa(i)))
 		assert.Nil(t, err)
 		file.Close()
 	}

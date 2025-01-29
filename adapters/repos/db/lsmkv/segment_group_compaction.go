@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -535,7 +534,7 @@ func (sg *SegmentGroup) monitorSegments() {
 	// Keeping metering to only the critical buckets helps
 	// cut down on noise when monitoring
 	if sg.metrics.criticalBucketsOnly {
-		bucket := path.Base(sg.dir)
+		bucket := filepath.Base(sg.dir)
 		if bucket != helpers.ObjectsBucketLSM &&
 			bucket != helpers.VectorsCompressedBucketLSM {
 			return

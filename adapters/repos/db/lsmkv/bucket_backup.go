@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"context"
 	"io/fs"
-	"path"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -83,7 +82,7 @@ func (b *Bucket) ListFiles(ctx context.Context, basePath string) ([]string, erro
 		if filepath.Ext(currPath) == ".wal" {
 			return nil
 		}
-		files = append(files, path.Join(basePath, path.Base(currPath)))
+		files = append(files, filepath.Join(basePath, filepath.Base(currPath)))
 		return nil
 	})
 	if err != nil {
