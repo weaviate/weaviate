@@ -1563,6 +1563,9 @@ func fillTerm(memtable *Memtable, key []byte, blockmax *SegmentBlockMax, filterD
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return 0, err
 	}
+	if errors.Is(err, lsmkv.NotFound) {
+		return 0, nil
+	}
 	n, err := addDataToTerm(mapPairs, filterDocIds, blockmax)
 	if err != nil {
 		return 0, err
