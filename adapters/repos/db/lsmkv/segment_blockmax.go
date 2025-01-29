@@ -84,6 +84,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	return entries, docCount, nil, nil
 }
 
+// todo: check if there is a performance impact of starting to sectionReader at offset and not have to pass offset here
 func (s *segment) loadBlockDataReusable(sectionReader *io.SectionReader, offset, offsetStart, offsetEnd uint64, buf []byte, encoded *terms.BlockData) error {
 	if s.mmapContents {
 		terms.DecodeBlockDataReusable(s.contents[offsetStart:offsetEnd], encoded)
