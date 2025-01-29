@@ -35,7 +35,7 @@ import (
 
 const (
 	roleNameMaxLength = 64
-	roleNameRegexCore = `[A-Za-z][_0-9A-Za-z]{0,254}`
+	roleNameRegexCore = `[A-Za-z][-_0-9A-Za-z]{0,254}`
 )
 
 var validateRoleNameRegex = regexp.MustCompile(`^` + roleNameRegexCore + `$`)
