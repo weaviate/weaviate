@@ -331,7 +331,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("roles can not be empty")))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Users(params.ID)...); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.Body.Roles...)...); err != nil {
 		return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -364,8 +364,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 }
 
 func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, principal *models.Principal) middleware.Responder {
-
-	return authz.NewAssignRoleToUserOK()
+	return authz.NewAssignRoleToGroupForbidden()
 }
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
@@ -478,7 +477,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		}
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Users(params.ID)...); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.Body.Roles...)...); err != nil {
 		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -520,8 +519,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 	return authz.NewRevokeRoleFromUserOK()
 }
 func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
-
-	return authz.NewRevokeRoleFromGroupOK()
+	return authz.NewRevokeRoleFromGroupForbidden()
 }
 
 func (h *authZHandlers) userExists(user string) bool {
