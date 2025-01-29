@@ -294,7 +294,7 @@ func (b *BM25Searcher) wand(
 		Count: len(allRequests),
 	}
 
-	topKHeap := terms.DoWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+	topKHeap := lsmkv.DoWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
 
 	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
 }

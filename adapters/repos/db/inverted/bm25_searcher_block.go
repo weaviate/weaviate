@@ -13,7 +13,6 @@ package inverted
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"sort"
 	"sync"
@@ -26,34 +25,13 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 )
 
 // var metrics = lsmkv.BlockMetrics{}
 
-func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]terms.TermInterface, *sync.RWMutex, error) {
+func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, *sync.RWMutex, error) {
 	bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-	desiredStrategy := bucket.GetDesiredStrategy()
-	if desiredStrategy == lsmkv.StrategyInverted {
-		return bucket.CreateDiskTerm(N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, averagePropLength, config, ctx)
-	} else if desiredStrategy == lsmkv.StrategyMapCollection {
-		term := make([]terms.TermInterface, 0, len(query))
-		for i, queryTerm := range query {
-			propertyBoosts := make(map[string]float32)
-			propertyBoosts[propName] = propertyBoost
-			t, err := b.createTerm(N, filterDocIds, queryTerm, i, []string{propName}, propertyBoosts, duplicateTextBoosts[i], ctx)
-			if err != nil {
-				return nil, nil, err
-			}
-			if t != nil {
-				term = append(term, t)
-			}
-		}
-		return [][]terms.TermInterface{term}, nil, nil
-	} else {
-		return nil, nil, fmt.Errorf("unsupported strategy %s", desiredStrategy)
-	}
+	return bucket.CreateDiskTerm(N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, averagePropLength, config, ctx)
 }
 
 func (b *BM25Searcher) wandBlock(
@@ -64,7 +42,7 @@ func (b *BM25Searcher) wandBlock(
 		return nil, nil, err
 	}
 
-	allResults := make([][][]terms.TermInterface, 0, len(params.Properties))
+	allResults := make([][][]*lsmkv.SegmentBlockMax, 0, len(params.Properties))
 	termCounts := make([][]string, 0, len(params.Properties))
 
 	// These locks are the segmentCompactions locks for the searched properties
@@ -141,14 +119,8 @@ func (b *BM25Searcher) wandBlock(
 			if len(allResults[i][j]) == 0 {
 				continue
 			}
-
-			combinedTerms := &terms.Terms{
-				T:     allResults[i][j],
-				Count: len(termCounts[i]),
-			}
-
 			eg.Go(func() (err error) {
-				topKHeap := terms.DoBlockMaxWand(internalLimit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+				topKHeap := lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]))
 				objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, termCounts[i], additional)
 
 				allObjects[i][j] = objects
