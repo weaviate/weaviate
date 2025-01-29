@@ -24,9 +24,10 @@ import (
 	"github.com/go-openapi/spec"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"golang.org/x/exp/rand"
+
 	"github.com/weaviate/weaviate/entities/models"
 	eschema "github.com/weaviate/weaviate/entities/schema"
-	"golang.org/x/exp/rand"
 )
 
 type endpoint struct {
@@ -252,6 +253,18 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 					return nil, err
 				}
 				itemSchema = refSchema
+				data, err := generateValidData(itemSchema, definitions)
+				if err != nil {
+					return nil, err
+				}
+				var dd interface{}
+				err = json.Unmarshal(data, &dd)
+				if err != nil {
+					return nil, err
+				}
+				array = append(array, dd)
+			}
+			if itemSchema.Type[0] == "string" {
 				data, err := generateValidData(itemSchema, definitions)
 				if err != nil {
 					return nil, err

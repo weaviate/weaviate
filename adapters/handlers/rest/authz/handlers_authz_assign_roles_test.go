@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -31,9 +32,9 @@ func TestAssignRoleSuccess(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "user1"}
-	params := authz.AssignRoleParams{
+	params := authz.AssignRoleToUserParams{
 		ID: "user1",
-		Body: authz.AssignRoleBody{
+		Body: authz.AssignRoleToUserBody{
 			Roles: []string{"testRole"},
 		},
 	}
@@ -48,8 +49,8 @@ func TestAssignRoleSuccess(t *testing.T) {
 		apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
 		logger:         logger,
 	}
-	res := h.assignRole(params, principal)
-	parsed, ok := res.(*authz.AssignRoleOK)
+	res := h.assignRoleToUser(params, principal)
+	parsed, ok := res.(*authz.AssignRoleToUserOK)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
 }
@@ -57,7 +58,7 @@ func TestAssignRoleSuccess(t *testing.T) {
 func TestAssignRoleOrUserNotFound(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.AssignRoleParams
+		params        authz.AssignRoleToUserParams
 		principal     *models.Principal
 		existedRoles  map[string][]authorization.Policy
 		existedUsers  []string
@@ -67,9 +68,9 @@ func TestAssignRoleOrUserNotFound(t *testing.T) {
 	tests := []testCase{
 		{
 			name: "user not found",
-			params: authz.AssignRoleParams{
+			params: authz.AssignRoleToUserParams{
 				ID: "user_not_exist",
-				Body: authz.AssignRoleBody{
+				Body: authz.AssignRoleToUserBody{
 					Roles: []string{"role1"},
 				},
 			},
@@ -79,9 +80,9 @@ func TestAssignRoleOrUserNotFound(t *testing.T) {
 		},
 		{
 			name: "role not found",
-			params: authz.AssignRoleParams{
+			params: authz.AssignRoleToUserParams{
 				ID: "user1",
-				Body: authz.AssignRoleBody{
+				Body: authz.AssignRoleToUserBody{
 					Roles: []string{"role1"},
 				},
 			},
@@ -110,8 +111,8 @@ func TestAssignRoleOrUserNotFound(t *testing.T) {
 				apiKeysConfigs: config.APIKey{Enabled: true, Users: tt.existedUsers},
 				logger:         logger,
 			}
-			res := h.assignRole(tt.params, tt.principal)
-			_, ok := res.(*authz.AssignRoleNotFound)
+			res := h.assignRoleToUser(tt.params, tt.principal)
+			_, ok := res.(*authz.AssignRoleToUserNotFound)
 			assert.True(t, ok)
 		})
 	}
@@ -120,7 +121,7 @@ func TestAssignRoleOrUserNotFound(t *testing.T) {
 func TestAssignRoleBadRequest(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.AssignRoleParams
+		params        authz.AssignRoleToUserParams
 		principal     *models.Principal
 		expectedError string
 	}
@@ -128,9 +129,9 @@ func TestAssignRoleBadRequest(t *testing.T) {
 	tests := []testCase{
 		{
 			name: "empty role",
-			params: authz.AssignRoleParams{
+			params: authz.AssignRoleToUserParams{
 				ID: "testUser",
-				Body: authz.AssignRoleBody{
+				Body: authz.AssignRoleToUserBody{
 					Roles: []string{""},
 				},
 			},
@@ -150,8 +151,8 @@ func TestAssignRoleBadRequest(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.assignRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.AssignRoleBadRequest)
+			res := h.assignRoleToUser(tt.params, tt.principal)
+			parsed, ok := res.(*authz.AssignRoleToUserBadRequest)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -164,7 +165,7 @@ func TestAssignRoleBadRequest(t *testing.T) {
 func TestAssignRoleForbidden(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.AssignRoleParams
+		params        authz.AssignRoleToUserParams
 		principal     *models.Principal
 		authorizeErr  error
 		expectedError string
@@ -173,9 +174,9 @@ func TestAssignRoleForbidden(t *testing.T) {
 	tests := []testCase{
 		{
 			name: "authorization error",
-			params: authz.AssignRoleParams{
+			params: authz.AssignRoleToUserParams{
 				ID: "testUser",
-				Body: authz.AssignRoleBody{
+				Body: authz.AssignRoleToUserBody{
 					Roles: []string{"testRole"},
 				},
 			},
@@ -198,8 +199,8 @@ func TestAssignRoleForbidden(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.assignRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.AssignRoleForbidden)
+			res := h.assignRoleToUser(tt.params, tt.principal)
+			parsed, ok := res.(*authz.AssignRoleToUserForbidden)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -212,7 +213,7 @@ func TestAssignRoleForbidden(t *testing.T) {
 func TestAssignRoleInternalServerError(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.AssignRoleParams
+		params        authz.AssignRoleToUserParams
 		principal     *models.Principal
 		getRolesErr   error
 		assignErr     error
@@ -222,9 +223,9 @@ func TestAssignRoleInternalServerError(t *testing.T) {
 	tests := []testCase{
 		{
 			name: "internal server error from assigning",
-			params: authz.AssignRoleParams{
+			params: authz.AssignRoleToUserParams{
 				ID: "testUser",
-				Body: authz.AssignRoleBody{
+				Body: authz.AssignRoleToUserBody{
 					Roles: []string{"testRole"},
 				},
 			},
@@ -234,9 +235,9 @@ func TestAssignRoleInternalServerError(t *testing.T) {
 		},
 		{
 			name: "internal server error from getting role",
-			params: authz.AssignRoleParams{
+			params: authz.AssignRoleToUserParams{
 				ID: "testUser",
-				Body: authz.AssignRoleBody{
+				Body: authz.AssignRoleToUserBody{
 					Roles: []string{"testRole"},
 				},
 			},
@@ -263,8 +264,8 @@ func TestAssignRoleInternalServerError(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.assignRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.AssignRoleInternalServerError)
+			res := h.assignRoleToUser(tt.params, tt.principal)
+			parsed, ok := res.(*authz.AssignRoleToUserInternalServerError)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {

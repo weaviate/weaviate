@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -30,25 +31,25 @@ func TestRevokeRoleSuccess(t *testing.T) {
 	tests := []struct {
 		name              string
 		principal         *models.Principal
-		params            authz.RevokeRoleParams
+		params            authz.RevokeRoleFromUserParams
 		configuredAdmins  []string
 		configuredViewers []string
 	}{
 		{
 			name:      "successful revocation",
 			principal: &models.Principal{Username: "user1"},
-			params: authz.RevokeRoleParams{
+			params: authz.RevokeRoleFromUserParams{
 				ID: "user1",
-				Body: authz.RevokeRoleBody{
+				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"testRole"},
 				},
 			},
 		},
 		{
 			name: "revoke another user not configured admin role",
-			params: authz.RevokeRoleParams{
+			params: authz.RevokeRoleFromUserParams{
 				ID: "user1",
-				Body: authz.RevokeRoleBody{
+				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"admin"},
 				},
 			},
@@ -57,9 +58,9 @@ func TestRevokeRoleSuccess(t *testing.T) {
 		},
 		{
 			name: "revoke another user user not configured viewer role",
-			params: authz.RevokeRoleParams{
+			params: authz.RevokeRoleFromUserParams{
 				ID: "user1",
-				Body: authz.RevokeRoleBody{
+				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"viewer"},
 				},
 			},
@@ -84,8 +85,8 @@ func TestRevokeRoleSuccess(t *testing.T) {
 				apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
 				logger:         logger,
 			}
-			res := h.revokeRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.RevokeRoleOK)
+			res := h.revokeRoleFromUser(tt.params, tt.principal)
+			parsed, ok := res.(*authz.RevokeRoleFromUserOK)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
 		})
@@ -95,7 +96,7 @@ func TestRevokeRoleSuccess(t *testing.T) {
 func TestRevokeRoleBadRequest(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.RevokeRoleParams
+		params        authz.RevokeRoleFromUserParams
 		principal     *models.Principal
 		expectedError string
 		existedRoles  map[string][]authorization.Policy
@@ -107,9 +108,9 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 	tests := []testCase{
 		{
 			name: "empty role",
-			params: authz.RevokeRoleParams{
+			params: authz.RevokeRoleFromUserParams{
 				ID: "testUser",
-				Body: authz.RevokeRoleBody{
+				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{""},
 				},
 			},
@@ -119,9 +120,9 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 		},
 		{
 			name: "revoke configured admin role",
-			params: authz.RevokeRoleParams{
+			params: authz.RevokeRoleFromUserParams{
 				ID: "testUser",
-				Body: authz.RevokeRoleBody{
+				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"admin"},
 				},
 			},
@@ -132,9 +133,9 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 		},
 		{
 			name: "revoke configured viewer role",
-			params: authz.RevokeRoleParams{
+			params: authz.RevokeRoleFromUserParams{
 				ID: "testUser",
-				Body: authz.RevokeRoleBody{
+				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"viewer"},
 				},
 			},
@@ -164,8 +165,8 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 				},
 				logger: logger,
 			}
-			res := h.revokeRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.RevokeRoleBadRequest)
+			res := h.revokeRoleFromUser(tt.params, tt.principal)
+			parsed, ok := res.(*authz.RevokeRoleFromUserBadRequest)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -178,7 +179,7 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 func TestRevokeRoleOrUserNotFound(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.RevokeRoleParams
+		params        authz.RevokeRoleFromUserParams
 		principal     *models.Principal
 		existedRoles  map[string][]authorization.Policy
 		existedUsers  []string
@@ -188,9 +189,9 @@ func TestRevokeRoleOrUserNotFound(t *testing.T) {
 	tests := []testCase{
 		{
 			name: "user not found",
-			params: authz.RevokeRoleParams{
+			params: authz.RevokeRoleFromUserParams{
 				ID: "user_not_exist",
-				Body: authz.RevokeRoleBody{
+				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"role1"},
 				},
 			},
@@ -200,9 +201,9 @@ func TestRevokeRoleOrUserNotFound(t *testing.T) {
 		},
 		{
 			name: "role not found",
-			params: authz.RevokeRoleParams{
+			params: authz.RevokeRoleFromUserParams{
 				ID: "user1",
-				Body: authz.RevokeRoleBody{
+				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"role1"},
 				},
 			},
@@ -231,8 +232,8 @@ func TestRevokeRoleOrUserNotFound(t *testing.T) {
 				apiKeysConfigs: config.APIKey{Enabled: true, Users: tt.existedUsers},
 				logger:         logger,
 			}
-			res := h.revokeRole(tt.params, tt.principal)
-			_, ok := res.(*authz.RevokeRoleNotFound)
+			res := h.revokeRoleFromUser(tt.params, tt.principal)
+			_, ok := res.(*authz.RevokeRoleFromUserNotFound)
 			assert.True(t, ok)
 		})
 	}
@@ -241,7 +242,7 @@ func TestRevokeRoleOrUserNotFound(t *testing.T) {
 func TestRevokeRoleForbidden(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.RevokeRoleParams
+		params        authz.RevokeRoleFromUserParams
 		principal     *models.Principal
 		authorizeErr  error
 		expectedError string
@@ -250,9 +251,9 @@ func TestRevokeRoleForbidden(t *testing.T) {
 	tests := []testCase{
 		{
 			name: "authorization error",
-			params: authz.RevokeRoleParams{
+			params: authz.RevokeRoleFromUserParams{
 				ID: "testUser",
-				Body: authz.RevokeRoleBody{
+				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"testRole"},
 				},
 			},
@@ -275,8 +276,8 @@ func TestRevokeRoleForbidden(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.revokeRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.RevokeRoleForbidden)
+			res := h.revokeRoleFromUser(tt.params, tt.principal)
+			parsed, ok := res.(*authz.RevokeRoleFromUserForbidden)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -289,7 +290,7 @@ func TestRevokeRoleForbidden(t *testing.T) {
 func TestRevokeRoleInternalServerError(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.RevokeRoleParams
+		params        authz.RevokeRoleFromUserParams
 		principal     *models.Principal
 		getRolesErr   error
 		revokeErr     error
@@ -299,9 +300,9 @@ func TestRevokeRoleInternalServerError(t *testing.T) {
 	tests := []testCase{
 		{
 			name: "internal server error from revoking",
-			params: authz.RevokeRoleParams{
+			params: authz.RevokeRoleFromUserParams{
 				ID: "testUser",
-				Body: authz.RevokeRoleBody{
+				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"testRole"},
 				},
 			},
@@ -311,9 +312,9 @@ func TestRevokeRoleInternalServerError(t *testing.T) {
 		},
 		{
 			name: "internal server error from getting role",
-			params: authz.RevokeRoleParams{
+			params: authz.RevokeRoleFromUserParams{
 				ID: "testUser",
-				Body: authz.RevokeRoleBody{
+				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"testRole"},
 				},
 			},
@@ -340,8 +341,8 @@ func TestRevokeRoleInternalServerError(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.revokeRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.RevokeRoleInternalServerError)
+			res := h.revokeRoleFromUser(tt.params, tt.principal)
+			parsed, ok := res.(*authz.RevokeRoleFromUserInternalServerError)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
