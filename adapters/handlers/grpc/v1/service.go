@@ -103,8 +103,10 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 		return nil, fmt.Errorf("aggregate: %w", err)
 	}
 
-	replier := NewAggregateReplier()
-
+	replier := NewAggregateReplier(
+		s.classGetterWithAuthzFunc(principal),
+		params,
+	)
 	result, err := replier.Aggregate(res)
 	if err != nil {
 		return nil, fmt.Errorf("prepare reply: %w", err)

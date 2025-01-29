@@ -15,13 +15,29 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-type AggregateReplier struct{}
+type AggregateReplier struct {
+	authorizedGetDataTypeOfProp func(string) (string, error)
+}
 
-func NewAggregateReplier() *AggregateReplier {
-	return &AggregateReplier{}
+func NewAggregateReplier(authorizedGetClass func(string) (*models.Class, error), params *aggregation.Params) *AggregateReplier {
+	return &AggregateReplier{
+		authorizedGetDataTypeOfProp: func(propName string) (string, error) {
+			class, err := authorizedGetClass(string(params.ClassName))
+			if err != nil {
+				return "", fmt.Errorf("get class: %w", err)
+			}
+			schemaProp, err := schema.GetPropertyByName(class, propName)
+			if err != nil {
+				return "", fmt.Errorf("get property by name: %w", err)
+			}
+			return string(schema.DataType(schemaProp.DataType[0])), nil
+		},
+	}
 }
 
 func (r *AggregateReplier) Aggregate(res interface{}) (*pb.AggregateReply_Result, error) {
@@ -37,11 +53,11 @@ func (r *AggregateReplier) Aggregate(res interface{}) (*pb.AggregateReply_Result
 			groups = make([]*pb.AggregateGroup, len(result.Groups))
 			for i := range result.Groups {
 				count := int64(result.Groups[i].Count)
-				aggregations, err := parseAggregatedProperties(result.Groups[i].Properties)
+				aggregations, err := r.parseAggregatedProperties(result.Groups[i].Properties)
 				if err != nil {
 					return nil, fmt.Errorf("aggregations: %w", err)
 				}
-				groupedBy, err := parseAggregateGroupedBy(result.Groups[i].GroupedBy)
+				groupedBy, err := r.parseAggregateGroupedBy(result.Groups[i].GroupedBy)
 				if err != nil {
 					return nil, fmt.Errorf("groupedBy: %w", err)
 				}
@@ -57,7 +73,7 @@ func (r *AggregateReplier) Aggregate(res interface{}) (*pb.AggregateReply_Result
 	return &pb.AggregateReply_Result{Groups: groups}, nil
 }
 
-func parseAggregateGroupedBy(in *aggregation.GroupedBy) (*pb.AggregateGroup_GroupedBy, error) {
+func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*pb.AggregateGroup_GroupedBy, error) {
 	if in != nil {
 		switch val := in.Value.(type) {
 		case string:
@@ -107,12 +123,12 @@ func parseAggregateGroupedBy(in *aggregation.GroupedBy) (*pb.AggregateGroup_Grou
 	return nil, nil
 }
 
-func parseAggregatedProperties(in map[string]aggregation.Property) (*pb.AggregateGroup_Aggregations, error) {
+func (r *AggregateReplier) parseAggregatedProperties(in map[string]aggregation.Property) (*pb.AggregateGroup_Aggregations, error) {
 	var aggregations *pb.AggregateGroup_Aggregations
 	if len(in) > 0 {
 		propertyAggregations := []*pb.AggregateGroup_Aggregations_Aggregation{}
 		for name, property := range in {
-			aggregationResult, err := parseAggregationResult(name, property)
+			aggregationResult, err := r.parseAggregationResult(name, property)
 			if err != nil {
 				return nil, fmt.Errorf("parse aggregation property: %w", err)
 			}
@@ -125,10 +141,14 @@ func parseAggregatedProperties(in map[string]aggregation.Property) (*pb.Aggregat
 	return aggregations, nil
 }
 
-func parseAggregationResult(propertyName string, property aggregation.Property) (*pb.AggregateGroup_Aggregations_Aggregation, error) {
+func (r *AggregateReplier) parseAggregationResult(propertyName string, property aggregation.Property) (*pb.AggregateGroup_Aggregations_Aggregation, error) {
 	switch property.Type {
 	case aggregation.PropertyTypeNumerical:
-		switch property.SchemaType {
+		dataType, err := r.authorizedGetDataTypeOfProp(propertyName)
+		if err != nil {
+			return nil, fmt.Errorf("get data type of property: %w", err)
+		}
+		switch dataType {
 		case "int", "int[]":
 			integerAggregation, err := parseIntegerAggregation(property.SchemaType, property.NumericalAggregations)
 			if err != nil {
