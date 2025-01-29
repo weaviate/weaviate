@@ -46,7 +46,7 @@ function release() {
     args+=("-t=$tag_preview_semver")
   fi
 
-  docker buildx build "${args[@]}" .
+  docker buildx build "${args[@]}" . || exit 1
 
   if [ -n "$tag_preview" ]; then
     echo "PREVIEW_TAG=$tag_preview" >> "$GITHUB_OUTPUT"
