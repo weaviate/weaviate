@@ -203,7 +203,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	adminKey := "existing-key"
 	existingRole := "admin"
 
-	testRoleName := "test-role"
+	testRoleName := "testRole"
 	createCollectionsAction := authorization.CreateCollections
 	deleteCollectionsAction := authorization.DeleteCollections
 	all := "*"
@@ -355,7 +355,7 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
-	testRoleName := "test-role"
+	testRoleName := "testRole"
 	testUser := "test-user"
 	testKey := "test-key"
 
@@ -408,7 +408,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
-	testRole := "test-role"
+	testRole := "testRole"
 	createCollectionsAction := authorization.CreateCollections
 	deleteCollectionsAction := authorization.DeleteCollections
 	all := "*"
@@ -496,7 +496,7 @@ func TestAuthzRolesHasPermission(t *testing.T) {
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	testRole := "test-role"
+	testRole := "testRole"
 
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
@@ -553,7 +553,7 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
-	testRole := "test-role"
+	testRole := "testRole"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
