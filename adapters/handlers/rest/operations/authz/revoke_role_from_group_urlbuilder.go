@@ -23,8 +23,8 @@ import (
 	"strings"
 )
 
-// AssignRoleURL generates an URL for the assign role operation
-type AssignRoleURL struct {
+// RevokeRoleFromGroupURL generates an URL for the revoke role from group operation
+type RevokeRoleFromGroupURL struct {
 	ID string
 
 	_basePath string
@@ -35,7 +35,7 @@ type AssignRoleURL struct {
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *AssignRoleURL) WithBasePath(bp string) *AssignRoleURL {
+func (o *RevokeRoleFromGroupURL) WithBasePath(bp string) *RevokeRoleFromGroupURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -43,21 +43,21 @@ func (o *AssignRoleURL) WithBasePath(bp string) *AssignRoleURL {
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *AssignRoleURL) SetBasePath(bp string) {
+func (o *RevokeRoleFromGroupURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *AssignRoleURL) Build() (*url.URL, error) {
+func (o *RevokeRoleFromGroupURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/users/{id}/assign"
+	var _path = "/authz/groups/{id}/revoke"
 
 	id := o.ID
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("id is required on AssignRoleURL")
+		return nil, errors.New("id is required on RevokeRoleFromGroupURL")
 	}
 
 	_basePath := o._basePath
@@ -70,7 +70,7 @@ func (o *AssignRoleURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *AssignRoleURL) Must(u *url.URL, err error) *url.URL {
+func (o *RevokeRoleFromGroupURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -81,17 +81,17 @@ func (o *AssignRoleURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *AssignRoleURL) String() string {
+func (o *RevokeRoleFromGroupURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *AssignRoleURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *RevokeRoleFromGroupURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on AssignRoleURL")
+		return nil, errors.New("scheme is required for a full url on RevokeRoleFromGroupURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on AssignRoleURL")
+		return nil, errors.New("host is required for a full url on RevokeRoleFromGroupURL")
 	}
 
 	base, err := o.Build()
@@ -105,6 +105,6 @@ func (o *AssignRoleURL) BuildFull(scheme, host string) (*url.URL, error) {
 }
 
 // StringFull returns the string representation of a complete url
-func (o *AssignRoleURL) StringFull(scheme, host string) string {
+func (o *RevokeRoleFromGroupURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }
