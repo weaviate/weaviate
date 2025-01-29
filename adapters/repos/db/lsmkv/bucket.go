@@ -1538,7 +1538,8 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		flushing.currentBlockImpact = float32(idfs[i])
 	}
 
-	for j, segment := range segmentsDisk {
+	for j := len(segmentsDisk) - 1; j >= 0; j-- {
+		segment := segmentsDisk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
 		tombstones, err := segment.GetTombstones()
 		if err != nil {
