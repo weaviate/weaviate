@@ -3,6 +3,7 @@ syntax = "proto3";
 package weaviate.v1;
 
 import "v1/base.proto";
+import "v1/base_search.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.client.grpc.protocol.v1";
@@ -87,6 +88,18 @@ message AggregateRequest {
 
   // matches/searches for objects
   optional Filters filters = 40;
+  oneof search {
+    Hybrid hybrid = 41;
+    NearVector near_vector = 42;
+    NearObject near_object = 43;
+    NearTextSearch near_text = 44;
+    NearImageSearch near_image = 45;
+    NearAudioSearch near_audio = 46;
+    NearVideoSearch near_video = 47;
+    NearDepthSearch near_depth = 48;
+    NearThermalSearch near_thermal = 49;
+    NearIMUSearch near_imu = 50;
+  }
 }
 
 message AggregateReply {
