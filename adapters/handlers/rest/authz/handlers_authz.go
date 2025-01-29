@@ -327,6 +327,10 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		}
 	}
 
+	if len(params.Body.Roles) == 0 {
+		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("roles can not be empty")))
+	}
+
 	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Users(params.ID)...); err != nil {
 		return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -338,10 +342,6 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
 		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	}
-
-	if len(existedRoles) != len(params.Body.Roles) && len(params.Body.Roles) == 1 {
-		return authz.NewAssignRoleToUserNotFound()
 	}
 
 	if len(existedRoles) != len(params.Body.Roles) {
@@ -364,44 +364,6 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 }
 
 func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, principal *models.Principal) middleware.Responder {
-	// for _, role := range params.Body.Roles {
-	// 	if strings.TrimSpace(role) == "" {
-	// 		return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to assign is empty")))
-	// 	}
-	// }
-
-	// if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Users(params.ID)...); err != nil {
-	// 	return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	// }
-
-	// if !h.userExists(params.ID) {
-	// 	return authz.NewAssignRoleToGroupNotFound()
-	// }
-
-	// existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
-	// if err != nil {
-	// 	return authz.NewAssignRoleToGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	// }
-
-	// if len(existedRoles) != len(params.Body.Roles) && len(params.Body.Roles) == 1 {
-	// 	return authz.NewAssignRoleToGroupNotFound()
-	// }
-
-	// if len(existedRoles) != len(params.Body.Roles) {
-	// 	return authz.NewAssignRoleToGroupNotFound()
-	// }
-
-	// if err := h.controller.AddRolesForUser(params.ID, params.Body.Roles); err != nil {
-	// 	return authz.NewAssignRoleToGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	// }
-
-	// h.logger.WithFields(logrus.Fields{
-	// 	"action":                  "assign_roles",
-	// 	"component":               authorization.ComponentName,
-	// 	"user":                    principal.Username,
-	// 	"user_to_assign_roles_to": params.ID,
-	// 	"roles":                   params.Body.Roles,
-	// }).Info("roles assigned")
 
 	return authz.NewAssignRoleToUserOK()
 }
@@ -558,50 +520,6 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 	return authz.NewRevokeRoleFromUserOK()
 }
 func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
-	// for _, role := range params.Body.Roles {
-	// 	if strings.TrimSpace(role) == "" {
-	// 		return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to revoke is empty")))
-	// 	}
-	// }
-
-	// if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Users(params.ID)...); err != nil {
-	// 	return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	// }
-
-	// adminRoles := slices.Contains(h.rbacconfig.Admins, params.ID) && slices.Contains(params.Body.Roles, authorization.Admin)
-	// viewerRoles := slices.Contains(h.rbacconfig.Viewers, params.ID) && slices.Contains(params.Body.Roles, authorization.Viewer)
-	// if adminRoles || viewerRoles {
-	// 	requestedRole := authorization.Admin
-	// 	if viewerRoles {
-	// 		requestedRole = authorization.Viewer
-	// 	}
-	// 	return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not revoke configured role %s", requestedRole)))
-	// }
-
-	// if !h.userExists(params.ID) {
-	// 	return authz.NewRevokeRoleFromGroupNotFound()
-	// }
-
-	// existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
-	// if err != nil {
-	// 	return authz.NewRevokeRoleFromGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	// }
-
-	// if len(existedRoles) != len(params.Body.Roles) {
-	// 	return authz.NewRevokeRoleFromGroupNotFound()
-	// }
-
-	// if err := h.controller.RevokeRolesForUser(params.ID, params.Body.Roles...); err != nil {
-	// 	return authz.NewRevokeRoleFromGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	// }
-
-	// h.logger.WithFields(logrus.Fields{
-	// 	"action":                  "revoke_roles",
-	// 	"component":               authorization.ComponentName,
-	// 	"user":                    principal.Username,
-	// 	"user_to_assign_roles_to": params.ID,
-	// 	"roles":                   params.Body.Roles,
-	// }).Info("roles revoked")
 
 	return authz.NewRevokeRoleFromGroupOK()
 }
