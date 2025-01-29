@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -55,9 +54,6 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	require.Nil(t, err)
 
 	endpoints := col.allEndpoints()
-	ignoreEndpoints := []string{
-		"/authz/groups/.*", // ignore for now
-	}
 	ls := newLogScanner(containers[0].Container())
 	ls.GetAuthzLogs(t) // startup logs that are irrelevant
 
@@ -73,16 +69,6 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
-			for _, pattern := range ignoreEndpoints {
-				matched, err := regexp.MatchString(pattern, endpoint.path)
-				if err != nil {
-					t.Fatalf("invalid regex pattern: %s", pattern)
-				}
-				if matched {
-					return
-				}
-			}
-
 			require.NotContains(t, url, "{")
 			require.NotContains(t, url, "}")
 
