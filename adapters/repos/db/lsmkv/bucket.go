@@ -312,21 +312,31 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	cursor := b.Cursor()
 	defer cursor.Close()
 
-	return b.iterateObjectsCursor(ctx, cursor, f)
-}
-
-func (b *Bucket) IterateObjectsWith(ctx context.Context, desiredSecondaryIndexCount int, f func(object *storobj.Object) error) error {
-	cursor := b.CursorWith(desiredSecondaryIndexCount)
-	defer cursor.Close()
-
-	return b.iterateObjectsCursor(ctx, cursor, f)
-}
-
-func (b *Bucket) iterateObjectsCursor(ctx context.Context, cursor *CursorReplace, f func(object *storobj.Object) error) error {
 	i := 0
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		obj, err := storobj.FromBinary(v)
+		if err != nil {
+			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
+		}
+		if err := f(obj); err != nil {
+			return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+		}
+
+		i++
+	}
+
+	return nil
+}
+
+func (b *Bucket) IterateObjectDigests(ctx context.Context, desiredSecondaryIndexCount int, f func(object *storobj.Object) error) error {
+	cursor := b.CursorWith(desiredSecondaryIndexCount)
+	defer cursor.Close()
+
+	i := 0
+
+	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		obj, err := storobj.FromBinaryUUIDOnly(v)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}
