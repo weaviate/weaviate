@@ -518,6 +518,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 
 	return authz.NewRevokeRoleFromUserOK()
 }
+
 func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
 	return authz.NewRevokeRoleFromGroupForbidden()
 }
