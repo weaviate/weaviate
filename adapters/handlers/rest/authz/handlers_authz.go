@@ -14,6 +14,7 @@ package authz
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -31,6 +32,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
+
+const (
+	roleNameMaxLength = 64
+	roleNameRegexCore = `[A-Z][_0-9A-Za-z]{0,254}`
+)
+
+var validateRoleNameRegex = regexp.MustCompile(`^` + roleNameRegexCore + `$`)
 
 type authZHandlers struct {
 	authorizer     authorization.Authorizer
@@ -68,6 +76,10 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
 	if *params.Body.Name == "" {
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is required")))
+	}
+
+	if err := validateRoleName(*params.Body.Name); err != nil {
+		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is invalid")))
 	}
 
 	policies, err := conv.RolesToPolicies(params.Body)
@@ -529,6 +541,17 @@ func (h *authZHandlers) userExists(user string) bool {
 		return false
 	}
 	return true
+}
+
+// validateRoleName validates that this string is a valid role name (format wise)
+func validateRoleName(name string) error {
+	if len(name) > roleNameMaxLength {
+		return fmt.Errorf("'%s' is not a valid role name. Name should not be longer than %d characters", name, roleNameMaxLength)
+	}
+	if !validateRoleNameRegex.MatchString(name) {
+		return fmt.Errorf("'%s' is not a valid role name", name)
+	}
+	return nil
 }
 
 func sortByName(roles []*models.Role) {
