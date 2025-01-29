@@ -45,8 +45,26 @@ func testColBERT(host string) func(t *testing.T) {
 			className := fixtures.BringYourOwnColBERTClassName
 			objects := fixtures.BringYourOwnColBERTObjects
 			byoc := fixtures.BringYourOwnColBERTNamedVectorName
+			normalVector2dName := fixtures.NormalVector2dName
+			multiVector1dName := fixtures.MultiVector1dName
+			multiVector2dName := fixtures.MultiVector2dName
+			multiVector3dName := fixtures.MultiVector3dName
+			multiVector1dFromMultiVector2d := func(mv [][]float32) [][]float32 {
+				multiVector1d := make([][]float32, len(mv))
+				for i, v := range mv {
+					multiVector1d[i] = []float32{v[0]}
+				}
+				return multiVector1d
+			}
+			multiVector3dFromMultiVector2d := func(mv [][]float32) [][]float32 {
+				multiVector3d := make([][]float32, len(mv))
+				for i, v := range mv {
+					multiVector3d[i] = []float32{v[0], v[1], v[1]}
+				}
+				return multiVector3d
+			}
 
-			_additional := graphql.Field{
+			_additional_byoc := graphql.Field{
 				Name: "_additional",
 				Fields: []graphql.Field{
 					{Name: "id"},
@@ -61,7 +79,7 @@ func testColBERT(host string) func(t *testing.T) {
 				resp, err := client.GraphQL().Get().
 					WithClassName(className).
 					WithNearVector(nearVector).
-					WithFields(_additional).
+					WithFields(_additional_byoc).
 					Do(ctx)
 				require.NoError(t, err)
 				ids := acceptance_with_go_client.GetIds(t, resp, className)
@@ -76,7 +94,7 @@ func testColBERT(host string) func(t *testing.T) {
 				resp, err := client.GraphQL().Get().
 					WithClassName(className).
 					WithNearObject(nearObject).
-					WithFields(_additional).
+					WithFields(_additional_byoc).
 					Do(ctx)
 				require.NoError(t, err)
 				ids := acceptance_with_go_client.GetIds(t, resp, className)
@@ -100,7 +118,11 @@ func testColBERT(host string) func(t *testing.T) {
 							"name": o.Name,
 						},
 						Vectors: models.Vectors{
-							byoc: o.Vector,
+							byoc:               o.Vector,
+							normalVector2dName: o.Vector[0],
+							multiVector1dName:  multiVector1dFromMultiVector2d(o.Vector),
+							multiVector2dName:  o.Vector,
+							multiVector3dName:  multiVector3dFromMultiVector2d(o.Vector),
 						},
 					}
 					objs = append(objs, obj)
@@ -123,6 +145,7 @@ func testColBERT(host string) func(t *testing.T) {
 			t.Run("vector search after insert", func(t *testing.T) {
 				performNearVector(t, client, className)
 				performNearObject(t, client, className)
+
 			})
 
 			t.Run("check existence", func(t *testing.T) {
@@ -141,7 +164,7 @@ func testColBERT(host string) func(t *testing.T) {
 					objs, err := client.Data().ObjectsGetter().WithID(o.ID).WithClassName(className).WithVector().Do(ctx)
 					require.NoError(t, err)
 					require.Len(t, objs, 1)
-					require.Len(t, objs[0].Vectors, 1)
+					require.Len(t, objs[0].Vectors, 5)
 					assert.IsType(t, [][]float32{}, objs[0].Vectors[byoc])
 					assert.Equal(t, o.Vector, objs[0].Vectors[byoc])
 				}
@@ -152,7 +175,7 @@ func testColBERT(host string) func(t *testing.T) {
 					resp, err := client.GraphQL().Get().
 						WithClassName(className).
 						WithWhere(filters.Where().WithPath([]string{"id"}).WithOperator(filters.Equal).WithValueText(o.ID)).
-						WithFields(_additional).
+						WithFields(_additional_byoc).
 						Do(ctx)
 					require.NoError(t, err)
 					vectors := acceptance_with_go_client.GetVectors(t, resp, className, false, byoc)
@@ -189,13 +212,17 @@ func testColBERT(host string) func(t *testing.T) {
 					t.Run(tt.name, func(t *testing.T) {
 						firstObj := tt.obj
 						updateVectors := models.Vectors{
-							byoc: tt.vector,
+							byoc:               tt.vector,
+							normalVector2dName: tt.vector[0],
+							multiVector1dName:  multiVector1dFromMultiVector2d(tt.vector),
+							multiVector2dName:  tt.vector,
+							multiVector3dName:  multiVector3dFromMultiVector2d(tt.vector),
 						}
 						objs, err := client.Data().ObjectsGetter().
 							WithClassName(className).WithID(firstObj.ID).WithVector().Do(ctx)
 						require.NoError(t, err)
 						require.NotEmpty(t, objs)
-						require.Len(t, objs[0].Vectors, 1)
+						require.Len(t, objs[0].Vectors, 5)
 						assert.Equal(t, firstObj.Vector, objs[0].Vectors[byoc])
 						updater := client.Data().Updater().
 							WithClassName(className).WithID(firstObj.ID).WithVectors(updateVectors)
@@ -209,12 +236,12 @@ func testColBERT(host string) func(t *testing.T) {
 							WithClassName(className).WithID(firstObj.ID).WithVector().Do(ctx)
 						require.NoError(t, err)
 						require.NotEmpty(t, objs)
-						require.Len(t, objs[0].Vectors, 1)
+						require.Len(t, objs[0].Vectors, 5)
 						assert.Equal(t, updateVectors[byoc], objs[0].Vectors[byoc])
 						resp, err := client.GraphQL().Get().
 							WithClassName(className).
 							WithWhere(filters.Where().WithPath([]string{"id"}).WithOperator(filters.Equal).WithValueText(firstObj.ID)).
-							WithFields(_additional).
+							WithFields(_additional_byoc).
 							Do(ctx)
 						require.NoError(t, err)
 						vectors := acceptance_with_go_client.GetVectors(t, resp, className, false, byoc)
@@ -238,7 +265,11 @@ func testColBERT(host string) func(t *testing.T) {
 				for _, obj := range objects {
 					err = client.Data().Updater().
 						WithClassName(className).WithID(obj.ID).WithVectors(models.Vectors{
-						byoc: obj.Vector,
+						byoc:               obj.Vector,
+						normalVector2dName: obj.Vector[0],
+						multiVector1dName:  multiVector1dFromMultiVector2d(obj.Vector),
+						multiVector2dName:  obj.Vector,
+						multiVector3dName:  multiVector3dFromMultiVector2d(obj.Vector),
 					}).Do(ctx)
 					require.NoError(t, err)
 				}
@@ -251,6 +282,134 @@ func testColBERT(host string) func(t *testing.T) {
 			t.Run("vector search after update of all objects", func(t *testing.T) {
 				performNearVector(t, client, className)
 				performNearObject(t, client, className)
+			})
+			t.Run("WithVector[s]PerTarget searches", func(t *testing.T) {
+				withVectorPerTargetTests := []struct {
+					name       string
+					nearVector *graphql.NearVectorArgumentBuilder
+				}{
+					{
+						name: "NormalVector_dim2",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorPerTarget(map[string]models.Vector{
+								normalVector2dName: []float32{0.1, 0.1},
+							}).
+							WithTargetVectors(normalVector2dName),
+					},
+					{
+						name: "NormalVectors_dim3x2",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorsPerTarget(map[string][]models.Vector{
+								normalVector2dName: {[]float32{0.1, 0.1}, []float32{0.1, 0.1}, []float32{0.1, 0.1}},
+							}).
+							WithTargetVectors(normalVector2dName),
+					},
+					{
+						name: "MultiVector_dim3x2",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorPerTarget(map[string]models.Vector{
+								multiVector2dName: [][]float32{{0.1, 0.1}, {0.1, 0.1}, {0.1, 0.1}},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVectors_dim1x3x2",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorsPerTarget(map[string][]models.Vector{
+								multiVector2dName: {
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}, {0.1, 0.1}},
+								},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVectors_dim2x3x2",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorsPerTarget(map[string][]models.Vector{
+								multiVector2dName: {
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}, {0.1, 0.1}},
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}, {0.1, 0.1}},
+								},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVector_1d2d3d",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorPerTarget(map[string]models.Vector{
+								multiVector1dName: [][]float32{{0.1}, {0.1}},
+								multiVector2dName: [][]float32{{0.1, 0.1}, {0.1, 0.1}},
+								multiVector3dName: [][]float32{{0.1, 0.1, 0.1}, {0.1, 0.1, 0.1}},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVectors_1d2d3d",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorsPerTarget(map[string][]models.Vector{
+								multiVector1dName: {
+									[][]float32{{0.1}, {0.1}},
+									[][]float32{{0.1}, {0.1}},
+									[][]float32{{0.1}, {0.1}},
+								},
+								multiVector2dName: {
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}},
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}},
+								},
+								multiVector3dName: {
+									[][]float32{{0.1, 0.1, 0.1}, {0.1, 0.1, 0.1}},
+								},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVector_all",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorPerTarget(map[string]models.Vector{
+								normalVector2dName: []float32{0.1, 0.1},
+								multiVector1dName:  [][]float32{{0.1}, {0.1}},
+								multiVector2dName:  [][]float32{{0.1, 0.1}, {0.1, 0.1}},
+								multiVector3dName:  [][]float32{{0.1, 0.1, 0.1}, {0.1, 0.1, 0.1}},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+					{
+						name: "MultiVectors_all",
+						nearVector: client.GraphQL().NearVectorArgBuilder().
+							WithVectorsPerTarget(map[string][]models.Vector{
+								normalVector2dName: {
+									[]float32{0.1, 0.1},
+									[]float32{0.1, 0.1},
+								},
+								multiVector1dName: {
+									[][]float32{{0.1}, {0.1}},
+									[][]float32{{0.1}, {0.1}},
+								},
+								multiVector2dName: {
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}},
+									[][]float32{{0.1, 0.1}, {0.1, 0.1}},
+								},
+								multiVector3dName: {
+									[][]float32{{0.1, 0.1, 0.1}, {0.1, 0.1, 0.1}},
+									[][]float32{{0.1, 0.1, 0.1}, {0.1, 0.1, 0.1}},
+								},
+							}).
+							WithTargetVectors(multiVector2dName),
+					},
+				}
+				for _, tt := range withVectorPerTargetTests {
+					t.Run(tt.name, func(t *testing.T) {
+						resp, err := client.GraphQL().Get().
+							WithClassName(className).
+							WithNearVector(tt.nearVector).
+							WithFields(_additional_byoc).
+							Do(ctx)
+						require.NoError(t, err)
+						ids := acceptance_with_go_client.GetIds(t, resp, className)
+						require.NotEmpty(t, ids)
+						assert.Len(t, ids, len(objects))
+					})
+				}
 			})
 		})
 
