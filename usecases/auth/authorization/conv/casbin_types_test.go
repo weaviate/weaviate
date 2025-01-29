@@ -473,7 +473,7 @@ func Test_policy(t *testing.T) {
 
 				policy, err := policy(tt.permission)
 				require.Nil(t, err)
-				require.Equal(t, policy, tt.policy)
+				require.Equal(t, policy[0], tt.policy)
 			})
 		}
 	}

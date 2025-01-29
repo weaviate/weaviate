@@ -103,6 +103,15 @@
               "type": "string",
               "default": "*",
               "description": "string or regex. if a specific role name, if left empty it will be ALL or *"
+            },
+            "scope": {
+              "enum": [
+                "all",
+                "match"
+              ],
+              "type": "string",
+              "default": "match",
+              "description": "set the scope for the manage scope permission"
             }
           }
         },

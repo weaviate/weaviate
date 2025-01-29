@@ -25,11 +25,13 @@ func RolesToPolicies(roles ...*models.Role) (map[string][]authorization.Policy, 
 	for idx := range roles {
 		rolesmap[*roles[idx].Name] = []authorization.Policy{}
 		for _, permission := range roles[idx].Permissions {
-			policy, err := policy(permission)
+			policies, err := policy(permission)
 			if err != nil {
 				return rolesmap, err
 			}
-			rolesmap[*roles[idx].Name] = append(rolesmap[*roles[idx].Name], *policy)
+			for _, policy := range policies {
+				rolesmap[*roles[idx].Name] = append(rolesmap[*roles[idx].Name], *policy)
+			}
 		}
 	}
 
@@ -37,16 +39,16 @@ func RolesToPolicies(roles ...*models.Role) (map[string][]authorization.Policy, 
 }
 
 func PermissionToPolicies(permissions ...*models.Permission) ([]*authorization.Policy, error) {
-	policies := []*authorization.Policy{}
+	allPolicies := []*authorization.Policy{}
 	for idx := range permissions {
-		policy, err := policy(permissions[idx])
+		policies, err := policy(permissions[idx])
 		if err != nil {
 			return nil, err
 		}
-		policies = append(policies, policy)
+		allPolicies = append(allPolicies, policies...)
 	}
 
-	return policies, nil
+	return allPolicies, nil
 }
 
 func PathToPermission(verb, path string) (*models.Permission, error) {
@@ -84,22 +86,26 @@ func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Po
 			if slices.Contains(authorization.BuiltInRoles, name) {
 				perms := authorization.BuiltInPermissions[name]
 				for _, p := range perms {
-					perm, err := policy(p)
+					perms, err := policy(p)
 					if err != nil {
 						return nil, err
 					}
-					rolesPermissions[name] = append(rolesPermissions[name], *perm)
+					for _, perm := range perms {
+						rolesPermissions[name] = append(rolesPermissions[name], *perm)
+					}
 				}
 			} else {
 				perm, err := permission(policyParts, true)
 				if err != nil {
 					return nil, err
 				}
-				weaviatePerm, err := policy(perm)
+				weaviatePerms, err := policy(perm)
 				if err != nil {
 					return nil, err
 				}
-				rolesPermissions[name] = append(rolesPermissions[name], *weaviatePerm)
+				for _, weaviatePerm := range weaviatePerms {
+					rolesPermissions[name] = append(rolesPermissions[name], *weaviatePerm)
+				}
 			}
 		}
 	}

@@ -94,6 +94,19 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles(*params.Body.Name)...); err != nil {
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
+	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.RolesScope(authorization.RoleScopeAll)...); err == nil {
+		// can do everything, no further action needed
+	} else if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.RolesScope(authorization.RoleScopeMatch)...); err == nil {
+		if err := h.userHasRolesPermission(principal, policies[*params.Body.Name]); err != nil {
+			return authz.NewCreateRoleForbidden().WithPayload(
+				cerrors.ErrPayloadFromSingleErr(
+					fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err),
+				),
+			)
+		}
+	} else {
+		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
 
 	roles, err := h.controller.GetRoles(*params.Body.Name)
 	if err != nil {
@@ -541,6 +554,20 @@ func (h *authZHandlers) userExists(user string) bool {
 		return false
 	}
 	return true
+}
+
+func (h *authZHandlers) userHasRolesPermission(principal *models.Principal, policies []authorization.Policy) error {
+	var errs []error
+	// check if user has permissions to do the things the new role should do
+	for _, policy := range policies {
+		if err := h.authorizer.Authorize(principal, policy.Verb, policy.Resource); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("list of missing permissions: %w", errors.Join(errs...))
+	}
+	return nil
 }
 
 // validateRoleName validates that this string is a valid role name (format wise)

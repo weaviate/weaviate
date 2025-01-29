@@ -21,6 +21,25 @@ import (
 	"github.com/weaviate/weaviate/entities/verbosity"
 )
 
+type RoleScope string
+
+const (
+	RoleScopeAll     RoleScope = "all"
+	RoleScopeMatch   RoleScope = "match"
+	RoleScopeUnknown RoleScope = "unknown"
+)
+
+func NewRoleScope(name string) (RoleScope, error) {
+	switch name {
+	default:
+		return RoleScopeUnknown, fmt.Errorf("unknown role scope: %s", name)
+	case "all":
+		return RoleScopeAll, nil
+	case "match":
+		return RoleScopeMatch, nil
+	}
+}
+
 const (
 	// CREATE Represents the action to create a new resource.
 	CREATE = "C"
@@ -35,6 +54,7 @@ const (
 const (
 	UsersDomain       = "users"
 	RolesDomain       = "roles"
+	RolesScopeDomain  = "rolesScope"
 	ClusterDomain     = "cluster"
 	NodesDomain       = "nodes"
 	BackupsDomain     = "backups"
@@ -64,7 +84,8 @@ var (
 		Collection: All,
 	}
 	AllRoles = &models.PermissionRoles{
-		Role: All,
+		Role:  All,
+		Scope: String(string(RoleScopeAll)),
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
@@ -239,6 +260,20 @@ func Roles(roles ...string) []string {
 	}
 
 	return resources
+}
+
+// RolesScope generates a list of role resource strings based on the provided role names.
+// If no role names are provided, it returns a default role resource string "roles/*".
+//
+// Parameters:
+//
+//	roles - A variadic parameter representing the role names.
+//
+// Returns:
+//
+//	A slice of strings where each string is a formatted role resource string.
+func RolesScope(scope RoleScope) []string {
+	return []string{fmt.Sprintf("%s/%s", RolesScopeDomain, string(scope))}
 }
 
 // CollectionsMetadata generates a list of resource strings for the given classes.

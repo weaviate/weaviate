@@ -58,6 +58,7 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.UsersDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.UsersDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.RolesDomain),
+	fmt.Sprintf(`^%s/.*$`, authorization.RolesScopeDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.ClusterDomain),
 	fmt.Sprintf(`^%s/verbosity/minimal$`, authorization.NodesDomain),
@@ -125,6 +126,10 @@ func CasbinRoles(role string) string {
 	return fmt.Sprintf("%s/%s", authorization.RolesDomain, role)
 }
 
+func CasbinRolesScope(scope authorization.RoleScope) string {
+	return fmt.Sprintf("%s/%s", authorization.RolesScopeDomain, string(scope))
+}
+
 func CasbinSchema(collection, shard string) string {
 	collection = schema.UppercaseClassesNames(collection)[0]
 	if collection == "" {
@@ -185,9 +190,9 @@ func casbinPolicyDomains(domain string) string {
 	}
 }
 
-func policy(permission *models.Permission) (*authorization.Policy, error) {
+func policy(permission *models.Permission) ([]*authorization.Policy, error) {
 	if permission.Action == nil {
-		return &authorization.Policy{Resource: InternalPlaceHolder}, nil
+		return []*authorization.Policy{{Resource: InternalPlaceHolder}}, nil
 	}
 
 	verb, domain, err := extractFromExtAction(*permission.Action)
@@ -195,27 +200,40 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		return nil, err
 	}
 
-	var resource string
+	var resources []string
 	switch domain {
 	case authorization.UsersDomain:
 		// do nothing TODO-RBAC: to be handled when dynamic users management gets added
 		user := "*"
-		resource = CasbinUsers(user)
+		resources = append(resources, CasbinUsers(user))
 	case authorization.RolesDomain:
 		role := "*"
 		if permission.Roles != nil && permission.Roles.Role != nil {
 			role = *permission.Roles.Role
 		}
-		resource = CasbinRoles(role)
+		resources = append(resources, CasbinRoles(role))
+
+		// scope only relevant for manage
+		if verb == CRUD {
+			scope := authorization.RoleScopeMatch
+			if permission.Roles != nil && permission.Roles.Scope != nil {
+				scope, err = authorization.NewRoleScope(*permission.Roles.Scope)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			resources = append(resources, CasbinRolesScope(scope))
+		}
 	case authorization.ClusterDomain:
-		resource = CasbinClusters()
+		resources = append(resources, CasbinClusters())
 	case authorization.CollectionsDomain:
 		collection := "*"
 		tenant := "#"
 		if permission.Collections != nil && permission.Collections.Collection != nil {
 			collection = schema.UppercaseClassName(*permission.Collections.Collection)
 		}
-		resource = CasbinSchema(collection, tenant)
+		resources = append(resources, CasbinSchema(collection, tenant))
 
 	case authorization.TenantsDomain:
 		collection := "*"
@@ -229,7 +247,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 				tenant = *permission.Tenants.Tenant
 			}
 		}
-		resource = CasbinSchema(collection, tenant)
+		resources = append(resources, CasbinSchema(collection, tenant))
 	case authorization.DataDomain:
 		collection := "*"
 		tenant := "*"
@@ -243,7 +261,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		if permission.Data != nil && permission.Data.Object != nil {
 			object = *permission.Data.Object
 		}
-		resource = CasbinData(collection, tenant, object)
+		resources = append(resources, CasbinData(collection, tenant, object))
 	case authorization.BackupsDomain:
 		collection := "*"
 		if permission.Backups != nil {
@@ -251,7 +269,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 				collection = schema.UppercaseClassName(*permission.Backups.Collection)
 			}
 		}
-		resource = CasbinBackups(collection)
+		resources = append(resources, CasbinBackups(collection))
 	case authorization.NodesDomain:
 		collection := "*"
 		verbosity := "minimal"
@@ -263,20 +281,27 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 				verbosity = *permission.Nodes.Verbosity
 			}
 		}
-		resource = CasbinNodes(verbosity, collection)
+		resources = append(resources, CasbinNodes(verbosity, collection))
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 
 	}
-	if !validResource(resource) {
-		return nil, fmt.Errorf("invalid resource: %s", resource)
+	for _, resource := range resources {
+		if !validResource(resource) {
+			return nil, fmt.Errorf("invalid resource: %s", resource)
+		}
 	}
 
-	return &authorization.Policy{
-		Resource: resource,
-		Verb:     verb,
-		Domain:   casbinPolicyDomains(domain),
-	}, nil
+	policies := make([]*authorization.Policy, 0, len(resources))
+	for _, resource := range resources {
+		policies = append(policies, &authorization.Policy{
+			Resource: resource,
+			Verb:     verb,
+			Domain:   casbinPolicyDomains(domain),
+		})
+	}
+
+	return policies, nil
 }
 
 func weaviatePermissionAction(pathLastPart, verb, domain string) string {
@@ -363,7 +388,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Roles = authorization.AllRoles
 		permission.Collections = authorization.AllCollections
 		permission.Tenants = authorization.AllTenants
-	case authorization.ClusterDomain, authorization.UsersDomain:
+	case authorization.ClusterDomain, authorization.UsersDomain, authorization.RolesScopeDomain:
 		// do nothing
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
