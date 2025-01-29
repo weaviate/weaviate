@@ -169,7 +169,11 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		decoders[i].Init(terms.BLOCK_SIZE)
 	}
 
-	sectionReader := io.NewSectionReader(s.contentFile, int64(node.Start), int64(node.End))
+	var sectionReader *io.SectionReader
+
+	if s.mmapContents {
+		sectionReader = io.NewSectionReader(s.contentFile, int64(node.Start), int64(node.End))
+	}
 
 	output := &SegmentBlockMax{
 		segment:           s,
