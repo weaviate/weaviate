@@ -1638,7 +1638,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.Vector,
-	targetVectors []string, dist float32, limit int, filter *filters.LocalFilter, sort []filters.Sort,
+	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort,
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
@@ -1658,7 +1658,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 		if shard != nil {
 			defer release()
-			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, filter,
+			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
 				sort, groupBy, additionalProps, shard, targetCombination, properties)
 		}
 	}
@@ -1706,7 +1706,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 					m.Unlock()
 					return nil
 				})
-			}(ctx, searchVectors, targetVectors, dist, limit, filter, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
+			}(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
 		}
 
 		if shard == nil || i.Config.ForceFullReplicasSearch {
@@ -1717,7 +1717,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			) {
 				eg.Go(func() error {
 					// If we have no local shard or if we force the query to reach all replicas
-					remoteShardObject, remoteShardScores, err := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, filter, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
+					remoteShardObject, remoteShardScores, err := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
 					if err != nil {
 						return fmt.Errorf(
 							"remote shard object search %s: %w", shardName, err)
@@ -1728,7 +1728,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 					m.Unlock()
 					return nil
 				})
-			}(ctx, searchVectors, targetVectors, dist, limit, filter, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
+			}(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
 		}
 	}
 
