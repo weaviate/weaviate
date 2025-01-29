@@ -3297,6 +3297,7 @@
             "name": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "type": "array",
@@ -3363,6 +3364,7 @@
             "name": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "type": "array",

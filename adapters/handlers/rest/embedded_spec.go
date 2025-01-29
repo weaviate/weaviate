@@ -170,6 +170,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to group",
@@ -236,6 +237,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from group",
@@ -6747,6 +6749,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to group",
@@ -6813,6 +6816,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from group",
