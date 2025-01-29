@@ -714,6 +714,16 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 						return err
 					}
 				}
+				var dims int
+				for vecName, vec := range object.MultiVectors {
+					dims = 0
+					for _, v := range vec {
+						dims += len(v)
+					}
+					if err := shard.extendDimensionTrackerForVecLSM(dims, object.DocID, vecName); err != nil {
+						return err
+					}
+				}
 			} else {
 				if err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID); err != nil {
 					return err
