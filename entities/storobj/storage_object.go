@@ -234,19 +234,28 @@ func FromBinaryOptional(data []byte,
 		}
 	}
 
-	if rw.Position < uint64(len(rw.Buffer)) {
-		multiVectorsLength := rw.ReadUint32()
-		if len(addProp.MultiVectors) > 0 {
-			if multiVectorsLength > 0 {
-				multivectors, err := rw.CopyBytesFromBuffer(uint64(multiVectorsLength), nil)
-				if err != nil {
-					return nil, errors.Wrap(err, "Could not copy multivectors")
-				}
-				if err := msgpack.Unmarshal(multivectors, &ko.MultiVectors); err != nil {
-					return nil, errors.Wrap(err, "Could not unmarshal multivectors")
-				}
-			}
+	if rw.Position < uint64(len(rw.Buffer)) && len(addProp.Vectors) > 0 {
+		vectorNamesToUnmarshal := map[string]interface{}{}
+		for _, name := range addProp.Vectors {
+			vectorNamesToUnmarshal[name] = nil
 		}
+		multiVectors, err := unmarshalMultiVectors(&rw, vectorNamesToUnmarshal)
+		if err != nil {
+			return nil, err
+		}
+		ko.MultiVectors = multiVectors
+
+		// if multiVectors != nil {
+		// 	// If parseObject is called, ko.Object will be overwritten making this effectively a
+		// 	// no-op, but I'm leaving it here to match the target vector behavior.
+		// 	if ko.Object.Vectors == nil {
+		// 		ko.Object.Vectors = make(models.Vectors)
+		// 	}
+		// 	for vecName, vec := range multiVectors {
+		// 		// assume at this level target vectors and multi vectors won't have the same name
+		// 		ko.Object.Vectors[vecName] = vec
+		// 	}
+		// }
 	}
 
 	// some object members need additional "enrichment". Only do this if necessary, ie if they are actually present
@@ -675,31 +684,32 @@ func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err erro
 // followed by the payload which depends on the specific version
 //
 // Version 1
-// No. of B   | Type          | Content
-// ------------------------------------------------
-// 1          | uint8         | MarshallerVersion = 1
-// 8          | uint64        | index id, keep early so id-only lookups are maximum efficient
-// 1          | uint8         | kind, 0=action, 1=thing - deprecated
-// 16         | uint128       | uuid
-// 8          | int64         | create time
-// 8          | int64         | update time
-// 2          | uint16        | VectorLength
-// n*4        | []float32     | vector of length n
-// 2          | uint16        | length of class name
-// n          | []byte        | className
-// 4          | uint32        | length of schema json
-// n          | []byte        | schema as json
-// 4          | uint32        | length of meta json
-// n          | []byte        | meta as json
-// 4          | uint32        | length of vectorweights json
-// n          | []byte        | vectorweights as json
-// 4          | uint32        | length of packed target vectors offsets (in bytes)
-// n          | []byte        | packed target vectors offsets map { name : offset_in_bytes }
-// 4          | uint32        | length of target vectors segment (in bytes)
-// n          | uint16+[]byte | target vectors segment: sequence of vec_length + vec (uint16 + []byte), (uint16 + []byte) ...
-// 4          | uint32        | dimension count of multivectors
-// 4          | uint32        | length of multivectors as msgpack
-// n          | []byte        | multivectors as msgpack
+// No. of B      | Type                     | Content
+// --------------------------------------------------------------
+// 1             | uint8                    | MarshallerVersion = 1
+// 8             | uint64                   | index id, keep early so id-only lookups are maximum efficient
+// 1             | uint8                    | kind, 0=action, 1=thing - deprecated
+// 16            | uint128                  | uuid
+// 8             | int64                    | create time
+// 8             | int64                    | update time
+// 2             | uint16                   | VectorLength
+// n*4           | []float32                | vector of length n
+// 2             | uint16                   | length of class name
+// n             | []byte                   | className
+// 4             | uint32                   | length of schema json
+// n             | []byte                   | schema as json
+// 4             | uint32                   | length of meta json
+// n             | []byte                   | meta as json
+// 4             | uint32                   | length of vectorweights json
+// n             | []byte                   | vectorweights as json
+// 4             | uint32                   | length of packed target vectors offsets (in bytes)
+// n             | []byte                   | packed target vectors offsets map { name : offset_in_bytes }
+// 4             | uint32                   | length of target vectors segment (in bytes)
+// n             | uint16+[]byte            | target vectors segment: sequence of vec_length + vec (uint16 + []byte), (uint16 + []byte) ...
+// 4             | uint32                   | length of packed multivector offsets (in bytes)
+// n             | []byte                   | packed multivector offsets map { name : offset_in_bytes }
+// 4             | uint32                   | length of multivectors segment (in bytes)
+// 4 + (2 + n*4) | uint32 + (uint16+[]byte) | multivectors segment: num vecs + (vec length + vec floats), ...
 
 const (
 	maxVectorLength               int = math.MaxUint16
@@ -709,6 +719,8 @@ const (
 	maxVectorWeightsLength        int = math.MaxUint32
 	maxTargetVectorsSegmentLength int = math.MaxUint32
 	maxTargetVectorsOffsetsLength int = math.MaxUint32
+	maxMultiVectorsSegmentLength  int = math.MaxUint32
+	maxMultiVectorsOffsetsLength  int = math.MaxUint32
 )
 
 func (ko *Object) MarshalBinary() ([]byte, error) {
@@ -801,15 +813,41 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
 	}
 
-	var multiVectorsPacked []byte
+	var multiVectorsOffsets []byte
+	var multiVectorsOffsetsLength uint32
+	var multiVectorsSegmentLength int
+
+	multiVectorsOffsetOrder := make([]string, 0, len(ko.MultiVectors))
 	if len(ko.MultiVectors) > 0 {
-		multiVectorsPacked, err = msgpack.Marshal(ko.MultiVectors)
+		offsetsMap := map[string]uint32{}
+		for name, vecs := range ko.MultiVectors {
+			offsetsMap[name] = uint32(multiVectorsSegmentLength)
+			// 4 bytes for number of vectors
+			multiVectorsSegmentLength += 4
+			for _, vec := range vecs {
+				if len(vec) > maxVectorLength {
+					return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
+				}
+				// 2 bytes for vec length and 4 bytes per float32
+				multiVectorsSegmentLength += 2 + 4*len(vec)
+
+				if multiVectorsSegmentLength > maxMultiVectorsSegmentLength {
+					return nil,
+						fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)",
+							"multiVectorsSegmentLength", multiVectorsSegmentLength, maxMultiVectorsSegmentLength)
+				}
+			}
+			multiVectorsOffsetOrder = append(multiVectorsOffsetOrder, name)
+		}
+
+		multiVectorsOffsets, err = msgpack.Marshal(offsetsMap)
 		if err != nil {
-			return nil, fmt.Errorf("could not marshal multivectors: %w", err)
+			return nil, fmt.Errorf("could not marshal multi vectors offsets: %w", err)
 		}
-		if len(multiVectorsPacked) > maxTargetVectorsSegmentLength {
-			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "multivectors", len(multiVectorsPacked), maxTargetVectorsSegmentLength)
+		if len(multiVectorsOffsets) > maxMultiVectorsOffsetsLength {
+			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "multiVectorsOffsets", len(multiVectorsOffsets), maxMultiVectorsOffsetsLength)
 		}
+		multiVectorsOffsetsLength = uint32(len(multiVectorsOffsets))
 	}
 
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 +
@@ -820,7 +858,8 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		4 + vectorWeightsLength +
 		4 + targetVectorsOffsetsLength +
 		4 + uint32(targetVectorsSegmentLength) +
-		8 + uint32(len(multiVectorsPacked)) // multivectors
+		4 + multiVectorsOffsetsLength +
+		4 + uint32(multiVectorsSegmentLength)
 
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
@@ -881,18 +920,24 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		}
 	}
 
-	var multivectorsLength uint32
-	for _, vectors := range ko.MultiVectors {
-		for _, vec := range vectors {
-			multivectorsLength = multivectorsLength + uint32(len(vec))
+	rw.WriteUint32(multiVectorsOffsetsLength)
+	if multiVectorsOffsetsLength > 0 {
+		err = rw.CopyBytesToBuffer(multiVectorsOffsets)
+		if err != nil {
+			return byteBuffer, errors.Wrap(err, "Could not copy multiVectorsOffsets")
 		}
 	}
 
-	rw.WriteUint32(uint32(len(multiVectorsPacked)))
-	if len(multiVectorsPacked) > 0 {
-		err = rw.CopyBytesToBuffer(multiVectorsPacked)
-		if err != nil {
-			return byteBuffer, errors.Wrap(err, "Could not copy multivectors")
+	rw.WriteUint32(uint32(multiVectorsSegmentLength))
+	for _, name := range multiVectorsOffsetOrder {
+		vecs := ko.MultiVectors[name]
+		rw.WriteUint32(uint32(len(vecs)))
+		for _, vec := range vecs {
+			vecLen := len(vec)
+			rw.WriteUint16(uint16(vecLen))
+			for j := 0; j < vecLen; j++ {
+				rw.WriteUint32(math.Float32bits(vec[j]))
+			}
 		}
 	}
 
@@ -1087,18 +1132,11 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 	ko.Vectors = vectors
 
-	if rw.Position < uint64(len(rw.Buffer)) {
-		multivectorsLength := rw.ReadUint32()
-		if multivectorsLength > 0 {
-			multivectors, err := rw.CopyBytesFromBuffer(uint64(multivectorsLength), nil)
-			if err != nil {
-				return errors.Wrap(err, "Could not copy multivectors")
-			}
-			if err := msgpack.Unmarshal(multivectors, &ko.MultiVectors); err != nil {
-				return errors.Wrap(err, "Could not unmarshal multivectors")
-			}
-		}
+	multiVectors, err := unmarshalMultiVectors(&rw, nil)
+	if err != nil {
+		return err
 	}
+	ko.MultiVectors = multiVectors
 
 	return ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
@@ -1139,6 +1177,58 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 
 			rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
 			return targetVectors, nil
+		}
+	}
+	return nil, nil
+}
+
+// unmarshalMultiVectors unmarshals the multi vectors from the buffer. If onlyUnmarshalNames is set and non-empty,
+// then only the multivectors which names specified as the map's keys will be unmarshaled.
+func unmarshalMultiVectors(
+	rw *byteops.ReadWriter,
+	onlyUnmarshalNames map[string]interface{},
+) (map[string][][]float32, error) {
+	// This check prevents from panic when somebody is upgrading from version that
+	// didn't have multi vector support. This check is needed bc with the multi vectors
+	// feature the storage object can have vectors data appended at the end of the file
+	if rw.Position < uint64(len(rw.Buffer)) {
+		multiVectorsOffsets := rw.ReadBytesFromBufferWithUint32LengthIndicator()
+		multiVectorsSegmentLength := rw.ReadUint32()
+		pos := rw.Position
+
+		if len(multiVectorsOffsets) > 0 {
+			var mvOffsets map[string]uint32
+			if err := msgpack.Unmarshal(multiVectorsOffsets, &mvOffsets); err != nil {
+				return nil, fmt.Errorf("could not unmarshal multi vectors offset: %w", err)
+			}
+
+			// NOTE if you sort mvOffsets by offset, you may be able to speed this up via
+			// sequential reads, haven't tried this yet
+			multiVectors := map[string][][]float32{}
+			for name, offset := range mvOffsets {
+				// if onlyUnmarshalNames is not nil and non-empty, only unmarshal the vectors
+				// for the names in the map
+				if len(onlyUnmarshalNames) > 0 {
+					if _, ok := onlyUnmarshalNames[name]; !ok {
+						continue
+					}
+				}
+				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
+				numVecs := rw.ReadUint32()
+				vecs := make([][]float32, 0)
+				for i := 0; i < int(numVecs); i++ {
+					vecLen := rw.ReadUint16()
+					vec := make([]float32, vecLen)
+					for j := uint16(0); j < vecLen; j++ {
+						vec[j] = math.Float32frombits(rw.ReadUint32())
+					}
+					vecs = append(vecs, vec)
+				}
+				multiVectors[name] = vecs
+			}
+
+			rw.MoveBufferToAbsolutePosition(pos + uint64(multiVectorsSegmentLength))
+			return multiVectors, nil
 		}
 	}
 	return nil, nil
