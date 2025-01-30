@@ -187,7 +187,7 @@ func TestAuthzClassification(t *testing.T) {
 	t.Run("fail to get a classification without the correct permissions", func(t *testing.T) {
 		_, err := get(id)
 		require.Error(t, err)
-		parsed, ok := err.(*classifications.ClassificationsGetForbidden)
+		parsed, ok := err.(*classifications.ClassificationsGetForbidden) //nolint:errorlint
 		require.True(t, ok)
 		require.NotNil(t, parsed.Payload)
 	})
