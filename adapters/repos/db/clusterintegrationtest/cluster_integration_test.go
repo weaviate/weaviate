@@ -213,6 +213,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 				ClassName: distributedClass,
 			}, []string{""}, []models.Vector{query})
 			assert.Nil(t, err)
+			t.Log("results", res)
 			for i, obj := range res {
 				assert.Equal(t, groundTruth[i].ID, obj.ID, fmt.Sprintf("at pos %d", i))
 			}
