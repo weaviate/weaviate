@@ -68,7 +68,8 @@ var (
 		Collection: All,
 	}
 	AllRoles = &models.PermissionRoles{
-		Role: All,
+		Role:  All,
+		Scope: String(models.PermissionRolesScopeAll),
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,

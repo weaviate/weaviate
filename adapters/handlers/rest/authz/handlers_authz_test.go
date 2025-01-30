@@ -40,7 +40,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			principal:    &models.Principal{Username: "admin"},
 			originalVerb: authorization.CREATE,
 			policies: []authorization.Policy{
-				{Resource: "collection/ABC", Verb: authorization.READ},
+				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "newRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
@@ -55,7 +55,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			principal:    &models.Principal{Username: "user"},
 			originalVerb: authorization.CREATE,
 			policies: []authorization.Policy{
-				{Resource: "collection/ABC", Verb: authorization.READ},
+				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "newRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
@@ -66,7 +66,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("newRole")[0]).
 					Return(nil).Once()
 				// Third call succeeds - has required permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collection/ABC").
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
 					Return(nil).Once()
 			},
 			expectedError: "",
@@ -76,8 +76,8 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			principal:    &models.Principal{Username: "user"},
 			originalVerb: authorization.CREATE,
 			policies: []authorization.Policy{
-				{Resource: "collection/ABC", Verb: authorization.READ},
-				{Resource: "collection/XYZ", Verb: authorization.UPDATE},
+				{Resource: "collections/ABC", Verb: authorization.READ},
+				{Resource: "collections/XYZ", Verb: authorization.UPDATE},
 			},
 			roleName: "newRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
@@ -88,10 +88,10 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("newRole")[0]).
 					Return(nil).Once()
 				// Third call succeeds - has first permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collection/ABC").
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
 					Return(nil).Once()
 				// Fourth call fails - missing second permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.UPDATE, "collection/XYZ").
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.UPDATE, "collections/XYZ").
 					Return(errors.New("missing write permission")).Once()
 			},
 			expectedError: "missing write permission",
@@ -101,7 +101,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			principal:    &models.Principal{Username: "user"},
 			originalVerb: authorization.CREATE,
 			policies: []authorization.Policy{
-				{Resource: "collection/ABC", Verb: authorization.READ},
+				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "newRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
@@ -119,7 +119,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			principal:    &models.Principal{Username: "admin"},
 			originalVerb: authorization.UPDATE,
 			policies: []authorization.Policy{
-				{Resource: "collection/ABC", Verb: authorization.READ},
+				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
@@ -134,7 +134,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			principal:    &models.Principal{Username: "user"},
 			originalVerb: authorization.UPDATE,
 			policies: []authorization.Policy{
-				{Resource: "collection/ABC", Verb: authorization.READ},
+				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
@@ -145,7 +145,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("existingRole")[0]).
 					Return(nil).Once()
 				// Third call succeeds - has required permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collection/ABC").
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
 					Return(nil).Once()
 			},
 			expectedError: "",
@@ -155,8 +155,8 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			principal:    &models.Principal{Username: "user"},
 			originalVerb: authorization.UPDATE,
 			policies: []authorization.Policy{
-				{Resource: "collection/ABC", Verb: authorization.READ},
-				{Resource: "collection/XYZ", Verb: authorization.DELETE},
+				{Resource: "collections/ABC", Verb: authorization.READ},
+				{Resource: "collections/XYZ", Verb: authorization.DELETE},
 			},
 			roleName: "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
@@ -167,10 +167,10 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("existingRole")[0]).
 					Return(nil).Once()
 				// Third call succeeds - has first permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collection/ABC").
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
 					Return(nil).Once()
 				// Fourth call fails - missing delete permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.DELETE, "collection/XYZ").
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.DELETE, "collections/XYZ").
 					Return(errors.New("missing delete permission")).Once()
 			},
 			expectedError: "missing delete permission",
@@ -180,7 +180,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			principal:    &models.Principal{Username: "user"},
 			originalVerb: authorization.UPDATE,
 			policies: []authorization.Policy{
-				{Resource: "collection/ABC", Verb: authorization.READ},
+				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
