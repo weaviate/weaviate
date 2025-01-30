@@ -1715,6 +1715,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	var remoteShardScores []float32
 
 	eg.Go(func() error {
+		var err error
 		localShardResults, localShardScores, err = i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardNames)
 		if err != nil {
 			return err
@@ -1725,6 +1726,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 
 	eg.Go(func() error {
+		var err error
 		remoteShardResults, remoteShardScores, err = i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardNames)
 		if err != nil {
 			return err
