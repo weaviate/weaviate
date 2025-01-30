@@ -44,6 +44,7 @@ var (
 	BuiltInPolicies = map[string]string{
 		authorization.Viewer: authorization.READ,
 		authorization.Admin:  CRUD,
+		authorization.Root:   CRUD,
 	}
 	actions = map[string]string{
 		CRUD:                 "manage",

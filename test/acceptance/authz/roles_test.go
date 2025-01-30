@@ -199,9 +199,9 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 func TestAuthzRolesJourney(t *testing.T) {
 	var err error
 
-	adminUser := "existing-user"
-	adminKey := "existing-key"
-	existingRole := "admin"
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	existingRole := "root"
 
 	testRoleName := "testRole"
 	createCollectionsAction := authorization.CreateCollections
