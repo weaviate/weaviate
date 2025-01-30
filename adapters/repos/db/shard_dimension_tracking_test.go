@@ -629,7 +629,7 @@ func Test_MultiDimensionTrackingMetrics(t *testing.T) {
 			vectorConfig: func() *enthnsw.UserConfig {
 				cfg := enthnsw.NewDefaultUserConfig()
 				cfg.BQ.Enabled = true
-				cfg.Multivector = *&enthnsw.MultivectorConfig{Enabled: true}
+				cfg.Multivector = enthnsw.MultivectorConfig{Enabled: true}
 				return &cfg
 			},
 			expectedDims:    0.0,
