@@ -254,7 +254,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 	var response []*models.Role
 
 	for roleName, policies := range roles {
-		if roleName == authorization.Root && !slices.Contains(h.rbacconfig.Admins, principal.Username) {
+		if roleName == authorization.Root && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
 			continue
 		}
 
@@ -516,7 +516,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := isRootRole(params.ID); err != nil && !slices.Contains(h.rbacconfig.Admins, principal.Username) {
+	if err := isRootRole(params.ID); err != nil && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
 		return authz.NewGetUsersForRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 

@@ -227,8 +227,8 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 				authorizer: authorizer,
 				controller: controller,
 				rbacconfig: rbacconf.Config{
-					Admins:  tt.admins,
-					Viewers: tt.viewers,
+					RootUsers: tt.admins,
+					Viewers:   tt.viewers,
 				},
 				logger: logger,
 			}
@@ -323,7 +323,7 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 				authorizer: authorizer,
 				controller: controller,
 				rbacconfig: rbacconf.Config{
-					Admins:     tt.admins,
+					RootUsers:  tt.admins,
 					Viewers:    tt.viewers,
 					RootGroups: []string{"admin-group"},
 				},

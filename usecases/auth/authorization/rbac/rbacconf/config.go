@@ -18,7 +18,7 @@ import "fmt"
 type Config struct {
 	Enabled    bool     `json:"enabled" yaml:"enabled"`
 	Viewers    []string `json:"viewers" yaml:"viewers"`
-	Admins     []string `json:"admins" yaml:"admins"`
+	RootUsers  []string `json:"admins" yaml:"admins"`
 	RootGroups []string `json:"rootGroups" yaml:"rootGroups"`
 }
 
@@ -33,12 +33,12 @@ func (c Config) Validate() error {
 // the O(n^2) complexity of this very primitive overlap search in favor of very
 // simple code.
 func (c Config) validateOverlap() error {
-	if len(c.Admins) == 0 {
-		return fmt.Errorf("at least one admin is required")
+	if len(c.RootUsers) == 0 {
+		return fmt.Errorf("at least one root user is required")
 	}
 
 	for _, a := range c.Viewers {
-		for _, b := range c.Admins {
+		for _, b := range c.RootUsers {
 			if a == b {
 				return fmt.Errorf("rbac: subject '%s' is present on both admin and viewer list", a)
 			}

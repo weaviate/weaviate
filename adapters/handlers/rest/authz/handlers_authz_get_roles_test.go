@@ -61,7 +61,7 @@ func TestGetRolesSuccess(t *testing.T) {
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
-				rbacconfig: rbacconf.Config{Enabled: true, Admins: []string{"root"}},
+				rbacconfig: rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
 			}
 			res := h.getRoles(authz.GetRolesParams{}, tt.principal)
 			parsed, ok := res.(*authz.GetRolesOK)

@@ -25,12 +25,12 @@ func Test_Validation(t *testing.T) {
 	}{
 		{
 			name:    "admin and viewers - correct",
-			config:  Config{Admins: []string{"1"}, Viewers: []string{"2"}},
+			config:  Config{RootUsers: []string{"1"}, Viewers: []string{"2"}},
 			wantErr: false,
 		},
 		{
 			name:    "only admins - correct",
-			config:  Config{Admins: []string{"1", "2"}},
+			config:  Config{RootUsers: []string{"1", "2"}},
 			wantErr: false,
 		},
 		{
@@ -40,7 +40,7 @@ func Test_Validation(t *testing.T) {
 		},
 		{
 			name:    "overlap viewers and admins - incorrect",
-			config:  Config{Viewers: []string{"1", "2"}, Admins: []string{"1", "3"}},
+			config:  Config{Viewers: []string{"1", "2"}, RootUsers: []string{"1", "3"}},
 			wantErr: true,
 		},
 	}

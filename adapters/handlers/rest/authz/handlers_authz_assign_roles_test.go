@@ -322,7 +322,7 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 				rbacconfig: rbacconf.Config{
-					Admins:     []string{"some-admins"},
+					RootUsers:  []string{"some-admins"},
 					RootGroups: []string{"admin-group"},
 				},
 			}

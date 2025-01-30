@@ -206,11 +206,11 @@ func FromEnv(config *Config) error {
 
 		adminsString, ok := os.LookupEnv("AUTHORIZATION_ROOT_USERS")
 		if ok {
-			config.Authorization.Rbac.Admins = strings.Split(adminsString, ",")
+			config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
 		} else {
 			adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
 			if ok {
-				config.Authorization.Rbac.Admins = strings.Split(adminsString, ",")
+				config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
 			}
 		}
 
