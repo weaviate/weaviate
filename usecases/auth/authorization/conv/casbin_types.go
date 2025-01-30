@@ -16,9 +16,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -28,6 +27,8 @@ const (
 	ROLE_NAME_PREFIX = "role:"
 	// USER_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
 	USER_NAME_PREFIX = "user:"
+	// GROUP_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
+	GROUP_NAME_PREFIX = "group:"
 
 	// CRUD allow all actions on a resource
 	// this is internal for casbin to handle admin actions
@@ -402,6 +403,20 @@ func PrefixUserName(name string) string {
 		return name
 	}
 	return fmt.Sprintf("%s%s", USER_NAME_PREFIX, name)
+}
+
+func PrefixGroupName(name string) string {
+	if strings.HasPrefix(name, GROUP_NAME_PREFIX) {
+		return name
+	}
+	return fmt.Sprintf("%s%s", GROUP_NAME_PREFIX, name)
+}
+
+func PrefixDefaultToUser(name string) string {
+	if strings.HasPrefix(name, GROUP_NAME_PREFIX) {
+		return name
+	}
+	return PrefixUserName(name)
 }
 
 func TrimRoleNamePrefix(name string) string {

@@ -186,6 +186,21 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			expectedError: "role name is required",
 		},
 		{
+			name: "invalid role name",
+			params: authz.CreateRoleParams{
+				Body: &models.Role{
+					Name: String("something/wrong"),
+					Permissions: []*models.Permission{
+						{
+							Action:      String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{},
+						},
+					},
+				},
+			},
+			expectedError: "role name is invalid",
+		},
+		{
 			name: "invalid permission",
 			params: authz.CreateRoleParams{
 				Body: &models.Role{

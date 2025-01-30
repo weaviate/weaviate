@@ -142,7 +142,8 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 	}
 	ko.Object.ID = strfmt.UUID(uuidObj.String())
 
-	rw.MoveBufferPositionForward(16)
+	ko.Object.CreationTimeUnix = int64(rw.ReadUint64())
+	ko.Object.LastUpdateTimeUnix = int64(rw.ReadUint64())
 
 	vecLen := rw.ReadUint16()
 	rw.MoveBufferPositionForward(uint64(vecLen * 4))

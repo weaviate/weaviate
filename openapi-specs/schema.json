@@ -3114,9 +3114,9 @@
     "/authz/users/{id}/assign": {
       "post": {
         "summary": "Assign a role to a user",
-        "operationId": "assignRole",
+        "operationId": "assignRoleToUser",
         "x-serviceIds": [
-          "weaviate.authz.assign.role"
+          "weaviate.authz.assign.role.user"
         ],
         "tags": [
           "authz"
@@ -3134,6 +3134,7 @@
             "name": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "type": "array",
@@ -3180,9 +3181,9 @@
     "/authz/users/{id}/revoke": {
       "post": {
         "summary": "Revoke a role from a user",
-        "operationId": "revokeRole",
+        "operationId": "revokeRoleFromUser",
         "x-serviceIds": [
-          "weaviate.authz.revoke.role"
+          "weaviate.authz.revoke.role.user"
         ],
         "tags": [
           "authz"
@@ -3200,6 +3201,7 @@
             "name": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "type": "array",
@@ -3262,6 +3264,140 @@
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/groups/{id}/assign": {
+      "post": {
+        "summary": "Assign a role to a group",
+        "operationId": "assignRoleToGroup",
+        "x-serviceIds": [
+          "weaviate.authz.assign.role"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "group name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "type": "array",
+                  "description": "the roles that assigned to group",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned successfully"
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role or group is not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/groups/{id}/revoke": {
+      "post": {
+        "summary": "Revoke a role from a group",
+        "operationId": "revokeRoleFromGroup",
+        "x-serviceIds": [
+          "weaviate.authz.revoke.role.group"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "group name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "type": "array",
+                  "description": "the roles that revoked from group",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role revoked successfully"
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role or group is not found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
