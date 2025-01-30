@@ -1723,6 +1723,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		return nil
 	})
 
+
 	eg.Go(func() error {
 		remoteShardResults, remoteShardScores, err = i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardNames)
 		if err != nil {
@@ -1743,22 +1744,24 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	dists = append(dists, remoteShardScores...)
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
-	if i.Config.ForceFullReplicasSearch {
+	//if i.Config.ForceFullReplicasSearch {
 		out, dists, err = searchResultDedup(out, dists)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not deduplicate result after full replicas search: %w", err)
 		}
-	}
+	//}
 
 	if len(shardNames) == 1 {
 		return out, dists, nil
 	}
 
-	if len(shardNames) > 1 && groupBy != nil {
+	//if len(shardNames) > 1 && groupBy != nil {
+	if groupBy != nil {
 		return i.mergeGroups(out, dists, groupBy, limit, len(shardNames))
 	}
 
-	if len(shardNames) > 1 && len(sort) > 0 {
+	//if len(shardNames) > 1 && len(sort) > 0 {
+	    if len(sort) > 0 {
 		return i.sort(out, dists, sort, limit)
 	}
 
