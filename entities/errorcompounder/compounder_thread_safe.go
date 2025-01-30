@@ -60,3 +60,10 @@ func (ec *SafeErrorCompounder) ToError() error {
 
 	return errors.New(msg.String())
 }
+
+func (ec *SafeErrorCompounder) First() error {
+	if len(ec.errors) == 0 {
+		return nil
+	}
+	return ec.errors[0]
+}
