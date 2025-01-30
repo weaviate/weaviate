@@ -15,10 +15,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -54,15 +58,35 @@ func (e *executor) Open(ctx context.Context) error {
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))
 
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(runtime.GOMAXPROCS(0) * 2)
+
 	var errList error
+	var errMutex sync.Mutex
+
 	for i, u := range all {
-		e.logger.WithField("index", u.Class.Class).Info("reload local index")
-		cs[i] = u.Class
-		if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
-			e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
-			errList = errors.Join(fmt.Errorf("failed to reload local index %q: %w", i, err))
-		}
+		i, u := i, u
+
+		g.Go(func() error {
+			e.logger.WithField("index", u.Class.Class).Info("reload local index")
+			cs[i] = u.Class
+
+			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
+				e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
+				err := fmt.Errorf("failed to reload local index %q: %w", i, err)
+
+				errMutex.Lock()
+				errList = errors.Join(errList, err)
+				errMutex.Unlock()
+			}
+			return nil
+		})
 	}
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
 	e.TriggerSchemaUpdateCallbacks()
 	return errList
 }
@@ -237,12 +261,19 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 	e.callbacksLock.RLock()
 	defer e.callbacksLock.RUnlock()
 
-	s := e.schemaReader.ReadOnlySchema()
+	wg := sync.WaitGroup{}
+	wg.Add(len(e.callbacks))
 	for _, cb := range e.callbacks {
-		cb(schema.Schema{
-			Objects: &s,
-		})
+		cb := cb
+		enterrors.GoWrapper(func() {
+			wg.Done()
+			s := e.schemaReader.ReadOnlySchema()
+			cb(schema.Schema{
+				Objects: &s,
+			})
+		}, e.logger)
 	}
+	wg.Wait()
 }
 
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
