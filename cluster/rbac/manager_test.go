@@ -9,7 +9,6 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
@@ -59,7 +58,7 @@ func TestUpsertRolesPermissions(t *testing.T) {
 						"admin": {
 							{
 								Domain: authorization.RolesDomain,
-								Verb:   conv.CRUD, // old
+								Verb:   authorization.ROLE_SCOPE_ALL, // old
 							},
 						},
 					},
@@ -72,6 +71,33 @@ func TestUpsertRolesPermissions(t *testing.T) {
 						{
 							Domain: authorization.RolesDomain,
 							Verb:   authorization.ROLE_SCOPE_MATCH, // new
+						},
+					},
+				}).Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name: "VLatest: Successfully update roles domain permissions",
+			request: &cmd.ApplyRequest{
+				SubCommand: mustMarshal(cmd.CreateRolesRequest{
+					Version: cmd.RBACLatestCommandPolicyVersion,
+					Roles: map[string][]authorization.Policy{
+						"admin": {
+							{
+								Domain: authorization.RolesDomain,
+								Verb:   authorization.ROLE_SCOPE_ALL, // shall not be affected
+							},
+						},
+					},
+				}),
+			},
+			setup: func(m *mocks.Controller) {
+				m.On("UpsertRolesPermissions", map[string][]authorization.Policy{
+					"admin": {
+						{
+							Domain: authorization.RolesDomain,
+							Verb:   authorization.ROLE_SCOPE_ALL, // new
 						},
 					},
 				}).Return(nil)

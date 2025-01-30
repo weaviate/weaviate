@@ -27,7 +27,7 @@ const (
 	// of Role permissions and default to MATCH scope instead of ALL
 	// old verb was (C)|(R)|(U)|(D)
 	// new verb was MATCH
-	RBACCommandPolicyVersionV1 = iota
+	RBACCommandPolicyVersionV1
 	// RBACLatestCommandPolicyVersion represents the latest version of RBAC commands policies
 	// It's used to migrate policy changes. if we end up with a cluster having different version
 	// that won't be a problem because the version here is not about the message change but more about
