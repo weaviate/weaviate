@@ -70,7 +70,7 @@ func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permissio
 		if err != nil {
 			return nil, err
 		}
-		if perm.Action == nil {
+		if perm == nil || perm.Action == nil {
 			continue
 		}
 		permissions = append(permissions, perm)
@@ -98,6 +98,9 @@ func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Po
 				perm, err := permission(policyParts, true)
 				if err != nil {
 					return nil, err
+				}
+				if perm == nil {
+					continue
 				}
 				weaviatePerms, err := policy(perm)
 				if err != nil {

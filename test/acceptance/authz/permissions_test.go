@@ -21,8 +21,8 @@ import (
 )
 
 func TestAuthzRolesWithPermissions(t *testing.T) {
-	adminUser := "existing-user"
-	adminKey := "existing-key"
+	adminUser := "admin-user"
+	adminKey := "admin-key"
 
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
 	defer down()
@@ -31,13 +31,12 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		Class:              "Foo",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
 	}
-
-	t.Run("create test collection before permissions", func(t *testing.T) {
-		helper.CreateClassAuth(t, testClass, adminKey)
-	})
+	helper.DeleteClassWithAuthz(t, testClass.Class, helper.CreateAuth(adminKey))
+	helper.CreateClassAuth(t, testClass, adminKey)
 
 	t.Run("create and get a role to create all collections", func(t *testing.T) {
 		name := "create-all-collections"
+		helper.DeleteRole(t, adminKey, name)
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
@@ -54,6 +53,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to create all tenants in a collection", func(t *testing.T) {
 		name := "create-all-tenants-in-foo"
+		helper.DeleteRole(t, adminKey, name)
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
@@ -70,6 +70,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to manage all roles", func(t *testing.T) {
 		name := "manage-all-roles"
+		helper.DeleteRole(t, adminKey, name)
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
@@ -86,6 +87,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to manage one role", func(t *testing.T) {
 		name := "manage-one-role"
+		helper.DeleteRole(t, adminKey, name)
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
@@ -102,6 +104,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to read two roles", func(t *testing.T) {
 		name := "read-one-role"
+		helper.DeleteRole(t, adminKey, name)
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{

@@ -54,7 +54,6 @@ const (
 const (
 	UsersDomain       = "users"
 	RolesDomain       = "roles"
-	RolesScopeDomain  = "rolesScope"
 	ClusterDomain     = "cluster"
 	NodesDomain       = "nodes"
 	BackupsDomain     = "backups"
@@ -262,7 +261,7 @@ func Roles(roles ...string) []string {
 	return resources
 }
 
-// RolesScope generates a list of role resource strings based on the provided role names.
+// RolesWithScope generates a list of role resource strings based on the provided role names.
 // If no role names are provided, it returns a default role resource string "roles/*".
 //
 // Parameters:
@@ -272,8 +271,8 @@ func Roles(roles ...string) []string {
 // Returns:
 //
 //	A slice of strings where each string is a formatted role resource string.
-func RolesScope(scope RoleScope) []string {
-	return []string{fmt.Sprintf("%s/%s", RolesScopeDomain, string(scope))}
+func RolesWithScope(scope RoleScope, name string) []string {
+	return []string{fmt.Sprintf("%s/name/%s/scope/%s", RolesDomain, name, string(scope))}
 }
 
 // CollectionsMetadata generates a list of resource strings for the given classes.

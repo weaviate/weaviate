@@ -58,7 +58,6 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.UsersDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.UsersDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.RolesDomain),
-	fmt.Sprintf(`^%s/.*$`, authorization.RolesScopeDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.ClusterDomain),
 	fmt.Sprintf(`^%s/verbosity/minimal$`, authorization.NodesDomain),
@@ -126,8 +125,13 @@ func CasbinRoles(role string) string {
 	return fmt.Sprintf("%s/%s", authorization.RolesDomain, role)
 }
 
-func CasbinRolesScope(scope authorization.RoleScope) string {
-	return fmt.Sprintf("%s/%s", authorization.RolesScopeDomain, string(scope))
+func CasbinRolesWithScope(scope authorization.RoleScope, role string) string {
+	if role == "" {
+		role = "*"
+	}
+	role = strings.ReplaceAll(role, "*", ".*")
+
+	return fmt.Sprintf("%s/name/%s/scope/%s", authorization.RolesDomain, role, string(scope))
 }
 
 func CasbinSchema(collection, shard string) string {
@@ -223,7 +227,7 @@ func policy(permission *models.Permission) ([]*authorization.Policy, error) {
 				}
 			}
 
-			resources = append(resources, CasbinRolesScope(scope))
+			resources = append(resources, CasbinRolesWithScope(scope, role))
 		}
 	case authorization.ClusterDomain:
 		resources = append(resources, CasbinClusters())
@@ -362,8 +366,17 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			Object:     &splits[6],
 		}
 	case authorization.RolesDomain:
-		permission.Roles = &models.PermissionRoles{
-			Role: &splits[1],
+		if mapped.Verb == CRUD {
+			if len(splits) == 5 {
+				permission.Roles = &models.PermissionRoles{Role: &splits[2], Scope: &splits[4]}
+			} else {
+				// we create two paths for the role permission with scope. The full one which contains all needed
+				// info to recreate the permission from it and a shortened one that only contains the role name.
+				// We can skip the second one, as we already create the full permission from the first one.
+				return nil, nil
+			}
+		} else if mapped.Verb == authorization.READ {
+			permission.Roles = &models.PermissionRoles{Role: &splits[1]}
 		}
 	case authorization.NodesDomain:
 		verbosity := splits[2]
@@ -388,7 +401,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Roles = authorization.AllRoles
 		permission.Collections = authorization.AllCollections
 		permission.Tenants = authorization.AllTenants
-	case authorization.ClusterDomain, authorization.UsersDomain, authorization.RolesScopeDomain:
+	case authorization.ClusterDomain, authorization.UsersDomain:
 		// do nothing
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)

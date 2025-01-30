@@ -94,9 +94,9 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles(*params.Body.Name)...); err != nil {
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.RolesScope(authorization.RoleScopeAll)...); err == nil {
+	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.RolesWithScope(authorization.RoleScopeAll, *params.Body.Name)...); err == nil {
 		// can do everything, no further action needed
-	} else if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.RolesScope(authorization.RoleScopeMatch)...); err == nil {
+	} else if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.RolesWithScope(authorization.RoleScopeMatch, *params.Body.Name)...); err == nil {
 		if err := h.userHasRolesPermission(principal, policies[*params.Body.Name]); err != nil {
 			return authz.NewCreateRoleForbidden().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(
