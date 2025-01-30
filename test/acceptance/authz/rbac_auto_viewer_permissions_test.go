@@ -38,6 +38,7 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 	tenantNames := []string{
 		"Tenant1", "Tenant2", "Tenant3",
 	}
+	helper.AssignRoleToUser(t, adminKey, "viewer", viewerUser)
 
 	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(adminKey))
 	helper.CreateClassAuth(t, &models.Class{Class: className, MultiTenancyConfig: &models.MultiTenancyConfig{
