@@ -43,7 +43,7 @@ def test_rbac_refs(
 
     required_permissions = [
         Permissions.collections(collection=[source.name, target.name], read_config=True),
-        Permissions.data(collection=source.name, update=True),
+        Permissions.data(collection=[source.name, target.name], update=True, read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(

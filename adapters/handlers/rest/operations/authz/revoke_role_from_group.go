@@ -27,40 +27,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// RevokeRoleHandlerFunc turns a function with the right signature into a revoke role handler
-type RevokeRoleHandlerFunc func(RevokeRoleParams, *models.Principal) middleware.Responder
+// RevokeRoleFromGroupHandlerFunc turns a function with the right signature into a revoke role from group handler
+type RevokeRoleFromGroupHandlerFunc func(RevokeRoleFromGroupParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn RevokeRoleHandlerFunc) Handle(params RevokeRoleParams, principal *models.Principal) middleware.Responder {
+func (fn RevokeRoleFromGroupHandlerFunc) Handle(params RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// RevokeRoleHandler interface for that can handle valid revoke role params
-type RevokeRoleHandler interface {
-	Handle(RevokeRoleParams, *models.Principal) middleware.Responder
+// RevokeRoleFromGroupHandler interface for that can handle valid revoke role from group params
+type RevokeRoleFromGroupHandler interface {
+	Handle(RevokeRoleFromGroupParams, *models.Principal) middleware.Responder
 }
 
-// NewRevokeRole creates a new http.Handler for the revoke role operation
-func NewRevokeRole(ctx *middleware.Context, handler RevokeRoleHandler) *RevokeRole {
-	return &RevokeRole{Context: ctx, Handler: handler}
+// NewRevokeRoleFromGroup creates a new http.Handler for the revoke role from group operation
+func NewRevokeRoleFromGroup(ctx *middleware.Context, handler RevokeRoleFromGroupHandler) *RevokeRoleFromGroup {
+	return &RevokeRoleFromGroup{Context: ctx, Handler: handler}
 }
 
 /*
-	RevokeRole swagger:route POST /authz/users/{id}/revoke authz revokeRole
+	RevokeRoleFromGroup swagger:route POST /authz/groups/{id}/revoke authz revokeRoleFromGroup
 
-Revoke a role from a user
+Revoke a role from a group
 */
-type RevokeRole struct {
+type RevokeRoleFromGroup struct {
 	Context *middleware.Context
-	Handler RevokeRoleHandler
+	Handler RevokeRoleFromGroupHandler
 }
 
-func (o *RevokeRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *RevokeRoleFromGroup) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewRevokeRoleParams()
+	var Params = NewRevokeRoleFromGroupParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -84,27 +84,27 @@ func (o *RevokeRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 }
 
-// RevokeRoleBody revoke role body
+// RevokeRoleFromGroupBody revoke role from group body
 //
-// swagger:model RevokeRoleBody
-type RevokeRoleBody struct {
+// swagger:model RevokeRoleFromGroupBody
+type RevokeRoleFromGroupBody struct {
 
-	// the roles that revoked from the key or user
+	// the roles that revoked from group
 	Roles []string `json:"roles" yaml:"roles"`
 }
 
-// Validate validates this revoke role body
-func (o *RevokeRoleBody) Validate(formats strfmt.Registry) error {
+// Validate validates this revoke role from group body
+func (o *RevokeRoleFromGroupBody) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this revoke role body based on context it is used
-func (o *RevokeRoleBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this revoke role from group body based on context it is used
+func (o *RevokeRoleFromGroupBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (o *RevokeRoleBody) MarshalBinary() ([]byte, error) {
+func (o *RevokeRoleFromGroupBody) MarshalBinary() ([]byte, error) {
 	if o == nil {
 		return nil, nil
 	}
@@ -112,8 +112,8 @@ func (o *RevokeRoleBody) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (o *RevokeRoleBody) UnmarshalBinary(b []byte) error {
-	var res RevokeRoleBody
+func (o *RevokeRoleFromGroupBody) UnmarshalBinary(b []byte) error {
+	var res RevokeRoleFromGroupBody
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

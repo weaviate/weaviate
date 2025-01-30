@@ -27,40 +27,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// AssignRoleHandlerFunc turns a function with the right signature into a assign role handler
-type AssignRoleHandlerFunc func(AssignRoleParams, *models.Principal) middleware.Responder
+// RevokeRoleFromUserHandlerFunc turns a function with the right signature into a revoke role from user handler
+type RevokeRoleFromUserHandlerFunc func(RevokeRoleFromUserParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn AssignRoleHandlerFunc) Handle(params AssignRoleParams, principal *models.Principal) middleware.Responder {
+func (fn RevokeRoleFromUserHandlerFunc) Handle(params RevokeRoleFromUserParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// AssignRoleHandler interface for that can handle valid assign role params
-type AssignRoleHandler interface {
-	Handle(AssignRoleParams, *models.Principal) middleware.Responder
+// RevokeRoleFromUserHandler interface for that can handle valid revoke role from user params
+type RevokeRoleFromUserHandler interface {
+	Handle(RevokeRoleFromUserParams, *models.Principal) middleware.Responder
 }
 
-// NewAssignRole creates a new http.Handler for the assign role operation
-func NewAssignRole(ctx *middleware.Context, handler AssignRoleHandler) *AssignRole {
-	return &AssignRole{Context: ctx, Handler: handler}
+// NewRevokeRoleFromUser creates a new http.Handler for the revoke role from user operation
+func NewRevokeRoleFromUser(ctx *middleware.Context, handler RevokeRoleFromUserHandler) *RevokeRoleFromUser {
+	return &RevokeRoleFromUser{Context: ctx, Handler: handler}
 }
 
 /*
-	AssignRole swagger:route POST /authz/users/{id}/assign authz assignRole
+	RevokeRoleFromUser swagger:route POST /authz/users/{id}/revoke authz revokeRoleFromUser
 
-Assign a role to a user
+Revoke a role from a user
 */
-type AssignRole struct {
+type RevokeRoleFromUser struct {
 	Context *middleware.Context
-	Handler AssignRoleHandler
+	Handler RevokeRoleFromUserHandler
 }
 
-func (o *AssignRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *RevokeRoleFromUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewAssignRoleParams()
+	var Params = NewRevokeRoleFromUserParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -84,27 +84,27 @@ func (o *AssignRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 }
 
-// AssignRoleBody assign role body
+// RevokeRoleFromUserBody revoke role from user body
 //
-// swagger:model AssignRoleBody
-type AssignRoleBody struct {
+// swagger:model RevokeRoleFromUserBody
+type RevokeRoleFromUserBody struct {
 
-	// the roles that assigned to user
+	// the roles that revoked from the key or user
 	Roles []string `json:"roles" yaml:"roles"`
 }
 
-// Validate validates this assign role body
-func (o *AssignRoleBody) Validate(formats strfmt.Registry) error {
+// Validate validates this revoke role from user body
+func (o *RevokeRoleFromUserBody) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this assign role body based on context it is used
-func (o *AssignRoleBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this revoke role from user body based on context it is used
+func (o *RevokeRoleFromUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (o *AssignRoleBody) MarshalBinary() ([]byte, error) {
+func (o *RevokeRoleFromUserBody) MarshalBinary() ([]byte, error) {
 	if o == nil {
 		return nil, nil
 	}
@@ -112,8 +112,8 @@ func (o *AssignRoleBody) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (o *AssignRoleBody) UnmarshalBinary(b []byte) error {
-	var res AssignRoleBody
+func (o *RevokeRoleFromUserBody) UnmarshalBinary(b []byte) error {
+	var res RevokeRoleFromUserBody
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

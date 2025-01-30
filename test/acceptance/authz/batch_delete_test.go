@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/objects"
@@ -144,8 +145,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 		}
 		helper.DeleteRole(t, adminKey, *deleteRole.Name)
 		helper.CreateRole(t, adminKey, deleteRole)
-		_, err = helper.Client(t).Authz.AssignRole(
-			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}),
+		_, err = helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
 			adminAuth,
 		)
 		require.Nil(t, err)
@@ -156,8 +157,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 		require.NotNil(t, resp)
 		require.Equal(t, resp.Payload.Results.Matches, int64(1))
 
-		_, err = helper.Client(t).Authz.RevokeRole(
-			authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{testRoleName}}),
+		_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+			authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{testRoleName}}),
 			adminAuth,
 		)
 		require.Nil(t, err)
@@ -172,8 +173,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 			}
 			helper.DeleteRole(t, adminKey, testRoleName)
 			helper.CreateRole(t, adminKey, role)
-			_, err = helper.Client(t).Authz.AssignRole(
-				authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}),
+			_, err = helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
 				adminAuth,
 			)
 			require.Nil(t, err)
@@ -184,8 +185,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 			var batchObjectsDeleteUnauthorized *batch.BatchObjectsDeleteForbidden
 			require.True(t, errors.As(err, &batchObjectsDeleteUnauthorized))
 
-			_, err = helper.Client(t).Authz.RevokeRole(
-				authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{testRoleName}}),
+			_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+				authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{testRoleName}}),
 				adminAuth,
 			)
 			require.Nil(t, err)
@@ -218,8 +219,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 		}
 		helper.DeleteRole(t, adminKey, *deleteRole.Name)
 		helper.CreateRole(t, adminKey, deleteRole)
-		_, err = helper.Client(t).Authz.AssignRole(
-			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}),
+		_, err = helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
 			adminAuth,
 		)
 		require.Nil(t, err)
@@ -230,8 +231,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 		require.NotNil(t, resp)
 		require.Equal(t, resp.Payload.Results.Matches, int64(1))
 
-		_, err = helper.Client(t).Authz.RevokeRole(
-			authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{testRoleName}}),
+		_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+			authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{testRoleName}}),
 			adminAuth,
 		)
 		require.Nil(t, err)
@@ -246,8 +247,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 			}
 			helper.DeleteRole(t, adminKey, *deleteRole.Name)
 			helper.CreateRole(t, adminKey, deleteRole)
-			_, err = helper.Client(t).Authz.AssignRole(
-				authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}),
+			_, err = helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
 				adminAuth,
 			)
 			require.Nil(t, err)
@@ -258,8 +259,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 			var batchObjectsDeleteUnauthorized *batch.BatchObjectsDeleteForbidden
 			require.True(t, errors.As(err, &batchObjectsDeleteUnauthorized))
 
-			_, err = helper.Client(t).Authz.RevokeRole(
-				authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{testRoleName}}),
+			_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+				authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{testRoleName}}),
 				adminAuth,
 			)
 			require.Nil(t, err)

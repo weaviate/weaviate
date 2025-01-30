@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -62,8 +63,8 @@ func GetRoleByName(t *testing.T, key, role string) *models.Role {
 }
 
 func AssignRoleToUser(t *testing.T, key, role, user string) {
-	resp, err := Client(t).Authz.AssignRole(
-		authz.NewAssignRoleParams().WithID(user).WithBody(authz.AssignRoleBody{Roles: []string{role}}),
+	resp, err := Client(t).Authz.AssignRoleToUser(
+		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -71,8 +72,8 @@ func AssignRoleToUser(t *testing.T, key, role, user string) {
 }
 
 func RevokeRoleFromUser(t *testing.T, key, role, user string) {
-	resp, err := Client(t).Authz.RevokeRole(
-		authz.NewRevokeRoleParams().WithID(user).WithBody(authz.RevokeRoleBody{Roles: []string{role}}),
+	resp, err := Client(t).Authz.RevokeRoleFromUser(
+		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)

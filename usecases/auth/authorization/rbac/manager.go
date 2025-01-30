@@ -16,14 +16,14 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
-
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
 type manager struct {
@@ -153,9 +153,11 @@ func (m *manager) DeleteRoles(roles ...string) error {
 	return m.casbin.InvalidateCache()
 }
 
+// AddRolesFroUser NOTE: user has to be prefixed by user:, group:, key: etc.
+// see func PrefixUserName(user) it will prefix username and nop-op if already prefixed
 func (m *manager) AddRolesForUser(user string, roles []string) error {
 	for _, role := range roles {
-		if _, err := m.casbin.AddRoleForUser(conv.PrefixUserName(user), conv.PrefixRoleName(role)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(conv.PrefixDefaultToUser(user), conv.PrefixRoleName(role)); err != nil {
 			return err
 		}
 	}
@@ -198,7 +200,7 @@ func (m *manager) GetUsersForRole(roleName string) ([]string, error) {
 
 func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
 	for _, roleName := range roles {
-		if _, err := m.casbin.DeleteRoleForUser(conv.PrefixUserName(userName), conv.PrefixRoleName(roleName)); err != nil {
+		if _, err := m.casbin.DeleteRoleForUser(conv.PrefixDefaultToUser(userName), conv.PrefixRoleName(roleName)); err != nil {
 			return err
 		}
 	}
@@ -217,19 +219,18 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 		return errors.NewUnauthenticated()
 	}
 
-	// BatchEnforcers is not needed after some digging they just loop over requests,
-	// w.r.t.
-	// source code https://github.com/casbin/casbin/blob/master/enforcer.go#L872
-	// issue https://github.com/casbin/casbin/issues/710
+	logger := m.logger.WithFields(logrus.Fields{
+		"action":         "authorize",
+		"user":           principal.Username,
+		"component":      authorization.ComponentName,
+		"request_action": verb,
+	})
+
 	for _, resource := range resources {
-		allow, err := m.casbin.Enforce(conv.PrefixUserName(principal.Username), resource, verb)
+		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
-			m.logger.WithFields(logrus.Fields{
-				"action":         "authorize",
-				"user":           principal.Username,
-				"component":      authorization.ComponentName,
-				"resource":       resource,
-				"request_action": verb,
+			logger.WithFields(logrus.Fields{
+				"resource": resource,
 			}).WithError(err).Error("failed to enforce policy")
 			return err
 		}
@@ -239,21 +240,37 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 			return err
 		}
 
-		m.logger.WithFields(logrus.Fields{
-			"action":         "authorize",
-			"component":      authorization.ComponentName,
-			"user":           principal.Username,
-			"resources":      prettyPermissionsResources(perm),
-			"request_action": prettyPermissionsActions(perm),
-			"results":        prettyStatus(allow),
+		logger.WithFields(logrus.Fields{
+			"resources": prettyPermissionsResources(perm),
+			"results":   prettyStatus(allowed),
 		}).Info()
 
-		if !allow {
+		if !allowed {
 			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm)))
 		}
 	}
 
 	return nil
+}
+
+// BatchEnforcers is not needed after some digging they just loop over requests,
+// w.r.t.
+// source code https://github.com/casbin/casbin/blob/master/enforcer.go#L872
+// issue https://github.com/casbin/casbin/issues/710
+func (m *manager) checkPermissions(principal *models.Principal, resource, verb string) (bool, error) {
+	// first check group permissions
+	for _, group := range principal.Groups {
+		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb)
+		if err != nil {
+			return false, err
+		}
+		if allowed {
+			return true, nil
+		}
+	}
+
+	// If no group permissions, check user permissions
+	return m.casbin.Enforce(conv.PrefixUserName(principal.Username), resource, verb)
 }
 
 func prettyPermissionsActions(perm *models.Permission) string {

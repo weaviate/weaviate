@@ -27,19 +27,19 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// NewRevokeRoleParams creates a new RevokeRoleParams object
+// NewAssignRoleToGroupParams creates a new AssignRoleToGroupParams object
 //
 // There are no default values defined in the spec.
-func NewRevokeRoleParams() RevokeRoleParams {
+func NewAssignRoleToGroupParams() AssignRoleToGroupParams {
 
-	return RevokeRoleParams{}
+	return AssignRoleToGroupParams{}
 }
 
-// RevokeRoleParams contains all the bound params for the revoke role operation
+// AssignRoleToGroupParams contains all the bound params for the assign role to group operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters revokeRole
-type RevokeRoleParams struct {
+// swagger:parameters assignRoleToGroup
+type AssignRoleToGroupParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -48,8 +48,8 @@ type RevokeRoleParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body RevokeRoleBody
-	/*user name
+	Body AssignRoleToGroupBody
+	/*group name
 	  Required: true
 	  In: path
 	*/
@@ -59,15 +59,15 @@ type RevokeRoleParams struct {
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewRevokeRoleParams() beforehand.
-func (o *RevokeRoleParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewAssignRoleToGroupParams() beforehand.
+func (o *AssignRoleToGroupParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body RevokeRoleBody
+		var body AssignRoleToGroupBody
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body", ""))
@@ -104,7 +104,7 @@ func (o *RevokeRoleParams) BindRequest(r *http.Request, route *middleware.Matche
 }
 
 // bindID binds and validates parameter ID from path.
-func (o *RevokeRoleParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *AssignRoleToGroupParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
