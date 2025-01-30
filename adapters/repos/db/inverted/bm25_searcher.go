@@ -115,15 +115,17 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 	return b.propLenTracker.(*JsonShardMetaData)
 }
 
-func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params searchparams.KeywordRanking) (float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
+func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params searchparams.KeywordRanking) (bool, float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
+
+	allSegmentsAreBlockMax := true
 
 	var stopWordDetector *stopwords.Detector
 	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
 		var err error
 		stopWordDetector, err = stopwords.NewDetectorFromConfig(*(class.InvertedIndexConfig.Stopwords))
 		if err != nil {
-			return 0, nil, nil, nil, nil, 0, err
+			return false, 0, nil, nil, nil, nil, 0, err
 		}
 	}
 
@@ -166,7 +168,16 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 
 		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
-			return 0, nil, nil, nil, nil, 0, err
+			return false, 0, nil, nil, nil, nil, 0, err
+		}
+
+		bucket := b.GetBucket(property)
+		if bucket == nil {
+			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("could not find bucket for property %v", property)
+		}
+
+		if bucket.Strategy() != lsmkv.StrategyInverted {
+			allSegmentsAreBlockMax = false
 		}
 
 		// A NaN here is the results of a corrupted prop length tracker.
@@ -180,18 +191,18 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 
 		prop, err := schema.GetPropertyByName(class, property)
 		if err != nil {
-			return 0, nil, nil, nil, nil, 0, err
+			return false, 0, nil, nil, nil, nil, 0, err
 		}
 
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			if _, exists := propNamesByTokenization[prop.Tokenization]; !exists {
-				return 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
+				return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
 					prop.Tokenization, prop.Name)
 			}
 			propNamesByTokenization[prop.Tokenization] = append(propNamesByTokenization[prop.Tokenization], property)
 		default:
-			return 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
+			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
 		}
 	}
 
@@ -204,13 +215,13 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 	if math.IsNaN(averagePropLength) || averagePropLength == 0 {
 		averagePropLength = 40.0
 	}
-	return N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
+	return allSegmentsAreBlockMax, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
 }
 
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
+	_, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
 	if err != nil {
 		return nil, nil, err
 	}
