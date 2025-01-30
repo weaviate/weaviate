@@ -447,20 +447,20 @@ func TestGRPC_Aggregate(t *testing.T) {
 					}
 				}
 			}
-			for i, group := range resp.Result.Groups {
+			for _, group := range resp.Result.Groups {
 				assert.ElementsMatch(t, []string{"cityRights"}, group.GroupedBy.Path)
 				require.NotNil(t, group.Aggregations)
 				require.Len(t, group.Aggregations.GetAggregations(), 3)
-				switch i {
-				case 0:
+				switch group.GroupedBy.GetText() {
+				case "1400-01-01T00:00:00+02:00":
 					assert.Equal(t, "1400-01-01T00:00:00+02:00", group.GroupedBy.GetText())
 					checkProperties(t, group.Aggregations.GetAggregations(),
 						2, "1400-01-01T00:00:00+02:00", 2, 4, map[string]int64{"CEST": 2, "CET": 2})
-				case 1:
+				case "1135-01-01T00:00:00+02:00":
 					assert.Equal(t, "1135-01-01T00:00:00+02:00", group.GroupedBy.GetText())
 					checkProperties(t, group.Aggregations.GetAggregations(),
 						1, "1135-01-01T00:00:00+02:00", 1, 2, map[string]int64{"CEST": 1, "CET": 1})
-				case 2:
+				case "1283-01-01T00:00:00+02:00":
 					assert.Equal(t, "1283-01-01T00:00:00+02:00", group.GroupedBy.GetText())
 					checkProperties(t, group.Aggregations.GetAggregations(),
 						1, "1283-01-01T00:00:00+02:00", 1, 2, map[string]int64{"CEST": 1, "CET": 1})
