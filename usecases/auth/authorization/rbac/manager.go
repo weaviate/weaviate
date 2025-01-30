@@ -222,6 +222,7 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 	logger := m.logger.WithFields(logrus.Fields{
 		"action":         "authorize",
 		"user":           principal.Username,
+		"groups":         principal.Groups,
 		"component":      authorization.ComponentName,
 		"request_action": verb,
 	})
