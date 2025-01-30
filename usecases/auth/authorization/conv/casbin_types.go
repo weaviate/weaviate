@@ -47,12 +47,14 @@ var (
 		authorization.Root:   CRUD,
 	}
 	actions = map[string]string{
-		CRUD:                 "manage",
-		CRU:                  "manage",
-		authorization.CREATE: "create",
-		authorization.READ:   "read",
-		authorization.UPDATE: "update",
-		authorization.DELETE: "delete",
+		CRUD:                                     "manage",
+		CRU:                                      "manage",
+		authorization.ROLE_SCOPE_MATCH:           "manage",
+		authorization.ROLE_SCOPE_MATCH_NO_MANAGE: "manage",
+		authorization.CREATE:                     "create",
+		authorization.READ:                       "read",
+		authorization.UPDATE:                     "update",
+		authorization.DELETE:                     "delete",
 	}
 )
 
