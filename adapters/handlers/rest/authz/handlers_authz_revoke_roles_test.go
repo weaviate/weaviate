@@ -186,17 +186,17 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 			existedRoles:  map[string][]authorization.Policy{},
 		},
 		{
-			name: "revoke configured admin role",
+			name: "revoke configured root role",
 			params: authz.RevokeRoleFromUserParams{
 				ID: "testUser",
 				Body: authz.RevokeRoleFromUserBody{
-					Roles: []string{"admin"},
+					Roles: []string{"root"},
 				},
 			},
-			callAuthZ:     true,
+			callAuthZ:     false,
 			admins:        []string{"testUser"},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not revoke configured role admin",
+			expectedError: "revoking: using root role is not allowed",
 		},
 		{
 			name: "revoke configured viewer role",
