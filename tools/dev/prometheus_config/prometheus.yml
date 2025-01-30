@@ -1,11 +1,20 @@
-scrape_configs:
-- job_name: weaviate
-  scrape_interval: 2s
-  static_configs:
-  - targets:
-    - host.docker.internal:2112
-- job_name: node
+global:
   scrape_interval: 5s
-  static_configs:
-  - targets:
-    - host.docker.internal:9100
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: 'weaviate-node-1'
+    static_configs:
+      - targets: ['host.docker.internal:2112']
+        labels:
+          instance: 'node-1'
+  - job_name: 'weaviate-node-2'
+    static_configs:
+      - targets: ['host.docker.internal:2113']
+        labels:
+          instance: 'node-2'
+  - job_name: 'weaviate-node-3'
+    static_configs:
+      - targets: ['host.docker.internal:2114']
+        labels:
+          instance: 'node-3'
