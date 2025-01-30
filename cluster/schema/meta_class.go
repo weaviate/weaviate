@@ -273,7 +273,6 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 
 	for idx := range req.TenantsProcesses {
 		name := req.TenantsProcesses[idx].Tenant.Name
-		newStatus := req.TenantsProcesses[idx].Tenant.Status
 
 		shard, ok := m.Sharding.Physical[name]
 		if !ok {
@@ -287,6 +286,9 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 				req.TenantsProcesses[idx].Tenant.Status = status
 			}
 		}
+
+		// NOTE: Have to get the `newStatus` only after `findRequestedStatus`, else req.Tenant.Status can be empty.
+		newStatus := req.TenantsProcesses[idx].Tenant.Status
 
 		process := m.shardProcess(name, req.Action)
 		process[req.Node] = req.TenantsProcesses[idx]
