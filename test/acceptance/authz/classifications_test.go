@@ -73,7 +73,7 @@ func TestAuthzClassification(t *testing.T) {
 	t.Run("fail to start a classification without update_collections:Article", func(t *testing.T) {
 		_, err := classify()
 		require.Error(t, err)
-		parsed, ok := err.(*classifications.ClassificationsPostForbidden) // nolint:errorlint
+		parsed, ok := err.(*classifications.ClassificationsPostForbidden) //nolint:errorlint
 		require.True(t, ok)
 		require.Contains(t, parsed.Payload.Error[0].Message, authorization.UpdateCollections)
 		require.Contains(t, parsed.Payload.Error[0].Message, clsA.Class)
@@ -97,7 +97,7 @@ func TestAuthzClassification(t *testing.T) {
 	t.Run("fail to start a classification without read_data:Article", func(t *testing.T) {
 		_, err := classify()
 		require.Error(t, err)
-		parsed, ok := err.(*classifications.ClassificationsPostForbidden) // nolint:errorlint
+		parsed, ok := err.(*classifications.ClassificationsPostForbidden) //nolint:errorlint
 		require.True(t, ok)
 		require.Contains(t, parsed.Payload.Error[0].Message, authorization.ReadData)
 		require.Contains(t, parsed.Payload.Error[0].Message, clsA.Class)
@@ -118,7 +118,7 @@ func TestAuthzClassification(t *testing.T) {
 	t.Run("fail to start a classification without read_collections:Article", func(t *testing.T) {
 		_, err := classify()
 		require.Error(t, err)
-		parsed, ok := err.(*classifications.ClassificationsPostForbidden) // nolint:errorlint
+		parsed, ok := err.(*classifications.ClassificationsPostForbidden) //nolint:errorlint
 		require.True(t, ok)
 		require.Contains(t, parsed.Payload.Error[0].Message, authorization.ReadCollections)
 		require.Contains(t, parsed.Payload.Error[0].Message, clsA.Class)
@@ -139,7 +139,7 @@ func TestAuthzClassification(t *testing.T) {
 	t.Run("fail to start a classification without read_data:Paragraph", func(t *testing.T) {
 		_, err := classify()
 		require.Error(t, err)
-		parsed, ok := err.(*classifications.ClassificationsPostForbidden) // nolint:errorlint
+		parsed, ok := err.(*classifications.ClassificationsPostForbidden) //nolint:errorlint
 		require.True(t, ok)
 		require.Contains(t, parsed.Payload.Error[0].Message, authorization.ReadData)
 		require.Contains(t, parsed.Payload.Error[0].Message, clsB.Class)
@@ -160,7 +160,7 @@ func TestAuthzClassification(t *testing.T) {
 	t.Run("fail to start a classification without read_collections:Paragraph", func(t *testing.T) {
 		_, err := classify()
 		require.Error(t, err)
-		parsed, ok := err.(*classifications.ClassificationsPostForbidden) // nolint:errorlint
+		parsed, ok := err.(*classifications.ClassificationsPostForbidden) //nolint:errorlint
 		require.True(t, ok)
 		require.Contains(t, parsed.Payload.Error[0].Message, authorization.ReadCollections)
 		require.Contains(t, parsed.Payload.Error[0].Message, clsB.Class)
