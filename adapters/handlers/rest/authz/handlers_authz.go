@@ -76,18 +76,26 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 	api.AuthzGetRolesForOwnUserHandler = authz.GetRolesForOwnUserHandlerFunc(h.getRolesForOwnUser)
 }
 
-func (h *authZHandlers) userHasRolesPermission(principal *models.Principal, policies []authorization.Policy) error {
-	var errs []error
-	// check if user has permissions to do the things the new role should do
-	for _, policy := range policies {
-		if err := h.authorizer.Authorize(principal, policy.Verb, policy.Resource); err != nil {
-			errs = append(errs, err)
+func (h *authZHandlers) AuthorizeRoleScopes(principal *models.Principal, originalVerb string, policies []authorization.Policy, roleName string) error {
+	// Check if user has full role management permissions
+	var err error
+	if err = h.authorizer.Authorize(principal, originalVerb, authorization.Roles(roleName)...); err == nil {
+		return nil
+	}
+
+	// Check if user can manage roles with matching permissions
+	if err = h.authorizer.Authorize(principal, authorization.ROLE_SCOPE_MATCH, authorization.Roles(roleName)...); err == nil {
+		// Verify user has all permissions they're trying to grant
+		var errs error
+		for _, policy := range policies {
+			if err := h.authorizer.Authorize(principal, policy.Verb, policy.Resource); err != nil {
+				errs = errors.Join(errs, err)
+			}
 		}
+		return errs
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("list of missing permissions: %w", errors.Join(errs...))
-	}
-	return nil
+
+	return fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err)
 }
 
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
@@ -108,23 +116,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles(*params.Body.Name)...); err != nil {
-		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	}
-
-	if err := h.authorizer.Authorize(principal, authorization.ROLE_SCOPE_ALL, authorization.Roles(*params.Body.Name)...); err == nil {
-		// can do everything, no further action needed
-	} else if err := h.authorizer.Authorize(principal, authorization.ROLE_SCOPE_MATCH, authorization.Roles(*params.Body.Name)...); err == nil {
-		if err := h.userHasRolesPermission(principal, policies[*params.Body.Name]); err != nil {
-			return authz.NewCreateRoleForbidden().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(
-					fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err),
-				),
-			)
-		}
-	} else {
-		// TODO add ROLE_SCOPE_MATCH_NO_MANAGE or find different way
-		// TODO adjust Authorizer interface to pass no log flag
+	if err := h.AuthorizeRoleScopes(principal, authorization.CREATE, policies[*params.Body.Name], *params.Body.Name); err != nil {
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -169,7 +161,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.ID)...); err != nil {
+	if err := h.AuthorizeRoleScopes(principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -213,8 +205,15 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	if err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
+	// TODO-RBAC PermissionToPolicies has to be []Policy{} not slice of pointers
+	policies := map[string][]authorization.Policy{
+		params.ID: {},
+	}
+	for _, p := range permissions {
+		policies[params.ID] = append(policies[params.ID], *p)
+	}
 
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.ID)...); err != nil {
+	if err := h.AuthorizeRoleScopes(principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
 		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
