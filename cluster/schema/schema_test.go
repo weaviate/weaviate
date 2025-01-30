@@ -34,11 +34,17 @@ func Test_schemaCollectionMetrics(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
 		},
+		ReplicationConfig: &models.ReplicationConfig{
+			Factor: 1,
+		},
 	}
 	c2 := &models.Class{
 		Class: "collection2",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
+		},
+		ReplicationConfig: &models.ReplicationConfig{
+			Factor: 1,
 		},
 	}
 
@@ -70,11 +76,17 @@ func Test_schemaShardMetrics(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
 		},
+		ReplicationConfig: &models.ReplicationConfig{
+			Factor: 1,
+		},
 	}
 	c2 := &models.Class{
 		Class: "collection2",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
+		},
+		ReplicationConfig: &models.ReplicationConfig{
+			Factor: 1,
 		},
 	}
 
@@ -131,11 +143,27 @@ func Test_schemaShardMetrics(t *testing.T) {
 
 	// update tenant status
 	err = s.updateTenants(c2.Class, 0, &api.UpdateTenantsRequest{
-		Tenants: []*api.Tenant{{Name: "tenant2", Status: "HOT"}}, // FROZEN -> HOT
+		Tenants:      []*api.Tenant{{Name: "tenant2", Status: "HOT"}}, // FROZEN -> HOT
+		ClusterNodes: []string{"testNode"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("UNFREEZING")))
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
+
+	// update tenant status
+	err = s.updateTenantsProcess(c2.Class, 0, &api.TenantProcessRequest{
+		Node:   "testNode",
+		Action: api.TenantProcessRequest_ACTION_UNFREEZING,
+		TenantsProcesses: []*api.TenantsProcess{
+			{
+				Tenant: &api.Tenant{Name: "tenant2", Status: "HOT"},
+				Op:     api.TenantsProcess_OP_DONE,
+			},
+		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
-	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("UNFREEZING")))
 
 	// Deleting collection with non-zero shards should decrement the shards count as well.
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))

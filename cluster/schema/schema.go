@@ -414,11 +414,19 @@ func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenant
 }
 
 func (s *schema) updateTenantsProcess(class string, v uint64, req *command.TenantProcessRequest) error {
-	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, _, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.UpdateTenantsProcess(s.nodeID, req, v)
 	}
+
+	sc, err := meta.UpdateTenantsProcess(s.nodeID, req, v)
+	// partial update possible
+	for status, count := range sc {
+		// count can be positive or negative.
+		s.shardsCount.WithLabelValues(status).Add(float64(count))
+	}
+
+	return err
 }
 
 func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {

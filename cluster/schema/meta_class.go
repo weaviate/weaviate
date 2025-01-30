@@ -264,16 +264,22 @@ func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) (
 	return count, nil
 }
 
-func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProcessRequest, v uint64) error {
+func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProcessRequest, v uint64) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
 
+	// sc tracks number of tenants updated by "status"
+	sc := make(map[string]int)
+
 	for idx := range req.TenantsProcesses {
 		name := req.TenantsProcesses[idx].Tenant.Name
+		newStatus := req.TenantsProcesses[idx].Tenant.Status
+
 		shard, ok := m.Sharding.Physical[name]
 		if !ok {
-			return fmt.Errorf("shard %s not found", name)
+			return nil, fmt.Errorf("shard %s not found", name)
 		}
+		oldStatus := shard.Status
 
 		if req.Action == command.TenantProcessRequest_ACTION_UNFREEZING {
 			// on unfreezing get the requested status from the shard process
@@ -297,12 +303,16 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 
 		m.ShardVersion = v
 		m.Sharding.Physical[shard.Name] = shard
+
+		sc[oldStatus]--
+		sc[newStatus]++
+
 		if !slices.Contains(shard.BelongsToNodes, nodeID) {
 			req.TenantsProcesses[idx] = nil
 			continue
 		}
 	}
-	return nil
+	return sc, nil
 }
 
 func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (map[string]int, error) {
@@ -320,6 +330,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	writeIndex := 0
 	for i, requestTenant := range req.Tenants {
 		oldTenant, ok := m.Sharding.Physical[requestTenant.Name]
+		oldStatus := oldTenant.Status
 		// If we can't find the shard add it to missing shards to error later
 		if !ok {
 			missingShards = append(missingShards, requestTenant.Name)
@@ -376,7 +387,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		m.Sharding.Physical[oldTenant.Name] = newTenant
 
 		// At this point we know, we are going to change the status of a tenant from old-state to new-state.
-		sc[oldTenant.ActivityStatus()]--
+		sc[oldStatus]--
 		sc[newTenant.ActivityStatus()]++
 
 		// If the shard is not stored on that node skip updating the request tenant as there will be nothing to load on
