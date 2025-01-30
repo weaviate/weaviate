@@ -80,9 +80,25 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	if len(ids) == 0 {
 		return errors.Errorf("insertBatch called with empty lists")
 	}
+
+	var err error
 	h.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+		dims := len(vectors[0])
+		for _, vec := range vectors {
+			if len(vec) != dims {
+				err = errors.Errorf("addBatch called with vectors of different lengths")
+				return
+			}
+		}
+		if err == nil {
+			atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+		}
 	})
+
+	if err != nil {
+		return err
+	}
+
 	levels := make([]int, len(ids))
 	maxId := uint64(0)
 	for i, id := range ids {
@@ -140,18 +156,34 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		return err
 	}
 	if !h.multivector.Load() {
-		return errors.Errorf("AddMultiBatch called on non-multivector index")
+		return errors.Errorf("addMultiBatch called on non-multivector index")
 	}
 	if len(docIDs) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
 	if len(docIDs) == 0 {
-		return errors.Errorf("insertBatch called with empty lists")
+		return errors.Errorf("addMultiBatch called with empty lists")
 	}
 
+	var err error
 	h.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&h.dims, int32(len(vectors[0][0])))
+		dim := len(vectors[0][0])
+		for _, doc := range vectors {
+			for _, vec := range doc {
+				if len(vec) != dim {
+					err = errors.Errorf("addMultiBatch called with vectors of different lengths")
+					return
+				}
+			}
+		}
+		if err == nil {
+			atomic.StoreInt32(&h.dims, int32(len(vectors[0][0])))
+		}
 	})
+
+	if err != nil {
+		return err
+	}
 
 	for i, docID := range docIDs {
 		numVectors := len(vectors[i])

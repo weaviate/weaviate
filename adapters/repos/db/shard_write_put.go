@@ -543,7 +543,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 					for _, v := range vec {
 						dims += len(v)
 					}
-					if err := s.removeDimensionsForVecLSM(len(vec), status.oldDocID, vecName); err != nil {
+					if err := s.removeDimensionsForVecLSM(dims, status.oldDocID, vecName); err != nil {
 						return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
 					}
 				}
