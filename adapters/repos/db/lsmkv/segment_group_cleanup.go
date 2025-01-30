@@ -21,6 +21,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/diskio"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -612,7 +613,7 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 	if err := oldSegment.markForDeletion(); err != nil {
 		return nil, fmt.Errorf("drop disk segment %q: %w", oldSegment.path, err)
 	}
-	if err := fsync(sg.dir); err != nil {
+	if err := diskio.Fsync(sg.dir); err != nil {
 		return nil, fmt.Errorf("fsync segment directory %q: %w", sg.dir, err)
 	}
 
