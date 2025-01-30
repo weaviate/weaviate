@@ -47,14 +47,13 @@ var (
 		authorization.Root:   CRUD,
 	}
 	actions = map[string]string{
-		CRUD:                                     "manage",
-		CRU:                                      "manage",
-		authorization.ROLE_SCOPE_MATCH:           "manage",
-		authorization.ROLE_SCOPE_MATCH_NO_MANAGE: "manage",
-		authorization.CREATE:                     "create",
-		authorization.READ:                       "read",
-		authorization.UPDATE:                     "update",
-		authorization.DELETE:                     "delete",
+		CRUD:                           "manage",
+		CRU:                            "manage",
+		authorization.ROLE_SCOPE_MATCH: "manage",
+		authorization.CREATE:           "create",
+		authorization.READ:             "read",
+		authorization.UPDATE:           "update",
+		authorization.DELETE:           "delete",
 	}
 )
 
@@ -217,8 +216,6 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 					switch *permission.Roles.Scope {
 					case models.PermissionRolesScopeAll:
 						verb = CRUD
-					case models.PermissionRolesScopeMatchNoManage:
-						verb = authorization.ROLE_SCOPE_MATCH_NO_MANAGE
 					default:
 					}
 				}
@@ -364,8 +361,6 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			switch mapped.Verb {
 			case authorization.ROLE_SCOPE_ALL:
 				scope = models.PermissionRolesScopeAll
-			case authorization.ROLE_SCOPE_MATCH_NO_MANAGE:
-				scope = models.PermissionRolesScopeMatchNoManage
 			}
 			permission.Roles.Scope = &scope
 		}

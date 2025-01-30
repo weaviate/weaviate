@@ -5701,8 +5701,7 @@ func init() {
               "default": "match",
               "enum": [
                 "all",
-                "match",
-                "match_no_manage"
+                "match"
               ]
             }
           }
@@ -12590,8 +12589,7 @@ func init() {
               "default": "match",
               "enum": [
                 "all",
-                "match",
-                "match_no_manage"
+                "match"
               ]
             }
           }
@@ -12692,8 +12690,7 @@ func init() {
           "default": "match",
           "enum": [
             "all",
-            "match",
-            "match_no_manage"
+            "match"
           ]
         }
       }

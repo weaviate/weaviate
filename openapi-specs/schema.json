@@ -107,8 +107,7 @@
             "scope": {
               "enum": [
                 "all",
-                "match",
-                "match_no_manage"
+                "match"
               ],
               "type": "string",
               "default": "match",

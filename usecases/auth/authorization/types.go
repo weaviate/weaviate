@@ -32,9 +32,8 @@ const (
 	// DELETE Represents the action to delete a resource.
 	DELETE = "D"
 
-	ROLE_SCOPE_ALL             = "(C)|(R)|(U)|(D)"
-	ROLE_SCOPE_MATCH           = "MATCH"
-	ROLE_SCOPE_MATCH_NO_MANAGE = "(C)|(R)"
+	ROLE_SCOPE_ALL   = "(C)|(R)|(U)|(D)"
+	ROLE_SCOPE_MATCH = "MATCH"
 )
 
 const (

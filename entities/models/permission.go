@@ -661,7 +661,7 @@ type PermissionRoles struct {
 	Role *string `json:"role,omitempty"`
 
 	// set the scope for the manage scope permission
-	// Enum: [all match match_no_manage]
+	// Enum: [all match]
 	Scope *string `json:"scope,omitempty"`
 }
 
@@ -683,7 +683,7 @@ var permissionRolesTypeScopePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["all","match","match_no_manage"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["all","match"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -698,9 +698,6 @@ const (
 
 	// PermissionRolesScopeMatch captures enum value "match"
 	PermissionRolesScopeMatch string = "match"
-
-	// PermissionRolesScopeMatchNoManage captures enum value "match_no_manage"
-	PermissionRolesScopeMatchNoManage string = "match_no_manage"
 )
 
 // prop value enum
