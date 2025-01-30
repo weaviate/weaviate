@@ -1703,33 +1703,40 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		shardCap = len(shardNames) * limit
 	}
 
-	//eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
-	//eg.SetLimit(_NUMCPU * 2)
+	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
+	eg.SetLimit(_NUMCPU * 2)
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
 
-	localShardResult, localShardScores, err := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardNames)
-	if err != nil {
-		return nil, nil, err
-	}
-	m.Lock()
-	out = append(out, localShardResult...)
-	dists = append(dists, localShardScores...)
-	m.Unlock()
-	remoteShardObject, remoteShardScores, err := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardNames)
-	if err != nil {
-		return nil, nil, err
-	}
-	m.Lock()
-	out = append(out, remoteShardObject...)
-	dists = append(dists, remoteShardScores...)
-	m.Unlock()
+	eg.Go(func() error {
+		localShardResult, localShardScores, err := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardNames)
+		if err != nil {
+			return err
+		}
+		m.Lock()
+		out = append(out, localShardResult...)
+		dists = append(dists, localShardScores...)
+		m.Unlock()
+		return nil
+	})
 
-	//if err := eg.Wait(); err != nil {
-	//	return nil, nil, err
-	//}
+	eg.Go(func() error {
+		remoteShardObject, remoteShardScores, err := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardNames)
+		if err != nil {
+			return err
+		}
+		m.Lock()
+		out = append(out, remoteShardObject...)
+		dists = append(dists, remoteShardScores...)
+		m.Unlock()
+		return nil
+	})
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
