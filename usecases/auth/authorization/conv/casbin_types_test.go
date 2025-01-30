@@ -31,6 +31,8 @@ var (
 	bar = authorization.String("bar")
 	baz = authorization.String("baz")
 
+	all = "all"
+
 	createDesc = "create"
 	readDesc   = "read"
 	updateDesc = "update"
@@ -488,17 +490,17 @@ func Test_permission(t *testing.T) {
 	}{
 		{
 			name:   "all roles",
-			policy: []string{"p", "/*", "", authorization.RolesDomain},
+			policy: []string{"p", "/name/*/scope/all", "", authorization.RolesDomain},
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Role: authorization.All},
+				Roles: authorization.AllRoles,
 			},
 			tests: rolesTests,
 		},
 		{
 			name:   "a role",
-			policy: []string{"p", "/admin", "", authorization.RolesDomain},
+			policy: []string{"p", "/name/admin/scope/all", "", authorization.RolesDomain},
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Role: authorization.String("admin")},
+				Roles: &models.PermissionRoles{Role: authorization.String("admin"), Scope: &all},
 			},
 			tests: rolesTests,
 		},
