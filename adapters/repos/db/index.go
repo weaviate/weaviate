@@ -1581,7 +1581,6 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, shardNames []string,
 ) ([]*storobj.Object, []float32, error) {
-
 	var outObjects []*storobj.Object
 	var outScores []float32
 	for _, shardName := range shardNames {
@@ -1630,7 +1629,6 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		if shard != nil {
 			defer release()
 		} else {
-
 			if shard == nil || i.Config.ForceFullReplicasSearch {
 				// Force a search on all the replicas for the shard
 				remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
