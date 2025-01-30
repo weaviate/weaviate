@@ -225,6 +225,15 @@ func TestAssignRoleToUserBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "roles can not be empty",
 		},
+		{
+			name: "root",
+			params: authz.AssignRoleToUserParams{
+				ID:   "testUser",
+				Body: authz.AssignRoleToUserBody{Roles: []string{"root"}},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "assigning: using root role is not allowed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -277,6 +286,15 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 			},
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "roles can not be empty",
+		},
+		{
+			name: "root",
+			params: authz.AssignRoleToGroupParams{
+				ID:   "testUser",
+				Body: authz.AssignRoleToGroupBody{Roles: []string{"root"}},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "assigning: using root role is not allowed",
 		},
 	}
 
