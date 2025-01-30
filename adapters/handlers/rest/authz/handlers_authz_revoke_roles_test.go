@@ -282,6 +282,19 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 			expectedError: "revoking: modifying 'root' role or changing its assignments is not allowed",
 		},
 		{
+			name: "revoke role from root group",
+			params: authz.RevokeRoleFromGroupParams{
+				ID: "admin-group",
+				Body: authz.RevokeRoleFromGroupBody{
+					Roles: []string{"something"},
+				},
+			},
+			callAuthZ:     true,
+			admins:        []string{"testUser"},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "revoking: cannot assign or revoke from root group",
+		},
+		{
 			name: "revoke configured viewer role",
 			params: authz.RevokeRoleFromGroupParams{
 				ID: "testUser",
@@ -310,8 +323,9 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 				authorizer: authorizer,
 				controller: controller,
 				rbacconfig: rbacconf.Config{
-					Admins:  tt.admins,
-					Viewers: tt.viewers,
+					Admins:     tt.admins,
+					Viewers:    tt.viewers,
+					RootGroups: []string{"admin-group"},
 				},
 				logger: logger,
 			}

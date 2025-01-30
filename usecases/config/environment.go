@@ -218,6 +218,12 @@ func FromEnv(config *Config) error {
 		if ok {
 			config.Authorization.Rbac.Viewers = strings.Split(viewersString, ",")
 		}
+
+		groupString, ok := os.LookupEnv("AUTHORIZATION_ROOT_GROUPS")
+		if ok {
+			config.Authorization.Rbac.RootGroups = strings.Split(groupString, ",")
+		}
+
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))

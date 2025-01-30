@@ -402,6 +402,10 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	if err := h.isRootGroup(params.ID); err != nil {
+		return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: %w", err)))
+	}
+
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
 		return authz.NewAssignRoleToGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -605,6 +609,10 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	if err := h.isRootGroup(params.ID); err != nil {
+		return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %w", err)))
+	}
+
 	viewerRoles := slices.Contains(h.rbacconfig.Viewers, params.ID) && slices.Contains(params.Body.Roles, authorization.Viewer)
 	if viewerRoles {
 		return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not revoke configured role %s", authorization.Viewer)))
@@ -651,6 +659,14 @@ func (h *authZHandlers) userExists(user string) bool {
 		return false
 	}
 	return true
+}
+
+// isRootGroup validates that enduser do not touch the internal root group
+func (h *authZHandlers) isRootGroup(name string) error {
+	if slices.Contains(h.rbacconfig.RootGroups, name) {
+		return fmt.Errorf("cannot assign or revoke from root group %s", name)
+	}
+	return nil
 }
 
 // isRootRole validates that enduser do not touch the internal root role

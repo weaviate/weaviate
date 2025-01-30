@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -264,6 +266,7 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 		params        authz.AssignRoleToGroupParams
 		principal     *models.Principal
 		expectedError string
+		callAuthZ     bool
 	}
 
 	tests := []testCase{
@@ -296,6 +299,16 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "assigning: modifying 'root' role or changing its assignments is not allowed",
 		},
+		{
+			name: "root group",
+			params: authz.AssignRoleToGroupParams{
+				ID:   "admin-group",
+				Body: authz.AssignRoleToGroupBody{Roles: []string{"some-role"}},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			callAuthZ:     true,
+			expectedError: "assigning: cannot assign or revoke from root group admin-group",
+		},
 	}
 
 	for _, tt := range tests {
@@ -308,7 +321,15 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
+				rbacconfig: rbacconf.Config{
+					Admins:     []string{"some-admins"},
+					RootGroups: []string{"admin-group"},
+				},
 			}
+			if tt.callAuthZ {
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			}
+
 			res := h.assignRoleToGroup(tt.params, tt.principal)
 			parsed, ok := res.(*authz.AssignRoleToGroupBadRequest)
 			assert.True(t, ok)

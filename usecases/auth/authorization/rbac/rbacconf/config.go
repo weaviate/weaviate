@@ -16,9 +16,10 @@ import "fmt"
 // Config makes every subject on the list an admin, whereas everyone else
 // has no rights whatsoever
 type Config struct {
-	Enabled bool     `json:"enabled" yaml:"enabled"`
-	Viewers []string `json:"viewers" yaml:"viewers"`
-	Admins  []string `json:"admins" yaml:"admins"`
+	Enabled    bool     `json:"enabled" yaml:"enabled"`
+	Viewers    []string `json:"viewers" yaml:"viewers"`
+	Admins     []string `json:"admins" yaml:"admins"`
+	RootGroups []string `json:"rootGroups" yaml:"rootGroups"`
 }
 
 // Validate admin list config for viability, can be called from the central
