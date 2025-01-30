@@ -659,10 +659,68 @@ type PermissionRoles struct {
 
 	// string or regex. if a specific role name, if left empty it will be ALL or *
 	Role *string `json:"role,omitempty"`
+
+	// set the scope for the manage scope permission
+	// Enum: [all match match_no_manage]
+	Scope *string `json:"scope,omitempty"`
 }
 
 // Validate validates this permission roles
 func (m *PermissionRoles) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateScope(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var permissionRolesTypeScopePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["all","match","match_no_manage"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		permissionRolesTypeScopePropEnum = append(permissionRolesTypeScopePropEnum, v)
+	}
+}
+
+const (
+
+	// PermissionRolesScopeAll captures enum value "all"
+	PermissionRolesScopeAll string = "all"
+
+	// PermissionRolesScopeMatch captures enum value "match"
+	PermissionRolesScopeMatch string = "match"
+
+	// PermissionRolesScopeMatchNoManage captures enum value "match_no_manage"
+	PermissionRolesScopeMatchNoManage string = "match_no_manage"
+)
+
+// prop value enum
+func (m *PermissionRoles) validateScopeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, permissionRolesTypeScopePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *PermissionRoles) validateScope(formats strfmt.Registry) error {
+	if swag.IsZero(m.Scope) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateScopeEnum("roles"+"."+"scope", "body", *m.Scope); err != nil {
+		return err
+	}
+
 	return nil
 }
 

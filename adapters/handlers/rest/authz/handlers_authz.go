@@ -76,6 +76,20 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 	api.AuthzGetRolesForOwnUserHandler = authz.GetRolesForOwnUserHandlerFunc(h.getRolesForOwnUser)
 }
 
+func (h *authZHandlers) userHasRolesPermission(principal *models.Principal, policies []authorization.Policy) error {
+	var errs []error
+	// check if user has permissions to do the things the new role should do
+	for _, policy := range policies {
+		if err := h.authorizer.Authorize(principal, policy.Verb, policy.Resource); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("list of missing permissions: %w", errors.Join(errs...))
+	}
+	return nil
+}
+
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
 	if *params.Body.Name == "" {
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is required")))
@@ -95,6 +109,22 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	}
 
 	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles(*params.Body.Name)...); err != nil {
+		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if err := h.authorizer.Authorize(principal, authorization.ROLE_SCOPE_ALL, authorization.Roles(*params.Body.Name)...); err == nil {
+		// can do everything, no further action needed
+	} else if err := h.authorizer.Authorize(principal, authorization.ROLE_SCOPE_MATCH, authorization.Roles(*params.Body.Name)...); err == nil {
+		if err := h.userHasRolesPermission(principal, policies[*params.Body.Name]); err != nil {
+			return authz.NewCreateRoleForbidden().WithPayload(
+				cerrors.ErrPayloadFromSingleErr(
+					fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err),
+				),
+			)
+		}
+	} else {
+		// TODO add ROLE_SCOPE_MATCH_NO_MANAGE or find different way
+		// TODO adjust Authorizer interface to pass no log flag
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 

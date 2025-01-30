@@ -5694,6 +5694,16 @@ func init() {
               "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
+            },
+            "scope": {
+              "description": "set the scope for the manage scope permission",
+              "type": "string",
+              "default": "match",
+              "enum": [
+                "all",
+                "match",
+                "match_no_manage"
+              ]
             }
           }
         },
@@ -12573,6 +12583,16 @@ func init() {
               "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
+            },
+            "scope": {
+              "description": "set the scope for the manage scope permission",
+              "type": "string",
+              "default": "match",
+              "enum": [
+                "all",
+                "match",
+                "match_no_manage"
+              ]
             }
           }
         },
@@ -12665,6 +12685,16 @@ func init() {
           "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        },
+        "scope": {
+          "description": "set the scope for the manage scope permission",
+          "type": "string",
+          "default": "match",
+          "enum": [
+            "all",
+            "match",
+            "match_no_manage"
+          ]
         }
       }
     },

@@ -207,6 +207,15 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		role := "*"
 		if permission.Roles != nil && permission.Roles.Role != nil {
 			role = *permission.Roles.Role
+			verb = authorization.ROLE_SCOPE_MATCH // default
+			if permission.Roles.Scope != nil {
+				scope := *permission.Roles.Scope
+				if scope == models.PermissionRolesScopeAll {
+					verb = CRUD
+				} else if scope == models.PermissionRolesScopeMatchNoManage {
+					verb = authorization.ROLE_SCOPE_MATCH_NO_MANAGE
+				}
+			}
 		}
 		resource = CasbinRoles(role)
 	case authorization.ClusterDomain:
@@ -339,8 +348,15 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			Object:     &splits[6],
 		}
 	case authorization.RolesDomain:
+		scope := models.PermissionRolesScopeMatch // default
+		if mapped.Verb == authorization.ROLE_SCOPE_ALL {
+			scope = models.PermissionRolesScopeAll
+		} else if mapped.Verb == authorization.ROLE_SCOPE_MATCH_NO_MANAGE {
+			scope = models.PermissionRolesScopeMatchNoManage
+		}
 		permission.Roles = &models.PermissionRoles{
-			Role: &splits[1],
+			Role:  &splits[1],
+			Scope: &scope,
 		}
 	case authorization.NodesDomain:
 		verbosity := splits[2]
