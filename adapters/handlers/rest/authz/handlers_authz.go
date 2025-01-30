@@ -558,7 +558,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 
 	viewerRoles := slices.Contains(h.rbacconfig.Viewers, params.ID) && slices.Contains(params.Body.Roles, authorization.Viewer)
 	if viewerRoles {
-		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not revoke configured role %s", authorization.Viewer)))
+		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not revoke role %s when configured via AUTHORIZATION_VIEWER_USERS", authorization.Viewer)))
 	}
 
 	if !h.userExists(params.ID) {
@@ -660,7 +660,7 @@ func (h *authZHandlers) userExists(user string) bool {
 // isRootRole validates that enduser do not touch the internal root role
 func isRootRole(name string) error {
 	if name == authorization.Root {
-		return fmt.Errorf("using root role is not allowed")
+		return fmt.Errorf("modifying 'root' role or changing its assignments is not allowed")
 	}
 	return nil
 }

@@ -158,7 +158,7 @@ func TestGetUsersForRoleBadRequest(t *testing.T) {
 			},
 			principal:     &models.Principal{Username: "user1"},
 			getUsersErr:   fmt.Errorf("internal server error"),
-			expectedError: "using root role is not allowed",
+			expectedError: "modifying 'root' role or changing its assignments is not allowed",
 		},
 	}
 

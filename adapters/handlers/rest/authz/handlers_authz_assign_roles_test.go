@@ -232,7 +232,7 @@ func TestAssignRoleToUserBadRequest(t *testing.T) {
 				Body: authz.AssignRoleToUserBody{Roles: []string{"root"}},
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "assigning: using root role is not allowed",
+			expectedError: "assigning: modifying 'root' role or changing its assignments is not allowed",
 		},
 	}
 
@@ -294,7 +294,7 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 				Body: authz.AssignRoleToGroupBody{Roles: []string{"root"}},
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "assigning: using root role is not allowed",
+			expectedError: "assigning: modifying 'root' role or changing its assignments is not allowed",
 		},
 	}
 

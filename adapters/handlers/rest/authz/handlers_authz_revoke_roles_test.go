@@ -196,7 +196,7 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 			callAuthZ:     false,
 			admins:        []string{"testUser"},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "revoking: using root role is not allowed",
+			expectedError: "revoking: modifying 'root' role or changing its assignments is not allowed",
 		},
 		{
 			name: "revoke configured viewer role",
@@ -209,7 +209,7 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 			callAuthZ:     true,
 			viewers:       []string{"testUser"},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not revoke configured role viewer",
+			expectedError: "you can not revoke role viewer when configured via AUTHORIZATION_VIEWER_USERS",
 		},
 	}
 
@@ -279,7 +279,7 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 			callAuthZ:     false,
 			admins:        []string{"testUser"},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "revoking: using root role is not allowed",
+			expectedError: "revoking: modifying 'root' role or changing its assignments is not allowed",
 		},
 		{
 			name: "revoke configured viewer role",
