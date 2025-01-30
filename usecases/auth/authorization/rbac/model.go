@@ -104,6 +104,16 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	enforcer.AddNamedMatchingFunc("g", "keyMatch5", casbinutil.KeyMatch5)
 	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
 
+	// remove preexisting root role including assignments
+	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
+	if err != nil {
+		return nil, err
+	}
+	_, err = enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(authorization.Root))
+	if err != nil {
+		return nil, err
+	}
+
 	// add pre existing roles
 	for name, verb := range conv.BuiltInPolicies {
 		if verb == "" {
@@ -118,7 +128,7 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		if strings.TrimSpace(conf.Admins[i]) == "" {
 			continue
 		}
-		if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(conf.Admins[i]), conv.PrefixRoleName(authorization.Admin)); err != nil {
+		if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(conf.Admins[i]), conv.PrefixRoleName(authorization.Root)); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}

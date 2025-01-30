@@ -138,7 +138,8 @@ var (
 var (
 	Viewer       = "viewer"
 	Admin        = "admin"
-	BuiltInRoles = []string{Viewer, Admin}
+	Root         = "root"
+	BuiltInRoles = []string{Viewer, Admin, Root}
 
 	// viewer : can view everything , roles, users, schema, data
 	// editor : can create/read/update everything , roles, users, schema, data
@@ -146,6 +147,7 @@ var (
 	BuiltInPermissions = map[string][]*models.Permission{
 		Viewer: viewerPermissions(),
 		Admin:  adminPermissions(),
+		Root:   adminPermissions(),
 	}
 )
 
