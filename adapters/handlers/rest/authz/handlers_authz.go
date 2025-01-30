@@ -85,10 +85,6 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is invalid")))
 	}
 
-	if err := isRootRole(*params.Body.Name); err != nil {
-		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is invalid")))
-	}
-
 	policies, err := conv.RolesToPolicies(params.Body)
 	if err != nil {
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
@@ -258,7 +254,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 	var response []*models.Role
 
 	for roleName, policies := range roles {
-		if roleName == authorization.Root {
+		if roleName == authorization.Root && !slices.Contains(h.rbacconfig.Admins, principal.Username) {
 			continue
 		}
 
@@ -516,7 +512,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := isRootRole(params.ID); err != nil {
+	if err := isRootRole(params.ID); err != nil && !slices.Contains(h.rbacconfig.Admins, principal.Username) {
 		return authz.NewGetUsersForRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
