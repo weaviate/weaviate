@@ -20,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -240,9 +239,19 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	// distinguish between the two strategies for search.
 	// The changes only apply when we have segments on disk,
 	// as the memtables will always be created with the MapCollection strategy.
-	if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyInverted {
+	if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+		b.strategy = StrategyMapCollection
 		b.desiredStrategy = StrategyInverted
+		sg.strategy = StrategyMapCollection
+	} else if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyInverted {
+		// TODO amourao: blockmax "else" to be removed before final release
+		// in case bucket was created as inverted and default strategy was reverted to map
+		// by unsetting corresponding env variable
+		b.strategy = StrategyInverted
+		b.desiredStrategy = StrategyMapCollection
+		sg.strategy = StrategyInverted
 	}
 
 	b.disk = sg
@@ -1108,15 +1117,6 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
 	}
 
-	// Searchable buckets are flushed using the inverted index strategy,
-	// if the environment variable USE_INVERTED_SEARCHABLE is set to true.
-	// Memtables in memory are always created using the Map strategy.
-	// See the desiredStrategy for more information on why this only matters
-	// for searchable buckets and at flush time.
-	if strings.Contains(b.active.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
-		b.desiredStrategy = StrategyInverted
-		b.active.flushStrategy = StrategyInverted
-	}
 	b.flushLock.Lock()
 	if err := b.active.flush(); err != nil {
 		return err
@@ -1265,15 +1265,6 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
 
-	// Searchable buckets are flushed using the inverted index strategy,
-	// if the environment variable USE_INVERTED_SEARCHABLE is set to true.
-	// Memtables in memory are always created using the Map strategy.
-	// See the desiredStrategy for more information on why this only matters
-	// for searchable buckets and at flush time.
-	if strings.Contains(b.flushing.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
-		b.desiredStrategy = StrategyInverted
-		b.flushing.flushStrategy = StrategyInverted
-	}
 	if err := b.flushing.flush(); err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}

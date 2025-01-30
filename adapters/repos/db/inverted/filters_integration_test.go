@@ -36,6 +36,7 @@ const (
 	className = "TestClass"
 )
 
+// TODO amourao, check if this is needed for SegmentInverted as well
 func Test_Filters_String(t *testing.T) {
 	dirName := t.TempDir()
 
