@@ -257,10 +257,6 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 				}
 			}
 
-			// nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, targetVectors)
-			// if err != nil {
-			// 	return nil, err
-			// }
 			limit := 0
 			if params.ObjectLimit != nil {
 				limit = *params.ObjectLimit

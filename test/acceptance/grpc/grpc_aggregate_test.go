@@ -35,6 +35,9 @@ func TestGRPC_Aggregate(t *testing.T) {
 	cities.InsertCountryCityAirportObjects(t, host)
 	defer cities.DeleteCountryCityAirportSchema(t, host)
 
+	ptFloat64 := func(in float64) *float64 {
+		return &in
+	}
 	t.Run("meta count", func(t *testing.T) {
 		tests := []struct {
 			collection string
@@ -351,6 +354,15 @@ func TestGRPC_Aggregate(t *testing.T) {
 					assert.Equal(t, int64(0), numerical.GetMinimum())
 					assert.Equal(t, int64(600000), numerical.GetMode())
 					assert.Equal(t, int64(1200000), numerical.GetSum())
+				case "isCapital":
+					assert.Equal(t, "isCapital", aggregation.Property)
+					booleanAggregation := aggregation.GetBoolean()
+					assert.Equal(t, int64(1), booleanAggregation.GetCount())
+					assert.Equal(t, "boolean", booleanAggregation.GetType())
+					assert.Equal(t, int64(1), booleanAggregation.GetTotalTrue())
+					assert.Equal(t, int64(0), booleanAggregation.GetTotalFalse())
+					assert.Equal(t, float64(1), booleanAggregation.GetPercentageTrue())
+					assert.Equal(t, float64(0), booleanAggregation.GetPercentageFalse())
 				}
 			}
 		})
@@ -457,5 +469,160 @@ func TestGRPC_Aggregate(t *testing.T) {
 				}
 			}
 		})
+	})
+	t.Run("search", func(t *testing.T) {
+		amsterdam, err := helper.GetObject(t, cities.City, cities.Amsterdam, "vector")
+		require.NoError(t, err)
+		require.NotNil(t, amsterdam)
+		require.NotEmpty(t, amsterdam.Vector, 1)
+		tests := []struct {
+			name         string
+			isNearText   bool
+			nearText     *pb.AggregateRequest_NearText
+			isNearObject bool
+			nearObject   *pb.AggregateRequest_NearObject
+			isNearVector bool
+			nearVector   *pb.AggregateRequest_NearVector
+		}{
+			{
+				name:       "nearText",
+				isNearText: true,
+				nearText: &pb.AggregateRequest_NearText{
+					NearText: &pb.NearTextSearch{
+						Query:    []string{"Amsterdam"},
+						Distance: ptFloat64(0.2),
+					},
+				},
+			},
+			{
+				name:         "nearObject",
+				isNearObject: true,
+				nearObject: &pb.AggregateRequest_NearObject{
+					NearObject: &pb.NearObject{
+						Id:       cities.Amsterdam.String(),
+						Distance: ptFloat64(0.2),
+					},
+				},
+			},
+			{
+				name:         "nearVector",
+				isNearVector: true,
+				nearVector: &pb.AggregateRequest_NearVector{
+					NearVector: &pb.NearVector{
+						Vector:   amsterdam.Vector,
+						Distance: ptFloat64(0.2),
+					},
+				},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				aggregateRequest := &pb.AggregateRequest{
+					Collection: cities.City,
+					Filters: &pb.Filters{
+						Operator:  pb.Filters_OPERATOR_EQUAL,
+						TestValue: &pb.Filters_ValueBoolean{ValueBoolean: true},
+						On:        []string{"isCapital"},
+					},
+					ObjectsCount: true,
+					Aggregations: []*pb.AggregateRequest_Aggregation{
+						{
+							Property: "isCapital",
+							Aggregation: &pb.AggregateRequest_Aggregation_Boolean_{
+								Boolean: &pb.AggregateRequest_Aggregation_Boolean{
+									Count:           true,
+									Type:            true,
+									TotalTrue:       true,
+									TotalFalse:      true,
+									PercentageTrue:  true,
+									PercentageFalse: true,
+								},
+							},
+						},
+						{
+							Property: "population",
+							Aggregation: &pb.AggregateRequest_Aggregation_Int{
+								Int: &pb.AggregateRequest_Aggregation_Integer{
+									Count:   true,
+									Type:    true,
+									Mean:    true,
+									Maximum: true,
+									Minimum: true,
+									Sum:     true,
+									Mode:    true,
+								},
+							},
+						},
+						{
+							Property: "inCountry",
+							Aggregation: &pb.AggregateRequest_Aggregation_Reference_{
+								Reference: &pb.AggregateRequest_Aggregation_Reference{
+									Type:       true,
+									PointingTo: true,
+								},
+							},
+						},
+						{
+							Property: "name",
+							Aggregation: &pb.AggregateRequest_Aggregation_Text_{
+								Text: &pb.AggregateRequest_Aggregation_Text{
+									Count:         true,
+									Type:          true,
+									TopOccurences: true,
+								},
+							},
+						},
+					},
+				}
+				if tt.isNearText {
+					aggregateRequest.Search = tt.nearText
+				}
+				if tt.isNearObject {
+					aggregateRequest.Search = tt.nearObject
+				}
+				if tt.isNearVector {
+					aggregateRequest.Search = tt.nearVector
+				}
+				resp, err := grpcClient.Aggregate(ctx, aggregateRequest)
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				require.NotNil(t, resp.Result)
+				require.Len(t, resp.Result.Groups, 1)
+				require.NotNil(t, resp.Result.Groups[0].Aggregations)
+				require.Len(t, resp.Result.Groups[0].Aggregations.GetAggregations(), 4)
+				for _, aggregation := range resp.Result.Groups[0].Aggregations.GetAggregations() {
+					switch aggregation.Property {
+					case "inCountry":
+						assert.Equal(t, "inCountry", aggregation.Property)
+						referenceAggregation := aggregation.GetReference()
+						assert.ElementsMatch(t, referenceAggregation.GetPointingTo(), []string{"Country"})
+						assert.Equal(t, "cref", referenceAggregation.GetType())
+					case "name":
+						assert.Equal(t, "name", aggregation.Property)
+						textAggregation := aggregation.GetText()
+						topOccurrencesResults := map[string]int64{}
+						require.NotNil(t, textAggregation)
+						assert.Equal(t, "text", textAggregation.GetType())
+						assert.Equal(t, int64(1), textAggregation.GetCount())
+						topOccurrences := textAggregation.GetTopOccurences()
+						require.NotNil(t, topOccurrences)
+						for _, item := range topOccurrences.GetItems() {
+							topOccurrencesResults[item.Value] = item.Occurs
+						}
+						assert.Equal(t, int64(1), topOccurrencesResults["Amsterdam"])
+					case "population":
+						assert.Equal(t, "population", aggregation.Property)
+						numerical := aggregation.GetInt()
+						assert.Equal(t, int64(1), numerical.GetCount())
+						assert.Equal(t, "int", numerical.GetType())
+						assert.Equal(t, int64(1800000), numerical.GetMaximum())
+						assert.Equal(t, float64(1800000), numerical.GetMean())
+						assert.Equal(t, int64(1800000), numerical.GetMinimum())
+						assert.Equal(t, int64(1800000), numerical.GetMode())
+						assert.Equal(t, int64(1800000), numerical.GetSum())
+					}
+				}
+			})
+		}
 	})
 }
