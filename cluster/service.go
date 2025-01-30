@@ -18,6 +18,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/bootstrap"
 	"github.com/weaviate/weaviate/cluster/resolver"
@@ -66,7 +67,7 @@ func New(cfg Config) *Service {
 		}
 	}
 	cl := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
-	fsm := NewFSM(cfg)
+	fsm := NewFSM(cfg, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, cl)
 	return &Service{
 		Raft:              raft,
