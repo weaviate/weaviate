@@ -747,7 +747,7 @@ func (i *Index) asyncReplicationEnabled() bool {
 	i.asyncReplicationLock.RLock()
 	defer i.asyncReplicationLock.RUnlock()
 
-	return i.replicationEnabled()
+	return true
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
