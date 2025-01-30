@@ -18,10 +18,13 @@ import (
 	"encoding/gob"
 	"io"
 	"maps"
+	"math"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 )
 
 type compactorInverted struct {
@@ -52,6 +55,9 @@ type compactorInverted struct {
 	propertyLengthsToClean map[uint64]uint32
 
 	invertedHeader *segmentindex.HeaderInverted
+
+	docIdEncoder varenc.VarEncEncoder[uint64]
+	tfEncoder    varenc.VarEncEncoder[uint64]
 }
 
 func newCompactorInverted(w io.WriteSeeker,
@@ -180,6 +186,11 @@ func (c *compactorInverted) init() error {
 		DataFields:            c.c1.segment.invertedHeader.DataFields,
 	}
 
+	c.docIdEncoder = varenc.GetVarEncEncoder64(c.invertedHeader.DataFields[0])
+	c.docIdEncoder.Init(terms.BLOCK_SIZE)
+	c.tfEncoder = varenc.GetVarEncEncoder64(c.invertedHeader.DataFields[1])
+	c.tfEncoder.Init(terms.BLOCK_SIZE)
+
 	return nil
 }
 
@@ -203,11 +214,12 @@ func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, erro
 	return len(tombstonesBuffer) + 8, nil
 }
 
-func (c *compactorInverted) combinePropertyLengths() (uint64, uint64) {
+func (c *compactorInverted) combinePropertyLengths() (uint64, float64) {
 	count := c.c1.segment.invertedData.avgPropertyLengthsCount + c.c2.segment.invertedData.avgPropertyLengthsCount
-	sum := c.c1.segment.invertedData.avgPropertyLengthsSum + c.c2.segment.invertedData.avgPropertyLengthsSum
+	average := c.c1.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c1.segment.invertedData.avgPropertyLengthsCount) / float64(count))
+	average += c.c2.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c2.segment.invertedData.avgPropertyLengthsCount) / float64(count))
 
-	return count, sum
+	return count, average
 }
 
 func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) (int, error) {
@@ -221,11 +233,11 @@ func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 		return 0, err
 	}
 
-	count, sum := c.combinePropertyLengths()
+	count, average := c.combinePropertyLengths()
 
 	buf := make([]byte, 8)
 
-	binary.LittleEndian.PutUint64(buf, sum)
+	binary.LittleEndian.PutUint64(buf, math.Float64bits(average))
 	if _, err := c.bufw.Write(buf); err != nil {
 		return 0, err
 	}
@@ -340,7 +352,7 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 		primaryKey:  keyCopy,
 		offset:      offset,
 		propLengths: propertyLengths,
-	}.KeyIndexAndWriteTo(c.bufw)
+	}.KeyIndexAndWriteTo(c.bufw, c.docIdEncoder, c.tfEncoder)
 }
 
 func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {

@@ -115,7 +115,7 @@ func (db *DB) ShardsBackup(
 	idx.shardTransferMutex.Lock()
 	defer idx.shardTransferMutex.Unlock()
 	for shardName, shard := range sm {
-		if err := shard.HaltForTransfer(ctx); err != nil {
+		if err := shard.HaltForTransfer(ctx, false); err != nil {
 			return cd, fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
 		}
 
@@ -218,7 +218,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	defer i.shardTransferMutex.Unlock()
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
-		if err = s.HaltForTransfer(ctx); err != nil {
+		if err = s.HaltForTransfer(ctx, false); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
 		var sd backup.ShardDescriptor

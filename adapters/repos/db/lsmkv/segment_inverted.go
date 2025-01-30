@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/weaviate/sroar"
@@ -32,7 +33,7 @@ type segmentInvertedData struct {
 	propertyLengths       map[uint64]uint32
 	propertyLengthsLoaded bool
 
-	avgPropertyLengthsSum   uint64
+	avgPropertyLengthsAvg   float64
 	avgPropertyLengthsCount uint64
 }
 
@@ -75,7 +76,7 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 		return s.invertedData.propertyLengths, nil
 	}
 
-	s.invertedData.avgPropertyLengthsSum = binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset : s.invertedHeader.PropertyLengthsOffset+8])
+	s.invertedData.avgPropertyLengthsAvg = math.Float64frombits(binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset : s.invertedHeader.PropertyLengthsOffset+8]))
 	s.invertedData.avgPropertyLengthsCount = binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset+8 : s.invertedHeader.PropertyLengthsOffset+16])
 
 	// read property lengths, the first 16 bytes are the propLengthCount and sum, the 8 bytes are the size of the gob encoded map

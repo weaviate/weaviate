@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -53,7 +54,6 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	require.Nil(t, err)
 
 	endpoints := col.allEndpoints()
-
 	ls := newLogScanner(containers[0].Container())
 	ls.GetAuthzLogs(t) // startup logs that are irrelevant
 

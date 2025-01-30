@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package weaviate.v1;
+
+import "v1/base.proto";
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoBaseSearch";
+
+enum CombinationMethod {
+  COMBINATION_METHOD_UNSPECIFIED = 0;
+  COMBINATION_METHOD_TYPE_SUM = 1;
+  COMBINATION_METHOD_TYPE_MIN = 2;
+  COMBINATION_METHOD_TYPE_AVERAGE = 3;
+  COMBINATION_METHOD_TYPE_RELATIVE_SCORE = 4;
+  COMBINATION_METHOD_TYPE_MANUAL = 5;
+}
+
+message WeightsForTarget {
+  string target = 1;
+  float weight = 2;
+}
+
+message Targets {
+  repeated string target_vectors = 1;
+  CombinationMethod combination = 2;
+  map<string,float> weights = 3 [deprecated = true];   // deprecated in 1.26.2 - use weights_for_targets
+  repeated WeightsForTarget weights_for_targets = 4;
+}
+
+message VectorForTarget {
+  string name = 1;
+  bytes vector_bytes = 2 [deprecated = true];  // deprecated in 1.29.0 - use vectors
+  repeated Vectors vectors = 3;
+}
+
+message Hybrid {
+  string query = 1;
+  repeated string properties = 2;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated float vector = 3 [deprecated = true];  // will be removed in the future, use vectors
+  float alpha = 4;
+  enum FusionType {
+    FUSION_TYPE_UNSPECIFIED = 0;
+    FUSION_TYPE_RANKED = 1;
+    FUSION_TYPE_RELATIVE_SCORE = 2;
+  }
+  FusionType fusion_type = 5;
+  bytes vector_bytes = 6 [deprecated = true];  // deprecated in 1.29.0 - use vectors
+  repeated string target_vectors = 7 [deprecated = true];  // deprecated in 1.26 - use targets
+  NearTextSearch near_text = 8;  // targets in msg is ignored and should not be set for hybrid
+  NearVector near_vector = 9;  // same as above. Use the target vector in the hybrid message
+  Targets targets = 10;
+
+  // only vector distance, but keep it extendable
+  oneof threshold {
+    float vector_distance = 20;
+  };
+
+  repeated Vectors vectors = 21;
+}
+
+message NearVector {
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated float vector = 1 [deprecated = true];  // will be removed in the future, use vectors
+  optional double certainty = 2;
+  optional double distance = 3;
+  bytes vector_bytes = 4 [deprecated = true];  // deprecated in 1.29.0 - use vectors
+  repeated string target_vectors = 5 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 6;
+  map <string, bytes> vector_per_target = 7 [deprecated = true]; // deprecated in 1.26.2 - use vector_for_targets
+  repeated VectorForTarget vector_for_targets = 8;
+  repeated Vectors vectors = 9;
+}
+
+message NearObject {
+  string id = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
+}
+
+message NearTextSearch {
+  message Move {
+    float force = 1;
+    repeated string concepts = 2;
+    repeated string uuids = 3;
+  }
+
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string query = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  optional Move move_to = 4;
+  optional Move move_away = 5;
+  repeated string target_vectors = 6 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 7;
+};
+
+message NearImageSearch {
+  string image = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
+};
+
+message NearAudioSearch {
+  string audio = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
+};
+
+message NearVideoSearch {
+  string video = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
+};
+
+message NearDepthSearch {
+  string depth = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
+}
+
+message NearThermalSearch {
+  string thermal = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
+}
+
+message NearIMUSearch {
+  string imu = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
+}
+
+message BM25 {
+  string query = 1;
+  repeated string properties = 2;
+}

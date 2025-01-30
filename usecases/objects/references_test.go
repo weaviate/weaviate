@@ -465,7 +465,7 @@ func Test_ReferenceDelete(t *testing.T) {
 		},
 		{
 			Name: "get schema",
-			Req:  req, Stage: 2,
+			Req:  req, Stage: 1,
 			ErrSchema: anyErr,
 			WantCode:  StatusBadRequest,
 		},
