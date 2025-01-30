@@ -125,7 +125,7 @@ func (s *Shard) initAsyncReplication() error {
 			WithField("took", fmt.Sprintf("%v", time.Since(start))).
 			Info("hashtree successfully initialized")
 
-		s.initHashBeater(ctx)
+		// s.initHashBeater(ctx)
 		return nil
 	}
 
@@ -204,7 +204,7 @@ func (s *Shard) initAsyncReplication() error {
 
 		s.asyncReplicationRWMux.Unlock()
 
-		s.initHashBeater(ctx)
+		// s.initHashBeater(ctx)
 	}, s.index.logger)
 
 	return nil
