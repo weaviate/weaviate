@@ -87,8 +87,8 @@ func TestAuthzClassification(t *testing.T) {
 			},
 		}), helper.CreateAuth(adminKey))
 		require.NoError(t, err)
-		_, err = helper.Client(t).Authz.AssignRole(
-			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{customRole}}),
+		_, err = helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{customRole}}),
 			helper.CreateAuth(adminKey),
 		)
 		require.NoError(t, err)
