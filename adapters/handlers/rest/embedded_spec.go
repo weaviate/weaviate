@@ -150,6 +150,140 @@ func init() {
         }
       }
     },
+    "/authz/groups/{id}/assign": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Assign a role to a group",
+        "operationId": "assignRoleToGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "description": "the roles that assigned to group",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned successfully"
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role or group is not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.assign.role"
+        ]
+      }
+    },
+    "/authz/groups/{id}/revoke": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Revoke a role from a group",
+        "operationId": "revokeRoleFromGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "description": "the roles that revoked from group",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role revoked successfully"
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role or group is not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.revoke.role.group"
+        ]
+      }
+    },
     "/authz/roles": {
       "get": {
         "tags": [
@@ -655,7 +789,7 @@ func init() {
           "authz"
         ],
         "summary": "Assign a role to a user",
-        "operationId": "assignRole",
+        "operationId": "assignRoleToUser",
         "parameters": [
           {
             "type": "string",
@@ -669,6 +803,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to user",
@@ -711,7 +846,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.assign.role"
+          "weaviate.authz.assign.role.user"
         ]
       }
     },
@@ -721,7 +856,7 @@ func init() {
           "authz"
         ],
         "summary": "Revoke a role from a user",
-        "operationId": "revokeRole",
+        "operationId": "revokeRoleFromUser",
         "parameters": [
           {
             "type": "string",
@@ -735,6 +870,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from the key or user",
@@ -777,7 +913,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.revoke.role"
+          "weaviate.authz.revoke.role.user"
         ]
       }
     },
@@ -6589,6 +6725,140 @@ func init() {
         }
       }
     },
+    "/authz/groups/{id}/assign": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Assign a role to a group",
+        "operationId": "assignRoleToGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "description": "the roles that assigned to group",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned successfully"
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role or group is not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.assign.role"
+        ]
+      }
+    },
+    "/authz/groups/{id}/revoke": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Revoke a role from a group",
+        "operationId": "revokeRoleFromGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "description": "the roles that revoked from group",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role revoked successfully"
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role or group is not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.revoke.role.group"
+        ]
+      }
+    },
     "/authz/roles": {
       "get": {
         "tags": [
@@ -7094,7 +7364,7 @@ func init() {
           "authz"
         ],
         "summary": "Assign a role to a user",
-        "operationId": "assignRole",
+        "operationId": "assignRoleToUser",
         "parameters": [
           {
             "type": "string",
@@ -7108,6 +7378,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to user",
@@ -7150,7 +7421,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.assign.role"
+          "weaviate.authz.assign.role.user"
         ]
       }
     },
@@ -7160,7 +7431,7 @@ func init() {
           "authz"
         ],
         "summary": "Revoke a role from a user",
-        "operationId": "revokeRole",
+        "operationId": "revokeRoleFromUser",
         "parameters": [
           {
             "type": "string",
@@ -7174,6 +7445,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from the key or user",
@@ -7216,7 +7488,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.revoke.role"
+          "weaviate.authz.revoke.role.user"
         ]
       }
     },

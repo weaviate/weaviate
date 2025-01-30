@@ -19,3 +19,5 @@ type Class struct {
 	*models.Class
 	Version uint64
 }
+
+type Classes map[string]Class

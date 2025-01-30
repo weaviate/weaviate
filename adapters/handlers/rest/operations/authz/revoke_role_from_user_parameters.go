@@ -27,19 +27,19 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// NewAssignRoleParams creates a new AssignRoleParams object
+// NewRevokeRoleFromUserParams creates a new RevokeRoleFromUserParams object
 //
 // There are no default values defined in the spec.
-func NewAssignRoleParams() AssignRoleParams {
+func NewRevokeRoleFromUserParams() RevokeRoleFromUserParams {
 
-	return AssignRoleParams{}
+	return RevokeRoleFromUserParams{}
 }
 
-// AssignRoleParams contains all the bound params for the assign role operation
+// RevokeRoleFromUserParams contains all the bound params for the revoke role from user operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters assignRole
-type AssignRoleParams struct {
+// swagger:parameters revokeRoleFromUser
+type RevokeRoleFromUserParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -48,7 +48,7 @@ type AssignRoleParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body AssignRoleBody
+	Body RevokeRoleFromUserBody
 	/*user name
 	  Required: true
 	  In: path
@@ -59,15 +59,15 @@ type AssignRoleParams struct {
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewAssignRoleParams() beforehand.
-func (o *AssignRoleParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewRevokeRoleFromUserParams() beforehand.
+func (o *RevokeRoleFromUserParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body AssignRoleBody
+		var body RevokeRoleFromUserBody
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body", ""))
@@ -104,7 +104,7 @@ func (o *AssignRoleParams) BindRequest(r *http.Request, route *middleware.Matche
 }
 
 // bindID binds and validates parameter ID from path.
-func (o *AssignRoleParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *RevokeRoleFromUserParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]

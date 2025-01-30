@@ -16,9 +16,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
@@ -70,8 +70,8 @@ func TestAuthZObjectValidate(t *testing.T) {
 		}
 		helper.DeleteRole(t, adminKey, *deleteRole.Name)
 		helper.CreateRole(t, adminKey, deleteRole)
-		_, err := helper.Client(t).Authz.AssignRole(
-			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{roleName}}),
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}}),
 			adminAuth,
 		)
 		require.Nil(t, err)
@@ -87,8 +87,8 @@ func TestAuthZObjectValidate(t *testing.T) {
 		_, err = helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
 		require.Nil(t, err)
 
-		_, err = helper.Client(t).Authz.RevokeRole(
-			authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{roleName}}),
+		_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+			authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}}),
 			adminAuth,
 		)
 		require.Nil(t, err)
@@ -104,8 +104,8 @@ func TestAuthZObjectValidate(t *testing.T) {
 			}
 			helper.DeleteRole(t, adminKey, *deleteRole.Name)
 			helper.CreateRole(t, adminKey, deleteRole)
-			_, err := helper.Client(t).Authz.AssignRole(
-				authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{roleName}}),
+			_, err := helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}}),
 				adminAuth,
 			)
 			require.Nil(t, err)
@@ -123,8 +123,8 @@ func TestAuthZObjectValidate(t *testing.T) {
 			var errNoAuth *objects.ObjectsValidateForbidden
 			require.True(t, errors.As(err, &errNoAuth))
 
-			_, err = helper.Client(t).Authz.RevokeRole(
-				authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{roleName}}),
+			_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+				authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}}),
 				adminAuth,
 			)
 			require.Nil(t, err)

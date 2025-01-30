@@ -89,6 +89,10 @@ func (i *typeInspector) extendResWithType(res *aggregation.Result, propName stri
 			prop.Type = aggregation.PropertyTypeReference
 			prop.SchemaType = string(schema.DataTypeCRef)
 			prop.ReferenceAggregation.PointingTo = dataType
+			if res.Groups[groupIndex].Properties == nil {
+				// prevent nil pointer panic
+				res.Groups[groupIndex].Properties = map[string]aggregation.Property{}
+			}
 		}
 
 		res.Groups[groupIndex].Properties[propName] = prop

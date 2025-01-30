@@ -94,6 +94,11 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 		DataFields:            []varenc.VarEncDataType{varenc.DeltaVarIntUint64, varenc.VarIntUint64},
 	}
 
+	docIdEncoder := varenc.GetVarEncEncoder64(headerInverted.DataFields[0])
+	tfEncoder := varenc.GetVarEncEncoder64(headerInverted.DataFields[1])
+	docIdEncoder.Init(segmentindex.SegmentInvertedDefaultBlockSize)
+	tfEncoder.Init(segmentindex.SegmentInvertedDefaultBlockSize)
+
 	n, err := header.WriteTo(f)
 	if err != nil {
 		return nil, nil, err
@@ -120,7 +125,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 				ValueStart: totalWritten,
 			}
 
-			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values)
+			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values, docIdEncoder, tfEncoder)
 
 			if _, err := f.Write(blocksEncoded); err != nil {
 				return nil, nil, err
@@ -164,7 +169,9 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 	b := new(bytes.Buffer)
 
-	binary.LittleEndian.PutUint64(buf, propLengthSum)
+	propLengthAvg := float64(propLengthSum) / float64(propLengthCount)
+
+	binary.LittleEndian.PutUint64(buf, math.Float64bits(propLengthAvg))
 	if _, err := f.Write(buf); err != nil {
 		return nil, nil, err
 	}

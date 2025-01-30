@@ -133,9 +133,7 @@ func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, er
 	return nil
 }
 
-func (v *Validator) ValidateMultipleRef(ctx context.Context, refs models.MultipleRef,
-	errorVal string, tenant string,
-) ([]*crossref.Ref, error) {
+func (v *Validator) ValidateMultipleRef(refs models.MultipleRef) ([]*crossref.Ref, error) {
 	parsedRefs := make([]*crossref.Ref, len(refs))
 
 	if refs == nil {

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
@@ -45,41 +46,47 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	defer m.metrics.DeleteReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
+	input.Class = schema.UppercaseClassName(input.Class)
 
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
+	// We are fetching the existing object and get to know if the UUID exists
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(input.Class)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	deprecatedEndpoint := input.Class == ""
+	// we need to know which collection an object belongs to, so for the deprecated case we first need to fetch the
+	// object from any collection, to then know its collection to check for the correct permissions after wards
 	if deprecatedEndpoint {
 		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData()...); err != nil {
 			return &Error{err.Error(), StatusForbidden, err}
 		}
-	}
-
-	beacon, err := crossref.Parse(input.Reference.Beacon.String())
-	if err != nil {
-		return &Error{"cannot parse beacon", StatusBadRequest, err}
-	}
-	if input.Class != "" && beacon.Class == "" {
-		toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, beacon)
+		res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
 		if err != nil {
-			return err
+			errnf := ErrNotFound{}
+			if errors.As(err, &errnf) {
+				return &Error{"source object", StatusNotFound, err}
+			} else if errors.As(err, &ErrMultiTenancy{}) {
+				return &Error{"source object", StatusUnprocessableEntity, err}
+			}
+
+			return &Error{"source object", StatusInternalServerError, err}
 		}
-		if replace {
-			input.Reference.Class = toClass
-			input.Reference.Beacon = toBeacon
-		}
-	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(input.Reference.Class.String())...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		input.Class = res.ClassName
 	}
 
-	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
-		additional.Properties{}, nil, tenant)
+	if err := validateReferenceName(input.Class, input.Property); err != nil {
+		return &Error{err.Error(), StatusBadRequest, err}
+	}
+
+	class, schemaVersion, _, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
+	if typedErr != nil {
+		return typedErr
+	}
+
+	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
 	if err != nil {
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {
@@ -90,7 +97,21 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 
 		return &Error{"source object", StatusInternalServerError, err}
 	}
-	input.Class = res.ClassName
+
+	beacon, err := crossref.Parse(input.Reference.Beacon.String())
+	if err != nil {
+		return &Error{"cannot parse beacon", StatusBadRequest, err}
+	}
+	if input.Class != "" && beacon.Class == "" {
+		toClass, toBeacon, replace, err := m.autodetectToClass(class, input.Property, beacon)
+		if err != nil {
+			return err
+		}
+		if replace {
+			input.Reference.Class = toClass
+			input.Reference.Beacon = toBeacon
+		}
+	}
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
@@ -98,8 +119,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	defer unlock()
 
-	class, schemaVersion, err := input.validate(ctx, principal, m.schemaManager)
-	if err != nil {
+	if input.validateSchema(class) != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}
 		}
@@ -145,21 +165,8 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	return nil
 }
 
-func (req *DeleteReferenceInput) validate(
-	ctx context.Context,
-	principal *models.Principal,
-	sm schemaManager,
-) (*models.Class, uint64, error) {
-	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return nil, 0, err
-	}
-
-	vclasses, err := sm.GetCachedClass(ctx, principal, req.Class)
-	if err != nil {
-		return nil, 0, err
-	}
-	vclass := vclasses[req.Class]
-	return vclass.Class, vclass.Version, validateReferenceSchema(vclass.Class, req.Property)
+func (req *DeleteReferenceInput) validateSchema(class *models.Class) error {
+	return validateReferenceSchema(class, req.Property)
 }
 
 // removeReference removes ref from object obj with property prop.
