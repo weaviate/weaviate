@@ -133,6 +133,15 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		}
 	}
 
+	for _, group := range conf.RootGroups {
+		if strings.TrimSpace(group) == "" {
+			continue
+		}
+		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(group), conv.PrefixRoleName(authorization.Root)); err != nil {
+			return nil, fmt.Errorf("add role for group %s: %w", group, err)
+		}
+	}
+
 	for i := range conf.Viewers {
 		if strings.TrimSpace(conf.Viewers[i]) == "" {
 			continue

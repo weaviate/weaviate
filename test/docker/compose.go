@@ -110,6 +110,7 @@ type Compose struct {
 	weaviateApiKeyUsers           []ApiKeyUser
 	withWeaviateRbac              bool
 	weaviateRbacAdmins            []string
+	weaviateRbacRootGroups        []string
 	weaviateRbacViewers           []string
 	withSUMTransformers           bool
 	withCentroid                  bool
@@ -472,6 +473,14 @@ func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
 	return d
 }
 
+func (d *Compose) WithRbacRootGroups(groups ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacRootGroups = append(d.weaviateRbacRootGroups, groups...)
+	return d
+}
+
 func (d *Compose) WithRbacViewers(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
@@ -795,6 +804,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		}
 		if len(d.weaviateRbacViewers) > 0 {
 			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
+		}
+
+		if len(d.weaviateRbacRootGroups) > 0 {
+			settings["AUTHORIZATION_ROOT_GROUPS"] = strings.Join(d.weaviateRbacRootGroups, ",")
 		}
 	}
 

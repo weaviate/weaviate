@@ -164,6 +164,33 @@ func TestRbacWithOIDCGroups(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestRbacWithOIDCRootGroups(t *testing.T) {
+	var err error
+	ctx := context.Background()
+
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").WithRbacRootGroups("custom-group").Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
+
+	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+	// description for details
+	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+	tokenCustom, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+
+	className := strings.Replace(t.Name(), "/", "", 1) + "Class"
+	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
+
+	// custom user can create collection without any extra roles, because of membership in root group
+	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+	require.NoError(t, err)
+}
+
 const AuthCode = "auth"
 
 // This test starts an oidc mock server with the same settings as the containerized one. Helpful if you want to know
