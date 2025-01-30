@@ -210,13 +210,16 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		if permission.Roles != nil && permission.Roles.Role != nil {
 			role = *permission.Roles.Role
 			if verb == CRUD {
-				verb = authorization.ROLE_SCOPE_MATCH // default on manage
+				// Default verb for role management
+				verb = authorization.ROLE_SCOPE_MATCH
 				if permission.Roles.Scope != nil {
-					scope := *permission.Roles.Scope
-					if scope == models.PermissionRolesScopeAll {
+					// Determine verb based on scope
+					switch *permission.Roles.Scope {
+					case models.PermissionRolesScopeAll:
 						verb = CRUD
-					} else if scope == models.PermissionRolesScopeMatchNoManage {
+					case models.PermissionRolesScopeMatchNoManage:
 						verb = authorization.ROLE_SCOPE_MATCH_NO_MANAGE
+					default:
 					}
 				}
 			}
@@ -358,9 +361,10 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 
 		if mapped.Verb != authorization.READ {
 			scope := models.PermissionRolesScopeMatch // default
-			if mapped.Verb == authorization.ROLE_SCOPE_ALL {
+			switch mapped.Verb {
+			case authorization.ROLE_SCOPE_ALL:
 				scope = models.PermissionRolesScopeAll
-			} else if mapped.Verb == authorization.ROLE_SCOPE_MATCH_NO_MANAGE {
+			case authorization.ROLE_SCOPE_MATCH_NO_MANAGE:
 				scope = models.PermissionRolesScopeMatchNoManage
 			}
 			permission.Roles.Scope = &scope
