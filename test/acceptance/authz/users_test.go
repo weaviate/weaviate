@@ -27,11 +27,13 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
-	anotherUser := "another-user"
-	anotherKey := "another-key"
+	customUser := "custom-user"
+	customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{anotherUser: anotherKey}, nil)
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
+
+	helper.SetupClient("127.0.0.1:8081")
 
 	t.Run("all roles", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
@@ -44,7 +46,7 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	})
 
 	t.Run("get empty roles for existing user without role", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, anotherUser, adminKey)
+		roles := helper.GetRolesForUser(t, customUser, adminKey)
 		require.Equal(t, 0, len(roles))
 	})
 

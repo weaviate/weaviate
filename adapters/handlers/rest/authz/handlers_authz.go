@@ -255,9 +255,13 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 		return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	response := []*models.Role{}
+	var response []*models.Role
 
 	for roleName, policies := range roles {
+		if roleName == authorization.Root {
+			continue
+		}
+
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
 			return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
