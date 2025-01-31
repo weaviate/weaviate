@@ -16,8 +16,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -262,6 +262,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 		}
 
 		status, err = s.determineInsertStatus(prevObj, obj)
+
 		if err != nil {
 			return err
 		}
@@ -457,6 +458,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
+	props = inverted.DedupItems(props)
 
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty
@@ -466,6 +468,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err != nil {
 			return fmt.Errorf("analyze previous object: %w", err)
 		}
+		prevProps = inverted.DedupItems(prevProps)
 	}
 
 	// if object updated (with or without docID changed)
@@ -486,15 +489,26 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	// determine only changed properties to avoid unnecessary updates of inverted indexes
 	if status.docIDPreserved {
-		delta := inverted.Delta(prevProps, props)
+		skipDeltaForProps := []string{}
+		// TODO:aliszka	optimize fetching skipDeltaForProps
+		if bucketsInverted := s.store.GetBucketsByStrategy(lsmkv.StrategyInverted); len(bucketsInverted) > 0 {
+			for bucketName := range bucketsInverted {
+				if strings.HasSuffix(bucketName, "_searchable") && strings.HasPrefix(bucketName, "property_") {
+					propName := strings.TrimPrefix(strings.TrimSuffix(bucketName, "_searchable"), "property_")
+					skipDeltaForProps = append(skipDeltaForProps, propName)
+				}
+			}
+		}
+
+		delta := inverted.DeltaSkipSearchable(prevProps, props, skipDeltaForProps)
 		propsToAdd = delta.ToAdd
 		propsToDel = delta.ToDelete
 		deltaNil := inverted.DeltaNil(prevNilprops, nilprops)
 		nilpropsToAdd = deltaNil.ToAdd
 		nilpropsToDel = deltaNil.ToDelete
 	} else {
-		propsToAdd = inverted.DedupItems(props)
-		propsToDel = inverted.DedupItems(prevProps)
+		propsToAdd = props
+		propsToDel = prevProps
 		nilpropsToAdd = nilprops
 		nilpropsToDel = prevNilprops
 	}
@@ -520,22 +534,9 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-
-	// This change is related to the patching/update behavior under new inverted index implementation
-	// https://github.com/weaviate/weaviate/pull/6176
-	// - on the old implementation, patching a document would result on only changing the entries for the terms that were changed
-	// - on the new implementation, patching a document will result on inserting all terms into the newer segment
-	// The goal is to enable searching through the segments independently of the previous segments.
-	if prevObject != nil && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
-		if err := s.extendInvertedIndicesLSM(props, nilprops, status.docID); err != nil {
-			return fmt.Errorf("put inverted indices props: %w", err)
-		}
-	} else {
-		if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
-			return fmt.Errorf("put inverted indices props: %w", err)
-		}
+	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
+		return fmt.Errorf("put inverted indices props: %w", err)
 	}
-
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 
 	if s.index.Config.TrackVectorDimensions {
