@@ -193,6 +193,76 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			},
 			expectedError: "can only create roles with less or equal permissions as the current user: no role scope match",
 		},
+		{
+			name:         "has full role management permissions for delete",
+			principal:    &models.Principal{Username: "admin"},
+			originalVerb: authorization.DELETE,
+			policies:     []authorization.Policy{},
+			roleName:     "existingRole",
+			authorizeSetup: func(a *mocks.Authorizer) {
+				// First call succeeds - has full permissions
+				a.On("Authorize", &models.Principal{Username: "admin"}, authorization.DELETE, authorization.Roles("existingRole")[0]).
+					Return(nil).Once()
+			},
+			expectedError: "",
+		},
+		{
+			name:         "has role scope match for delete",
+			principal:    &models.Principal{Username: "user"},
+			originalVerb: authorization.DELETE,
+			policies:     []authorization.Policy{},
+			roleName:     "existingRole",
+			authorizeSetup: func(a *mocks.Authorizer) {
+				// First call fails - no full permissions
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.DELETE, authorization.Roles("existingRole")[0]).
+					Return(errors.New("no full permissions")).Once()
+				// Second call succeeds - has role scope match
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("existingRole")[0]).
+					Return(nil).Once()
+			},
+			expectedError: "",
+		},
+		{
+			name:         "has role scope match but missing permissions for delete",
+			principal:    &models.Principal{Username: "user"},
+			originalVerb: authorization.DELETE,
+			policies: []authorization.Policy{
+				{Resource: "collections/ABC", Verb: authorization.READ},
+				{Resource: "collections/XYZ", Verb: authorization.DELETE},
+			},
+			roleName: "existingRole",
+			authorizeSetup: func(a *mocks.Authorizer) {
+				// First call fails - no full permissions
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.DELETE, authorization.Roles("existingRole")[0]).
+					Return(errors.New("no full permissions")).Once()
+				// Second call succeeds - has role scope match
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("existingRole")[0]).
+					Return(nil).Once()
+				// Third call succeeds - has first permission
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
+					Return(nil).Once()
+				// Fourth call fails - missing delete permission
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.DELETE, "collections/XYZ").
+					Return(errors.New("missing delete permission")).Once()
+			},
+			expectedError: "missing delete permission",
+		},
+		{
+			name:         "get role fails during delete",
+			principal:    &models.Principal{Username: "user"},
+			originalVerb: authorization.DELETE,
+			policies:     nil,
+			roleName:     "existingRole",
+			authorizeSetup: func(a *mocks.Authorizer) {
+				// First call fails - no full permissions
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.DELETE, authorization.Roles("existingRole")[0]).
+					Return(errors.New("no full permissions")).Once()
+				// Second call succeeds - has role scope match
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("existingRole")[0]).
+					Return(nil).Once()
+			},
+			expectedError: "",
+		},
 	}
 
 	for _, tt := range tests {

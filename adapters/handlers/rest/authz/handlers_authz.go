@@ -77,7 +77,9 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 }
 
 func (h *authZHandlers) authorizeRoleScopes(principal *models.Principal, originalVerb string, policies []authorization.Policy, roleName string) error {
-	// Check if user has full role management permissions
+	// The error will be accumulated with each check. We first verify if the user has the necessary permissions.
+	// If not, we check for matching permissions and authorize each permission being added or removed from the role.
+	// NOTE: logic is inverted for error checks if err == nil
 	var err error
 	if err = h.authorizer.Authorize(principal, originalVerb, authorization.Roles(roleName)...); err == nil {
 		return nil
@@ -347,7 +349,18 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Roles(params.ID)...); err != nil {
+	roles, err := h.controller.GetRoles(params.ID)
+	if err != nil {
+		h.logger.WithFields(logrus.Fields{
+			"action":    "delete_role",
+			"component": authorization.ComponentName,
+			"user":      principal.Username,
+			"roleName":  params.ID,
+		}).Info("role was already deleted")
+		return authz.NewDeleteRoleNoContent()
+	}
+
+	if err := h.authorizeRoleScopes(principal, authorization.DELETE, roles[params.ID], params.ID); err != nil {
 		return authz.NewDeleteRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 

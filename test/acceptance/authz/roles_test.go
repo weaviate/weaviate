@@ -912,6 +912,32 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("limited user can delete role within their scope", func(t *testing.T) {
+		roleToDelete := "role-to-delete"
+		_, err = helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &roleToDelete,
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.CreateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection1"),
+						},
+					},
+				},
+			}),
+			limitedAuth,
+		)
+		require.NoError(t, err)
+
+		// Verify limited user can delete the role
+		_, err = helper.Client(t).Authz.DeleteRole(
+			authz.NewDeleteRoleParams().WithID(roleToDelete),
+			limitedAuth,
+		)
+		require.NoError(t, err)
+	})
+
 	t.Run("admin can still manage all roles", func(t *testing.T) {
 		// Admin can delete roles created by limited user
 		helper.DeleteRole(t, adminKey, newRole)
