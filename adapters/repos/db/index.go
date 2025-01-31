@@ -1561,7 +1561,7 @@ func (i *Index) targetShardNames(ctx context.Context, tenant string) ([]string, 
 		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
-func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vector,
+func (i *Index) localShardSearch(ctx context.Context, searchVectors [][]float32,
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, shardName string,
@@ -1588,7 +1588,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	return localShardResult, localShardScores, nil
 }
 
-func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Vector,
+func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32,
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, shardName string,
@@ -1639,7 +1639,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 	return outObjects, outScores, nil
 }
 
-func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.Vector,
+func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float32,
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort,
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
