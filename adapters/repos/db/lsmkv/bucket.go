@@ -1503,6 +1503,9 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 			allTombstones[len(segmentsDisk)+1] = tombstones
 
+			if n2 > 0 {
+				active.advanceOnTombstoneOrFilter()
+			}
 		}
 
 		if b.flushing != nil {
@@ -1517,9 +1520,12 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			if err != nil {
 				return nil, lock, err
 			}
+
 			allTombstones[len(segmentsDisk)] = sroar.Or(allTombstones[len(segmentsDisk)+1], tombstones)
-			flushing.tombstones = allTombstones[len(segmentsDisk)+1]
-			flushing.advanceOnTombstoneOrFilter()
+			if n2 > 0 {
+				flushing.tombstones = allTombstones[len(segmentsDisk)+1]
+				flushing.advanceOnTombstoneOrFilter()
+			}
 
 		}
 
