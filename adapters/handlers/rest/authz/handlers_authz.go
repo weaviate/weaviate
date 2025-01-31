@@ -76,6 +76,30 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 	api.AuthzGetRolesForOwnUserHandler = authz.GetRolesForOwnUserHandlerFunc(h.getRolesForOwnUser)
 }
 
+func (h *authZHandlers) authorizeRoleScopes(principal *models.Principal, originalVerb string, policies []authorization.Policy, roleName string) error {
+	// The error will be accumulated with each check. We first verify if the user has the necessary permissions.
+	// If not, we check for matching permissions and authorize each permission being added or removed from the role.
+	// NOTE: logic is inverted for error checks if err == nil
+	var err error
+	if err = h.authorizer.Authorize(principal, originalVerb, authorization.Roles(roleName)...); err == nil {
+		return nil
+	}
+
+	// Check if user can manage roles with matching permissions
+	if err = h.authorizer.Authorize(principal, authorization.ROLE_SCOPE_MATCH, authorization.Roles(roleName)...); err == nil {
+		// Verify user has all permissions they're trying to grant
+		var errs error
+		for _, policy := range policies {
+			if err := h.authorizer.Authorize(principal, policy.Verb, policy.Resource); err != nil {
+				errs = errors.Join(errs, err)
+			}
+		}
+		return errs
+	}
+
+	return fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err)
+}
+
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
 	if *params.Body.Name == "" {
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is required")))
@@ -94,7 +118,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles(*params.Body.Name)...); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.CREATE, policies[*params.Body.Name], *params.Body.Name); err != nil {
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -139,7 +163,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.ID)...); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -183,8 +207,15 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	if err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
+	// TODO-RBAC PermissionToPolicies has to be []Policy{} not slice of pointers
+	policies := map[string][]authorization.Policy{
+		params.ID: {},
+	}
+	for _, p := range permissions {
+		policies[params.ID] = append(policies[params.ID], *p)
+	}
 
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.ID)...); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
 		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -251,9 +282,13 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 		return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	response := []*models.Role{}
+	var response []*models.Role
 
 	for roleName, policies := range roles {
+		if roleName == authorization.Root && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
+			continue
+		}
+
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
 			return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -314,7 +349,18 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Roles(params.ID)...); err != nil {
+	roles, err := h.controller.GetRoles(params.ID)
+	if err != nil {
+		h.logger.WithFields(logrus.Fields{
+			"action":    "delete_role",
+			"component": authorization.ComponentName,
+			"user":      principal.Username,
+			"roleName":  params.ID,
+		}).Info("role was already deleted")
+		return authz.NewDeleteRoleNoContent()
+	}
+
+	if err := h.authorizeRoleScopes(principal, authorization.DELETE, roles[params.ID], params.ID); err != nil {
 		return authz.NewDeleteRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -336,6 +382,10 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
 			return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to assign is empty")))
+		}
+
+		if err := isRootRole(role); err != nil {
+			return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: %w", err)))
 		}
 	}
 
@@ -380,6 +430,10 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 		if strings.TrimSpace(role) == "" {
 			return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to assign is empty")))
 		}
+
+		if err := isRootRole(role); err != nil {
+			return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: %w", err)))
+		}
 	}
 
 	if len(params.Body.Roles) == 0 {
@@ -388,6 +442,10 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.Body.Roles...)...); err != nil {
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if err := h.isRootGroup(params.ID); err != nil {
+		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: %w", err)))
 	}
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
@@ -496,6 +554,10 @@ func (h *authZHandlers) getRolesForOwnUser(params authz.GetRolesForOwnUserParams
 }
 
 func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
+	if err := isRootRole(params.ID); err != nil && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
+		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -522,6 +584,10 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		if strings.TrimSpace(role) == "" {
 			return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to revoke is empty")))
 		}
+
+		if err := isRootRole(role); err != nil {
+			return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %w", err)))
+		}
 	}
 
 	if len(params.Body.Roles) == 0 {
@@ -530,16 +596,6 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.Body.Roles...)...); err != nil {
 		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	}
-
-	adminRoles := slices.Contains(h.rbacconfig.Admins, params.ID) && slices.Contains(params.Body.Roles, authorization.Admin)
-	viewerRoles := slices.Contains(h.rbacconfig.Viewers, params.ID) && slices.Contains(params.Body.Roles, authorization.Viewer)
-	if adminRoles || viewerRoles {
-		requestedRole := authorization.Admin
-		if viewerRoles {
-			requestedRole = authorization.Viewer
-		}
-		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not revoke configured role %s", requestedRole)))
 	}
 
 	if !h.userExists(params.ID) {
@@ -575,6 +631,10 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 		if strings.TrimSpace(role) == "" {
 			return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to revoke is empty")))
 		}
+
+		if err := isRootRole(role); err != nil {
+			return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %w", err)))
+		}
 	}
 
 	if len(params.Body.Roles) == 0 {
@@ -585,14 +645,8 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	adminRoles := slices.Contains(h.rbacconfig.Admins, params.ID) && slices.Contains(params.Body.Roles, authorization.Admin)
-	viewerRoles := slices.Contains(h.rbacconfig.Viewers, params.ID) && slices.Contains(params.Body.Roles, authorization.Viewer)
-	if adminRoles || viewerRoles {
-		requestedRole := authorization.Admin
-		if viewerRoles {
-			requestedRole = authorization.Viewer
-		}
-		return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not revoke configured role %s", requestedRole)))
+	if err := h.isRootGroup(params.ID); err != nil {
+		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %w", err)))
 	}
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
@@ -636,6 +690,22 @@ func (h *authZHandlers) userExists(user string) bool {
 		return false
 	}
 	return true
+}
+
+// isRootGroup validates that enduser do not touch the internal root group
+func (h *authZHandlers) isRootGroup(name string) error {
+	if slices.Contains(h.rbacconfig.RootGroups, name) || slices.Contains(h.rbacconfig.ViewerRootGroups, name) {
+		return fmt.Errorf("cannot assign or revoke from root group %s", name)
+	}
+	return nil
+}
+
+// isRootRole validates that enduser do not touch the internal root role
+func isRootRole(name string) error {
+	if name == authorization.Root {
+		return fmt.Errorf("modifying 'root' role or changing its assignments is not allowed")
+	}
+	return nil
 }
 
 // validateRoleName validates that this string is a valid role name (format wise)

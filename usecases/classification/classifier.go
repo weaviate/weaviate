@@ -130,6 +130,24 @@ type NeighborRef struct {
 	Distances NeighborRefDistances
 }
 
+func (c *Classifier) classGetterWithAuthzFunc(principal *models.Principal) func(string) (*models.Class, error) {
+	authorizedCollections := map[string]*models.Class{}
+	return func(name string) (*models.Class, error) {
+		class, ok := authorizedCollections[name]
+		if !ok {
+			if err := c.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+				return nil, err
+			}
+			class = c.schemaGetter.ReadOnlyClass(name)
+			authorizedCollections[name] = class
+		}
+		if class == nil {
+			return nil, fmt.Errorf("could not find class %s in schema", name)
+		}
+		return class, nil
+	}
+}
+
 func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, params models.Classification) (*models.Classification, error) {
 	err := c.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(params.Class)...)
 	if err != nil {
@@ -141,7 +159,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 		return nil, err
 	}
 
-	err = NewValidator(c.schemaGetter.ReadOnlyClass, params).Do()
+	err = NewValidator(c.classGetterWithAuthzFunc(principal), params).Do()
 	if err != nil {
 		return nil, err
 	}
@@ -254,12 +272,17 @@ func (c *Classifier) assignNewID(params *models.Classification) error {
 }
 
 func (c *Classifier) Get(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Classification, error) {
-	err := c.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
+	classification, err := c.repo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-
-	return c.repo.Get(ctx, id)
+	if classification == nil {
+		return nil, nil
+	}
+	if err := c.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(classification.Class)...); err != nil {
+		return nil, err
+	}
+	return classification, nil
 }
 
 func (c *Classifier) parseAndSetDefaults(params *models.Classification) error {
