@@ -1664,6 +1664,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 				sort, groupBy, additionalProps, shard, targetCombination, properties)
 		}
 	}
+	
 
 	// a limit of -1 is used to signal a search by distance. if that is
 	// the case we have to adjust how we calculate the output capacity
