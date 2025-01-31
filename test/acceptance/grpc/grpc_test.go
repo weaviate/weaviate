@@ -264,9 +264,8 @@ func TestGRPC(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.NotNil(t, resp.Result)
-		require.Len(t, resp.Result.Groups, 1)
-		require.Equal(t, int64(3), resp.Result.Groups[0].GetObjectsCount())
+		require.NotNil(t, resp.GetSingleResult())
+		require.Equal(t, int64(3), resp.GetSingleResult().GetObjectsCount())
 	})
 
 	t.Run("Batch delete", func(t *testing.T) {

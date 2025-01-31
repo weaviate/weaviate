@@ -103,14 +103,6 @@ message AggregateRequest {
 }
 
 message AggregateReply {
-  message Result {
-    repeated AggregateGroup groups = 1;
-  }
-  float took = 1;
-  Result result = 2;
-}
-
-message AggregateGroup {
   message Aggregations {
     message Aggregation {
       message Integer {
@@ -178,22 +170,36 @@ message AggregateGroup {
     }
     repeated Aggregation aggregations = 1;
   }
-  message GroupedBy {
-    // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-    repeated string path = 1;
-    oneof value {
-      string text = 2;
-      int64 int = 3;
-      bool boolean = 4;
-      double number = 5;
-      TextArray texts = 6;
-      IntArray ints = 7;
-      BooleanArray booleans = 8;
-      NumberArray numbers = 9;
-      GeoCoordinatesFilter geo = 10;
-    };
+  message Single {
+    optional int64 objects_count = 1;
+    optional Aggregations aggregations = 2;
   }
-  optional int64 objects_count = 1;
-  optional Aggregations aggregations = 2;
-  optional GroupedBy grouped_by = 3;
+  message Group {
+    message GroupedBy {
+      // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+      repeated string path = 1;
+      oneof value {
+        string text = 2;
+        int64 int = 3;
+        bool boolean = 4;
+        double number = 5;
+        TextArray texts = 6;
+        IntArray ints = 7;
+        BooleanArray booleans = 8;
+        NumberArray numbers = 9;
+        GeoCoordinatesFilter geo = 10;
+      };
+    }
+    optional int64 objects_count = 1;
+    optional Aggregations aggregations = 2;
+    optional GroupedBy grouped_by = 3;
+  }
+  message Grouped {
+    repeated Group groups = 1;
+  }
+  float took = 1;
+  oneof result {
+    Single single_result = 2;
+    Grouped grouped_results = 3;
+  };
 }

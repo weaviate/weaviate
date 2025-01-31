@@ -40,8 +40,8 @@ func NewAggregateReplier(authorizedGetClass func(string) (*models.Class, error),
 	}
 }
 
-func (r *AggregateReplier) Aggregate(res interface{}) (*pb.AggregateReply_Result, error) {
-	var groups []*pb.AggregateGroup
+func (r *AggregateReplier) Aggregate(res interface{}) (*pb.AggregateReply, error) {
+	var groups []*pb.AggregateReply_Group
 
 	if res != nil {
 		result, ok := res.(*aggregation.Result)
@@ -49,8 +49,21 @@ func (r *AggregateReplier) Aggregate(res interface{}) (*pb.AggregateReply_Result
 			return nil, fmt.Errorf("unexpected aggregate result type: %T", res)
 		}
 
+		if len(result.Groups) == 1 {
+			group := result.Groups[0]
+			count := int64(group.Count)
+			aggregations, err := r.parseAggregatedProperties(group.Properties)
+			if err != nil {
+				return nil, fmt.Errorf("aggregations: %w", err)
+			}
+			return &pb.AggregateReply{Result: &pb.AggregateReply_SingleResult{SingleResult: &pb.AggregateReply_Single{
+				ObjectsCount: &count,
+				Aggregations: aggregations,
+			}}}, nil
+		}
+
 		if len(result.Groups) > 0 {
-			groups = make([]*pb.AggregateGroup, len(result.Groups))
+			groups = make([]*pb.AggregateReply_Group, len(result.Groups))
 			for i := range result.Groups {
 				count := int64(result.Groups[i].Count)
 				aggregations, err := r.parseAggregatedProperties(result.Groups[i].Properties)
@@ -61,60 +74,60 @@ func (r *AggregateReplier) Aggregate(res interface{}) (*pb.AggregateReply_Result
 				if err != nil {
 					return nil, fmt.Errorf("groupedBy: %w", err)
 				}
-				groups[i] = &pb.AggregateGroup{
+				groups[i] = &pb.AggregateReply_Group{
 					ObjectsCount: &count,
 					Aggregations: aggregations,
 					GroupedBy:    groupedBy,
 				}
 			}
+			return &pb.AggregateReply{Result: &pb.AggregateReply_GroupedResults{GroupedResults: &pb.AggregateReply_Grouped{Groups: groups}}}, nil
 		}
 	}
-
-	return &pb.AggregateReply_Result{Groups: groups}, nil
+	return &pb.AggregateReply{}, nil
 }
 
-func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*pb.AggregateGroup_GroupedBy, error) {
+func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*pb.AggregateReply_Group_GroupedBy, error) {
 	if in != nil {
 		switch val := in.Value.(type) {
 		case string:
-			return &pb.AggregateGroup_GroupedBy{
+			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateGroup_GroupedBy_Text{Text: val},
+				Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: val},
 			}, nil
 		case bool:
-			return &pb.AggregateGroup_GroupedBy{
+			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateGroup_GroupedBy_Boolean{Boolean: val},
+				Value: &pb.AggregateReply_Group_GroupedBy_Boolean{Boolean: val},
 			}, nil
 		case float64:
-			return &pb.AggregateGroup_GroupedBy{
+			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateGroup_GroupedBy_Number{Number: val},
+				Value: &pb.AggregateReply_Group_GroupedBy_Number{Number: val},
 			}, nil
 		case int64:
-			return &pb.AggregateGroup_GroupedBy{
+			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateGroup_GroupedBy_Int{Int: val},
+				Value: &pb.AggregateReply_Group_GroupedBy_Int{Int: val},
 			}, nil
 		case []string:
-			return &pb.AggregateGroup_GroupedBy{
+			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateGroup_GroupedBy_Texts{Texts: &pb.TextArray{Values: val}},
+				Value: &pb.AggregateReply_Group_GroupedBy_Texts{Texts: &pb.TextArray{Values: val}},
 			}, nil
 		case []bool:
-			return &pb.AggregateGroup_GroupedBy{
+			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateGroup_GroupedBy_Booleans{Booleans: &pb.BooleanArray{Values: val}},
+				Value: &pb.AggregateReply_Group_GroupedBy_Booleans{Booleans: &pb.BooleanArray{Values: val}},
 			}, nil
 		case []float64:
-			return &pb.AggregateGroup_GroupedBy{
+			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateGroup_GroupedBy_Numbers{Numbers: &pb.NumberArray{Values: val}},
+				Value: &pb.AggregateReply_Group_GroupedBy_Numbers{Numbers: &pb.NumberArray{Values: val}},
 			}, nil
 		case []int64:
-			return &pb.AggregateGroup_GroupedBy{
+			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateGroup_GroupedBy_Ints{Ints: &pb.IntArray{Values: val}},
+				Value: &pb.AggregateReply_Group_GroupedBy_Ints{Ints: &pb.IntArray{Values: val}},
 			}, nil
 		default:
 			return nil, fmt.Errorf("unrecognized grouped by value type: %T", in.Value)
@@ -123,10 +136,10 @@ func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*
 	return nil, nil
 }
 
-func (r *AggregateReplier) parseAggregatedProperties(in map[string]aggregation.Property) (*pb.AggregateGroup_Aggregations, error) {
-	var aggregations *pb.AggregateGroup_Aggregations
+func (r *AggregateReplier) parseAggregatedProperties(in map[string]aggregation.Property) (*pb.AggregateReply_Aggregations, error) {
+	var aggregations *pb.AggregateReply_Aggregations
 	if len(in) > 0 {
-		propertyAggregations := []*pb.AggregateGroup_Aggregations_Aggregation{}
+		propertyAggregations := []*pb.AggregateReply_Aggregations_Aggregation{}
 		for name, property := range in {
 			aggregationResult, err := r.parseAggregationResult(name, property)
 			if err != nil {
@@ -134,14 +147,14 @@ func (r *AggregateReplier) parseAggregatedProperties(in map[string]aggregation.P
 			}
 			propertyAggregations = append(propertyAggregations, aggregationResult)
 		}
-		aggregations = &pb.AggregateGroup_Aggregations{
+		aggregations = &pb.AggregateReply_Aggregations{
 			Aggregations: propertyAggregations,
 		}
 	}
 	return aggregations, nil
 }
 
-func (r *AggregateReplier) parseAggregationResult(propertyName string, property aggregation.Property) (*pb.AggregateGroup_Aggregations_Aggregation, error) {
+func (r *AggregateReplier) parseAggregationResult(propertyName string, property aggregation.Property) (*pb.AggregateReply_Aggregations_Aggregation, error) {
 	switch property.Type {
 	case aggregation.PropertyTypeNumerical:
 		dataType, err := r.authorizedGetDataTypeOfProp(propertyName)
@@ -154,56 +167,56 @@ func (r *AggregateReplier) parseAggregationResult(propertyName string, property 
 			if err != nil {
 				return nil, fmt.Errorf("parse integer aggregation: %w", err)
 			}
-			return &pb.AggregateGroup_Aggregations_Aggregation{
+			return &pb.AggregateReply_Aggregations_Aggregation{
 				Property:    propertyName,
-				Aggregation: &pb.AggregateGroup_Aggregations_Aggregation_Int{Int: integerAggregation},
+				Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Int{Int: integerAggregation},
 			}, nil
 		default:
 			numericalAggregation, err := parseNumericalAggregation(property.SchemaType, property.NumericalAggregations)
 			if err != nil {
 				return nil, fmt.Errorf("parse numerical aggregation: %w", err)
 			}
-			return &pb.AggregateGroup_Aggregations_Aggregation{
+			return &pb.AggregateReply_Aggregations_Aggregation{
 				Property:    propertyName,
-				Aggregation: &pb.AggregateGroup_Aggregations_Aggregation_Number_{Number: numericalAggregation},
+				Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Number_{Number: numericalAggregation},
 			}, nil
 		}
 	case aggregation.PropertyTypeText:
 		textAggregation := parseTextAggregation(property.SchemaType, property.TextAggregation)
-		return &pb.AggregateGroup_Aggregations_Aggregation{
+		return &pb.AggregateReply_Aggregations_Aggregation{
 			Property:    propertyName,
-			Aggregation: &pb.AggregateGroup_Aggregations_Aggregation_Text_{Text: textAggregation},
+			Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Text_{Text: textAggregation},
 		}, nil
 	case aggregation.PropertyTypeBoolean:
 		booleanAggregation := parseBooleanAggregation(property.SchemaType, property.BooleanAggregation)
-		return &pb.AggregateGroup_Aggregations_Aggregation{
+		return &pb.AggregateReply_Aggregations_Aggregation{
 			Property:    propertyName,
-			Aggregation: &pb.AggregateGroup_Aggregations_Aggregation_Boolean_{Boolean: booleanAggregation},
+			Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Boolean_{Boolean: booleanAggregation},
 		}, nil
 	case aggregation.PropertyTypeDate:
 		dateAggregation, err := parseDateAggregation(property.SchemaType, property.DateAggregations)
 		if err != nil {
 			return nil, fmt.Errorf("parse date aggregation: %w", err)
 		}
-		return &pb.AggregateGroup_Aggregations_Aggregation{
+		return &pb.AggregateReply_Aggregations_Aggregation{
 			Property:    propertyName,
-			Aggregation: &pb.AggregateGroup_Aggregations_Aggregation_Date_{Date: dateAggregation},
+			Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Date_{Date: dateAggregation},
 		}, nil
 	case aggregation.PropertyTypeReference:
 		referenceAggregation := parseReferenceAggregation(property.SchemaType, property.ReferenceAggregation)
-		return &pb.AggregateGroup_Aggregations_Aggregation{
+		return &pb.AggregateReply_Aggregations_Aggregation{
 			Property:    propertyName,
-			Aggregation: &pb.AggregateGroup_Aggregations_Aggregation_Reference_{Reference: referenceAggregation},
+			Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Reference_{Reference: referenceAggregation},
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown property type: %s", property.Type)
 	}
 }
 
-func parseNumericalAggregation(schemaType string, in map[string]interface{}) (*pb.AggregateGroup_Aggregations_Aggregation_Number, error) {
-	var number *pb.AggregateGroup_Aggregations_Aggregation_Number
+func parseNumericalAggregation(schemaType string, in map[string]interface{}) (*pb.AggregateReply_Aggregations_Aggregation_Number, error) {
+	var number *pb.AggregateReply_Aggregations_Aggregation_Number
 	if len(in) > 0 {
-		number = &pb.AggregateGroup_Aggregations_Aggregation_Number{}
+		number = &pb.AggregateReply_Aggregations_Aggregation_Number{}
 		number.Type = &schemaType
 		for name, value := range in {
 			switch val := value.(type) {
@@ -234,10 +247,10 @@ func parseNumericalAggregation(schemaType string, in map[string]interface{}) (*p
 	return number, nil
 }
 
-func parseIntegerAggregation(schemaType string, in map[string]interface{}) (*pb.AggregateGroup_Aggregations_Aggregation_Integer, error) {
-	var number *pb.AggregateGroup_Aggregations_Aggregation_Integer
+func parseIntegerAggregation(schemaType string, in map[string]interface{}) (*pb.AggregateReply_Aggregations_Aggregation_Integer, error) {
+	var number *pb.AggregateReply_Aggregations_Aggregation_Integer
 	if len(in) > 0 {
-		number = &pb.AggregateGroup_Aggregations_Aggregation_Integer{}
+		number = &pb.AggregateReply_Aggregations_Aggregation_Integer{}
 		number.Type = &schemaType
 		for name, value := range in {
 			switch val := value.(type) {
@@ -268,28 +281,28 @@ func parseIntegerAggregation(schemaType string, in map[string]interface{}) (*pb.
 	return number, nil
 }
 
-func parseTextAggregation(schemaType string, in aggregation.Text) *pb.AggregateGroup_Aggregations_Aggregation_Text {
-	var topOccurences *pb.AggregateGroup_Aggregations_Aggregation_Text_TopOccurrences
+func parseTextAggregation(schemaType string, in aggregation.Text) *pb.AggregateReply_Aggregations_Aggregation_Text {
+	var topOccurences *pb.AggregateReply_Aggregations_Aggregation_Text_TopOccurrences
 	if len(in.Items) > 0 {
-		items := make([]*pb.AggregateGroup_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence, len(in.Items))
+		items := make([]*pb.AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence, len(in.Items))
 		for i := range in.Items {
-			items[i] = &pb.AggregateGroup_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence{
+			items[i] = &pb.AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence{
 				Value:  in.Items[i].Value,
 				Occurs: int64(in.Items[i].Occurs),
 			}
 		}
-		topOccurences = &pb.AggregateGroup_Aggregations_Aggregation_Text_TopOccurrences{Items: items}
+		topOccurences = &pb.AggregateReply_Aggregations_Aggregation_Text_TopOccurrences{Items: items}
 	}
-	return &pb.AggregateGroup_Aggregations_Aggregation_Text{
+	return &pb.AggregateReply_Aggregations_Aggregation_Text{
 		Count:         ptInt64(in.Count),
 		Type:          &schemaType,
 		TopOccurences: topOccurences,
 	}
 }
 
-func parseBooleanAggregation(schemaType string, in aggregation.Boolean) *pb.AggregateGroup_Aggregations_Aggregation_Boolean {
+func parseBooleanAggregation(schemaType string, in aggregation.Boolean) *pb.AggregateReply_Aggregations_Aggregation_Boolean {
 	// TODO: check if it was requested
-	return &pb.AggregateGroup_Aggregations_Aggregation_Boolean{
+	return &pb.AggregateReply_Aggregations_Aggregation_Boolean{
 		Count:           ptInt64(in.Count),
 		Type:            &schemaType,
 		TotalTrue:       ptInt64(in.TotalTrue),
@@ -299,10 +312,10 @@ func parseBooleanAggregation(schemaType string, in aggregation.Boolean) *pb.Aggr
 	}
 }
 
-func parseDateAggregation(schemaType string, in map[string]interface{}) (*pb.AggregateGroup_Aggregations_Aggregation_Date, error) {
-	var date *pb.AggregateGroup_Aggregations_Aggregation_Date
+func parseDateAggregation(schemaType string, in map[string]interface{}) (*pb.AggregateReply_Aggregations_Aggregation_Date, error) {
+	var date *pb.AggregateReply_Aggregations_Aggregation_Date
 	if len(in) > 0 {
-		date = &pb.AggregateGroup_Aggregations_Aggregation_Date{}
+		date = &pb.AggregateReply_Aggregations_Aggregation_Date{}
 		date.Type = &schemaType
 		for name, value := range in {
 			switch val := value.(type) {
@@ -331,8 +344,8 @@ func parseDateAggregation(schemaType string, in map[string]interface{}) (*pb.Agg
 	return date, nil
 }
 
-func parseReferenceAggregation(schemaType string, in aggregation.Reference) *pb.AggregateGroup_Aggregations_Aggregation_Reference {
-	return &pb.AggregateGroup_Aggregations_Aggregation_Reference{
+func parseReferenceAggregation(schemaType string, in aggregation.Reference) *pb.AggregateReply_Aggregations_Aggregation_Reference {
+	return &pb.AggregateReply_Aggregations_Aggregation_Reference{
 		Type:       &schemaType,
 		PointingTo: in.PointingTo,
 	}
