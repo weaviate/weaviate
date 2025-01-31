@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -71,6 +72,7 @@ func addDateAggregations(prop *aggregation.Property,
 }
 
 type dateAggregator struct {
+	sync.Mutex
 	count        uint64
 	maxCount     uint64
 	min          timestamp
@@ -133,6 +135,8 @@ func (a *dateAggregator) AddTimestampRow(b []byte, count uint64) error {
 }
 
 func (a *dateAggregator) addRow(ts timestamp, count uint64) error {
+	a.Lock()
+	defer a.Unlock()
 	if count == 0 {
 		// skip
 		return nil
