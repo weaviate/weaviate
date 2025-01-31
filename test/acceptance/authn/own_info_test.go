@@ -64,7 +64,7 @@ func TestAuthnGetOwnInfoWithAdminlistAndOidc(t *testing.T) {
 	t.Run("Unauthenticated", func(t *testing.T) {
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existent"))
 		require.NotNil(t, err)
-		parsed, ok := err.(*users.GetOwnInfoUnauthorized)
+		parsed, ok := err.(*users.GetOwnInfoUnauthorized) //nolint:errorlint
 		require.True(t, ok)
 		require.Equal(t, 401, parsed.Code())
 	})
@@ -104,7 +104,7 @@ func TestAuthnGetOwnInfoWithOidc(t *testing.T) {
 	t.Run("Unauthenticated", func(t *testing.T) {
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existent"))
 		require.NotNil(t, err)
-		parsed, ok := err.(*users.GetOwnInfoUnauthorized)
+		parsed, ok := err.(*users.GetOwnInfoUnauthorized) //nolint:errorlint
 		require.True(t, ok)
 		require.Equal(t, 401, parsed.Code())
 	})
@@ -175,7 +175,7 @@ func TestAuthnGetOwnInfoWithRBAC(t *testing.T) {
 	t.Run("Unauthenticated", func(t *testing.T) {
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existent"))
 		require.NotNil(t, err)
-		parsed, ok := err.(*users.GetOwnInfoUnauthorized)
+		parsed, ok := err.(*users.GetOwnInfoUnauthorized) //nolint:errorlint
 		require.True(t, ok)
 		require.Equal(t, 401, parsed.Code())
 	})
