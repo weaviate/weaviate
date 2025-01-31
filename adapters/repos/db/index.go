@@ -1686,15 +1686,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		if shard != nil {
-			func(ctx context.Context, searchVectors []models.Vector,
-				targetVectors []string, dist float32, limit int, filters *filters.LocalFilter,
-				sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
-				shard ShardLike, targetCombination *dto.TargetCombination, properties []string, shardName string,
-			) {
+			func( shardName string) {
 				eg.Go(func() error {
 					defer release()
 
-					localShardResult, localShardScores, err := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, shard, targetCombination, properties, shardName)
+					localShardResult, localShardScores, err := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
 					if err != nil {
 						return fmt.Errorf(
 							"local shard object search %s: %w", shard.ID(), err)
@@ -1706,15 +1702,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 					m.Unlock()
 					return nil
 				})
-			}(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
+			}(shardName)
 		}
 
 		if shard == nil || i.Config.ForceFullReplicasSearch {
-			func(ctx context.Context, searchVectors []models.Vector,
-				targetVectors []string, dist float32, limit int, filters *filters.LocalFilter,
-				sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
-				shard ShardLike, targetCombination *dto.TargetCombination, properties []string, shardName string,
-			) {
+			func( shardName string) {
 				eg.Go(func() error {
 					// If we have no local shard or if we force the query to reach all replicas
 					remoteShardObject, remoteShardScores, err := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
@@ -1728,7 +1720,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 					m.Unlock()
 					return nil
 				})
-			}(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
+			}(shardName)
 		}
 	}
 
