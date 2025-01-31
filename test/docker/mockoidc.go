@@ -101,6 +101,7 @@ func startMockOIDC(ctx context.Context, networkName string) (*DockerContainer, e
 	envSettings["AUTHENTICATION_OIDC_CLIENT_ID"] = "mock-oidc-test"
 	envSettings["AUTHENTICATION_OIDC_ISSUER"] = fmt.Sprintf("http://%s:48001/oidc", containerIP)
 	envSettings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "sub"
+	envSettings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 	envSettings["AUTHENTICATION_OIDC_SCOPES"] = "openid"
 	return &DockerContainer{MockOIDC, endpoints, container, envSettings}, nil
 }
@@ -124,7 +125,7 @@ func GetTokensFromMockOIDC(t *testing.T, authEndpoint, tokenEndpoint string) (st
 	data.Set("client_id", clientID)
 	data.Set("client_secret", clientSecret)
 	data.Set("state", "email")
-	data.Set("scope", "email")
+	data.Set("scope", "openid groups")
 	req, err := http.NewRequest("POST", authEndpoint, bytes.NewBufferString(data.Encode()))
 	assert.NoError(t, err)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -150,7 +151,7 @@ func GetTokensFromMockOIDC(t *testing.T, authEndpoint, tokenEndpoint string) (st
 	var tokenResponse map[string]interface{}
 	err = json.Unmarshal(body, &tokenResponse)
 	assert.NoError(t, err)
-	accessToken, ok := tokenResponse["access_token"].(string)
+	accessToken, ok := tokenResponse["id_token"].(string)
 	if !ok {
 		t.Fatalf("failed to get access token from: %v", tokenResponse)
 	}
