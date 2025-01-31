@@ -92,15 +92,11 @@ func FromObjectMulti(object *models.Object, vector []float32, vectors models.Vec
 	}
 
 	var multiVectors map[string][][]float32
-	var multiVectorCount int
 	if multivectors != nil {
 
 		multiVectors = make(map[string][][]float32)
 		for targetVector, vectors := range multivectors {
 			multiVectors[targetVector] = vectors
-			for _, vector := range vectors {
-				multiVectorCount += len(vector)
-			}
 		}
 	}
 
@@ -220,6 +216,8 @@ func FromBinaryOptional(data []byte,
 		ko.Vectors = vectors
 
 		if vectors != nil {
+			// If parseObject is called, ko.Object will be overwritten making this effectively a
+			// no-op, but I'm leaving it here for now to avoid breaking anything.
 			ko.Object.Vectors = make(models.Vectors)
 			for vecName, vec := range vectors {
 				ko.Object.Vectors[vecName] = vec
@@ -554,7 +552,7 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		ClassName: ko.Class().String(),
 		Schema:    ko.Properties(),
 		Vector:    ko.Vector,
-		Vectors:   ko.asVectors(ko.Vectors),
+		Vectors:   ko.asVectors(ko.Vectors, ko.MultiVectors),
 		Dims:      ko.VectorLen,
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
@@ -568,12 +566,15 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 	}
 }
 
-func (ko *Object) asVectors(in map[string][]float32) models.Vectors {
-	if len(in) > 0 {
+func (ko *Object) asVectors(vectors map[string][]float32, multiVectors map[string][][]float32) models.Vectors {
+	if (len(vectors) + len(multiVectors)) > 0 {
 		out := make(models.Vectors)
-		for targetVector, vector := range in {
+		for targetVector, vector := range vectors {
 			out[targetVector] = vector
 		}
+		// for targetVector, vector := range multiVectors {
+		// 	out[targetVector] = vector
+		// }
 		return out
 	}
 	return nil
@@ -1151,7 +1152,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 
 func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error) {
 	// This check prevents from panic when somebody is upgrading from version that
-	// didn't have multi vector support. This check is needed bc with named vectors
+	// didn't have multiple target vector support. This check is needed bc with named vectors
 	// feature storage object can have vectors data appended at the end of the file
 	if rw.Position < uint64(len(rw.Buffer)) {
 		targetVectorsOffsets := rw.ReadBytesFromBufferWithUint32LengthIndicator()
@@ -1299,6 +1300,82 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	return out, nil
 }
 
+func incrementPos(in []byte, pos int, size int) int {
+	b := in[pos : pos+size]
+	if size == 2 {
+		length := binary.LittleEndian.Uint16(b)
+		pos += size + int(length)
+	} else if size == 4 {
+		length := binary.LittleEndian.Uint32(b)
+		pos += size + int(length)
+		return pos
+	} else if size == 8 {
+		length := binary.LittleEndian.Uint64(b)
+		pos += size + int(length)
+	}
+	return pos
+}
+
+func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([][]float32, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+
+	version := in[0]
+	if version != 1 {
+		return nil, errors.Errorf("unsupported marshaller version %d", version)
+	}
+
+	// since we know the version and know that the blob is not len(0), we can
+	// assume that we can directly access the vector length field. The only
+	// situation where this is not accessible would be on corrupted data - where
+	// it would be acceptable to panic
+	vecLen := binary.LittleEndian.Uint16(in[42:44])
+
+	var out []float32
+	if cap(buffer) >= int(vecLen) {
+		out = buffer[:vecLen]
+	} else {
+		out = make([]float32, vecLen)
+	}
+	vecStart := 44
+	vecEnd := vecStart + int(vecLen*4)
+
+	i := 0
+	for start := vecStart; start < vecEnd; start += 4 {
+		asUint := binary.LittleEndian.Uint32(in[start : start+4])
+		out[i] = math.Float32frombits(asUint)
+		i++
+	}
+
+	pos := vecEnd
+
+	pos = incrementPos(in, pos, 2) // classNameLength
+	pos = incrementPos(in, pos, 4) // schemaLength
+	pos = incrementPos(in, pos, 4) // metaLength
+	pos = incrementPos(in, pos, 4) // vectorWeightsLength
+	pos = incrementPos(in, pos, 4) // bufLen
+	pos = incrementPos(in, pos, 4) // targetVectorsSegmentLength
+
+	// multivector
+	var multiVectors map[string][][]float32
+
+	if len(in) > pos {
+		rw := byteops.NewReadWriter(in, byteops.WithPosition(uint64(pos)))
+		mv, err := unmarshalMultiVectors(&rw, map[string]interface{}{targetVector: nil})
+		if err != nil {
+			return nil, errors.Errorf("unable to unmarshal multivector for target vector: %s", targetVector)
+		}
+		multiVectors = mv
+	}
+
+	mvout, ok := multiVectors[targetVector]
+	if !ok {
+		return nil, errors.Errorf("vector not found for target vector: %s", targetVector)
+	}
+	return mvout, nil
+}
+
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
 	propsB []byte, additionalB []byte, vectorWeightsB []byte, properties *PropertyExtraction, propLength uint32,
 ) error {
@@ -1402,7 +1479,8 @@ func (ko *Object) DeepCopyDangerous() *Object {
 		DocID:             ko.DocID,
 		Object:            deepCopyObject(ko.Object),
 		Vector:            deepCopyVector(ko.Vector),
-		Vectors:           deepCopyVectors(ko.Vectors),
+		Vectors:           deepCopyVectorsMap(ko.Vectors),
+		MultiVectors:      deepCopyMultiVectorsMap(ko.MultiVectors),
 	}
 
 	return o
@@ -1421,10 +1499,49 @@ func deepCopyVector(orig []float32) []float32 {
 	return out
 }
 
-func deepCopyVectors[V []float32 | models.Vector](orig map[string]V) map[string]V {
-	out := make(map[string]V, len(orig))
+func deepCopyMultiVector(orig [][]float32) [][]float32 {
+	out := make([][]float32, len(orig))
+	copy(out, orig)
+	return out
+}
+
+func deepCopyVectors(orig models.Vectors) models.Vectors {
+	out := make(models.Vectors, len(orig))
 	for key, vec := range orig {
-		out[key] = deepCopyVector(vec)
+		switch v := any(vec).(type) {
+		case []float32:
+			out[key] = deepCopyVector(v)
+		// case [][]float32:
+		// 	out[key] = deepCopyMultiVector(v)
+		default:
+			// do nothing
+		}
+	}
+	return out
+}
+
+func deepCopyVectorsMap(orig map[string][]float32) map[string][]float32 {
+	out := make(map[string][]float32, len(orig))
+	for key, vec := range orig {
+		switch v := any(vec).(type) {
+		case []float32:
+			out[key] = deepCopyVector(v)
+		default:
+			// do nothing
+		}
+	}
+	return out
+}
+
+func deepCopyMultiVectorsMap(orig map[string][][]float32) map[string][][]float32 {
+	out := make(map[string][][]float32, len(orig))
+	for key, vec := range orig {
+		switch v := any(vec).(type) {
+		case [][]float32:
+			out[key] = deepCopyMultiVector(v)
+		default:
+			// do nothing
+		}
 	}
 	return out
 }
