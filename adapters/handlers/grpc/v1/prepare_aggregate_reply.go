@@ -40,7 +40,7 @@ func NewAggregateReplier(authorizedGetClass func(string) (*models.Class, error),
 	}
 }
 
-func (r *AggregateReplier) Aggregate(res interface{}) (*pb.AggregateReply, error) {
+func (r *AggregateReplier) Aggregate(res interface{}, isGroupby bool) (*pb.AggregateReply, error) {
 	var groups []*pb.AggregateReply_Group
 
 	if res != nil {
@@ -49,7 +49,10 @@ func (r *AggregateReplier) Aggregate(res interface{}) (*pb.AggregateReply, error
 			return nil, fmt.Errorf("unexpected aggregate result type: %T", res)
 		}
 
-		if len(result.Groups) == 1 {
+		if !isGroupby {
+			if len(result.Groups) == 0 {
+				return &pb.AggregateReply{}, fmt.Errorf("no groups found in aggregate result")
+			}
 			group := result.Groups[0]
 			count := int64(group.Count)
 			aggregations, err := r.parseAggregatedProperties(group.Properties)
