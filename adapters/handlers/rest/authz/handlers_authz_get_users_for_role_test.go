@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -56,6 +57,7 @@ func TestGetUsersForRoleForbidden(t *testing.T) {
 		params        authz.GetUsersForRoleParams
 		principal     *models.Principal
 		authorizeErr  error
+		skipAuthZ     bool
 		expectedError string
 	}
 
@@ -69,6 +71,15 @@ func TestGetUsersForRoleForbidden(t *testing.T) {
 			authorizeErr:  fmt.Errorf("authorization error"),
 			expectedError: "authorization error",
 		},
+		{
+			name: "root",
+			params: authz.GetUsersForRoleParams{
+				ID: "root",
+			},
+			skipAuthZ:     true,
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "modifying 'root' role or changing its assignments is not allowed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -77,7 +88,9 @@ func TestGetUsersForRoleForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			if !tt.skipAuthZ {
+				authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			}
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -132,51 +145,6 @@ func TestGetUsersForRoleInternalServerError(t *testing.T) {
 			}
 			res := h.getUsersForRole(tt.params, tt.principal)
 			parsed, ok := res.(*authz.GetUsersForRoleInternalServerError)
-			assert.True(t, ok)
-
-			if tt.expectedError != "" {
-				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
-			}
-		})
-	}
-}
-
-func TestGetUsersForRoleBadRequest(t *testing.T) {
-	type testCase struct {
-		name          string
-		params        authz.GetUsersForRoleParams
-		principal     *models.Principal
-		getUsersErr   error
-		expectedError string
-	}
-
-	tests := []testCase{
-		{
-			name: "root",
-			params: authz.GetUsersForRoleParams{
-				ID: "root",
-			},
-			principal:     &models.Principal{Username: "user1"},
-			getUsersErr:   fmt.Errorf("internal server error"),
-			expectedError: "modifying 'root' role or changing its assignments is not allowed",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
-			logger, _ := test.NewNullLogger()
-
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles(tt.params.ID)[0]).Return(nil)
-
-			h := &authZHandlers{
-				authorizer: authorizer,
-				controller: controller,
-				logger:     logger,
-			}
-			res := h.getUsersForRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.GetUsersForRoleBadRequest)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {

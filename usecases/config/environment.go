@@ -22,9 +22,8 @@ import (
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/entities/sentry"
-
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -219,6 +218,10 @@ func FromEnv(config *Config) error {
 			config.Authorization.Rbac.RootGroups = strings.Split(groupString, ",")
 		}
 
+		viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_READONLY_GROUPS")
+		if ok {
+			config.Authorization.Rbac.ViewerRootGroups = strings.Split(viewerGroupString, ",")
+		}
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
