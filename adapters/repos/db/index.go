@@ -1589,12 +1589,9 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 		if err != nil {
 			return nil, nil, err
 		}
+
 		if shard != nil {
 			defer release()
-		}
-		
-		if shard != nil && !i.Config.ForceFullReplicasSearch {
-
 
 			localCtx := helpers.InitSlowQueryDetails(ctx)
 			helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
