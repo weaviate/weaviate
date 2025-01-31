@@ -209,7 +209,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				logger:     logger,
 			}
 
-			err := h.AuthorizeRoleScopes(tt.principal, tt.originalVerb, tt.policies, tt.roleName)
+			err := h.authorizeRoleScopes(tt.principal, tt.originalVerb, tt.policies, tt.roleName)
 
 			if tt.expectedError == "" {
 				assert.NoError(t, err)

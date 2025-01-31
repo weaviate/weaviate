@@ -5696,7 +5696,7 @@ func init() {
               "default": "*"
             },
             "scope": {
-              "description": "set the scope for the manage scope permission",
+              "description": "set the scope for the manage role permission",
               "type": "string",
               "default": "match",
               "enum": [
@@ -12584,7 +12584,7 @@ func init() {
               "default": "*"
             },
             "scope": {
-              "description": "set the scope for the manage scope permission",
+              "description": "set the scope for the manage role permission",
               "type": "string",
               "default": "match",
               "enum": [
@@ -12685,7 +12685,7 @@ func init() {
           "default": "*"
         },
         "scope": {
-          "description": "set the scope for the manage scope permission",
+          "description": "set the scope for the manage role permission",
           "type": "string",
           "default": "match",
           "enum": [

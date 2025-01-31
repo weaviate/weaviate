@@ -660,7 +660,7 @@ type PermissionRoles struct {
 	// string or regex. if a specific role name, if left empty it will be ALL or *
 	Role *string `json:"role,omitempty"`
 
-	// set the scope for the manage scope permission
+	// set the scope for the manage role permission
 	// Enum: [all match]
 	Scope *string `json:"scope,omitempty"`
 }

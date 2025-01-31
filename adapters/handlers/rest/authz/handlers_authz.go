@@ -76,7 +76,7 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 	api.AuthzGetRolesForOwnUserHandler = authz.GetRolesForOwnUserHandlerFunc(h.getRolesForOwnUser)
 }
 
-func (h *authZHandlers) AuthorizeRoleScopes(principal *models.Principal, originalVerb string, policies []authorization.Policy, roleName string) error {
+func (h *authZHandlers) authorizeRoleScopes(principal *models.Principal, originalVerb string, policies []authorization.Policy, roleName string) error {
 	// Check if user has full role management permissions
 	var err error
 	if err = h.authorizer.Authorize(principal, originalVerb, authorization.Roles(roleName)...); err == nil {
@@ -116,7 +116,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
 	}
 
-	if err := h.AuthorizeRoleScopes(principal, authorization.CREATE, policies[*params.Body.Name], *params.Body.Name); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.CREATE, policies[*params.Body.Name], *params.Body.Name); err != nil {
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -161,7 +161,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	if err := h.AuthorizeRoleScopes(principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -213,7 +213,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		policies[params.ID] = append(policies[params.ID], *p)
 	}
 
-	if err := h.AuthorizeRoleScopes(principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
 		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 

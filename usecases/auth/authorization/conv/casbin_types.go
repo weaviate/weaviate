@@ -46,7 +46,7 @@ var (
 		authorization.Admin:  CRUD,
 		authorization.Root:   CRUD,
 	}
-	actions = map[string]string{
+	weaviate_actions_prefixes = map[string]string{
 		CRUD:                           "manage",
 		CRU:                            "manage",
 		authorization.ROLE_SCOPE_MATCH: "manage",
@@ -295,7 +295,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 }
 
 func weaviatePermissionAction(pathLastPart, verb, domain string) string {
-	action := fmt.Sprintf("%s_%s", actions[verb], domain)
+	action := fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], domain)
 	action = strings.ReplaceAll(action, "_*", "")
 	switch domain {
 	case authorization.SchemaDomain:
@@ -303,9 +303,9 @@ func weaviatePermissionAction(pathLastPart, verb, domain string) string {
 			// e.g
 			// schema/collections/ABC/shards/#    collection permission
 			// schema/collections/ABC/shards/*    tenant permission
-			action = fmt.Sprintf("%s_%s", actions[verb], authorization.CollectionsDomain)
+			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.CollectionsDomain)
 		} else {
-			action = fmt.Sprintf("%s_%s", actions[verb], authorization.TenantsDomain)
+			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.TenantsDomain)
 		}
 		return action
 	default:

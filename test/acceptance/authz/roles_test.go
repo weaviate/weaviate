@@ -732,12 +732,12 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
-	limitedUser := "limited-user"
-	limitedKey := "limited-key"
+	limitedUser := "custom-user"
+	limitedKey := "custom-key"
 	limitedAuth := helper.CreateAuth(limitedKey)
 
 	// Setup test roles
-	limitedRole := "limited-role"
+	limitedRole := "custom-role"
 	newRole := "new-role"
 	broaderRole := "broader-role"
 
@@ -895,7 +895,7 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 		require.True(t, errors.As(err, &parsed))
 	})
 
-	t.Run("limited user can not remove permissions from role", func(t *testing.T) {
+	t.Run("limited user can remove permissions from role with their scope", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.RemovePermissions(
 			authz.NewRemovePermissionsParams().WithID(newRole).WithBody(authz.RemovePermissionsBody{
 				Permissions: []*models.Permission{

@@ -111,7 +111,7 @@
               ],
               "type": "string",
               "default": "match",
-              "description": "set the scope for the manage scope permission"
+              "description": "set the scope for the manage role permission"
             }
           }
         },
