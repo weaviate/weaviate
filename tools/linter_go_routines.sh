@@ -17,6 +17,7 @@ excluded_files=(
     # race condition in classification when replacing the direct goroutine with a wrapper. Not important enough to investigate as nobody is using classification.
     "usecases/classification/classifier_run.go"
     "usecases/auth/authorization/docs/generator.go" # docs generator
+    "tools/dev/generate_release_notes/main.go" # generate release notes tool
 )
 
 # Check if file is in excluded list
