@@ -19,7 +19,7 @@ type Config struct {
 	Enabled          bool     `json:"enabled" yaml:"enabled"`
 	RootUsers        []string `json:"admins" yaml:"admins"`
 	RootGroups       []string `json:"rootGroups" yaml:"rootGroups"`
-	ViewerRootGroups []string `json:"viewerRootGroups" yaml:"rootGroups"`
+	ViewerRootGroups []string `json:"viewerRootGroups" yaml:"viewerRootGroups"`
 }
 
 // Validate admin list config for viability, can be called from the central
