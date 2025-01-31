@@ -537,8 +537,13 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 						return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
 					}
 				}
+				var dims int
 				for vecName, vec := range prevObject.MultiVectors {
-					if err := s.removeDimensionsForVecLSM(len(vec), status.oldDocID, vecName); err != nil {
+					dims = 0
+					for _, v := range vec {
+						dims += len(v)
+					}
+					if err := s.removeDimensionsForVecLSM(dims, status.oldDocID, vecName); err != nil {
 						return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
 					}
 				}
@@ -576,8 +581,13 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 					return fmt.Errorf("track dimensions of '%s': %w", vecName, err)
 				}
 			}
+			var dims int
 			for vecName, vec := range object.MultiVectors {
-				if err := s.extendDimensionTrackerForVecLSM(len(vec), status.docID, vecName); err != nil {
+				dims = 0
+				for _, v := range vec {
+					dims += len(v)
+				}
+				if err := s.extendDimensionTrackerForVecLSM(dims, status.docID, vecName); err != nil {
 					return fmt.Errorf("track dimensions of '%s': %w", vecName, err)
 				}
 			}
