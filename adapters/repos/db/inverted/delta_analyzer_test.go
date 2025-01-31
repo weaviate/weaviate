@@ -1550,6 +1550,13 @@ func TestDeltaAnalyzer_Arrays(t *testing.T) {
 				HasSearchableIndex: false,
 			},
 			{
+				Name:               "dates",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
 				Name: "_lastUpdateTimeUnix",
 				Items: []Countable{
 					{Data: []byte("1703778500000")},
@@ -1590,13 +1597,6 @@ func TestDeltaAnalyzer_Arrays(t *testing.T) {
 				HasSearchableIndex: false,
 			},
 			{
-				Name:               "numbers",
-				Items:              []Countable{},
-				Length:             0,
-				HasFilterableIndex: true,
-				HasSearchableIndex: false,
-			},
-			{
 				Name: "dates",
 				Items: []Countable{
 					{Data: []byte("2021-06-01T22:18:59.640162Z")},
@@ -1609,8 +1609,9 @@ func TestDeltaAnalyzer_Arrays(t *testing.T) {
 		}
 
 		delta := Delta(previous, next)
-		assert.Equal(t, expectedAdd, delta.ToAdd)
-		assert.Equal(t, expectedDelete, delta.ToDelete)
+
+		assert.ElementsMatch(t, expectedAdd, delta.ToAdd)
+		assert.ElementsMatch(t, expectedDelete, delta.ToDelete)
 	})
 }
 

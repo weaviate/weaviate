@@ -29,6 +29,8 @@ func Delta(previous, next []Property) DeltaResults {
 // complete items sets for searchable index and delta for remaining ones.
 func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []string) DeltaResults {
 	out := DeltaResults{}
+	previous = DedupItems(previous)
+	next = DedupItems(next)
 
 	if previous == nil {
 		out.ToAdd = next
@@ -48,16 +50,24 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 	for _, nextProp := range next {
 		prevProp, ok := previousByProp[nextProp.Name]
 		if !ok {
+			if len(nextProp.Items) == 0 {
+				// effectively nothing is added
+				continue
+			}
+
 			// this prop didn't exist before so we can add all of it
 			out.ToAdd = append(out.ToAdd, nextProp)
-			out.ToDelete = append(out.ToDelete, Property{
-				Name:               nextProp.Name,
-				Items:              []Countable{},
-				Length:             0,
-				HasFilterableIndex: nextProp.HasFilterableIndex,
-				HasSearchableIndex: nextProp.HasSearchableIndex,
-				HasRangeableIndex:  nextProp.HasRangeableIndex,
-			})
+			if nextProp.Length != -1 {
+				// if length supported, remove prev length
+				out.ToDelete = append(out.ToDelete, Property{
+					Name:               nextProp.Name,
+					Items:              []Countable{},
+					Length:             0,
+					HasFilterableIndex: nextProp.HasFilterableIndex,
+					HasSearchableIndex: nextProp.HasSearchableIndex,
+					HasRangeableIndex:  nextProp.HasRangeableIndex,
+				})
+			}
 			continue
 		}
 		delete(previousByProp, nextProp.Name)
@@ -155,14 +165,22 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 	// extend ToDelete with props from previous missing in next
 	for _, prevProp := range previous {
 		if _, ok := previousByProp[prevProp.Name]; ok {
-			out.ToAdd = append(out.ToAdd, Property{
-				Name:               prevProp.Name,
-				Items:              []Countable{},
-				Length:             0,
-				HasFilterableIndex: prevProp.HasFilterableIndex,
-				HasSearchableIndex: prevProp.HasSearchableIndex,
-				HasRangeableIndex:  prevProp.HasRangeableIndex,
-			})
+			if len(prevProp.Items) == 0 {
+				// effectively nothing is removed
+				continue
+			}
+
+			if prevProp.Length != -1 {
+				// if length supported, add next length
+				out.ToAdd = append(out.ToAdd, Property{
+					Name:               prevProp.Name,
+					Items:              []Countable{},
+					Length:             0,
+					HasFilterableIndex: prevProp.HasFilterableIndex,
+					HasSearchableIndex: prevProp.HasSearchableIndex,
+					HasRangeableIndex:  prevProp.HasRangeableIndex,
+				})
+			}
 			out.ToDelete = append(out.ToDelete, prevProp)
 		}
 	}

@@ -262,7 +262,6 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 		}
 
 		status, err = s.determineInsertStatus(prevObj, obj)
-
 		if err != nil {
 			return err
 		}
@@ -458,7 +457,6 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
-	props = inverted.DedupItems(props)
 
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty
@@ -468,7 +466,6 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err != nil {
 			return fmt.Errorf("analyze previous object: %w", err)
 		}
-		prevProps = inverted.DedupItems(prevProps)
 	}
 
 	// if object updated (with or without docID changed)
@@ -507,8 +504,8 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		nilpropsToAdd = deltaNil.ToAdd
 		nilpropsToDel = deltaNil.ToDelete
 	} else {
-		propsToAdd = props
-		propsToDel = prevProps
+		propsToAdd = inverted.DedupItems(props)
+		propsToDel = inverted.DedupItems(prevProps)
 		nilpropsToAdd = nilprops
 		nilpropsToDel = prevNilprops
 	}
