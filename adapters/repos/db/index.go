@@ -1726,11 +1726,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		if shard == nil || i.Config.ForceFullReplicasSearch {
-			func(ctx context.Context, searchVectors []models.Vector,
-				targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
-				sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
-				targetCombination *dto.TargetCombination, properties []string, shardName string,
-			) {
+
 				eg.Go(func() error {
 					// If we have no local shard or if we force the query to reach all replicas
 					remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
@@ -1744,7 +1740,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 					m.Unlock()
 					return nil
 				})
-			}(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+			
 		}
 	}
 
