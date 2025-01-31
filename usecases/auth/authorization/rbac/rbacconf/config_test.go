@@ -25,12 +25,12 @@ func Test_Validation(t *testing.T) {
 	}{
 		{
 			name:    "no admins - incorrect",
-			config:  Config{Admins: []string{}},
+			config:  Config{RootUsers: []string{}},
 			wantErr: true,
 		},
 		{
 			name:    "only admins - correct",
-			config:  Config{Admins: []string{"1", "2"}},
+			config:  Config{RootUsers: []string{"1", "2"}},
 			wantErr: false,
 		},
 	}

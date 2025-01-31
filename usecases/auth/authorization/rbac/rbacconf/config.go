@@ -16,8 +16,9 @@ import "fmt"
 // Config makes every subject on the list an admin, whereas everyone else
 // has no rights whatsoever
 type Config struct {
-	Enabled bool     `json:"enabled" yaml:"enabled"`
-	Admins  []string `json:"admins" yaml:"admins"`
+	Enabled    bool     `json:"enabled" yaml:"enabled"`
+	RootUsers  []string `json:"admins" yaml:"admins"`
+	RootGroups []string `json:"rootGroups" yaml:"rootGroups"`
 }
 
 // Validate admin list config for viability, can be called from the central
@@ -27,8 +28,8 @@ func (c Config) Validate() error {
 }
 
 func (c Config) validateOverlap() error {
-	if len(c.Admins) == 0 {
-		return fmt.Errorf("at least one admin is required")
+	if len(c.RootUsers) == 0 {
+		return fmt.Errorf("at least one root user is required")
 	}
 
 	return nil

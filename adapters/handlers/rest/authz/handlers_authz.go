@@ -285,7 +285,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 	var response []*models.Role
 
 	for roleName, policies := range roles {
-		if roleName == authorization.Root && !slices.Contains(h.rbacconfig.Admins, principal.Username) {
+		if roleName == authorization.Root && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
 			continue
 		}
 
@@ -444,6 +444,10 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	if err := h.isRootGroup(params.ID); err != nil {
+		return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: %w", err)))
+	}
+
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
 		return authz.NewAssignRoleToGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -554,7 +558,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := isRootRole(params.ID); err != nil && !slices.Contains(h.rbacconfig.Admins, principal.Username) {
+	if err := isRootRole(params.ID); err != nil && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
 		return authz.NewGetUsersForRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -642,6 +646,10 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	if err := h.isRootGroup(params.ID); err != nil {
+		return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %w", err)))
+	}
+
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
 		return authz.NewRevokeRoleFromGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -683,6 +691,14 @@ func (h *authZHandlers) userExists(user string) bool {
 		return false
 	}
 	return true
+}
+
+// isRootGroup validates that enduser do not touch the internal root group
+func (h *authZHandlers) isRootGroup(name string) error {
+	if slices.Contains(h.rbacconfig.RootGroups, name) {
+		return fmt.Errorf("cannot assign or revoke from root group %s", name)
+	}
+	return nil
 }
 
 // isRootRole validates that enduser do not touch the internal root role
