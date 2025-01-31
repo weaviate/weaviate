@@ -55,9 +55,8 @@ func TestGRPC_Aggregate(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.NotNil(t, resp)
-				require.NotNil(t, resp.Result)
-				require.Len(t, resp.Result.Groups, 1)
-				require.Equal(t, tt.count, resp.Result.Groups[0].GetObjectsCount())
+				require.NotNil(t, resp.GetSingleResult())
+				require.Equal(t, tt.count, resp.GetSingleResult().GetObjectsCount())
 			})
 		}
 	})
@@ -83,11 +82,10 @@ func TestGRPC_Aggregate(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			require.NotNil(t, resp.Result)
-			require.Len(t, resp.Result.Groups, 1)
-			require.NotNil(t, resp.Result.Groups[0].Aggregations)
-			require.Len(t, resp.Result.Groups[0].Aggregations.GetAggregations(), 1)
-			for _, aggregation := range resp.Result.Groups[0].Aggregations.GetAggregations() {
+			require.NotNil(t, resp.GetSingleResult())
+			require.NotNil(t, resp.GetSingleResult().Aggregations)
+			require.Len(t, resp.GetSingleResult().Aggregations.GetAggregations(), 1)
+			for _, aggregation := range resp.GetSingleResult().Aggregations.GetAggregations() {
 				assert.Equal(t, "population", aggregation.Property)
 				numerical := aggregation.GetInt()
 				require.NotNil(t, numerical)
@@ -116,11 +114,10 @@ func TestGRPC_Aggregate(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			require.NotNil(t, resp.Result)
-			require.Len(t, resp.Result.Groups, 1)
-			require.NotNil(t, resp.Result.Groups[0].Aggregations)
-			require.Len(t, resp.Result.Groups[0].Aggregations.GetAggregations(), 1)
-			for _, aggregation := range resp.Result.Groups[0].Aggregations.GetAggregations() {
+			require.NotNil(t, resp.GetSingleResult())
+			require.NotNil(t, resp.GetSingleResult().Aggregations)
+			require.Len(t, resp.GetSingleResult().Aggregations.GetAggregations(), 1)
+			for _, aggregation := range resp.GetSingleResult().Aggregations.GetAggregations() {
 				assert.Equal(t, "name", aggregation.Property)
 				textAggregation := aggregation.GetText()
 				topOccurrencesResults := map[string]int64{}
@@ -158,11 +155,10 @@ func TestGRPC_Aggregate(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			require.NotNil(t, resp.Result)
-			require.Len(t, resp.Result.Groups, 1)
-			require.NotNil(t, resp.Result.Groups[0].Aggregations)
-			require.Len(t, resp.Result.Groups[0].Aggregations.GetAggregations(), 1)
-			for _, aggregation := range resp.Result.Groups[0].Aggregations.GetAggregations() {
+			require.NotNil(t, resp.GetSingleResult())
+			require.NotNil(t, resp.GetSingleResult().Aggregations)
+			require.Len(t, resp.GetSingleResult().Aggregations.GetAggregations(), 1)
+			for _, aggregation := range resp.GetSingleResult().Aggregations.GetAggregations() {
 				assert.Equal(t, "isCapital", aggregation.Property)
 				booleanAggregation := aggregation.GetBoolean()
 				assert.Equal(t, int64(5), booleanAggregation.GetCount())
@@ -194,11 +190,10 @@ func TestGRPC_Aggregate(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			require.NotNil(t, resp.Result)
-			require.Len(t, resp.Result.Groups, 1)
-			require.NotNil(t, resp.Result.Groups[0].Aggregations)
-			require.Len(t, resp.Result.Groups[0].Aggregations.GetAggregations(), 1)
-			for _, aggregation := range resp.Result.Groups[0].Aggregations.GetAggregations() {
+			require.NotNil(t, resp.GetSingleResult())
+			require.NotNil(t, resp.GetSingleResult().Aggregations)
+			require.Len(t, resp.GetSingleResult().Aggregations.GetAggregations(), 1)
+			for _, aggregation := range resp.GetSingleResult().Aggregations.GetAggregations() {
 				assert.Equal(t, "cityRights", aggregation.Property)
 				dateProps := aggregation.GetDate()
 				assert.Equal(t, "1984-07-21T21:34:33.709551616Z", dateProps.GetMaximum())
@@ -227,10 +222,9 @@ func TestGRPC_Aggregate(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.Result)
-			require.Len(t, resp.Result.Groups, 1)
-			require.NotNil(t, resp.Result.Groups[0].Aggregations)
-			require.Len(t, resp.Result.Groups[0].Aggregations.GetAggregations(), 1)
-			for _, aggregation := range resp.Result.Groups[0].Aggregations.GetAggregations() {
+			require.NotNil(t, resp.GetSingleResult().Aggregations)
+			require.Len(t, resp.GetSingleResult().Aggregations.GetAggregations(), 1)
+			for _, aggregation := range resp.GetSingleResult().Aggregations.GetAggregations() {
 				assert.Equal(t, "inCountry", aggregation.Property)
 				referenceAggregation := aggregation.GetReference()
 				assert.ElementsMatch(t, referenceAggregation.PointingTo, []string{"Country"})
@@ -261,11 +255,10 @@ func TestGRPC_Aggregate(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			require.NotNil(t, resp.Result)
-			require.Len(t, resp.Result.Groups, 1)
-			require.NotNil(t, resp.Result.Groups[0].Aggregations)
-			require.Len(t, resp.Result.Groups[0].Aggregations.GetAggregations(), 1)
-			for _, aggregation := range resp.Result.Groups[0].Aggregations.GetAggregations() {
+			require.NotNil(t, resp.GetSingleResult())
+			require.NotNil(t, resp.GetSingleResult().Aggregations)
+			require.Len(t, resp.GetSingleResult().Aggregations.GetAggregations(), 1)
+			for _, aggregation := range resp.GetSingleResult().Aggregations.GetAggregations() {
 				assert.Equal(t, "inCountry", aggregation.Property)
 				referenceAggregation := aggregation.GetReference()
 				assert.ElementsMatch(t, referenceAggregation.GetPointingTo(), []string{"Country"})
@@ -319,11 +312,10 @@ func TestGRPC_Aggregate(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			require.NotNil(t, resp.Result)
-			require.Len(t, resp.Result.Groups, 1)
-			require.NotNil(t, resp.Result.Groups[0].Aggregations)
-			require.Len(t, resp.Result.Groups[0].Aggregations.GetAggregations(), 3)
-			for _, aggregation := range resp.Result.Groups[0].Aggregations.GetAggregations() {
+			require.NotNil(t, resp.GetSingleResult())
+			require.NotNil(t, resp.GetSingleResult().Aggregations)
+			require.Len(t, resp.GetSingleResult().Aggregations.GetAggregations(), 3)
+			for _, aggregation := range resp.GetSingleResult().Aggregations.GetAggregations() {
 				switch aggregation.Property {
 				case "inCountry":
 					assert.Equal(t, "inCountry", aggregation.Property)
@@ -407,11 +399,11 @@ func TestGRPC_Aggregate(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			require.NotNil(t, resp.Result)
-			require.Len(t, resp.Result.Groups, 3)
+			require.NotNil(t, resp.GetGroupedResults())
+			require.Len(t, resp.GetGroupedResults().GetGroups(), 3)
 
 			checkProperties := func(t *testing.T,
-				aggregations []*pb.AggregateGroup_Aggregations_Aggregation,
+				aggregations []*pb.AggregateReply_Aggregations_Aggregation,
 				cityRightsCount int64,
 				cityRightsMedian string,
 				nameCount int64,
@@ -447,7 +439,7 @@ func TestGRPC_Aggregate(t *testing.T) {
 					}
 				}
 			}
-			for _, group := range resp.Result.Groups {
+			for _, group := range resp.GetGroupedResults().GetGroups() {
 				assert.ElementsMatch(t, []string{"cityRights"}, group.GroupedBy.Path)
 				require.NotNil(t, group.Aggregations)
 				require.Len(t, group.Aggregations.GetAggregations(), 3)
@@ -586,11 +578,10 @@ func TestGRPC_Aggregate(t *testing.T) {
 				resp, err := grpcClient.Aggregate(ctx, aggregateRequest)
 				require.NoError(t, err)
 				require.NotNil(t, resp)
-				require.NotNil(t, resp.Result)
-				require.Len(t, resp.Result.Groups, 1)
-				require.NotNil(t, resp.Result.Groups[0].Aggregations)
-				require.Len(t, resp.Result.Groups[0].Aggregations.GetAggregations(), 4)
-				for _, aggregation := range resp.Result.Groups[0].Aggregations.GetAggregations() {
+				require.NotNil(t, resp.GetSingleResult())
+				require.NotNil(t, resp.GetSingleResult().Aggregations)
+				require.Len(t, resp.GetSingleResult().Aggregations.GetAggregations(), 4)
+				for _, aggregation := range resp.GetSingleResult().Aggregations.GetAggregations() {
 					switch aggregation.Property {
 					case "inCountry":
 						assert.Equal(t, "inCountry", aggregation.Property)
