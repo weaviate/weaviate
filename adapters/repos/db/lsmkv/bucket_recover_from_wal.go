@@ -104,9 +104,6 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 				Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))
 		}
 
-		if strings.Contains(mt.path, "_searchable") {
-			b.desiredStrategy = DefaultSearchableStrategy()
-		}
 		if err := mt.flush(); err != nil {
 			return errors.Wrap(err, "flush memtable after WAL recovery")
 		}
