@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
@@ -585,7 +586,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			ConsistencyWaitTimeout: time.Millisecond * 50,
 		},
 	}
-	s := NewFSM(ms.cfg)
+	s := NewFSM(ms.cfg, prometheus.NewPedanticRegistry())
 	ms.store = &s
 	return ms
 }

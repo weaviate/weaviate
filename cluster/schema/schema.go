@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -51,6 +53,38 @@ type schema struct {
 	shardReader shardReader
 	sync.RWMutex
 	Classes map[string]*metaClass
+
+	// metrics
+	// collectionsCount represents the number of collections on this specific node.
+	collectionsCount prometheus.Gauge
+
+	// shardsCount represents the number of shards (of all collections) on this specific node.
+	shardsCount *prometheus.GaugeVec
+}
+
+func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer) *schema {
+	// this also registers the prometheus metrics with given `reg` in addition to just creating it.
+	r := promauto.With(reg)
+
+	s := &schema{
+		nodeID:      nodeID,
+		Classes:     make(map[string]*metaClass, 128),
+		shardReader: shardReader,
+		collectionsCount: r.NewGauge(prometheus.GaugeOpts{
+			Namespace:   "weaviate",
+			Name:        "schema_collections",
+			Help:        "Number of collections per node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		shardsCount: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace:   "weaviate",
+			Name:        "schema_shards",
+			Help:        "Number of shards per node with corresponding status",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}, []string{"status"}), // status: HOT, WARM, COLD, FROZEN
+	}
+
+	return s
 }
 
 func (s *schema) ClassInfo(class string) ClassInfo {
@@ -211,14 +245,6 @@ type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
-func NewSchema(nodeID string, shardReader shardReader) *schema {
-	return &schema{
-		nodeID:      nodeID,
-		Classes:     make(map[string]*metaClass, 128),
-		shardReader: shardReader,
-	}
-}
-
 func (s *schema) len() int {
 	s.RLock()
 	defer s.RUnlock()
@@ -247,7 +273,16 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 		return ErrClassExists
 	}
 
-	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v}
+	s.Classes[cls.Class] = &metaClass{
+		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
+	}
+
+	s.collectionsCount.Inc()
+
+	for _, shard := range ss.Physical {
+		s.shardsCount.WithLabelValues(shard.Status).Inc()
+	}
+
 	return nil
 }
 
@@ -287,10 +322,33 @@ func (s *schema) replaceStatesNodeName(new string) {
 	}
 }
 
-func (s *schema) deleteClass(name string) {
+func (s *schema) deleteClass(name string) bool {
 	s.Lock()
 	defer s.Unlock()
+
+	// since `delete(map, key)` is no-op if `key` doesn't exist, check before deleting
+	// so that we can increment the `collectionsCount` correctly.
+	class, ok := s.Classes[name]
+	if !ok {
+		return false
+	}
+
+	// sc tracks number of shards in this collection to be deleted by status.
+	sc := make(map[string]int)
+
+	// need to decrement shards count on this class.
+	for _, shard := range class.Sharding.Physical {
+		sc[shard.Status]++
+	}
+
 	delete(s.Classes, name)
+
+	s.collectionsCount.Dec()
+	for status, count := range sc {
+		s.shardsCount.WithLabelValues(status).Sub(float64(count))
+	}
+
+	return true
 }
 
 func (s *schema) addProperty(class string, v uint64, props ...*models.Property) error {
@@ -307,35 +365,68 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {
 	req.Tenants = removeNilTenants(req.Tenants)
 
-	if ok, meta, info, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, info, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
 	}
+
+	sc, err := meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
+	if err != nil {
+		return err
+	}
+	for status, count := range sc {
+		s.shardsCount.WithLabelValues(status).Add(float64(count))
+	}
+
+	return nil
 }
 
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {
-	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, _, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.DeleteTenants(req, v)
 	}
+	sc, err := meta.DeleteTenants(req, v)
+	if err != nil {
+		return err
+	}
+
+	for status, count := range sc {
+		s.shardsCount.WithLabelValues(status).Sub(float64(count))
+	}
+
+	return nil
 }
 
 func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) error {
-	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, _, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.UpdateTenants(s.nodeID, req, v)
 	}
+	sc, err := meta.UpdateTenants(s.nodeID, req, v)
+	// partial update possible
+	for status, count := range sc {
+		// count can be positive or negative.
+		s.shardsCount.WithLabelValues(status).Add(float64(count))
+	}
+
+	return err
 }
 
 func (s *schema) updateTenantsProcess(class string, v uint64, req *command.TenantProcessRequest) error {
-	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, _, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.UpdateTenantsProcess(s.nodeID, req, v)
 	}
+
+	sc, err := meta.UpdateTenantsProcess(s.nodeID, req, v)
+	// partial update possible
+	for status, count := range sc {
+		// count can be positive or negative.
+		s.shardsCount.WithLabelValues(status).Add(float64(count))
+	}
+
+	return err
 }
 
 func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {

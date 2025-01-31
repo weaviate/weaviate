@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
@@ -558,14 +559,19 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	return nil
 }
 
-func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error {
+func asyncReplicationGloballyDisabled() bool {
+	// Disable async replication regardless of class setting if env var is set
+	return entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED"))
+}
+
+func (i *Index) updateAsyncReplicationConfig(ctx context.Context, enabled bool) error {
 	i.asyncReplicationLock.Lock()
 	defer i.asyncReplicationLock.Unlock()
 
-	i.Config.AsyncReplicationEnabled = enabled
+	i.Config.AsyncReplicationEnabled = enabled && i.replicationEnabled() && !asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.UpdateAsyncReplication(ctx, enabled); err != nil {
+		if err := shard.updateAsyncReplicationConfig(ctx, i.Config.AsyncReplicationEnabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil
@@ -737,7 +743,7 @@ func (i *Index) asyncReplicationEnabled() bool {
 	i.asyncReplicationLock.RLock()
 	defer i.asyncReplicationLock.RUnlock()
 
-	return i.replicationEnabled() && i.Config.AsyncReplicationEnabled
+	return i.replicationEnabled() && i.Config.AsyncReplicationEnabled && !asyncReplicationGloballyDisabled()
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
