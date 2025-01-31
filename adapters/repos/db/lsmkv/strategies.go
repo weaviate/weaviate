@@ -13,8 +13,10 @@ package lsmkv
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/config"
 )
 
 const (
@@ -88,4 +90,11 @@ func CheckStrategyRoaringSet(strategy string) error {
 
 func CheckStrategyRoaringSetRange(strategy string) error {
 	return CheckExpectedStrategy(strategy, StrategyRoaringSetRange)
+}
+
+func DefaultSearchableStrategy() string {
+	if config.Enabled(os.Getenv("USE_INVERTED_SEARCHABLE")) {
+		return StrategyInverted
+	}
+	return StrategyMapCollection
 }
