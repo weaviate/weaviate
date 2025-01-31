@@ -1593,7 +1593,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 			defer release()
 		}
 
-		if shard != nil  {
+		if shard != nil && !i.Config.ForceFullReplicasSearch {
 
 			localCtx := helpers.InitSlowQueryDetails(ctx)
 			helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
@@ -1705,42 +1705,38 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
 	eg.SetLimit(_NUMCPU * 2)
+	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
 
-	var localShardResults []*storobj.Object
-	var localShardScores []float32
-	var remoteShardResults []*storobj.Object
-	var remoteShardScores []float32
-
 	eg.Go(func() error {
-		localShardResults, localShardScores, err = i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardNames)
+		localShardResult, localShardScores, err := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardNames)
 		if err != nil {
 			return err
 		}
-
+		m.Lock()
+		out = append(out, localShardResult...)
+		dists = append(dists, localShardScores...)
+		m.Unlock()
 		return nil
 	})
 
 	eg.Go(func() error {
-		remoteShardResults, remoteShardScores, err = i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardNames)
+		remoteShardObject, remoteShardScores, err := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardNames)
 		if err != nil {
 			return err
 		}
-
+		m.Lock()
+		out = append(out, remoteShardObject...)
+		dists = append(dists, remoteShardScores...)
+		m.Unlock()
 		return nil
 	})
 
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
-
-	out = append(out, localShardResults...)
-	dists = append(dists, localShardScores...)
-
-	out = append(out, remoteShardResults...)
-	dists = append(dists, remoteShardScores...)
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
