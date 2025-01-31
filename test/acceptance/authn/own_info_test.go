@@ -62,7 +62,7 @@ func TestAuthnGetOwnInfoWithAdminlistAndOidc(t *testing.T) {
 	})
 
 	t.Run("Unauthenticated", func(t *testing.T) {
-		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existant"))
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existent"))
 		require.NotNil(t, err)
 		parsed, ok := err.(*users.GetOwnInfoUnauthorized)
 		require.True(t, ok)
@@ -102,7 +102,7 @@ func TestAuthnGetOwnInfoWithOidc(t *testing.T) {
 	})
 
 	t.Run("Unauthenticated", func(t *testing.T) {
-		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existant"))
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existent"))
 		require.NotNil(t, err)
 		parsed, ok := err.(*users.GetOwnInfoUnauthorized)
 		require.True(t, ok)
@@ -173,7 +173,7 @@ func TestAuthnGetOwnInfoWithRBAC(t *testing.T) {
 	})
 
 	t.Run("Unauthenticated", func(t *testing.T) {
-		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existant"))
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existent"))
 		require.NotNil(t, err)
 		parsed, ok := err.(*users.GetOwnInfoUnauthorized)
 		require.True(t, ok)
