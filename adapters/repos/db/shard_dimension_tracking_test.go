@@ -615,7 +615,7 @@ func Test_MultiDimensionTrackingMetrics(t *testing.T) {
 			className: "HNSW",
 			vectorConfig: func() *enthnsw.UserConfig {
 				cfg := enthnsw.NewDefaultUserConfig()
-				cfg.Multivector = *&enthnsw.MultivectorConfig{Enabled: true}
+				cfg.Multivector = enthnsw.MultivectorConfig{Enabled: true}
 				return &cfg
 			},
 			expectedDims:    32000.0, // 100 objects * 5 tokens * 64 dimensions
