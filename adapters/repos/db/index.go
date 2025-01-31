@@ -1696,7 +1696,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
-	for _, shardName := range shardNames {
+	for _, sn := range shardNames {
+		shardName := sn
 		shard, release, err := i.GetShard(ctx, shardName)
 		if err != nil {
 			return nil, nil, err
@@ -1740,7 +1741,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 					m.Unlock()
 					return nil
 				})
-			
+
 		}
 	}
 
