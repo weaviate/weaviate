@@ -66,8 +66,8 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/.well-known/openid-configuration",
 		"/.well-known/ready",
 		"/meta",
-		"/authz/users/own-roles", // will return roles for own user
-		"/backups/{backend}",     // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
+		"/users/own-info",    // will return info for own user
+		"/backups/{backend}", // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
 		"/backups/{backend}/{id}",
 		"/backups/{backend}/{id}/restore",
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
