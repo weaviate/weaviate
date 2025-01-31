@@ -1690,7 +1690,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				eg.Go(func() error {
 					defer release()
 
-					localShardResult, localShardScores, err := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, shard, targetCombination, properties, shardName)
+					localShardResult, localShardScores, err := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, shard, targetCombination, properties, shardName)
 					if err != nil {
 						return fmt.Errorf(
 							"local shard object search %s: %w", shard.ID(), err)
