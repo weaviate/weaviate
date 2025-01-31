@@ -18,6 +18,7 @@ import (
 	"math"
 	"math/rand"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
@@ -150,6 +151,9 @@ func (m *KMeans) initCenters(data [][]float32) {
 			vec = data[rand.Intn(len(data))]
 		}
 		vecCopy := make([]float32, m.dimensions)
+		if len(vec) < (m.segment+1)*m.dimensions {
+			logrus.Fatalf("dimensions: %d, segment: %d, vec_len: %d", m.dimensions, m.segment, len(vec))
+		}
 		copy(vecCopy, vec[m.segment*m.dimensions:(m.segment+1)*m.dimensions])
 		m.centers = append(m.centers, vecCopy)
 	}
