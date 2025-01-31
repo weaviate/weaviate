@@ -31,6 +31,9 @@ import (
 // swagger:model UserInfo
 type UserInfo struct {
 
+	// The groups associated with the provided key
+	Groups []string `json:"groups"`
+
 	// roles
 	// Required: true
 	Roles []*Role `json:"roles"`

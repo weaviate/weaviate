@@ -8,9 +8,12 @@
     "UserInfo": {
       "type": "object",
       "properties": {
-        "username": {
-          "type": "string",
-          "description": "The username associated with the provided key"
+        "groups": {
+          "type": "array",
+          "description": "The groups associated with the provided key",
+          "items": {
+            "type": "string"
+          }
         },
         "roles": {
           "type": "array",
@@ -19,6 +22,10 @@
             "description": "The roles assigned to own user",
             "$ref": "#/definitions/Role"
           }
+        },
+        "username": {
+          "type": "string",
+          "description": "The username associated with the provided key"
         }
       },
       "required": ["username", "roles"]

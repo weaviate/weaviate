@@ -6291,6 +6291,13 @@ func init() {
         "roles"
       ],
       "properties": {
+        "groups": {
+          "description": "The groups associated with the provided key",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "roles": {
           "type": "array",
           "items": {
@@ -13299,6 +13306,13 @@ func init() {
         "roles"
       ],
       "properties": {
+        "groups": {
+          "description": "The groups associated with the provided key",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "roles": {
           "type": "array",
           "items": {
