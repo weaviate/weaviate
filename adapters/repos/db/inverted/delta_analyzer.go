@@ -19,14 +19,25 @@ type DeltaResults struct {
 }
 
 func Delta(previous, next []Property) DeltaResults {
-	out := DeltaResults{}
+	return DeltaSkipSearchable(previous, next, nil)
+}
 
-	previous = DedupItems(previous)
-	next = DedupItems(next)
+// skipDeltaSearchableProps - names of properties having searchable index of StrategyInverted
+// (StrategyInverted requires complete set of items to be added or deleted (not delta),
+// therefore for such properties calculating delta should be skipped. If same properties
+// have other indexes (filterable / rangeable) property will be duplicated to contain
+// complete items sets for searchable index and delta for remaining ones.
+func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []string) DeltaResults {
+	out := DeltaResults{}
 
 	if previous == nil {
 		out.ToAdd = next
 		return out
+	}
+
+	skipDeltaPropsNames := map[string]struct{}{}
+	for i := range skipDeltaSearchableProps {
+		skipDeltaPropsNames[skipDeltaSearchableProps[i]] = struct{}{}
 	}
 
 	previousByProp := map[string]Property{}
@@ -39,6 +50,14 @@ func Delta(previous, next []Property) DeltaResults {
 		if !ok {
 			// this prop didn't exist before so we can add all of it
 			out.ToAdd = append(out.ToAdd, nextProp)
+			out.ToDelete = append(out.ToDelete, Property{
+				Name:               nextProp.Name,
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: nextProp.HasFilterableIndex,
+				HasSearchableIndex: nextProp.HasSearchableIndex,
+				HasRangeableIndex:  nextProp.HasRangeableIndex,
+			})
 			continue
 		}
 		delete(previousByProp, nextProp.Name)
@@ -51,45 +70,99 @@ func Delta(previous, next []Property) DeltaResults {
 			continue
 		}
 
-		toAdd, toDelete := countableDelta(prevProp.Items, nextProp.Items)
-		if len(toAdd) > 0 {
-			out.ToAdd = append(out.ToAdd, Property{
-				Name:               nextProp.Name,
-				Items:              toAdd,
-				Length:             nextProp.Length,
-				HasFilterableIndex: nextProp.HasFilterableIndex,
-				HasSearchableIndex: nextProp.HasSearchableIndex,
-				HasRangeableIndex:  nextProp.HasRangeableIndex,
-			})
-		}
-		if len(toDelete) > 0 {
-			out.ToDelete = append(out.ToDelete, Property{
-				Name:               nextProp.Name,
-				Items:              toDelete,
-				Length:             prevProp.Length,
-				HasFilterableIndex: nextProp.HasFilterableIndex,
-				HasSearchableIndex: nextProp.HasSearchableIndex,
-				HasRangeableIndex:  nextProp.HasRangeableIndex,
-			})
-		}
-		// special case to update optional length/nil indexes on
-		// all values removed
-		if len(toAdd) == 0 && len(toDelete) > 0 &&
-			nextProp.Length == 0 && prevProp.Length > 0 {
-			out.ToAdd = append(out.ToAdd, Property{
-				Name:               nextProp.Name,
-				Items:              []Countable{},
-				Length:             0,
-				HasFilterableIndex: nextProp.HasFilterableIndex,
-				HasSearchableIndex: nextProp.HasSearchableIndex,
-				HasRangeableIndex:  nextProp.HasRangeableIndex,
-			})
+		if lenPrev, lenNext := len(prevProp.Items), len(nextProp.Items); lenPrev == 0 || lenNext == 0 {
+			out.ToAdd = append(out.ToAdd, nextProp)
+			out.ToDelete = append(out.ToDelete, prevProp)
+		} else {
+			_, skipDeltaSearchable := skipDeltaPropsNames[nextProp.Name]
+
+			if skipDeltaSearchable && nextProp.HasSearchableIndex {
+				// property with searchable index of StrategyInverted
+				if !nextProp.HasFilterableIndex && !nextProp.HasRangeableIndex {
+					// no other indexes, skip calculating delta
+					out.ToAdd = append(out.ToAdd, nextProp)
+					out.ToDelete = append(out.ToDelete, prevProp)
+				} else {
+					// other indexes present
+					toAdd, toDel, cleaned := countableDelta(prevProp.Items, nextProp.Items)
+
+					// if delta same as inputs
+					if !cleaned {
+						out.ToAdd = append(out.ToAdd, nextProp)
+						out.ToDelete = append(out.ToDelete, prevProp)
+					} else {
+						// separate entries for !searchable indexes with calculated delta
+						out.ToAdd = append(out.ToAdd, Property{
+							Name:               nextProp.Name,
+							Items:              toAdd,
+							Length:             nextProp.Length,
+							HasFilterableIndex: nextProp.HasFilterableIndex,
+							HasSearchableIndex: false,
+							HasRangeableIndex:  nextProp.HasRangeableIndex,
+						})
+						out.ToDelete = append(out.ToDelete, Property{
+							Name:               prevProp.Name,
+							Items:              toDel,
+							Length:             prevProp.Length,
+							HasFilterableIndex: prevProp.HasFilterableIndex,
+							HasSearchableIndex: false,
+							HasRangeableIndex:  prevProp.HasRangeableIndex,
+						})
+
+						// separate entries for searchable index of StrategyInverted with complete item sets
+						// length/nil indexes will be handled by delta entries, therefore -1 not to be processed twice
+						out.ToAdd = append(out.ToAdd, Property{
+							Name:               nextProp.Name,
+							Items:              nextProp.Items,
+							Length:             -1,
+							HasFilterableIndex: false,
+							HasSearchableIndex: true,
+							HasRangeableIndex:  false,
+						})
+						out.ToDelete = append(out.ToDelete, Property{
+							Name:               prevProp.Name,
+							Items:              prevProp.Items,
+							Length:             -1,
+							HasFilterableIndex: false,
+							HasSearchableIndex: true,
+							HasRangeableIndex:  false,
+						})
+					}
+				}
+			} else {
+				// property of other indexes, calculate delta
+				toAdd, toDel, _ := countableDelta(prevProp.Items, nextProp.Items)
+				out.ToAdd = append(out.ToAdd, Property{
+					Name:               nextProp.Name,
+					Items:              toAdd,
+					Length:             nextProp.Length,
+					HasFilterableIndex: nextProp.HasFilterableIndex,
+					HasSearchableIndex: nextProp.HasSearchableIndex,
+					HasRangeableIndex:  nextProp.HasRangeableIndex,
+				})
+				out.ToDelete = append(out.ToDelete, Property{
+					Name:               prevProp.Name,
+					Items:              toDel,
+					Length:             prevProp.Length,
+					HasFilterableIndex: prevProp.HasFilterableIndex,
+					HasSearchableIndex: prevProp.HasSearchableIndex,
+					HasRangeableIndex:  prevProp.HasRangeableIndex,
+				})
+			}
 		}
 	}
 
 	// extend ToDelete with props from previous missing in next
 	for _, prevProp := range previous {
 		if _, ok := previousByProp[prevProp.Name]; ok {
+			out.ToAdd = append(out.ToAdd, Property{
+				Name:               prevProp.Name,
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: prevProp.HasFilterableIndex,
+				HasSearchableIndex: prevProp.HasSearchableIndex,
+				HasRangeableIndex:  prevProp.HasRangeableIndex,
+			})
 			out.ToDelete = append(out.ToDelete, prevProp)
 		}
 	}
@@ -97,13 +170,12 @@ func Delta(previous, next []Property) DeltaResults {
 	return out
 }
 
-func countableDelta(prev, next []Countable) ([]Countable, []Countable) {
-	var (
-		add []Countable
-		del []Countable
-	)
+func countableDelta(prev, next []Countable) ([]Countable, []Countable, bool) {
+	add := []Countable{}
+	del := []Countable{}
 
 	seenInPrev := map[string]Countable{}
+	cleaned := false
 
 	for _, prevItem := range prev {
 		seenInPrev[string(prevItem.Data)] = prevItem
@@ -112,6 +184,7 @@ func countableDelta(prev, next []Countable) ([]Countable, []Countable) {
 	for _, nextItem := range next {
 		prev, ok := seenInPrev[string(nextItem.Data)]
 		if ok && prev.TermFrequency == nextItem.TermFrequency {
+			cleaned = true
 			// we have an identical overlap, delete from old list
 			delete(seenInPrev, string(nextItem.Data))
 			// don't add to new list
@@ -131,7 +204,7 @@ func countableDelta(prev, next []Countable) ([]Countable, []Countable) {
 		}
 	}
 
-	return add, del
+	return add, del, cleaned
 }
 
 func listsIdentical(a []Countable, b []Countable) bool {

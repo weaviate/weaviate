@@ -33,6 +33,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 3,
 					},
 				},
+				Length: 2,
 			},
 			{
 				Name: "prop2",
@@ -46,11 +47,13 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 3,
 					},
 				},
+				Length: 2,
 			},
 		}
 
 		res := Delta(previous, next)
-		assert.Equal(t, next, res.ToAdd)
+
+		assert.ElementsMatch(t, next, res.ToAdd)
 		assert.Len(t, res.ToDelete, 0)
 	})
 
@@ -113,6 +116,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 		}
 
 		res := Delta(previous, next)
+
 		assert.Len(t, res.ToDelete, 0)
 		assert.Len(t, res.ToAdd, 0)
 	})
@@ -127,6 +131,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 3,
 					},
 				},
+				Length: 1,
 			},
 			{
 				Name: "prop2",
@@ -136,6 +141,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 3,
 					},
 				},
+				Length: 1,
 			},
 		}
 		next := []Property{
@@ -151,6 +157,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 3,
 					},
 				},
+				Length: 2,
 			},
 			{
 				Name: "prop2",
@@ -164,6 +171,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 3,
 					},
 				},
+				Length: 2,
 			},
 		}
 
@@ -176,6 +184,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 7,
 					},
 				},
+				Length: 2,
 			},
 			{
 				Name: "prop2",
@@ -185,12 +194,26 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 7,
 					},
 				},
+				Length: 2,
+			},
+		}
+		expectedDelete := []Property{
+			{
+				Name:   "prop1",
+				Items:  []Countable{},
+				Length: 1,
+			},
+			{
+				Name:   "prop2",
+				Items:  []Countable{},
+				Length: 1,
 			},
 		}
 
 		res := Delta(previous, next)
-		assert.Equal(t, expectedAdd, res.ToAdd)
-		assert.Len(t, res.ToDelete, 0)
+
+		assert.ElementsMatch(t, expectedAdd, res.ToAdd)
+		assert.ElementsMatch(t, expectedDelete, res.ToDelete)
 	})
 
 	t.Run("with previous indexing - both additions and deletions", func(t *testing.T) {
@@ -203,6 +226,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 3,
 					},
 				},
+				Length: 1,
 			},
 			{
 				Name: "prop2",
@@ -212,6 +236,27 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 3,
 					},
 				},
+				Length: 1,
+			},
+			{
+				Name: "prop3",
+				Items: []Countable{
+					{
+						Data:          []byte("value6"),
+						TermFrequency: 3,
+					},
+				},
+				Length: 1,
+			},
+			{
+				Name: "prop4",
+				Items: []Countable{
+					{
+						Data:          []byte("value6"),
+						TermFrequency: 3,
+					},
+				},
+				Length: 1,
 			},
 		}
 		next := []Property{
@@ -223,6 +268,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 7,
 					},
 				},
+				Length: 1,
 			},
 			{
 				Name: "prop2",
@@ -236,6 +282,27 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 3,
 					},
 				},
+				Length: 2,
+			},
+			{
+				Name: "prop3",
+				Items: []Countable{
+					{
+						Data:          []byte("value6"),
+						TermFrequency: 3,
+					},
+				},
+				Length: 1,
+			},
+			{
+				Name: "prop5",
+				Items: []Countable{
+					{
+						Data:          []byte("value10"),
+						TermFrequency: 10,
+					},
+				},
+				Length: 1,
 			},
 		}
 
@@ -248,6 +315,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 7,
 					},
 				},
+				Length: 1,
 			},
 			{
 				Name: "prop2",
@@ -257,6 +325,22 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 7,
 					},
 				},
+				Length: 2,
+			},
+			{
+				Name:   "prop4",
+				Items:  []Countable{},
+				Length: 0,
+			},
+			{
+				Name: "prop5",
+				Items: []Countable{
+					{
+						Data:          []byte("value10"),
+						TermFrequency: 10,
+					},
+				},
+				Length: 1,
 			},
 		}
 
@@ -269,12 +353,1037 @@ func TestDeltaAnalyzer(t *testing.T) {
 						TermFrequency: 3,
 					},
 				},
+				Length: 1,
+			},
+			{
+				Name:   "prop2",
+				Items:  []Countable{},
+				Length: 1,
+			},
+			{
+				Name: "prop4",
+				Items: []Countable{
+					{
+						Data:          []byte("value6"),
+						TermFrequency: 3,
+					},
+				},
+				Length: 1,
+			},
+			{
+				Name:   "prop5",
+				Items:  []Countable{},
+				Length: 0,
 			},
 		}
 
 		res := Delta(previous, next)
-		assert.Equal(t, expectedAdd, res.ToAdd)
-		assert.Equal(t, expectedDelete, res.ToDelete)
+
+		assert.ElementsMatch(t, expectedAdd, res.ToAdd)
+		assert.ElementsMatch(t, expectedDelete, res.ToDelete)
+	})
+}
+
+func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
+	t.Run("without previous indexing", func(t *testing.T) {
+		previous := []Property(nil)
+		next := []Property{
+			{
+				Name: "prop1_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+
+		res := DeltaSkipSearchable(previous, next, []string{"prop1_inv_sf", "prop2_inv_sf", "prop1_inv_s", "prop2_inv_s"})
+
+		assert.ElementsMatch(t, next, res.ToAdd)
+		assert.Len(t, res.ToDelete, 0)
+	})
+
+	t.Run("with previous indexing and no changes", func(t *testing.T) {
+		previous := []Property{
+			{
+				Name: "prop1_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+		next := previous
+
+		res := DeltaSkipSearchable(previous, next, []string{"prop1_inv_sf", "prop2_inv_sf", "prop1_inv_s", "prop2_inv_s"})
+
+		assert.Len(t, res.ToDelete, 0)
+		assert.Len(t, res.ToAdd, 0)
+	})
+
+	t.Run("with previous indexing - only additions", func(t *testing.T) {
+		previous := []Property{
+			{
+				Name: "prop1_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+		next := []Property{
+			{
+				Name: "prop1_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+
+		expectedAdd := []Property{
+			{
+				Name: "prop1_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "prop1_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             -1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             -1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+		expectedDelete := []Property{
+			{
+				Name:               "prop1_inv_sf",
+				Items:              []Countable{},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "prop1_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             -1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name:               "prop2_inv_sf",
+				Items:              []Countable{},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             -1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name:               "prop1_map_sf",
+				Items:              []Countable{},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name:               "prop2_map_sf",
+				Items:              []Countable{},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+
+		res := DeltaSkipSearchable(previous, next, []string{"prop1_inv_sf", "prop2_inv_sf", "prop1_inv_s", "prop2_inv_s"})
+
+		assert.ElementsMatch(t, expectedAdd, res.ToAdd)
+		assert.ElementsMatch(t, expectedDelete, res.ToDelete)
+	})
+
+	t.Run("with previous indexing - both additions and deletions", func(t *testing.T) {
+		previous := []Property{
+			{
+				Name: "prop1_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop3_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop4_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop3_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop4_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop3_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop4_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+		next := []Property{
+			{
+				Name: "prop1_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop3_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop5_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value10"),
+					TermFrequency: 10,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop3_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop5_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value10"),
+					TermFrequency: 10,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop3_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop5_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value10"),
+					TermFrequency: 10,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+
+		expectedAdd := []Property{
+			{
+				Name: "prop1_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             -1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name:               "prop4_inv_sf",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop5_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value10"),
+					TermFrequency: 10,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}, {
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             2,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name:               "prop4_inv_s",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop5_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value10"),
+					TermFrequency: 10,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value1"),
+					TermFrequency: 7,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value3"),
+					TermFrequency: 7,
+				}},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name:               "prop4_map_sf",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop5_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value10"),
+					TermFrequency: 10,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+		expectedDelete := []Property{
+			{
+				Name: "prop1_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name:               "prop2_inv_sf",
+				Items:              []Countable{},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "prop2_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             -1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop4_inv_sf",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name:               "prop5_inv_sf",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop2_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value4"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop4_inv_s",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name:               "prop5_inv_s",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: false,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop1_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value2"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name:               "prop2_map_sf",
+				Items:              []Countable{},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name: "prop4_map_sf",
+				Items: []Countable{{
+					Data:          []byte("value6"),
+					TermFrequency: 3,
+				}},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+			{
+				Name:               "prop5_map_sf",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+
+		res := DeltaSkipSearchable(previous, next, []string{"prop1_inv_sf", "prop2_inv_sf", "prop3_inv_sf", "prop4_inv_sf", "prop5_inv_sf", "prop1_inv_s", "prop2_inv_s", "prop3_inv_s", "prop4_inv_s", "prop5_inv_s"})
+
+		assert.ElementsMatch(t, expectedAdd, res.ToAdd)
+		assert.ElementsMatch(t, expectedDelete, res.ToDelete)
 	})
 }
 
