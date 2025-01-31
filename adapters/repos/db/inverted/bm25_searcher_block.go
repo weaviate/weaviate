@@ -37,12 +37,12 @@ func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList
 func (b *BM25Searcher) wandBlock(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	allSegmentsAreBlockMax, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
+	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if !allSegmentsAreBlockMax {
+	if !allBucketsAreInverted {
 		return b.wand(ctx, filterDocIds, class, params, limit, additional)
 	}
 

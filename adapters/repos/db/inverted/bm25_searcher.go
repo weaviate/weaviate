@@ -118,7 +118,10 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params searchparams.KeywordRanking) (bool, float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
-	allSegmentsAreBlockMax := true
+	// This flag checks whether all buckets are of the inverted strategy,
+	// and thus, compatible with BlockMaxWAND, or if there are other strategies present,
+	// which would require the old WAND implementation.
+	allBucketsAreInverted := true
 
 	var stopWordDetector *stopwords.Detector
 	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
@@ -177,7 +180,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 		}
 
 		if bucket.Strategy() != lsmkv.StrategyInverted {
-			allSegmentsAreBlockMax = false
+			allBucketsAreInverted = false
 		}
 
 		// A NaN here is the results of a corrupted prop length tracker.
@@ -215,7 +218,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 	if math.IsNaN(averagePropLength) || averagePropLength == 0 {
 		averagePropLength = 40.0
 	}
-	return allSegmentsAreBlockMax, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
+	return allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
 }
 
 func (b *BM25Searcher) wand(
