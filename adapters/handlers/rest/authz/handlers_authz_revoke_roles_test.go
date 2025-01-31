@@ -169,7 +169,6 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 		existedRoles  map[string][]authorization.Policy
 		callAuthZ     bool
 		admins        []string
-		viewers       []string
 	}
 
 	tests := []testCase{
@@ -198,19 +197,6 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "revoking: modifying 'root' role or changing its assignments is not allowed",
 		},
-		{
-			name: "revoke configured viewer role",
-			params: authz.RevokeRoleFromUserParams{
-				ID: "testUser",
-				Body: authz.RevokeRoleFromUserBody{
-					Roles: []string{"viewer"},
-				},
-			},
-			callAuthZ:     true,
-			viewers:       []string{"testUser"},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not revoke role viewer when configured via AUTHORIZATION_VIEWER_USERS",
-		},
 	}
 
 	for _, tt := range tests {
@@ -228,7 +214,6 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 				controller: controller,
 				rbacconfig: rbacconf.Config{
 					RootUsers: tt.admins,
-					Viewers:   tt.viewers,
 				},
 				logger: logger,
 			}
@@ -252,7 +237,6 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 		existedRoles  map[string][]authorization.Policy
 		callAuthZ     bool
 		admins        []string
-		viewers       []string
 	}
 
 	tests := []testCase{
@@ -294,19 +278,6 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "revoking: cannot assign or revoke from root group",
 		},
-		{
-			name: "revoke configured viewer role",
-			params: authz.RevokeRoleFromGroupParams{
-				ID: "testUser",
-				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"viewer"},
-				},
-			},
-			callAuthZ:     true,
-			viewers:       []string{"testUser"},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not revoke configured role viewer",
-		},
 	}
 
 	for _, tt := range tests {
@@ -324,7 +295,6 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 				controller: controller,
 				rbacconfig: rbacconf.Config{
 					RootUsers:  tt.admins,
-					Viewers:    tt.viewers,
 					RootGroups: []string{"admin-group"},
 				},
 				logger: logger,

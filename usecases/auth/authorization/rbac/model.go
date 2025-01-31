@@ -142,15 +142,6 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		}
 	}
 
-	for i := range conf.Viewers {
-		if strings.TrimSpace(conf.Viewers[i]) == "" {
-			continue
-		}
-		if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(conf.Viewers[i]), conv.PrefixRoleName(authorization.Viewer)); err != nil {
-			return nil, fmt.Errorf("add role for user: %w", err)
-		}
-	}
-
 	if err := enforcer.SavePolicy(); err != nil {
 		return nil, errors.Wrapf(err, "save policy")
 	}

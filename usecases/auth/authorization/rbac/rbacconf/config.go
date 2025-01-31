@@ -17,7 +17,6 @@ import "fmt"
 // has no rights whatsoever
 type Config struct {
 	Enabled    bool     `json:"enabled" yaml:"enabled"`
-	Viewers    []string `json:"viewers" yaml:"viewers"`
 	RootUsers  []string `json:"admins" yaml:"admins"`
 	RootGroups []string `json:"rootGroups" yaml:"rootGroups"`
 }
@@ -28,21 +27,9 @@ func (c Config) Validate() error {
 	return c.validateOverlap()
 }
 
-// we are expecting both lists to always contain few subjects and know that
-// this comparison is only done once (at startup). We are therefore fine with
-// the O(n^2) complexity of this very primitive overlap search in favor of very
-// simple code.
 func (c Config) validateOverlap() error {
 	if len(c.RootUsers) == 0 {
 		return fmt.Errorf("at least one root user is required")
-	}
-
-	for _, a := range c.Viewers {
-		for _, b := range c.RootUsers {
-			if a == b {
-				return fmt.Errorf("rbac: subject '%s' is present on both admin and viewer list", a)
-			}
-		}
 	}
 
 	return nil
