@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
@@ -30,6 +31,9 @@ const (
 	UPDATE = "U"
 	// DELETE Represents the action to delete a resource.
 	DELETE = "D"
+
+	ROLE_SCOPE_ALL   = "(C)|(R)|(U)|(D)"
+	ROLE_SCOPE_MATCH = "MATCH"
 )
 
 const (
@@ -64,7 +68,8 @@ var (
 		Collection: All,
 	}
 	AllRoles = &models.PermissionRoles{
-		Role: All,
+		Role:  All,
+		Scope: String(models.PermissionRolesScopeAll),
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,

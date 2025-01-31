@@ -46,13 +46,14 @@ var (
 		authorization.Admin:  CRUD,
 		authorization.Root:   CRUD,
 	}
-	actions = map[string]string{
-		CRUD:                 "manage",
-		CRU:                  "manage",
-		authorization.CREATE: "create",
-		authorization.READ:   "read",
-		authorization.UPDATE: "update",
-		authorization.DELETE: "delete",
+	weaviate_actions_prefixes = map[string]string{
+		CRUD:                           "manage",
+		CRU:                            "manage",
+		authorization.ROLE_SCOPE_MATCH: "manage",
+		authorization.CREATE:           "create",
+		authorization.READ:             "read",
+		authorization.UPDATE:           "update",
+		authorization.DELETE:           "delete",
 	}
 )
 
@@ -207,6 +208,18 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		role := "*"
 		if permission.Roles != nil && permission.Roles.Role != nil {
 			role = *permission.Roles.Role
+			if verb == CRUD {
+				// Default verb for role management
+				verb = authorization.ROLE_SCOPE_MATCH
+				if permission.Roles.Scope != nil {
+					// Determine verb based on scope
+					switch *permission.Roles.Scope {
+					case models.PermissionRolesScopeAll:
+						verb = CRUD
+					default:
+					}
+				}
+			}
 		}
 		resource = CasbinRoles(role)
 	case authorization.ClusterDomain:
@@ -282,7 +295,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 }
 
 func weaviatePermissionAction(pathLastPart, verb, domain string) string {
-	action := fmt.Sprintf("%s_%s", actions[verb], domain)
+	action := fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], domain)
 	action = strings.ReplaceAll(action, "_*", "")
 	switch domain {
 	case authorization.SchemaDomain:
@@ -290,9 +303,9 @@ func weaviatePermissionAction(pathLastPart, verb, domain string) string {
 			// e.g
 			// schema/collections/ABC/shards/#    collection permission
 			// schema/collections/ABC/shards/*    tenant permission
-			action = fmt.Sprintf("%s_%s", actions[verb], authorization.CollectionsDomain)
+			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.CollectionsDomain)
 		} else {
-			action = fmt.Sprintf("%s_%s", actions[verb], authorization.TenantsDomain)
+			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.TenantsDomain)
 		}
 		return action
 	default:
@@ -341,6 +354,15 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 	case authorization.RolesDomain:
 		permission.Roles = &models.PermissionRoles{
 			Role: &splits[1],
+		}
+
+		if mapped.Verb != authorization.READ {
+			scope := models.PermissionRolesScopeMatch // default
+			switch mapped.Verb {
+			case authorization.ROLE_SCOPE_ALL:
+				scope = models.PermissionRolesScopeAll
+			}
+			permission.Roles.Scope = &scope
 		}
 	case authorization.NodesDomain:
 		verbosity := splits[2]

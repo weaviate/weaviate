@@ -76,6 +76,30 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 	api.AuthzGetRolesForOwnUserHandler = authz.GetRolesForOwnUserHandlerFunc(h.getRolesForOwnUser)
 }
 
+func (h *authZHandlers) authorizeRoleScopes(principal *models.Principal, originalVerb string, policies []authorization.Policy, roleName string) error {
+	// The error will be accumulated with each check. We first verify if the user has the necessary permissions.
+	// If not, we check for matching permissions and authorize each permission being added or removed from the role.
+	// NOTE: logic is inverted for error checks if err == nil
+	var err error
+	if err = h.authorizer.Authorize(principal, originalVerb, authorization.Roles(roleName)...); err == nil {
+		return nil
+	}
+
+	// Check if user can manage roles with matching permissions
+	if err = h.authorizer.Authorize(principal, authorization.ROLE_SCOPE_MATCH, authorization.Roles(roleName)...); err == nil {
+		// Verify user has all permissions they're trying to grant
+		var errs error
+		for _, policy := range policies {
+			if err := h.authorizer.Authorize(principal, policy.Verb, policy.Resource); err != nil {
+				errs = errors.Join(errs, err)
+			}
+		}
+		return errs
+	}
+
+	return fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err)
+}
+
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
 	if *params.Body.Name == "" {
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is required")))
@@ -94,7 +118,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles(*params.Body.Name)...); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.CREATE, policies[*params.Body.Name], *params.Body.Name); err != nil {
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -139,7 +163,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.ID)...); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -183,8 +207,15 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	if err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
+	// TODO-RBAC PermissionToPolicies has to be []Policy{} not slice of pointers
+	policies := map[string][]authorization.Policy{
+		params.ID: {},
+	}
+	for _, p := range permissions {
+		policies[params.ID] = append(policies[params.ID], *p)
+	}
 
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.ID)...); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
 		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -318,7 +349,18 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Roles(params.ID)...); err != nil {
+	roles, err := h.controller.GetRoles(params.ID)
+	if err != nil {
+		h.logger.WithFields(logrus.Fields{
+			"action":    "delete_role",
+			"component": authorization.ComponentName,
+			"user":      principal.Username,
+			"roleName":  params.ID,
+		}).Info("role was already deleted")
+		return authz.NewDeleteRoleNoContent()
+	}
+
+	if err := h.authorizeRoleScopes(principal, authorization.DELETE, roles[params.ID], params.ID); err != nil {
 		return authz.NewDeleteRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
