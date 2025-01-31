@@ -37,6 +37,9 @@ func setupAuthnHandlers(api *operations.WeaviateAPI, controller authorization.Co
 }
 
 func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
+	if principal == nil {
+		return users.NewGetOwnInfoNotFound()
+	}
 	existingRoles, err := h.authzController.GetRolesForUser(principal.Username)
 	if err != nil {
 		return users.NewGetOwnInfoInternalServerError()

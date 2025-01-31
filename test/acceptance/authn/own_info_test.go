@@ -13,7 +13,6 @@ package authn
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -25,25 +24,41 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func TestAuthnGetOwnInfoWithAdminlistAndOidc(t *testing.T) {
-	pwAdminUser := os.Getenv("WCS_DUMMY_CI_PW")
-	if pwAdminUser == "" {
-		t.Skip("No password supplied")
-	}
+func TestAuthnGetOwnInfoWithAnonAccessEnabled(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().Start(ctx)
+	require.Nil(t, err)
 
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
+
+	t.Run("Get own info for anonymous access", func(t *testing.T) {
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), nil)
+		require.NotNil(t, err)
+		parsed, ok := err.(*users.GetOwnInfoNotFound) //nolint:errorlint
+		require.True(t, ok)
+		require.Equal(t, 404, parsed.Code())
+	})
+}
+
+func TestAuthnGetOwnInfoWithAdminlistAndOidc(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	compose, err := docker.New().
-		WithWeaviateWithGRPC().
+		WithWeaviate().
+		WithMockOIDC().
 		WithWeaviateEnv("AUTHORIZATION_ADMINLIST_ENABLED", "true").
 		WithWeaviateEnv("AUTHORIZATION_ADMINLIST_USERS", "admin-user").
 		Start(ctx)
 	require.Nil(t, err)
 
 	helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
 
 	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
-
 	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
 	// description for details
 	token, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
@@ -73,17 +88,12 @@ func TestAuthnGetOwnInfoWithAdminlistAndOidc(t *testing.T) {
 func TestAuthnGetOwnInfoWithOidc(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
-	compose, err := docker.New().
-		WithWeaviateWithGRPC().
-		WithMockOIDC().
-		Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().Start(ctx)
 	require.Nil(t, err)
 
 	helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
 
 	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
-
 	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
 	// description for details
 	token, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
@@ -122,7 +132,7 @@ func TestAuthnGetOwnInfoWithRBAC(t *testing.T) {
 	adminUser := "admin-user"
 
 	compose, err := docker.New().
-		WithWeaviateWithGRPC().
+		WithWeaviate().
 		WithRBAC().
 		WithApiKey().
 		WithUserApiKey(customUser, customKey).
@@ -133,7 +143,6 @@ func TestAuthnGetOwnInfoWithRBAC(t *testing.T) {
 	require.Nil(t, err)
 
 	helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
 
 	defer func() {
 		helper.DeleteRole(t, adminKey, testingRole)
@@ -185,13 +194,11 @@ func TestAuthnGetOwnInfoWithRBACAndOIDC(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
 	customUser := "custom-user"
-
 	testingRole := "testingOwnRole"
-
 	adminUser := "admin-user"
 
 	compose, err := docker.New().
-		WithWeaviateWithGRPC().
+		WithWeaviate().
 		WithRBAC().
 		WithApiKey().
 		WithRbacAdmins(adminUser).
@@ -201,10 +208,8 @@ func TestAuthnGetOwnInfoWithRBACAndOIDC(t *testing.T) {
 	require.Nil(t, err)
 
 	helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
 
 	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
-
 	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
 	// description for details
 	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)

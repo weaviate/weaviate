@@ -46,6 +46,12 @@ func (o *GetOwnInfoReader) ReadResponse(response runtime.ClientResponse, consume
 			return nil, err
 		}
 		return nil, result
+	case 404:
+		result := NewGetOwnInfoNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewGetOwnInfoInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -177,6 +183,62 @@ func (o *GetOwnInfoUnauthorized) String() string {
 }
 
 func (o *GetOwnInfoUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewGetOwnInfoNotFound creates a GetOwnInfoNotFound with default headers values
+func NewGetOwnInfoNotFound() *GetOwnInfoNotFound {
+	return &GetOwnInfoNotFound{}
+}
+
+/*
+GetOwnInfoNotFound describes a response with status code 404, with default header values.
+
+User not found
+*/
+type GetOwnInfoNotFound struct {
+}
+
+// IsSuccess returns true when this get own info not found response has a 2xx status code
+func (o *GetOwnInfoNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get own info not found response has a 3xx status code
+func (o *GetOwnInfoNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get own info not found response has a 4xx status code
+func (o *GetOwnInfoNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this get own info not found response has a 5xx status code
+func (o *GetOwnInfoNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this get own info not found response a status code equal to that given
+func (o *GetOwnInfoNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the get own info not found response
+func (o *GetOwnInfoNotFound) Code() int {
+	return 404
+}
+
+func (o *GetOwnInfoNotFound) Error() string {
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoNotFound ", 404)
+}
+
+func (o *GetOwnInfoNotFound) String() string {
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoNotFound ", 404)
+}
+
+func (o *GetOwnInfoNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }
