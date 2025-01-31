@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weaviate/weaviate/test/helper"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -35,6 +37,7 @@ func TestAuthzViewerEndpoints(t *testing.T) {
 	weaviateUrl := compose.GetWeaviate().URI()
 
 	uri := strfmt.URI("weaviate://localhost/Class/" + uuid.New().String())
+	helper.AssignRoleToUser(t, adminKey, "viewer", viewerUser)
 
 	endpoints := []struct {
 		endpoint string

@@ -214,10 +214,6 @@ func FromEnv(config *Config) error {
 			}
 		}
 
-		viewersString, ok := os.LookupEnv("AUTHORIZATION_VIEWER_USERS")
-		if ok {
-			config.Authorization.Rbac.Viewers = strings.Split(viewersString, ",")
-		}
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
