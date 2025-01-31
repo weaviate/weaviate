@@ -11,16 +11,15 @@
 
 package common
 
+// VectorsEqual verifies whether provided vectors are the same
+// It considers nil vector as equal to vector of len = 0.
 func VectorsEqual(vecA, vecB []float32) bool {
-	if len(vecA) != len(vecB) {
+	if lena, lenb := len(vecA), len(vecB); lena != lenb {
 		return false
+	} else if lena == 0 {
+		return true
 	}
-	if vecA == nil && vecB != nil {
-		return false
-	}
-	if vecA != nil && vecB == nil {
-		return false
-	}
+
 	for i := range vecA {
 		if vecA[i] != vecB[i] {
 			return false

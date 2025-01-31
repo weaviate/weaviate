@@ -181,7 +181,7 @@ func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) l
 }
 
 func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
-	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyInverted)
 
 	return bucket.MapSet(key, pair)
 }

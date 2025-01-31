@@ -34,12 +34,12 @@ func TestVectorUtil_Equal(t *testing.T) {
 		{
 			vecA:          nil,
 			vecB:          []float32{},
-			expectedEqual: false,
+			expectedEqual: true,
 		},
 		{
 			vecA:          []float32{},
 			vecB:          nil,
-			expectedEqual: false,
+			expectedEqual: true,
 		},
 		{
 			vecA:          []float32{},

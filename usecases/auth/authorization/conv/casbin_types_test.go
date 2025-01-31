@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -85,7 +86,7 @@ func Test_policy(t *testing.T) {
 		{
 			name: "all roles",
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{},
+				Roles: &models.PermissionRoles{Scope: authorization.String(authorization.ROLE_SCOPE_ALL)},
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinRoles("*"),
@@ -473,7 +474,14 @@ func Test_policy(t *testing.T) {
 
 				policy, err := policy(tt.permission)
 				require.Nil(t, err)
-				require.Equal(t, policy, tt.policy)
+				if tt.permission.Roles != nil {
+					// handle scopes
+					tt.policy.Verb = authorization.ROLE_SCOPE_MATCH
+					if tt.permission.Roles.Scope != nil {
+						tt.policy.Verb = authorization.ROLE_SCOPE_ALL
+					}
+				}
+				require.Equal(t, tt.policy, policy)
 			})
 		}
 	}
@@ -488,7 +496,7 @@ func Test_permission(t *testing.T) {
 	}{
 		{
 			name:   "all roles",
-			policy: []string{"p", "/*", "", authorization.RolesDomain},
+			policy: []string{"p", "/*", authorization.ROLE_SCOPE_ALL, authorization.RolesDomain},
 			permission: &models.Permission{
 				Roles: authorization.AllRoles,
 			},
@@ -496,9 +504,9 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a role",
-			policy: []string{"p", "/admin", "", authorization.RolesDomain},
+			policy: []string{"p", "/custom", authorization.ROLE_SCOPE_MATCH, authorization.RolesDomain},
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Role: authorization.String("admin")},
+				Roles: &models.PermissionRoles{Role: authorization.String("custom"), Scope: authorization.String(models.PermissionRolesScopeMatch)},
 			},
 			tests: rolesTests,
 		},
@@ -781,10 +789,13 @@ func Test_permission(t *testing.T) {
 		for _, ttt := range tt.tests {
 			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
 				tt.permission.Action = authorization.String(ttt.permissionAction)
-				tt.policy[2] = ttt.policyVerb
+				// TODO-RBAC : this test has to be rewritten and consider scopes
+				if tt.policy[2] != authorization.ROLE_SCOPE_MATCH {
+					tt.policy[2] = ttt.policyVerb
+				}
 				permission, err := permission(tt.policy, true)
 				require.Nil(t, err)
-				require.Equal(t, permission, tt.permission)
+				require.Equal(t, tt.permission, permission)
 			})
 		}
 	}

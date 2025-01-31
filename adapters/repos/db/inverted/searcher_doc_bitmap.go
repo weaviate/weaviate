@@ -63,6 +63,8 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 		bm, err = s.docBitmapInvertedRoaringSetRange(ctx, b, pv)
 	case lsmkv.StrategyMapCollection:
 		bm, err = s.docBitmapInvertedMap(ctx, b, limit, pv)
+	case lsmkv.StrategyInverted: // TODO amourao, check
+		bm, err = s.docBitmapInvertedMap(ctx, b, limit, pv)
 	default:
 		return docBitmap{}, fmt.Errorf("property '%s' is neither filterable nor searchable nor rangeable", pv.prop)
 	}

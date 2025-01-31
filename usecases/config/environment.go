@@ -22,9 +22,8 @@ import (
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/entities/sentry"
-
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -204,14 +203,24 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) || entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_ENABLED")) {
 		config.Authorization.Rbac.Enabled = true
 
-		adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
+		adminsString, ok := os.LookupEnv("AUTHORIZATION_ROOT_USERS")
 		if ok {
-			config.Authorization.Rbac.Admins = strings.Split(adminsString, ",")
+			config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
+		} else {
+			adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
+			if ok {
+				config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
+			}
 		}
 
-		viewersString, ok := os.LookupEnv("AUTHORIZATION_VIEWER_USERS")
+		groupString, ok := os.LookupEnv("AUTHORIZATION_ROOT_GROUPS")
 		if ok {
-			config.Authorization.Rbac.Viewers = strings.Split(viewersString, ",")
+			config.Authorization.Rbac.RootGroups = strings.Split(groupString, ",")
+		}
+
+		viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_READONLY_GROUPS")
+		if ok {
+			config.Authorization.Rbac.ViewerRootGroups = strings.Split(viewerGroupString, ",")
 		}
 	}
 
