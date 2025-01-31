@@ -1581,13 +1581,13 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, shardName string,
 ) ([]*storobj.Object, []float32, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
-		return nil, nil, err
-	}
-	if shard != nil {
-		defer release()
-	}
+		shard, release, err := i.GetShard(ctx, shardName)
+		if err != nil {
+			return nil, nil, err
+		}
+		if shard != nil {
+					defer release()
+		}
 
 	localCtx := helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
@@ -1611,13 +1611,14 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 	var outObjects []*storobj.Object
 	var outScores []float32
 
-	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
-		return nil, nil, err
-	}
-	if shard != nil {
-		defer release()
-	}
+		shard, release, err := i.GetShard(ctx, shardName)
+		if err != nil {
+			return nil, nil, err
+		}
+		if shard != nil {
+					defer release()
+		}
+
 
 	if i.Config.ForceFullReplicasSearch {
 		// Force a search on all the replicas for the shard
@@ -1701,44 +1702,49 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			return nil, nil, err
 		}
 		if shard != nil {
-			defer release()
+					defer release()
 		}
 
 		if shard != nil {
 
-			eg.Go(func() error {
+				eg.Go(func() error {
 
-				localShardResult, localShardScores, err := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
-				if err != nil {
-					return fmt.Errorf(
-						"local shard object search %s: %w", shard.ID(), err)
-				}
 
-				m.Lock()
-				out = append(out, localShardResult...)
-				dists = append(dists, localShardScores...)
-				m.Unlock()
-				return nil
-			})
+					localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps,  targetCombination, properties, shardName)
+					if err1 != nil {
+						return fmt.Errorf(
+							"local shard object search %s: %w", shard.ID(), err1)
+					}
+
+					m.Lock()
+					out = append(out, localShardResult...)
+					dists = append(dists, localShardScores...)
+					m.Unlock()
+					return nil
+				})
 
 		}
 
 		if shard == nil || i.Config.ForceFullReplicasSearch {
-
-			eg.Go(func() error {
-				// If we have no local shard or if we force the query to reach all replicas
-				remoteShardObject, remoteShardScores, err := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
-				if err != nil {
-					return fmt.Errorf(
-						"remote shard object search %s: %w", shardName, err)
-				}
-				m.Lock()
-				out = append(out, remoteShardObject...)
-				dists = append(dists, remoteShardScores...)
-				m.Unlock()
-				return nil
-			})
-
+			func(ctx context.Context, searchVectors []models.Vector,
+				targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
+				sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
+				targetCombination *dto.TargetCombination, properties []string, shardName string,
+			) {
+				eg.Go(func() error {
+					// If we have no local shard or if we force the query to reach all replicas
+					remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+					if err2 != nil {
+						return fmt.Errorf(
+							"remote shard object search %s: %w", shardName, err2)
+					}
+					m.Lock()
+					out = append(out, remoteShardObject...)
+					dists = append(dists, remoteShardScores...)
+					m.Unlock()
+					return nil
+				})
+			}(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 		}
 	}
 
