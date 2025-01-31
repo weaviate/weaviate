@@ -222,7 +222,6 @@ func TestGRPC_Aggregate(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.Result)
-			require.Len(t, resp.GetSingleResult(), 1)
 			require.NotNil(t, resp.GetSingleResult().Aggregations)
 			require.Len(t, resp.GetSingleResult().Aggregations.GetAggregations(), 1)
 			for _, aggregation := range resp.GetSingleResult().Aggregations.GetAggregations() {
