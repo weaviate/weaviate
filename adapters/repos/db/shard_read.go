@@ -152,7 +152,7 @@ func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
 	lastTokenRead = initialToken
 
 	for k, v := cursor.Seek(initialTokenBytes[:]); n < limit && k != nil && bytes.Compare(k, finalTokenBytes[:]) < 1; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+		obj, err := storobj.FromBinaryUUIDOnly(v)
 		if err != nil {
 			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %w", err)
 		}
@@ -160,6 +160,15 @@ func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
 		uuidBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
 		if err != nil {
 			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %w", err)
+		}
+
+		deleted, _, err := s.WasDeleted(ctx, obj.ID())
+		if err != nil {
+			return objs, lastTokenRead, fmt.Errorf("cannot check object status: %w", err)
+		}
+
+		if deleted {
+			continue
 		}
 
 		replicaObj := replica.RepairResponse{

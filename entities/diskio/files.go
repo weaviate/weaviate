@@ -23,3 +23,13 @@ func FileExists(file string) (bool, error) {
 	}
 	return true, nil
 }
+
+func Fsync(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	return f.Sync()
+}

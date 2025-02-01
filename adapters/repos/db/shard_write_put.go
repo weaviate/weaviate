@@ -336,8 +336,6 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 	s.hashtree.AggregateLeafWith(token, objectDigest[:])
 
-	s.objectPropagationRequired()
-
 	return nil
 }
 
@@ -425,6 +423,19 @@ func (s *Shard) determineMutableInsertStatus(previous, next *storobj.Object) (ob
 	return out, nil
 }
 
+func objectToken(uuid []byte) []byte {
+	h := murmur3.New64()
+	h.Write(uuid)
+	token := h.Sum64()
+
+	var tokenBytes [8 + 16]byte
+	// Important: token is suffixed with object uuid because only unique secondary indexes are supported
+	binary.BigEndian.PutUint64(tokenBytes[:], token)
+	copy(tokenBytes[8:], uuid)
+
+	return tokenBytes[:]
+}
+
 func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	docID uint64,
 ) error {
@@ -435,18 +446,9 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 	}
 	docIDBytes := keyBuf.Bytes()
 
-	h := murmur3.New64()
-	h.Write(id)
-	token := h.Sum64()
-
-	var tokenBytes [8 + 16]byte
-	// Important: token is suffixed with object uuid because only unique secondary indexes are supported
-	binary.BigEndian.PutUint64(tokenBytes[:], token)
-	copy(tokenBytes[8:], id)
-
 	return bucket.Put(id, data,
 		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes),
-		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMTokenRangeSecondaryIndex, tokenBytes[:]),
+		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMTokenRangeSecondaryIndex, objectToken(id)),
 	)
 }
 
