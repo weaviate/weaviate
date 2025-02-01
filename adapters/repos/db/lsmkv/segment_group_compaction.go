@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -434,7 +435,7 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 		return nil, nil, errors.Wrap(err, "drop disk segment")
 	}
 
-	err := fsync(sg.dir)
+	err := diskio.Fsync(sg.dir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 	}

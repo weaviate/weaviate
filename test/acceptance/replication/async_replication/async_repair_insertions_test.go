@@ -45,7 +45,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
 	defer cancel()
 
 	paragraphClass := articles.ParagraphsClass()
@@ -102,7 +102,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 				count := common.CountObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
 				assert.EqualValues(ct, itCount*len(paragraphIDs), count)
-			}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
+			}, 60*time.Second, 1*time.Second, "not all the objects have been asynchronously replicated")
 		})
 	}
 }

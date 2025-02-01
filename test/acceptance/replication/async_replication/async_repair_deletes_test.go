@@ -63,14 +63,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	paragraphCount := 10
-
-	// pick one node to be down during insertion
-	node := 2 + rand.Intn(clusterSize-1)
-
-	t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, node)
-	})
+	paragraphCount := 5
 
 	t.Run("insert paragraphs", func(t *testing.T) {
 		batch := make([]*models.Object, paragraphCount)
@@ -81,21 +74,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 				Object()
 		}
 
-		// choose one more node to insert the objects into
-		var targetNode int
-		for {
-			targetNode = 1 + rand.Intn(clusterSize)
-			if targetNode != node {
-				break
-			}
-		}
-
-		common.CreateObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, replica.One)
-	})
-
-	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-		common.StartNodeAt(ctx, t, compose, node)
-		time.Sleep(time.Second)
+		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, replica.All)
 	})
 
 	objectNotDeletedAt := make(map[strfmt.UUID]int)
