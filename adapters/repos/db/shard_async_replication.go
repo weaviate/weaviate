@@ -45,7 +45,6 @@ const maxHashtreeHeight = 20
 const (
 	defaultHashtreeHeight              = 16
 	defaultFrequency                   = 5 * time.Second
-	defaultFrequencyWhilePropagating   = 10 * time.Millisecond
 	defaultAliveNodesCheckingFrequency = 1 * time.Second
 	defaultLoggingFrequency            = 3 * time.Second
 	defaultDiffPerNodeTimeout          = 10 * time.Second
@@ -57,7 +56,6 @@ const (
 type asyncReplicationConfig struct {
 	hashtreeHeight              int
 	frequency                   time.Duration
-	frequencyWhilePropagating   time.Duration
 	aliveNodesCheckingFrequency time.Duration
 	loggingFrequency            time.Duration
 	diffPerNodeTimeout          time.Duration
@@ -77,11 +75,6 @@ func (s *Shard) asyncReplicationConfig() (config asyncReplicationConfig, err err
 	}
 
 	config.frequency, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY"), defaultFrequency)
-	if err != nil {
-		return
-	}
-
-	config.frequencyWhilePropagating, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING"), defaultFrequencyWhilePropagating)
 	if err != nil {
 		return
 	}
@@ -441,7 +434,6 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 	propagationRequired := make(chan struct{})
 
 	var lastHashbeat time.Time
-	var lastHashbeatPropagatedObjects bool
 	var lastHashbeatMux sync.Mutex
 
 	enterrors.GoWrapper(func() {
@@ -489,7 +481,6 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 						backoffTimer.Reset()
 						lastHashbeatMux.Lock()
 						lastHashbeat = time.Now()
-						lastHashbeatPropagatedObjects = false
 						lastHashbeatMux.Unlock()
 						continue
 					}
@@ -508,7 +499,6 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 					backoffTimer.IncreaseInterval()
 					lastHashbeatMux.Lock()
 					lastHashbeat = time.Now()
-					lastHashbeatPropagatedObjects = false
 					lastHashbeatMux.Unlock()
 					continue
 				}
@@ -532,14 +522,13 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				backoffTimer.Reset()
 				lastHashbeatMux.Lock()
 				lastHashbeat = time.Now()
-				lastHashbeatPropagatedObjects = stats.objectsPropagated > 0
 				lastHashbeatMux.Unlock()
 			}
 		}
 	}, s.index.logger)
 
 	enterrors.GoWrapper(func() {
-		ft := time.NewTicker(10 * time.Millisecond)
+		ft := time.NewTicker(config.frequency)
 		defer ft.Stop()
 
 		nt := time.NewTicker(config.aliveNodesCheckingFrequency)
@@ -562,8 +551,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 			case <-ft.C:
 				var shouldHashbeat bool
 				lastHashbeatMux.Lock()
-				shouldHashbeat = (lastHashbeatPropagatedObjects && time.Since(lastHashbeat) >= config.frequencyWhilePropagating) ||
-					time.Since(lastHashbeat) >= config.frequency
+				shouldHashbeat = time.Since(lastHashbeat) >= config.frequency
 				lastHashbeatMux.Unlock()
 
 				if shouldHashbeat {
