@@ -374,10 +374,13 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 			return nil, fmt.Errorf("index %s not found", target)
 		}
 		var distancer common.QueryVectorDistancer
-		if index.Multivector() {
-			distancer = index.QueryMultiVectorDistancer(searchVectors[j].([][]float32))
-		} else {
-			distancer = index.QueryVectorDistancer(searchVectors[j].([]float32))
+		switch v := searchVectors[j].(type) {
+		case []float32:
+			distancer = index.QueryVectorDistancer(v)
+		case [][]float32:
+			distancer = index.QueryMultiVectorDistancer(v)
+		default:
+			return nil, fmt.Errorf("unsupported vector type: %T", v)
 		}
 		dist, err := distancer.DistanceToNode(docId)
 		if err != nil {
