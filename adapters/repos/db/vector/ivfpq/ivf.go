@@ -147,7 +147,7 @@ func (ivf *IvfPQ) Add(id uint64, vector []float32) {
 
 func (ivf *IvfPQ) SearchByVector(ctx context.Context, searchVec []float32, k int) ([]uint64, []float32, error) {
 	codes, dists := ivf.pq.SortCodes(searchVec)
-	factor := 1000
+	factor := 5000
 	compressedK := 13
 	heap := priorityqueue.NewMax[byte](k * factor)
 	ivf.invertedIndex.search(codes, dists, k*factor, heap, 0)
