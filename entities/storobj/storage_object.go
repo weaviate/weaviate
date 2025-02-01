@@ -56,8 +56,6 @@ type Object struct {
 	IsConsistent      bool          `json:"-"`
 	DocID             uint64
 	Vectors           map[string][]float32 `json:"vectors"`
-	// NOTE See "v1.28 WARNING for multivectors" below
-	// MultiVectors      map[string][][]float32 `json:"multivectors"`
 }
 
 func New(docID uint64) *Object {
@@ -87,28 +85,12 @@ func FromObject(object *models.Object, vector []float32, vectors models.Vectors)
 		}
 	}
 
-	// NOTE See "v1.28 WARNING for multivectors" below
-	// var multiVectors map[string][][]float32
-	// var multiVectorCount int
-	// if multivectors != nil {
-
-	// 	multiVectors = make(map[string][][]float32)
-	// 	for targetVector, vectors := range multivectors {
-	// 		multiVectors[targetVector] = vectors
-	// 		for _, vector := range vectors {
-	// 			multiVectorCount += len(vector)
-	// 		}
-	// 	}
-	// }
-
 	return &Object{
 		Object:            *object,
 		Vector:            vector,
 		MarshallerVersion: 1,
 		VectorLen:         len(vector),
 		Vectors:           vecs,
-		// NOTE See "v1.28 WARNING for multivectors" below
-		// MultiVectors:      multiVectors,
 	}
 }
 
@@ -231,22 +213,6 @@ func FromBinaryOptional(data []byte,
 			rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
 		}
 	}
-
-	// NOTE See "v1.28 WARNING for multivectors" below
-	// if rw.Position < uint64(len(rw.Buffer)) {
-	// 	multiVectorsLength := rw.ReadUint32()
-	// 	if len(addProp.MultiVectors) > 0 {
-	// 		if multiVectorsLength > 0 {
-	// 			multivectors, err := rw.CopyBytesFromBuffer(uint64(multiVectorsLength), nil)
-	// 			if err != nil {
-	// 				return nil, errors.Wrap(err, "Could not copy multivectors")
-	// 			}
-	// 			if err := msgpack.Unmarshal(multivectors, &ko.MultiVectors); err != nil {
-	// 				return nil, errors.Wrap(err, "Could not unmarshal multivectors")
-	// 			}
-	// 		}
-	// 	}
-	// }
 
 	// some object members need additional "enrichment". Only do this if necessary, ie if they are actually present
 	if len(props) > 0 ||
@@ -696,16 +662,6 @@ func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err erro
 // n             | []byte                   | packed target vectors offsets map { name : offset_in_bytes }
 // 4             | uint32                   | length of target vectors segment (in bytes)
 // n             | uint16+[]byte            | target vectors segment: sequence of vec_length + vec (uint16 + []byte), (uint16 + []byte) ...
-// 4             | uint32                   | dimension count of multivectors
-// "v1.28 WARNING for multivectors": multivector code was added to v1.28 but was not user facing or fully
-// supported/implemented, thus any multivector data found in v1.28 for objects must have been created in
-// v1.29+ and then the instance was rolled back to v1.28. We don't actually load the multivector data in v1.28,
-// but have the code commented out throughout this file to make it clear that that multivector data is discarded
-// and make future diffs easier to understand/review.
-// 4             | uint32                   | length of packed multivector offsets (in bytes)
-// n             | []byte                   | packed multivector offsets map { name : offset_in_bytes }
-// 4             | uint32                   | length of multivectors segment (in bytes)
-// 4 + (2 + n*4) | uint32 + (uint16+[]byte) | multivectors segment: num vecs + (vec length + vec floats), ...
 
 const (
 	maxVectorLength               int = math.MaxUint16
@@ -807,18 +763,6 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
 	}
 
-	// NOTE See "v1.28 WARNING for multivectors" above
-	// var multiVectorsPacked []byte
-	// if len(ko.MultiVectors) > 0 {
-	// 	multiVectorsPacked, err = msgpack.Marshal(ko.MultiVectors)
-	// 	if err != nil {
-	// 		return nil, fmt.Errorf("could not marshal multivectors: %w", err)
-	// 	}
-	// 	if len(multiVectorsPacked) > maxTargetVectorsSegmentLength {
-	// 		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "multivectors", len(multiVectorsPacked), maxTargetVectorsSegmentLength)
-	// 	}
-	// }
-
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 +
 		2 + vectorLength*4 +
 		2 + classNameLength +
@@ -827,8 +771,6 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		4 + vectorWeightsLength +
 		4 + targetVectorsOffsetsLength +
 		4 + uint32(targetVectorsSegmentLength)
-	// NOTE See "v1.28 WARNING for multivectors" above
-	// 8 + uint32(len(multiVectorsPacked)) // multivectors
 
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
@@ -888,22 +830,6 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 			rw.WriteUint32(math.Float32bits(vec[j]))
 		}
 	}
-
-	// NOTE See "v1.28 WARNING for multivectors" above
-	// var multivectorsLength uint32
-	// for _, vectors := range ko.MultiVectors {
-	// 	for _, vec := range vectors {
-	// 		multivectorsLength = multivectorsLength + uint32(len(vec))
-	// 	}
-	// }
-
-	// rw.WriteUint32(uint32(len(multiVectorsPacked)))
-	// if len(multiVectorsPacked) > 0 {
-	// 	err = rw.CopyBytesToBuffer(multiVectorsPacked)
-	// 	if err != nil {
-	// 		return byteBuffer, errors.Wrap(err, "Could not copy multivectors")
-	// 	}
-	// }
 
 	return byteBuffer, nil
 }
@@ -1095,20 +1021,6 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		return err
 	}
 	ko.Vectors = vectors
-
-	// NOTE See "v1.28 WARNING for multivectors" above
-	// if rw.Position < uint64(len(rw.Buffer)) {
-	// 	multivectorsLength := rw.ReadUint32()
-	// 	if multivectorsLength > 0 {
-	// 		multivectors, err := rw.CopyBytesFromBuffer(uint64(multivectorsLength), nil)
-	// 		if err != nil {
-	// 			return errors.Wrap(err, "Could not copy multivectors")
-	// 		}
-	// 		if err := msgpack.Unmarshal(multivectors, &ko.MultiVectors); err != nil {
-	// 			return errors.Wrap(err, "Could not unmarshal multivectors")
-	// 		}
-	// 	}
-	// }
 
 	return ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
