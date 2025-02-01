@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -232,7 +233,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
-			err = fsync(sg.dir)
+			err = diskio.Fsync(sg.dir)
 			if err != nil {
 				return nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 			}

@@ -197,9 +197,6 @@ type Shard struct {
 	hashtreeFullyInitialized   bool
 	asyncReplicationCancelFunc context.CancelFunc
 
-	objectPropagationNeededCond *sync.Cond
-	objectPropagationNeeded     bool
-
 	lastComparedHosts    []string
 	lastComparedHostsMux sync.RWMutex
 	//
