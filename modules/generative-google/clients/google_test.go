@@ -35,6 +35,7 @@ func nullLogger() logrus.FieldLogger {
 
 func TestGetAnswer(t *testing.T) {
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
+		prompt := "John"
 		handler := &testAnswerHandler{
 			t: t,
 			answer: generateResponse{
@@ -42,7 +43,7 @@ func TestGetAnswer(t *testing.T) {
 					{
 						Candidates: []candidate{
 							{
-								Content: "John",
+								Content: &prompt,
 							},
 						},
 					},

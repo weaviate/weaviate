@@ -56,7 +56,7 @@ func (a *anthropic) GenerateSingleResult(ctx context.Context, textProperties map
 	if err != nil {
 		return nil, err
 	}
-	return a.Generate(ctx, cfg, forPrompt, options, debug)
+	return a.generate(ctx, cfg, forPrompt, textProperties, options, debug)
 }
 
 func (a *anthropic) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
@@ -64,11 +64,11 @@ func (a *anthropic) GenerateAllResults(ctx context.Context, textProperties []map
 	if err != nil {
 		return nil, err
 	}
-	return a.Generate(ctx, cfg, forTask, options, debug)
+	return a.generate(ctx, cfg, forTask, nil, options, debug)
 }
 
-func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	params := a.getParameters(cfg, options)
+func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, textProperties map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := a.getParameters(cfg, options, textProperties)
 	debugInformation := a.getDebugInformation(debug, prompt)
 
 	anthropicURL, err := a.getAnthropicURL(ctx, params.BaseURL)
@@ -76,11 +76,37 @@ func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 		return nil, errors.Wrap(err, "get anthropic url")
 	}
 
+	var content interface{}
+	if len(params.Images) > 0 {
+		var promptWithImage contentImageInput
+		for i := range params.Images {
+			promptWithImage = append(promptWithImage, contentText{
+				Type: "text",
+				Text: fmt.Sprintf("Image %d:", i+1),
+			})
+			promptWithImage = append(promptWithImage, contentImage{
+				Type: "image",
+				Source: contentSource{
+					Type:      "base64",
+					MediaType: "image/jpeg",
+					Data:      params.Images[i],
+				},
+			})
+		}
+		promptWithImage = append(promptWithImage, contentText{
+			Type: "text",
+			Text: prompt,
+		})
+		content = promptWithImage
+	} else {
+		content = prompt
+	}
+
 	input := generateInput{
 		Messages: []message{
 			{
 				Role:    "user",
-				Content: prompt,
+				Content: content,
 			},
 		},
 		Model:         params.Model,
@@ -141,7 +167,7 @@ func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 	}, nil
 }
 
-func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface{}) anthropicparams.Params {
+func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface{}, textProperties map[string]string) anthropicparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params anthropicparams.Params
@@ -174,6 +200,19 @@ func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface
 		maxTokens := settings.GetMaxTokensForModel(params.Model)
 		params.MaxTokens = &maxTokens
 	}
+
+	if len(params.Images) > 0 && len(textProperties) > 0 {
+		images := make([]string, len(params.Images))
+		for i, imageProperty := range params.Images {
+			if image, ok := textProperties[imageProperty]; ok {
+				images[i] = image
+			} else {
+				images[i] = imageProperty
+			}
+		}
+		params.Images = images
+	}
+
 	return params
 }
 
@@ -265,8 +304,26 @@ type generateInput struct {
 }
 
 type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"`
+}
+
+type contentImageInput []interface{}
+
+type contentText struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type contentImage struct {
+	Type   string        `json:"type"`
+	Source contentSource `json:"source"`
+}
+
+type contentSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 type generateResponse struct {
