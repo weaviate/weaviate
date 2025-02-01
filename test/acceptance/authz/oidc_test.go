@@ -13,9 +13,16 @@ package authz
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"errors"
+	"fmt"
+	"net"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/oauth2-proxy/mockoidc"
 
 	"github.com/stretchr/testify/require"
 	clschema "github.com/weaviate/weaviate/client/schema"
@@ -100,5 +107,116 @@ func TestRbacWithOIDC(t *testing.T) {
 			// assign role to non-existing user => no error (if OIDC is enabled)
 			helper.AssignRoleToUser(t, tokenAdmin, createSchemaRoleName, "i-dont-exist")
 		})
+	}
+}
+
+func TestRbacWithOIDCGroups(t *testing.T) {
+	var err error
+	ctx := context.Background()
+
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
+
+	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+	// description for details
+	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+	tokenCustom, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+
+	// prepare roles to assign later
+	className := strings.Replace(t.Name(), "/", "", 1) + "Class"
+	readSchemaAction := authorization.ReadCollections
+	createSchemaAction := authorization.CreateCollections
+	createSchemaRoleName := "createSchema"
+	createSchemaRole := &models.Role{
+		Name: &createSchemaRoleName,
+		Permissions: []*models.Permission{
+			{Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &className}},
+			{Action: &createSchemaAction, Collections: &models.PermissionCollections{Collection: &className}},
+		},
+	}
+	helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
+	helper.CreateRole(t, tokenAdmin, createSchemaRole)
+	defer helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
+	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
+
+	// custom-user does not have any roles/permissions
+	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+	require.Error(t, err)
+	var forbidden *clschema.SchemaObjectsCreateForbidden
+	require.True(t, errors.As(err, &forbidden))
+
+	// assigning role to group and now user has permission
+	helper.AssignRoleToGroup(t, tokenAdmin, createSchemaRoleName, "custom-group")
+	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+	require.NoError(t, err)
+
+	// delete class to test again after revocation
+	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
+	helper.RevokeRoleFromGroup(t, tokenAdmin, createSchemaRoleName, "custom-group")
+	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+	require.Error(t, err)
+}
+
+func TestRbacWithOIDCRootGroups(t *testing.T) {
+	var err error
+	ctx := context.Background()
+
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").WithRbacRootGroups("custom-group").Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
+
+	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+	// description for details
+	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+	tokenCustom, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+
+	className := strings.Replace(t.Name(), "/", "", 1) + "Class"
+	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
+
+	// custom user can create collection without any extra roles, because of membership in root group
+	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+	require.NoError(t, err)
+}
+
+const AuthCode = "auth"
+
+// This test starts an oidc mock server with the same settings as the containerized one. Helpful if you want to know
+// why a OIDC request fails
+func TestRbacWithOIDCManual(t *testing.T) {
+	t.Skip("This is for testing/debugging only")
+	rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	m, _ := mockoidc.NewServer(rsaKey)
+	ln, _ := net.Listen("tcp", "127.0.0.1:48001")
+	m.Start(ln, nil)
+	defer m.Shutdown()
+	m.ClientSecret = "Secret"
+	m.ClientID = "mock-oidc-test"
+
+	admin := &mockoidc.MockUser{Subject: "admin-user"}
+	m.QueueUser(admin)
+	m.QueueCode(AuthCode)
+
+	custom := &mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}}
+	m.QueueUser(custom)
+	m.QueueCode(AuthCode)
+
+	// this should just run until we are done with testing
+	for {
+		fmt.Println(m.Issuer())
+		fmt.Println(m.TokenEndpoint())
+		time.Sleep(time.Second)
 	}
 }

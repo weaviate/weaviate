@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -255,6 +256,7 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 		params        authz.AssignRoleToGroupParams
 		principal     *models.Principal
 		expectedError string
+		callAuthZ     bool
 	}
 
 	tests := []testCase{
@@ -291,6 +293,10 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
+			if tt.callAuthZ {
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			}
+
 			res := h.assignRoleToGroup(tt.params, tt.principal)
 			parsed, ok := res.(*authz.AssignRoleToGroupBadRequest)
 			assert.True(t, ok)
@@ -309,6 +315,7 @@ func TestAssignRoleToUserForbidden(t *testing.T) {
 		principal     *models.Principal
 		authorizeErr  error
 		expectedError string
+		skipAuthZ     bool
 	}
 
 	tests := []testCase{
@@ -324,6 +331,16 @@ func TestAssignRoleToUserForbidden(t *testing.T) {
 			authorizeErr:  fmt.Errorf("authorization error"),
 			expectedError: "authorization error",
 		},
+		{
+			name: "root role",
+			params: authz.AssignRoleToUserParams{
+				ID:   "someuser",
+				Body: authz.AssignRoleToUserBody{Roles: []string{"root"}},
+			},
+			skipAuthZ:     true,
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "assigning: modifying 'root' role or changing its assignments is not allowed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -332,12 +349,17 @@ func TestAssignRoleToUserForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+			if !tt.skipAuthZ {
+				authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+			}
 
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
+				rbacconfig: rbacconf.Config{
+					RootUsers: []string{"root-user"},
+				},
 			}
 			res := h.assignRoleToUser(tt.params, tt.principal)
 			parsed, ok := res.(*authz.AssignRoleToUserForbidden)
@@ -372,6 +394,24 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 			authorizeErr:  fmt.Errorf("authorization error"),
 			expectedError: "authorization error",
 		},
+		{
+			name: "root group",
+			params: authz.AssignRoleToGroupParams{
+				ID:   "root-group",
+				Body: authz.AssignRoleToGroupBody{Roles: []string{"some-role"}},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "assigning: cannot assign or revoke from root group root-group",
+		},
+		{
+			name: "viewer root group",
+			params: authz.AssignRoleToGroupParams{
+				ID:   "viewer-root-group",
+				Body: authz.AssignRoleToGroupBody{Roles: []string{"some-role"}},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "assigning: cannot assign or revoke from root group viewer-root-group",
+		},
 	}
 
 	for _, tt := range tests {
@@ -386,6 +426,11 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
+				rbacconfig: rbacconf.Config{
+					RootUsers:        []string{"root-user"},
+					RootGroups:       []string{"root-group"},
+					ViewerRootGroups: []string{"viewer-root-group"},
+				},
 			}
 			res := h.assignRoleToGroup(tt.params, tt.principal)
 			parsed, ok := res.(*authz.AssignRoleToGroupForbidden)

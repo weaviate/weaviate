@@ -103,17 +103,16 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 		return nil, fmt.Errorf("aggregate: %w", err)
 	}
 
-	replier := NewAggregateReplier()
-
-	result, err := replier.Aggregate(res)
+	replier := NewAggregateReplier(
+		s.classGetterWithAuthzFunc(principal),
+		params,
+	)
+	reply, err := replier.Aggregate(res, params.GroupBy != nil)
 	if err != nil {
 		return nil, fmt.Errorf("prepare reply: %w", err)
 	}
 
-	reply := &pb.AggregateReply{
-		Took:   float32(time.Since(before).Seconds()),
-		Result: result,
-	}
+	reply.Took = float32(time.Since(before).Seconds())
 	return reply, nil
 }
 

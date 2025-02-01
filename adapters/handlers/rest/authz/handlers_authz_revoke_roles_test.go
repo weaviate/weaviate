@@ -168,8 +168,6 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 		expectedError string
 		existedRoles  map[string][]authorization.Policy
 		callAuthZ     bool
-		admins        []string
-		viewers       []string
 	}
 
 	tests := []testCase{
@@ -184,32 +182,6 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "one or more of the roles you want to revoke is empty",
 			existedRoles:  map[string][]authorization.Policy{},
-		},
-		{
-			name: "revoke configured admin role",
-			params: authz.RevokeRoleFromUserParams{
-				ID: "testUser",
-				Body: authz.RevokeRoleFromUserBody{
-					Roles: []string{"admin"},
-				},
-			},
-			callAuthZ:     true,
-			admins:        []string{"testUser"},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not revoke configured role admin",
-		},
-		{
-			name: "revoke configured viewer role",
-			params: authz.RevokeRoleFromUserParams{
-				ID: "testUser",
-				Body: authz.RevokeRoleFromUserBody{
-					Roles: []string{"viewer"},
-				},
-			},
-			callAuthZ:     true,
-			viewers:       []string{"testUser"},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not revoke configured role viewer",
 		},
 	}
 
@@ -226,11 +198,7 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
-				rbacconfig: rbacconf.Config{
-					Admins:  tt.admins,
-					Viewers: tt.viewers,
-				},
-				logger: logger,
+				logger:     logger,
 			}
 			res := h.revokeRoleFromUser(tt.params, tt.principal)
 			parsed, ok := res.(*authz.RevokeRoleFromUserBadRequest)
@@ -251,8 +219,6 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 		expectedError string
 		existedRoles  map[string][]authorization.Policy
 		callAuthZ     bool
-		admins        []string
-		viewers       []string
 	}
 
 	tests := []testCase{
@@ -267,32 +233,6 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "one or more of the roles you want to revoke is empty",
 			existedRoles:  map[string][]authorization.Policy{},
-		},
-		{
-			name: "revoke configured admin role",
-			params: authz.RevokeRoleFromGroupParams{
-				ID: "testUser",
-				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"admin"},
-				},
-			},
-			callAuthZ:     true,
-			admins:        []string{"testUser"},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not revoke configured role admin",
-		},
-		{
-			name: "revoke configured viewer role",
-			params: authz.RevokeRoleFromGroupParams{
-				ID: "testUser",
-				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"viewer"},
-				},
-			},
-			callAuthZ:     true,
-			viewers:       []string{"testUser"},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not revoke configured role viewer",
 		},
 	}
 
@@ -309,11 +249,7 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
-				rbacconfig: rbacconf.Config{
-					Admins:  tt.admins,
-					Viewers: tt.viewers,
-				},
-				logger: logger,
+				logger:     logger,
 			}
 			res := h.revokeRoleFromGroup(tt.params, tt.principal)
 			parsed, ok := res.(*authz.RevokeRoleFromGroupBadRequest)
@@ -447,6 +383,7 @@ func TestRevokeRoleFromUserForbidden(t *testing.T) {
 		principal     *models.Principal
 		authorizeErr  error
 		expectedError string
+		skipAuthZ     bool
 	}
 
 	tests := []testCase{
@@ -462,6 +399,18 @@ func TestRevokeRoleFromUserForbidden(t *testing.T) {
 			authorizeErr:  fmt.Errorf("authorization error"),
 			expectedError: "authorization error",
 		},
+		{
+			name: "revoke configured root role",
+			params: authz.RevokeRoleFromUserParams{
+				ID: "root-user",
+				Body: authz.RevokeRoleFromUserBody{
+					Roles: []string{"root"},
+				},
+			},
+			skipAuthZ:     true,
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "revoking: modifying 'root' role or changing its assignments is not allowed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -470,12 +419,17 @@ func TestRevokeRoleFromUserForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+			if !tt.skipAuthZ {
+				authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+			}
 
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
+				rbacconfig: rbacconf.Config{
+					RootUsers: []string{"root-user"},
+				},
 			}
 			res := h.revokeRoleFromUser(tt.params, tt.principal)
 			parsed, ok := res.(*authz.RevokeRoleFromUserForbidden)
@@ -495,6 +449,7 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 		principal     *models.Principal
 		authorizeErr  error
 		expectedError string
+		skipAuthZ     bool
 	}
 
 	tests := []testCase{
@@ -510,6 +465,40 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 			authorizeErr:  fmt.Errorf("authorization error"),
 			expectedError: "authorization error",
 		},
+		{
+			name: "revoke role from root group",
+			params: authz.RevokeRoleFromGroupParams{
+				ID: "root-group",
+				Body: authz.RevokeRoleFromGroupBody{
+					Roles: []string{"something"},
+				},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "revoking: cannot assign or revoke from root group",
+		},
+		{
+			name: "revoke role from root group",
+			params: authz.RevokeRoleFromGroupParams{
+				ID: "viewer-root-group",
+				Body: authz.RevokeRoleFromGroupBody{
+					Roles: []string{"something"},
+				},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "revoking: cannot assign or revoke from root group",
+		},
+		{
+			name: "revoke configured root role",
+			params: authz.RevokeRoleFromGroupParams{
+				ID: "testUser",
+				Body: authz.RevokeRoleFromGroupBody{
+					Roles: []string{"root"},
+				},
+			},
+			skipAuthZ:     true,
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "revoking: modifying 'root' role or changing its assignments is not allowed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -518,12 +507,18 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+			if !tt.skipAuthZ {
+				authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+			}
 
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
+				rbacconfig: rbacconf.Config{
+					RootGroups:       []string{"root-group"},
+					ViewerRootGroups: []string{"viewer-root-group"},
+				},
 			}
 			res := h.revokeRoleFromGroup(tt.params, tt.principal)
 			parsed, ok := res.(*authz.RevokeRoleFromGroupForbidden)

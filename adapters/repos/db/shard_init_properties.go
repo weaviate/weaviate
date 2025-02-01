@@ -123,8 +123,9 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasSearchableIndex(prop) {
-		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
-		if s.versioner.Version() < 2 {
+		strategy := lsmkv.DefaultSearchableStrategy()
+		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(strategy))
+		if strategy == lsmkv.StrategyMapCollection && s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 

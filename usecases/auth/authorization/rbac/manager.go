@@ -225,6 +225,9 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 		"component":      authorization.ComponentName,
 		"request_action": verb,
 	})
+	if len(principal.Groups) > 0 {
+		logger.WithFields(logrus.Fields{"groups": principal.Groups})
+	}
 
 	for _, resource := range resources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
