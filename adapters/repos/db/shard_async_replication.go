@@ -558,6 +558,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 
 				if !slices.Equal(comparedHosts, aliveHosts) {
 					propagationRequired <- struct{}{}
+					s.setLastComparedNodes(aliveHosts)
 				}
 			case <-ft.C:
 				var shouldHashbeat bool
@@ -615,10 +616,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 
 	diffCalculationStart := time.Now()
 
-	aliveHosts := s.allAliveHostnames()
-	s.setLastComparedNodes(aliveHosts)
-
-	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, aliveHosts, ht, config.diffPerNodeTimeout)
+	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("collecting differences: %w", err)
 	}

@@ -348,6 +348,9 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
+	if s == nil {
+		return nil, fmt.Errorf("shard %q not found locally", shard)
+	}
 	defer release()
 
 	var result []replica.RepairResponse
@@ -538,6 +541,9 @@ func (i *Index) DigestObjectsInTokenRange(ctx context.Context,
 	if err != nil {
 		return nil, 0, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
+	if shard == nil {
+		return nil, 0, nil
+	}
 
 	defer release()
 
@@ -623,7 +629,9 @@ func (i *Index) FetchObjects(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
-
+	if shard == nil {
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
 	defer release()
 
 	if shard.GetStatus() == storagestate.StatusLoading {

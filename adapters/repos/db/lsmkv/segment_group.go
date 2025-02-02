@@ -453,6 +453,11 @@ func (sg *SegmentGroup) getErrDeleted(key []byte) ([]byte, error) {
 	return sg.getWithUpperSegmentBoundaryErrDeleted(key, len(sg.segments)-1)
 }
 
+// TODO: this method may be removed once secondary keys are included when objects are deleted
+func (sg *SegmentGroup) unsafeGetErrDeleted(key []byte) ([]byte, error) {
+	return sg.getWithUpperSegmentBoundaryErrDeleted(key, len(sg.segments)-1)
+}
+
 func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, topMostSegment int) ([]byte, error) {
 	// assumes "replace" strategy
 
