@@ -5617,8 +5617,7 @@ func init() {
             "read_collections",
             "update_collections",
             "delete_collections",
-            "read_users",
-            "update_users",
+            "assign_and_revoke_users",
             "create_tenants",
             "read_tenants",
             "update_tenants",
@@ -5725,10 +5724,15 @@ func init() {
           }
         },
         "users": {
-          "description": "resources applicable for tenant actions",
+          "description": "resources applicable for user actions",
           "type": "object",
           "properties": {
-            "users_and_groups": {
+            "groups": {
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "users": {
               "description": "string or regex. if a specific name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
@@ -12518,8 +12522,7 @@ func init() {
             "read_collections",
             "update_collections",
             "delete_collections",
-            "read_users",
-            "update_users",
+            "assign_and_revoke_users",
             "create_tenants",
             "read_tenants",
             "update_tenants",
@@ -12626,10 +12629,15 @@ func init() {
           }
         },
         "users": {
-          "description": "resources applicable for tenant actions",
+          "description": "resources applicable for user actions",
           "type": "object",
           "properties": {
-            "users_and_groups": {
+            "groups": {
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "users": {
               "description": "string or regex. if a specific name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
@@ -12738,10 +12746,15 @@ func init() {
       }
     },
     "PermissionUsers": {
-      "description": "resources applicable for tenant actions",
+      "description": "resources applicable for user actions",
       "type": "object",
       "properties": {
-        "users_and_groups": {
+        "groups": {
+          "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "users": {
           "description": "string or regex. if a specific name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"

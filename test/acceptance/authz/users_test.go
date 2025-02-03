@@ -107,7 +107,7 @@ func TestUserPermissions(t *testing.T) {
 	defer down()
 
 	// create roles for later
-	updateUserAction := authorization.UpdateUsers
+	assignUserAction := authorization.AssignAndRevokeUsers
 	readCollectionAction := authorization.ReadCollections
 	readRolesAction := authorization.ReadRoles
 
@@ -119,8 +119,8 @@ func TestUserPermissions(t *testing.T) {
 	userUpdateRole := &models.Role{
 		Name: &roleNameUpdate,
 		Permissions: []*models.Permission{{
-			Action: &updateUserAction,
-			Users:  &models.PermissionUsers{UsersAndGroups: &all},
+			Action: &assignUserAction,
+			Users:  &models.PermissionUsers{Users: &all},
 		}},
 	}
 	roleReadRole := &models.Role{
@@ -134,7 +134,7 @@ func TestUserPermissions(t *testing.T) {
 		Name: &otherRoleName,
 		Permissions: []*models.Permission{{
 			Action: &readCollectionAction,
-			Users:  &models.PermissionUsers{UsersAndGroups: &all},
+			Users:  &models.PermissionUsers{Users: &all},
 		}},
 	}
 	helper.DeleteRole(t, adminKey, roleNameUpdate)

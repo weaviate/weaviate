@@ -32,7 +32,7 @@ const (
 
 	// CRUD allow all actions on a resource
 	// this is internal for casbin to handle admin actions
-	CRUD = "(C)|(R)|(U)|(D)"
+	CRUD = "(C)|(R)|(U)|(D)|(A)"
 	// CRU allow all actions on a resource except DELETE
 	// this is internal for casbin to handle editor actions
 	CRU = "(C)|(R)|(U)"
@@ -47,13 +47,14 @@ var (
 		authorization.Root:   CRUD,
 	}
 	weaviate_actions_prefixes = map[string]string{
-		CRUD:                           "manage",
-		CRU:                            "manage",
-		authorization.ROLE_SCOPE_MATCH: "manage",
-		authorization.CREATE:           "create",
-		authorization.READ:             "read",
-		authorization.UPDATE:           "update",
-		authorization.DELETE:           "delete",
+		CRUD:                            "manage",
+		CRU:                             "manage",
+		authorization.ROLE_SCOPE_MATCH:  "manage",
+		authorization.CREATE:            "create",
+		authorization.READ:              "read",
+		authorization.UPDATE:            "update",
+		authorization.DELETE:            "delete",
+		authorization.ASSIGN_AND_REVOKE: "assign",
 	}
 )
 
@@ -159,11 +160,12 @@ func CasbinData(collection, shard, object string) string {
 }
 
 func extractFromExtAction(inputAction string) (string, string, error) {
-	action, domain, found := strings.Cut(inputAction, "_")
-	if !found {
+	splits := strings.Split(inputAction, "_")
+	if len(splits) < 2 {
 		return "", "", fmt.Errorf("invalid action: %s", inputAction)
 	}
-	verb := strings.ToUpper(action[:1])
+	domain := splits[len(splits)-1]
+	verb := strings.ToUpper(splits[0][:1])
 	if verb == "M" {
 		verb = CRUD
 	}
@@ -201,8 +203,10 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	var resource string
 	switch domain {
 	case authorization.UsersDomain:
-		// do nothing TODO-RBAC: to be handled when dynamic users management gets added
 		user := "*"
+		if permission.Users != nil && permission.Users.Users != nil {
+			user = *permission.Users.Users
+		}
 		resource = CasbinUsers(user)
 	case authorization.RolesDomain:
 		role := "*"
@@ -411,7 +415,7 @@ func validResource(input string) bool {
 }
 
 func validVerb(input string) bool {
-	return regexp.MustCompile(CRUD).MatchString(input)
+	return regexp.MustCompile(CRUD).MatchString(input) || input == "A"
 }
 
 func PrefixRoleName(name string) string {

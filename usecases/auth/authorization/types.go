@@ -32,7 +32,9 @@ const (
 	// DELETE Represents the action to delete a resource.
 	DELETE = "D"
 
-	ROLE_SCOPE_ALL   = "(C)|(R)|(U)|(D)"
+	ASSIGN_AND_REVOKE = "A"
+
+	ROLE_SCOPE_ALL   = "(C)|(R)|(U)|(D)|(A)"
 	ROLE_SCOPE_MATCH = "MATCH"
 )
 
@@ -85,10 +87,7 @@ var (
 	ReadCluster = "read_cluster"
 	ReadNodes   = "read_nodes"
 
-	CreateUsers = "create_users"
-	ReadUsers   = "read_users"
-	UpdateUsers = "update_users"
-	DeleteUsers = "delete_users"
+	AssignAndRevokeUsers = "assign_and_revoke_users"
 
 	ManageBackups = "manage_backups"
 
@@ -116,10 +115,7 @@ var (
 		ManageBackups,
 
 		// Users domain
-		CreateUsers,
-		ReadUsers,
-		UpdateUsers,
-		DeleteUsers,
+		AssignAndRevokeUsers,
 
 		// Cluster domain
 		ReadCluster,
