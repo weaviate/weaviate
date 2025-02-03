@@ -1,4 +1,3 @@
-version: '3.4'
 services:
   weaviate-auth:
     image: weaviate/test-server
@@ -31,6 +30,3 @@ services:
       AUTHENTICATION_APIKEY_USERS: 'viewer-user,editor-user,admin-user,custom-user'
       AUTHORIZATION_RBAC_ENABLED: "true"
       AUTHORIZATION_ROOT_USERS: "admin-user"
-
-
-
