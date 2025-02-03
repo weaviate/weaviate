@@ -82,9 +82,13 @@ var (
 	// any action has to contain of `{verb}_{domain}` verb: CREATE, READ, UPDATE, DELETE domain: roles, users, cluster, collections, data
 	ManageRoles = "manage_roles"
 	ReadRoles   = "read_roles"
-	ManageUsers = "manage_users"
 	ReadCluster = "read_cluster"
 	ReadNodes   = "read_nodes"
+
+	CreateUsers = "create_users"
+	ReadUsers   = "read_users"
+	UpdateUsers = "update_users"
+	DeleteUsers = "delete_users"
 
 	ManageBackups = "manage_backups"
 
@@ -112,7 +116,10 @@ var (
 		ManageBackups,
 
 		// Users domain
-		ManageUsers,
+		CreateUsers,
+		ReadUsers,
+		UpdateUsers,
+		DeleteUsers,
 
 		// Cluster domain
 		ReadCluster,

@@ -5617,6 +5617,8 @@ func init() {
             "read_collections",
             "update_collections",
             "delete_collections",
+            "read_users",
+            "update_users",
             "create_tenants",
             "read_tenants",
             "update_tenants",
@@ -5717,6 +5719,17 @@ func init() {
             },
             "tenant": {
               "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
+        },
+        "users": {
+          "description": "resources applicable for tenant actions",
+          "type": "object",
+          "properties": {
+            "users_and_groups": {
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -12505,6 +12518,8 @@ func init() {
             "read_collections",
             "update_collections",
             "delete_collections",
+            "read_users",
+            "update_users",
             "create_tenants",
             "read_tenants",
             "update_tenants",
@@ -12609,6 +12624,17 @@ func init() {
               "default": "*"
             }
           }
+        },
+        "users": {
+          "description": "resources applicable for tenant actions",
+          "type": "object",
+          "properties": {
+            "users_and_groups": {
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         }
       }
     },
@@ -12706,6 +12732,17 @@ func init() {
         },
         "tenant": {
           "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
+    "PermissionUsers": {
+      "description": "resources applicable for tenant actions",
+      "type": "object",
+      "properties": {
+        "users_and_groups": {
+          "description": "string or regex. if a specific name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }

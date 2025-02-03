@@ -79,6 +79,17 @@
             }
           }
         },
+        "users": {
+          "type": "object",
+          "description": "resources applicable for tenant actions",
+          "properties": {
+            "users_and_groups": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *"
+            }
+          }
+        },
         "tenants": {
           "type": "object",
           "description": "resources applicable for tenant actions",
@@ -148,6 +159,9 @@
             "read_collections",
             "update_collections",
             "delete_collections",
+
+            "read_users",
+            "update_users",
 
             "create_tenants",
             "read_tenants",
