@@ -19,7 +19,6 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -58,7 +57,7 @@ func (e *executor) Open(ctx context.Context) error {
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
 	g.SetLimit(runtime.GOMAXPROCS(0) * 2)
 
 	var errList error
