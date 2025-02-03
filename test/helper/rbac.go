@@ -23,6 +23,7 @@ import (
 )
 
 func CreateRole(t *testing.T, key string, role *models.Role) {
+	t.Helper()
 	resp, err := Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(role), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
@@ -64,6 +65,7 @@ func GetRoleByName(t *testing.T, key, role string) *models.Role {
 }
 
 func AssignRoleToUser(t *testing.T, key, role, user string) {
+	t.Helper()
 	resp, err := Client(t).Authz.AssignRoleToUser(
 		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}}),
 		CreateAuth(key),

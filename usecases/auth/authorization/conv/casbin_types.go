@@ -159,13 +159,17 @@ func CasbinData(collection, shard, object string) string {
 }
 
 func extractFromExtAction(inputAction string) (string, string, error) {
-	action, domain, found := strings.Cut(inputAction, "_")
-	if !found {
+	splits := strings.Split(inputAction, "_")
+	if len(splits) < 2 {
 		return "", "", fmt.Errorf("invalid action: %s", inputAction)
 	}
-	verb := strings.ToUpper(action[:1])
+	domain := splits[len(splits)-1]
+	verb := strings.ToUpper(splits[0][:1])
 	if verb == "M" {
 		verb = CRUD
+	}
+	if verb == "A" {
+		verb = authorization.UPDATE
 	}
 
 	if !validVerb(verb) {
@@ -201,8 +205,10 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	var resource string
 	switch domain {
 	case authorization.UsersDomain:
-		// do nothing TODO-RBAC: to be handled when dynamic users management gets added
 		user := "*"
+		if permission.Users != nil && permission.Users.Users != nil {
+			user = *permission.Users.Users
+		}
 		resource = CasbinUsers(user)
 	case authorization.RolesDomain:
 		role := "*"
@@ -308,6 +314,11 @@ func weaviatePermissionAction(pathLastPart, verb, domain string) string {
 			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.TenantsDomain)
 		}
 		return action
+	case authorization.UsersDomain:
+		if verb == authorization.UPDATE {
+			action = authorization.AssignAndRevokeUsers
+		}
+		return action
 	default:
 		return action
 	}
@@ -380,6 +391,10 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Backups = &models.PermissionBackups{
 			Collection: &splits[2],
 		}
+	case authorization.UsersDomain:
+		permission.Users = &models.PermissionUsers{
+			Users: &splits[1],
+		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
@@ -387,7 +402,8 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Roles = authorization.AllRoles
 		permission.Collections = authorization.AllCollections
 		permission.Tenants = authorization.AllTenants
-	case authorization.ClusterDomain, authorization.UsersDomain:
+		permission.Users = authorization.AllUsers
+	case authorization.ClusterDomain:
 		// do nothing
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
