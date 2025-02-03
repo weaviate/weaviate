@@ -4,9 +4,7 @@
 
 ###############################################################################
 # Base build image
-# NOTE using 1.22-alpine3.20 because of error similar to: https://github.com/docker/buildx/issues/2028
-# please update tag when this issue is fixed
-FROM golang:1.22-alpine3.20 AS build_base
+FROM golang:1.22-alpine AS build_base
 RUN apk add bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 ENV GO111MODULE=on
