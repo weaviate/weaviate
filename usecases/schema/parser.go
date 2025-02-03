@@ -168,8 +168,7 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
 	cfg := shardingConfig.Config{} // cfg is empty in case of MT
 	if !schema.MultiTenancyEnabled(class) {
-		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig,
-			p.clusterState.NodeCount())
+		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig, p.clusterState.NodeCount())
 		if err != nil {
 			return err
 		}
