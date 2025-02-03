@@ -97,16 +97,14 @@ func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
 }
 
 func TestUserPermissions(t *testing.T) {
-	// adminUser := "admin-user"
+	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	//_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	//defer down()
-
-	helper.SetupClient("127.0.0.1:8081")
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
 
 	// create roles for later
 	assignUserAction := authorization.AssignAndRevokeUsers
