@@ -697,12 +697,12 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 // in this order: active memtable, flushing memtable, and disk
 // segment
 func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	if !b.keepTombstones {
 		return false, time.Time{}, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
 	}
-
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
 
 	_, err := b.active.get(key)
 	if err == nil {
@@ -743,6 +743,69 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 	}
 
 	_, err = b.disk.getErrDeleted(key)
+	if err == nil {
+		return false, time.Time{}, nil
+	}
+	if errors.Is(err, lsmkv.Deleted) {
+		var errDeleted lsmkv.ErrDeleted
+		if errors.As(err, &errDeleted) {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	return false, time.Time{}, nil
+}
+
+// TODO: this method may be removed once secondary keys are included when objects are deleted
+func (b *Bucket) UnsafeWasDeleted(key []byte) (bool, time.Time, error) {
+	if !b.keepTombstones {
+		return false, time.Time{}, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
+	}
+
+	_, err := b.active.get(key)
+	if err == nil {
+		return false, time.Time{}, nil
+	}
+	if errors.Is(err, lsmkv.Deleted) {
+		var errDeleted lsmkv.ErrDeleted
+		if errors.As(err, &errDeleted) {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	// can still check flushing and disk
+
+	if b.flushing != nil {
+		_, err := b.flushing.get(key)
+		if err == nil {
+			return false, time.Time{}, nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			var errDeleted lsmkv.ErrDeleted
+			if errors.As(err, &errDeleted) {
+				return true, errDeleted.DeletionTime(), nil
+			} else {
+				return true, time.Time{}, nil
+			}
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+		}
+
+		// can still check disk
+	}
+
+	_, err = b.disk.unsafeGetErrDeleted(key)
 	if err == nil {
 		return false, time.Time{}, nil
 	}

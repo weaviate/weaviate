@@ -309,11 +309,21 @@ func (f *Finder) NodeName() string {
 }
 
 func (f *Finder) CollectShardDifferences(ctx context.Context,
-	shardName string, hosts []string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
+	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 ) (diffReader *ShardDifferenceReader, err error) {
 	sourceHost, ok := f.resolver.NodeHostname(f.NodeName())
 	if !ok {
 		return nil, fmt.Errorf("getting host %s", f.NodeName())
+	}
+
+	state, err := f.resolver.State(shardName, One, "")
+	if err != nil {
+		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
+	}
+
+	aliveHostsMap := make(map[string]struct{}, len(state.Hosts))
+	for _, host := range f.resolver.AllHostnames() {
+		aliveHostsMap[host] = struct{}{}
 	}
 
 	collectDiffWith := func(host string) (*ShardDifferenceReader, error) {
@@ -360,8 +370,13 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 	ec := errorcompounder.New()
 
-	for _, host := range hosts {
+	for _, host := range state.Hosts {
 		if host == sourceHost {
+			continue
+		}
+
+		if _, ok := aliveHostsMap[host]; !ok {
+			// skip host if not available
 			continue
 		}
 

@@ -305,9 +305,10 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 func (l *LazyLoadShard) ObjectDigestsByTokenRange(ctx context.Context,
 	initialToken, finalToken uint64, limit int,
 ) (objs []replica.RepairResponse, lastTokenRead uint64, err error) {
-	if err := l.Load(ctx); err != nil {
+	if !l.isLoaded() {
 		return nil, 0, err
 	}
+
 	return l.shard.ObjectDigestsByTokenRange(ctx, initialToken, finalToken, limit)
 }
 
