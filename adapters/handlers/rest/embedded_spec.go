@@ -754,35 +754,6 @@ func init() {
         ]
       }
     },
-    "/authz/users/own-roles": {
-      "get": {
-        "tags": [
-          "authz"
-        ],
-        "summary": "get roles assigned to own user",
-        "operationId": "getRolesForOwnUser",
-        "responses": {
-          "200": {
-            "description": "Role assigned to own users",
-            "schema": {
-              "$ref": "#/definitions/RolesListResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.authz.get.users.own-roles"
-        ]
-      }
-    },
     "/authz/users/{id}/assign": {
       "post": {
         "tags": [
@@ -4097,6 +4068,35 @@ func init() {
           }
         }
       }
+    },
+    "/users/own-info": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "get info relevant to own user, e.g. username, roles",
+        "operationId": "getOwnInfo",
+        "responses": {
+          "200": {
+            "description": "Info about the user",
+            "schema": {
+              "$ref": "#/definitions/UserInfo"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.get.own-info"
+        ]
+      }
     }
   },
   "definitions": {
@@ -6284,6 +6284,33 @@ func init() {
         }
       ]
     },
+    "UserInfo": {
+      "type": "object",
+      "required": [
+        "username"
+      ],
+      "properties": {
+        "groups": {
+          "description": "The groups associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "description": "The roles assigned to own user",
+            "type": "object",
+            "$ref": "#/definitions/Role"
+          }
+        },
+        "username": {
+          "description": "The username associated with the provided key",
+          "type": "string"
+        }
+      }
+    },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "array",
@@ -7339,35 +7366,6 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.get.roles.users"
-        ]
-      }
-    },
-    "/authz/users/own-roles": {
-      "get": {
-        "tags": [
-          "authz"
-        ],
-        "summary": "get roles assigned to own user",
-        "operationId": "getRolesForOwnUser",
-        "responses": {
-          "200": {
-            "description": "Role assigned to own users",
-            "schema": {
-              "$ref": "#/definitions/RolesListResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.authz.get.users.own-roles"
         ]
       }
     },
@@ -10807,6 +10805,35 @@ func init() {
           }
         }
       }
+    },
+    "/users/own-info": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "get info relevant to own user, e.g. username, roles",
+        "operationId": "getOwnInfo",
+        "responses": {
+          "200": {
+            "description": "Info about the user",
+            "schema": {
+              "$ref": "#/definitions/UserInfo"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.get.own-info"
+        ]
+      }
     }
   },
   "definitions": {
@@ -13270,6 +13297,33 @@ func init() {
           }
         }
       ]
+    },
+    "UserInfo": {
+      "type": "object",
+      "required": [
+        "username"
+      ],
+      "properties": {
+        "groups": {
+          "description": "The groups associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "description": "The roles assigned to own user",
+            "type": "object",
+            "$ref": "#/definitions/Role"
+          }
+        },
+        "username": {
+          "description": "The username associated with the provided key",
+          "type": "string"
+        }
+      }
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",

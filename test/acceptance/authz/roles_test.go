@@ -27,49 +27,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func TestAuthzGetOwnRole(t *testing.T) {
-	var err error
-
-	customUser := "custom-user"
-	customKey := "custom-key"
-	testingRole := "testingOwnRole"
-	adminKey := "admin-key"
-	adminUser := "admin-user"
-	adminAuth := helper.CreateAuth(adminKey)
-
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	defer down()
-
-	helper.Client(t).Authz.DeleteRole(
-		authz.NewDeleteRoleParams().WithID(testingRole),
-		adminAuth,
-	)
-
-	t.Run("Get own roles - empty", func(t *testing.T) {
-		roles := helper.GetRolesForOwnUser(t, customKey)
-		require.Len(t, roles, 0)
-	})
-
-	_, err = helper.Client(t).Authz.CreateRole(
-		authz.NewCreateRoleParams().WithBody(&models.Role{
-			Name: &testingRole,
-			Permissions: []*models.Permission{{
-				Action:      String(authorization.CreateCollections),
-				Collections: &models.PermissionCollections{Collection: String("*")},
-			}},
-		}),
-		adminAuth,
-	)
-	require.NoError(t, err)
-	helper.AssignRoleToUser(t, "admin-key", testingRole, customUser)
-
-	t.Run("Get own roles - existing role", func(t *testing.T) {
-		roles := helper.GetRolesForOwnUser(t, customKey)
-		require.Len(t, roles, 1)
-		require.Equal(t, testingRole, *roles[0].Name)
-	})
-}
-
 func TestUserWithSimilarBuiltInRoleName(t *testing.T) {
 	customUser := "custom-admin-user"
 	customKey := "custom-key"

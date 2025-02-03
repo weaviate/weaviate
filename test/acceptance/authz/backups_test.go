@@ -14,7 +14,6 @@ package authz
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -90,8 +89,6 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	})
 
 	t.Run("viewer cannot create a backup", func(t *testing.T) {
-		roles := helper.GetRolesForOwnUser(t, viewerKey)
-		fmt.Println(roles)
 		_, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, backupID, helper.CreateAuth(viewerKey))
 		require.NotNil(t, err)
 		var parsed *backups.BackupsCreateForbidden

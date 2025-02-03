@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/authz"
+	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -41,8 +42,8 @@ func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
 	return resp.Payload
 }
 
-func GetRolesForOwnUser(t *testing.T, key string) []*models.Role {
-	resp, err := Client(t).Authz.GetRolesForOwnUser(authz.NewGetRolesForOwnUserParams(), CreateAuth(key))
+func GetInfoForOwnUser(t *testing.T, key string) *models.UserInfo {
+	resp, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload
