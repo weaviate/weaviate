@@ -43,10 +43,10 @@ var (
 
 // repairer tries to detect inconsistencies and repair objects when reading them from replicas
 type repairer struct {
-	class            string
-	deletionStrategy string
-	client           finderClient // needed to commit and abort operation
-	logger           logrus.FieldLogger
+	class               string
+	getDeletionStrategy func() string
+	client              finderClient // needed to commit and abort operation
+	logger              logrus.FieldLogger
 }
 
 // repairOne repairs a single object (used by Finder::GetOne)
@@ -57,12 +57,14 @@ func (r *repairer) repairOne(ctx context.Context,
 	contentIdx int,
 ) (_ *storobj.Object, err error) {
 	var (
-		deleted      bool
-		deletionTime int64
-		lastUTime    int64
-		winnerIdx    int
-		cl           = r.client
+		deleted          bool
+		deletionTime     int64
+		lastUTime        int64
+		winnerIdx        int
+		cl               = r.client
+		deletionStrategy = r.getDeletionStrategy()
 	)
+
 	for i, x := range votes {
 		if x.o.Deleted {
 			deleted = true
@@ -77,7 +79,7 @@ func (r *repairer) repairOne(ctx context.Context,
 		}
 	}
 
-	if deleted && r.deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
+	if deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 		gr := enterrors.NewErrorGroupWrapper(r.logger)
 		for _, vote := range votes {
 			if vote.o.Deleted && vote.UTime == deletionTime {
@@ -107,7 +109,7 @@ func (r *repairer) repairOne(ctx context.Context,
 		return nil, gr.Wait()
 	}
 
-	if deleted && r.deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+	if deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
 		return nil, errConflictExistOrDeleted
 	}
 
@@ -189,12 +191,14 @@ func (r *repairer) repairExist(ctx context.Context,
 	st rState,
 ) (_ bool, err error) {
 	var (
-		deleted      bool
-		deletionTime int64
-		lastUTime    int64
-		winnerIdx    int
-		cl           = r.client
+		deleted          bool
+		deletionTime     int64
+		lastUTime        int64
+		winnerIdx        int
+		cl               = r.client
+		deletionStrategy = r.getDeletionStrategy()
 	)
+
 	for i, x := range votes {
 		if x.o.Deleted {
 			deleted = true
@@ -209,7 +213,7 @@ func (r *repairer) repairExist(ctx context.Context,
 		}
 	}
 
-	if deleted && r.deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
+	if deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 		gr := enterrors.NewErrorGroupWrapper(r.logger)
 
 		for _, vote := range votes {
@@ -240,7 +244,7 @@ func (r *repairer) repairExist(ctx context.Context,
 		return false, gr.Wait()
 	}
 
-	if deleted && r.deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+	if deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
 		return false, errConflictExistOrDeleted
 	}
 
@@ -321,7 +325,8 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		nVotes            = len(votes)
 		// The input objects cannot be used for repair because
 		// their attributes might have been filtered out
-		reFetchSet = make(map[int]struct{})
+		reFetchSet       = make(map[int]struct{})
+		deletionStrategy = r.getDeletionStrategy()
 	)
 
 	// find most recent objects
@@ -423,7 +428,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				continue
 			}
 
-			if x.Deleted && r.deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
+			if x.Deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 				alreadyDeleted := false
 
 				if rid == contentIdx {
@@ -448,7 +453,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				continue
 			}
 
-			if x.Deleted && r.deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+			if x.Deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
 				// note: conflict is not resolved
 				continue
 			}

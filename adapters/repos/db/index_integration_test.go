@@ -118,7 +118,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -176,7 +176,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	index, err = NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema:     fakeSchema,
@@ -289,7 +289,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -444,7 +444,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -502,7 +502,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 		RootPath:              rootDir,
 		ClassName:             schema.ClassName(class.Class),
 		DisableLazyLoadShards: true,
-		ReplicationFactor:     NewAtomicInt64(1),
+		ReplicationFactor:     1,
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			shardState: shardState,

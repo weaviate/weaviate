@@ -128,7 +128,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			DisableLazyLoadShards:               m.db.config.DisableLazyLoadShards,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
 			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
-			ReplicationFactor:                   NewAtomicInt64(class.ReplicationConfig.Factor),
+			ReplicationFactor:                   class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 		},
@@ -675,12 +675,8 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 		return errors.Errorf("cannot update replication factor of non-existing index for %s", className)
 	}
 
-	{
-		idx.Config.ReplicationFactor.Store(cfg.Factor)
-
-		if err := idx.updateAsyncReplicationConfig(ctx, cfg.AsyncEnabled); err != nil {
-			return fmt.Errorf("update async replication for class %q: %w", className, err)
-		}
+	if err := idx.updateReplicationConfig(ctx, cfg); err != nil {
+		return fmt.Errorf("update replication config for class %q: %w", className, err)
 	}
 
 	return nil
