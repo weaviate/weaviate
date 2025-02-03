@@ -79,16 +79,17 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 		return sortedSecondaryKeys[i] <= sortedSecondaryKeys[j]
 	})
 
+	// cursor data is immutable so provide a point in time iteration
+	// without blocking concurrent actions on the memtable while
+	// the cursor is still allocated
 	data := make([]*binarySearchNode, len(sortedSecondaryKeys))
 
 	for i, skey := range sortedSecondaryKeys {
 		var err error
 
-		data[i], err = m.key.getNode(secondaryToPrimary[skey])
+		node, err := m.key.getNode(secondaryToPrimary[skey])
 		if err != nil {
 			if errors.Is(err, lsmkv.Deleted) {
-				// this special case is currently needed because secondary keys
-				// are not being labeled as deleted
 				data[i] = &binarySearchNode{
 					key:       []byte(skey),
 					tombstone: true,
@@ -96,6 +97,18 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 				continue
 			}
 			panic(fmt.Errorf("secondaryToPrimary[%s] unexpected: %w)", skey, err))
+		}
+
+		secondaryKeys := make([][]byte, len(node.secondaryKeys))
+		for i, sk := range node.secondaryKeys {
+			secondaryKeys[i] = cp(sk)
+		}
+
+		data[i] = &binarySearchNode{
+			key:           cp(node.key),
+			value:         cp(node.value),
+			secondaryKeys: secondaryKeys,
+			tombstone:     node.tombstone,
 		}
 	}
 
@@ -107,9 +120,19 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 			}
 			return n.secondaryKeys[pos]
 		},
-		lock:   m.RLock,
-		unlock: m.RUnlock,
+		// cursor data is immutable thus locks are not needed
+		lock:   func() {},
+		unlock: func() {},
 	}
+}
+
+func cp(b []byte) []byte {
+	if len(b) == 0 {
+		return nil
+	}
+	c := make([]byte, len(b))
+	copy(c, b)
+	return c
 }
 
 func (c *memtableCursor) first() ([]byte, []byte, error) {
