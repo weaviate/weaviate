@@ -11,6 +11,8 @@
 
 package common
 
+// VectorsEqual verifies whether provided vectors are the same
+// It considers nil vector as equal to vector of len = 0.
 func VectorsEqual(vecA, vecB []float32) bool {
 	return vectorsEqual(vecA, vecB, func(valueA, valueB float32) bool {
 		return valueA == valueB
@@ -22,15 +24,12 @@ func MultiVectorsEqual(vecA, vecB [][]float32) bool {
 }
 
 func vectorsEqual[T []C, C float32 | []float32](vecA, vecB T, valuesEqual func(valueA, valueB C) bool) bool {
-	if len(vecA) != len(vecB) {
+	if lena, lenb := len(vecA), len(vecB); lena != lenb {
 		return false
+	} else if lena == 0 {
+		return true
 	}
-	if vecA == nil && vecB != nil {
-		return false
-	}
-	if vecA != nil && vecB == nil {
-		return false
-	}
+
 	for i := range vecA {
 		if !valuesEqual(vecA[i], vecB[i]) {
 			return false

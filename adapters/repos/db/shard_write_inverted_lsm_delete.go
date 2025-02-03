@@ -107,7 +107,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
-	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyInverted)
 
 	docIDBytes := make([]byte, 8)
 	// Shard Index version 2 requires BigEndian for sorting, if the shard was

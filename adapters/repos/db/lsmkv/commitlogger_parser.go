@@ -46,7 +46,7 @@ func (p *commitloggerParser) Do() error {
 	switch p.strategy {
 	case StrategyReplace:
 		return p.doReplace()
-	case StrategyMapCollection, StrategySetCollection:
+	case StrategyMapCollection, StrategySetCollection, StrategyInverted:
 		return p.doCollection()
 	case StrategyRoaringSet:
 		return p.doRoaringSet()

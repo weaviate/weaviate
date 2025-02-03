@@ -20,7 +20,7 @@ import (
 )
 
 func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
-	st.log.WithField("type", req.Type).Debug("server.query")
+	st.log.WithFields(logrus.Fields{"type": req.Type, "type_name": req.Type.String()}).Debug("server.query")
 
 	var payload []byte
 	var err error
@@ -74,6 +74,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		payload, err = st.authZManager.GetUsersForRole(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get RBAC permissions: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_GET_CLASS_VERSIONS:
+		payload, err = st.schemaManager.QueryClassVersions(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get class versions: %w", err)
 		}
 
 	default:

@@ -5,6 +5,31 @@
     "application/json"
   ],
   "definitions": {
+    "UserInfo": {
+      "type": "object",
+      "properties": {
+        "groups": {
+          "type": "array",
+          "description": "The groups associated to the user",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "The roles assigned to own user",
+            "$ref": "#/definitions/Role"
+          }
+        },
+        "username": {
+          "type": "string",
+          "description": "The username associated with the provided key"
+        }
+      },
+      "required": ["username"]
+    },
     "Role": {
       "type": "object",
       "properties": {
@@ -79,6 +104,17 @@
             }
           }
         },
+        "users": {
+          "type": "object",
+          "description": "resources applicable for user actions",
+          "properties": {
+            "users": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *"
+            }
+          }
+        },
         "tenants": {
           "type": "object",
           "description": "resources applicable for tenant actions",
@@ -148,6 +184,8 @@
             "read_collections",
             "update_collections",
             "delete_collections",
+
+            "assign_and_revoke_users",
 
             "create_tenants",
             "read_tenants",
@@ -2597,6 +2635,35 @@
         "x-available-in-websocket": false
       }
     },
+    "/users/own-info": {
+      "get": {
+        "summary": "get info relevant to own user, e.g. username, roles",
+        "operationId": "getOwnInfo",
+        "x-serviceIds": [
+          "weaviate.users.get.own-info"
+        ],
+        "tags": [
+          "users"
+        ],
+        "responses": {
+          "200": {
+            "description": "Info about the user",
+            "schema": {
+              "$ref": "#/definitions/UserInfo"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/authz/roles": {
       "get": {
         "summary": "Get all roles",
@@ -3240,35 +3307,6 @@
           },
           "404": {
             "description": "role or user is not found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/authz/users/own-roles": {
-      "get": {
-        "summary": "get roles assigned to own user",
-        "operationId": "getRolesForOwnUser",
-        "x-serviceIds": [
-          "weaviate.authz.get.users.own-roles"
-        ],
-        "tags": [
-          "authz"
-        ],
-        "responses": {
-          "200": {
-            "description": "Role assigned to own users",
-            "schema": {
-              "$ref": "#/definitions/RolesListResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",

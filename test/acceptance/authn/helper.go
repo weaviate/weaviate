@@ -9,16 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package lsmkv
+package authn
 
-import "os"
-
-func fsync(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	return f.Sync()
+func String(s string) *string {
+	return &s
 }

@@ -76,7 +76,7 @@ func TestRevokeRoleFromUserSuccess(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, nil)
 			controller.On("RevokeRolesForUser", conv.PrefixUserName(tt.params.ID), tt.params.Body.Roles[0]).Return(nil)
 
@@ -306,7 +306,7 @@ func TestRevokeRoleFromUserOrUserNotFound(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, mock.Anything, mock.Anything).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Users(tt.params.ID)[0]).Return(nil)
 
 			if tt.callToGetRole {
 				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
@@ -420,7 +420,7 @@ func TestRevokeRoleFromUserForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -574,7 +574,7 @@ func TestRevokeRoleFromUserInternalServerError(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("RevokeRolesForUser", conv.PrefixUserName(tt.params.ID), tt.params.Body.Roles[0]).Return(tt.revokeErr)

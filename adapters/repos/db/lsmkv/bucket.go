@@ -20,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -240,9 +239,19 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	// distinguish between the two strategies for search.
 	// The changes only apply when we have segments on disk,
 	// as the memtables will always be created with the MapCollection strategy.
-	if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyInverted {
+	if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+		b.strategy = StrategyMapCollection
 		b.desiredStrategy = StrategyInverted
+		sg.strategy = StrategyMapCollection
+	} else if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyInverted {
+		// TODO amourao: blockmax "else" to be removed before final release
+		// in case bucket was created as inverted and default strategy was reverted to map
+		// by unsetting corresponding env variable
+		b.strategy = StrategyInverted
+		b.desiredStrategy = StrategyMapCollection
+		sg.strategy = StrategyInverted
 	}
 
 	b.disk = sg
@@ -688,12 +697,12 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 // in this order: active memtable, flushing memtable, and disk
 // segment
 func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	if !b.keepTombstones {
 		return false, time.Time{}, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
 	}
-
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
 
 	_, err := b.active.get(key)
 	if err == nil {
@@ -734,6 +743,69 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 	}
 
 	_, err = b.disk.getErrDeleted(key)
+	if err == nil {
+		return false, time.Time{}, nil
+	}
+	if errors.Is(err, lsmkv.Deleted) {
+		var errDeleted lsmkv.ErrDeleted
+		if errors.As(err, &errDeleted) {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	return false, time.Time{}, nil
+}
+
+// TODO: this method may be removed once secondary keys are included when objects are deleted
+func (b *Bucket) UnsafeWasDeleted(key []byte) (bool, time.Time, error) {
+	if !b.keepTombstones {
+		return false, time.Time{}, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
+	}
+
+	_, err := b.active.get(key)
+	if err == nil {
+		return false, time.Time{}, nil
+	}
+	if errors.Is(err, lsmkv.Deleted) {
+		var errDeleted lsmkv.ErrDeleted
+		if errors.As(err, &errDeleted) {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	// can still check flushing and disk
+
+	if b.flushing != nil {
+		_, err := b.flushing.get(key)
+		if err == nil {
+			return false, time.Time{}, nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			var errDeleted lsmkv.ErrDeleted
+			if errors.As(err, &errDeleted) {
+				return true, errDeleted.DeletionTime(), nil
+			} else {
+				return true, time.Time{}, nil
+			}
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+		}
+
+		// can still check disk
+	}
+
+	_, err = b.disk.unsafeGetErrDeleted(key)
 	if err == nil {
 		return false, time.Time{}, nil
 	}
@@ -1108,15 +1180,6 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
 	}
 
-	// Searchable buckets are flushed using the inverted index strategy,
-	// if the environment variable USE_INVERTED_SEARCHABLE is set to true.
-	// Memtables in memory are always created using the Map strategy.
-	// See the desiredStrategy for more information on why this only matters
-	// for searchable buckets and at flush time.
-	if strings.Contains(b.active.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
-		b.desiredStrategy = StrategyInverted
-		b.active.flushStrategy = StrategyInverted
-	}
 	b.flushLock.Lock()
 	if err := b.active.flush(); err != nil {
 		return err
@@ -1265,15 +1328,6 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
 
-	// Searchable buckets are flushed using the inverted index strategy,
-	// if the environment variable USE_INVERTED_SEARCHABLE is set to true.
-	// Memtables in memory are always created using the Map strategy.
-	// See the desiredStrategy for more information on why this only matters
-	// for searchable buckets and at flush time.
-	if strings.Contains(b.flushing.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
-		b.desiredStrategy = StrategyInverted
-		b.flushing.flushStrategy = StrategyInverted
-	}
 	if err := b.flushing.flush(); err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
@@ -1512,6 +1566,9 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 			allTombstones[len(segmentsDisk)+1] = tombstones
 
+			if n2 > 0 {
+				active.advanceOnTombstoneOrFilter()
+			}
 		}
 
 		if b.flushing != nil {
@@ -1526,9 +1583,12 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			if err != nil {
 				return nil, lock, err
 			}
+
 			allTombstones[len(segmentsDisk)] = sroar.Or(allTombstones[len(segmentsDisk)+1], tombstones)
-			flushing.tombstones = allTombstones[len(segmentsDisk)+1]
-			flushing.advanceOnTombstoneOrFilter()
+			if n2 > 0 {
+				flushing.tombstones = allTombstones[len(segmentsDisk)+1]
+				flushing.advanceOnTombstoneOrFilter()
+			}
 
 		}
 

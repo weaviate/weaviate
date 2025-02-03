@@ -208,6 +208,7 @@ func NewManager(validator validator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
+	parser Parser, classGetter classGetter,
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
@@ -215,7 +216,7 @@ func NewManager(validator validator,
 		validator,
 		logger, authorizer,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
-		moduleConfig, clusterState, scaleoutManager, cloud)
+		moduleConfig, clusterState, scaleoutManager, cloud, parser, classGetter)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}

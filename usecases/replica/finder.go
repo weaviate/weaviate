@@ -309,16 +309,63 @@ func (f *Finder) NodeName() string {
 }
 
 func (f *Finder) CollectShardDifferences(ctx context.Context,
-	shardName string, ht hashtree.AggregatedHashTree, diffTimeout time.Duration,
-) (*ShardDifferenceReader, error) {
+	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
+) (diffReader *ShardDifferenceReader, err error) {
+	sourceHost, ok := f.resolver.NodeHostname(f.NodeName())
+	if !ok {
+		return nil, fmt.Errorf("getting host %s", f.NodeName())
+	}
+
 	state, err := f.resolver.State(shardName, One, "")
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
 
-	sourceHost, ok := f.resolver.NodeHostname(f.NodeName())
-	if !ok {
-		return nil, fmt.Errorf("getting host %s", f.NodeName())
+	aliveHostsMap := make(map[string]struct{}, len(state.Hosts))
+	for _, host := range f.resolver.AllHostnames() {
+		aliveHostsMap[host] = struct{}{}
+	}
+
+	collectDiffWith := func(host string) (*ShardDifferenceReader, error) {
+		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
+		defer cancel()
+
+		diff := hashtree.NewBitset(hashtree.NodesCount(ht.Height()))
+
+		digests := make([]hashtree.Digest, hashtree.LeavesCount(ht.Height()))
+
+		diff.Set(0) // init comparison at root level
+
+		for l := 0; l < ht.Height(); l++ {
+			_, err := ht.Level(l, diff, digests)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", host, err)
+			}
+
+			levelDigests, err := f.client.HashTreeLevel(ctx, host, f.class, shardName, l, diff)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", host, err)
+			}
+			if len(levelDigests) == 0 {
+				// no differences were found
+				break
+			}
+
+			levelDiffCount := hashtree.LevelDiff(l, diff, digests, levelDigests)
+			if levelDiffCount == 0 {
+				// no differences were found
+				break
+			}
+		}
+
+		if diff.SetCount() == 0 {
+			return nil, ErrNoDiffFound
+		}
+
+		return &ShardDifferenceReader{
+			Host:        host,
+			RangeReader: ht.NewRangeReader(diff),
+		}, nil
 	}
 
 	ec := errorcompounder.New()
@@ -328,43 +375,20 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(ctx, diffTimeout)
-		defer cancel()
-
-		diff := hashtree.NewBitset(hashtree.NodesCount(ht.Height()))
-
-		// TODO (jeroiraz): slice may be fetch from a reusable pool
-		digests := make([]hashtree.Digest, hashtree.LeavesCount(ht.Height()))
-
-		diff.Set(0) // init comparison at root level
-
-		for l := 0; l < ht.Height(); l++ {
-			_, err := ht.Level(l, diff, digests)
-			if err != nil {
-				ec.Add(fmt.Errorf("%q: %w", host, err))
-				continue
-			}
-
-			levelDigests, err := f.client.HashTreeLevel(ctx, host, f.class, shardName, l, diff)
-			if err != nil {
-				ec.Add(fmt.Errorf("%q: %w", host, err))
-				continue
-			}
-			if len(levelDigests) == 0 {
-				continue
-			}
-
-			levelDiffCount := hashtree.LevelDiff(l, diff, digests, levelDigests)
-			if levelDiffCount == 0 {
-				// no difference was found
-				continue
-			}
+		if _, ok := aliveHostsMap[host]; !ok {
+			// skip host if not available
+			continue
 		}
 
-		return &ShardDifferenceReader{
-			Host:        host,
-			RangeReader: ht.NewRangeReader(diff),
-		}, nil
+		diffReader, err := collectDiffWith(host)
+		if err != nil {
+			if !errors.Is(err, ErrNoDiffFound) {
+				ec.Add(err)
+			}
+			continue
+		}
+
+		return diffReader, nil
 	}
 
 	err = ec.ToError()
