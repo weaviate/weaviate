@@ -71,6 +71,7 @@ import (
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
+	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
@@ -925,6 +926,7 @@ func registerModules(appState *state.State) error {
 		modgenerativefriendliai.Name,
 		modgenerativegoogle.Name,
 		modgenerativemistral.Name,
+		modgenerativenvidia.Name,
 		modgenerativeoctoai.Name,
 		modgenerativeopenai.Name,
 	}
@@ -1144,6 +1146,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativefriendliai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativenvidia.Name]; ok {
+		appState.Modules.Register(modgenerativenvidia.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativenvidia.Name).
 			Debug("enabled module")
 	}
 
