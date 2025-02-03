@@ -26,7 +26,7 @@ func BenchmarkCondensor2NewUint64Write(b *testing.B) {
 	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		c.writeUint64(c.newLog, rand.Uint64())
+		writeUint64(c.newLog, rand.Uint64())
 	}
 }
 
@@ -37,7 +37,7 @@ func BenchmarkCondensor2NewUint16Write(b *testing.B) {
 	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		c.writeUint16(c.newLog, uint16(rand.Uint32()))
+		writeUint16(c.newLog, uint16(rand.Uint32()))
 	}
 }
 
@@ -48,7 +48,7 @@ func BenchmarkCondensor2WriteCommitType(b *testing.B) {
 	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		c.writeCommitType(c.newLog, HnswCommitType(1))
+		writeCommitType(c.newLog, HnswCommitType(1))
 	}
 }
 
@@ -63,6 +63,6 @@ func BenchmarkCondensor2WriteUint64Slice(b *testing.B) {
 	}
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		c.writeUint64Slice(c.newLog, testInts)
+		writeUint64Slice(c.newLog, testInts)
 	}
 }
