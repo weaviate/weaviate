@@ -838,9 +838,6 @@ func (m *PermissionTenants) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionUsers
 type PermissionUsers struct {
 
-	// Not used yet, string or regex. if a specific name, if left empty it will be ALL or *
-	Groups *string `json:"groups,omitempty"`
-
 	// string or regex. if a specific name, if left empty it will be ALL or *
 	Users *string `json:"users,omitempty"`
 }

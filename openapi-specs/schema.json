@@ -87,11 +87,6 @@
               "type": "string",
               "default": "*",
               "description": "string or regex. if a specific name, if left empty it will be ALL or *"
-            },
-            "groups": {
-              "type": "string",
-              "default": "*",
-              "description": "Not used yet, string or regex. if a specific name, if left empty it will be ALL or *"
             }
           }
         },

@@ -5727,11 +5727,6 @@ func init() {
           "description": "resources applicable for user actions",
           "type": "object",
           "properties": {
-            "groups": {
-              "description": "Not used yet, string or regex. if a specific name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
             "users": {
               "description": "string or regex. if a specific name, if left empty it will be ALL or *",
               "type": "string",
@@ -12632,11 +12627,6 @@ func init() {
           "description": "resources applicable for user actions",
           "type": "object",
           "properties": {
-            "groups": {
-              "description": "Not used yet, string or regex. if a specific name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
             "users": {
               "description": "string or regex. if a specific name, if left empty it will be ALL or *",
               "type": "string",
@@ -12749,11 +12739,6 @@ func init() {
       "description": "resources applicable for user actions",
       "type": "object",
       "properties": {
-        "groups": {
-          "description": "Not used yet, string or regex. if a specific name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        },
         "users": {
           "description": "string or regex. if a specific name, if left empty it will be ALL or *",
           "type": "string",
