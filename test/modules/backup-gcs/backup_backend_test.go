@@ -25,6 +25,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	mod "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -58,7 +59,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	dataDir := t.TempDir()
 	className := "BackupClass"
 	backupID := "backup_id"
-	bucketName := "bucket"
+	bucketName := "bucket-level-store-backup-meta"
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	metadataFilename := "backup.json"
@@ -142,7 +143,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
-	bucketName := "bucket"
+	bucketName := "bucket-level-copy-objects"
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	gcsUseAuth := "false"
@@ -182,7 +183,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
-	bucketName := "bucket"
+	bucketName := "bucket-level-copy-files"
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	gcsUseAuth := "false"

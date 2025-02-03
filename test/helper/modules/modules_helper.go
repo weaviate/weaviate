@@ -24,10 +24,11 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 func EnsureClassExists(t *testing.T, className string, tenant string) {
@@ -104,6 +105,8 @@ func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName st
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 		assert.Nil(t, err)
+		defer client.Close()
+
 		assert.Nil(t, client.Bucket(bucketName).Create(ctx, projectID, nil))
 	}, 5*time.Second, 500*time.Millisecond)
 }
@@ -112,6 +115,7 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 		assert.Nil(t, err)
+		defer client.Close()
 
 		bucket := client.Bucket(bucketName)
 		// we do iterate over objects because GCP doesn't allow deleting non-empty buckets
@@ -121,7 +125,9 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 			if err == iterator.Done {
 				break
 			}
-			assert.Nil(t, err)
+			if err != nil {
+				return
+			}
 
 			obj := bucket.Object(objAttrs.Name)
 			err = obj.Delete(ctx)
