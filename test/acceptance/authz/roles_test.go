@@ -218,9 +218,8 @@ func TestAuthzRolesJourney(t *testing.T) {
 
 	clientAuth := helper.CreateAuth(adminKey)
 
-	//_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
-	//defer down()
-	helper.SetupClient("127.0.0.1:8081")
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	defer down()
 
 	t.Run("get all roles before create", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
