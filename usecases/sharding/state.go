@@ -354,9 +354,16 @@ func (s *State) AddPartition(name string, nodes []string, status string) Physica
 	return p
 }
 
-// DeletePartition to physical shards
-func (s *State) DeletePartition(name string) {
+// DeletePartition to physical shards. Return `true` if given partition is
+// actually deleted.
+func (s *State) DeletePartition(name string) (string, bool) {
+	t, ok := s.Physical[name]
+	if !ok {
+		return "", false
+	}
+	status := t.Status
 	delete(s.Physical, name)
+	return status, true
 }
 
 // ApplyNodeMapping replaces node names with their new value form nodeMapping in s.

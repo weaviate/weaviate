@@ -23,7 +23,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const configurationAPIOrigin = "https://configuration.semi.technology"
+const configurationAPIOrigin = "https://configuration.weaviate.io"
 
 func main() {
 	version := os.Getenv("VERSION")

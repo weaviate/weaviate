@@ -19,6 +19,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -32,9 +33,7 @@ var errAny = errors.New("any error")
 func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	var (
 		ctx = context.Background()
-		sc  = &schema{
-			Classes: make(map[string]*metaClass),
-		}
+		sc  = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
 		vsc = VersionedSchemaReader{
 			schema:        sc,
 			WaitForUpdate: func(ctx context.Context, version uint64) error { return nil },
@@ -66,12 +65,8 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 		retErr error
 		f      = func(ctx context.Context, version uint64) error { return retErr }
 		nodes  = []string{"N1", "N2"}
-		s      = &schema{
-			Classes:     make(map[string]*metaClass),
-			shardReader: &MockShardReader{},
-		}
-
-		sc = VersionedSchemaReader{s, f}
+		s      = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
+		sc     = VersionedSchemaReader{s, f}
 	)
 
 	// class not found
@@ -169,9 +164,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 }
 
 func TestSchemaReaderShardReplicas(t *testing.T) {
-	sc := &schema{
-		Classes: make(map[string]*metaClass),
-	}
+	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
 	rsc := SchemaReader{sc, VersionedSchemaReader{}}
 	// class not found
 	_, _, err := sc.ShardReplicas("C", "S")
@@ -196,15 +189,14 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 func TestSchemaReaderClass(t *testing.T) {
 	var (
 		nodes = []string{"N1", "N2"}
-		s     = &schema{
-			Classes:     make(map[string]*metaClass),
-			shardReader: &MockShardReader{},
-		}
-		sc = SchemaReader{s, VersionedSchemaReader{}}
+		s     = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
+		sc    = SchemaReader{s, VersionedSchemaReader{}}
 	)
 
 	// class not found
 	assert.Nil(t, sc.ReadOnlyClass("C"))
+	cl := sc.ReadOnlyVersionedClass("C")
+	assert.Nil(t, cl.Class)
 	assert.Nil(t, sc.CopyShardingState("C"))
 	assert.Equal(t, sc.ReadOnlySchema(), models.Schema{Classes: make([]*models.Class, 0)})
 	assert.Equal(t, sc.MultiTenancy("C"), models.MultiTenancyConfig{})
@@ -225,6 +217,8 @@ func TestSchemaReaderClass(t *testing.T) {
 
 	sc.schema.addClass(cls1, ss1, 1)
 	assert.Equal(t, sc.ReadOnlyClass("C"), cls1)
+	versionedClass := sc.ReadOnlyVersionedClass("C")
+	assert.Equal(t, versionedClass.Class, cls1)
 	assert.Equal(t, sc.MultiTenancy("D"), models.MultiTenancyConfig{})
 	assert.Nil(t, sc.Read("C", func(c *models.Class, s *sharding.State) error { return nil }))
 
@@ -248,6 +242,8 @@ func TestSchemaReaderClass(t *testing.T) {
 	}
 	sc.schema.addClass(cls2, ss2, 1)
 	assert.Equal(t, sc.ReadOnlyClass("D"), cls2)
+	versionedClass = sc.ReadOnlyVersionedClass("D")
+	assert.Equal(t, versionedClass.Class, cls2)
 	assert.Equal(t, sc.MultiTenancy("D"), models.MultiTenancyConfig{Enabled: true})
 
 	assert.ElementsMatch(t, sc.ReadOnlySchema().Classes, []*models.Class{cls1, cls2})
@@ -267,7 +263,7 @@ func TestSchemaReaderClass(t *testing.T) {
 func TestSchemaSnapshot(t *testing.T) {
 	var (
 		node   = "N1"
-		sc     = NewSchema(node, fakes.NewMockSchemaExecutor())
+		sc     = NewSchema(node, fakes.NewMockSchemaExecutor(), prometheus.NewPedanticRegistry())
 		parser = fakes.NewMockParser()
 
 		cls = &models.Class{Class: "C"}
@@ -287,7 +283,7 @@ func TestSchemaSnapshot(t *testing.T) {
 	assert.Nil(t, sc.Persist(sink))
 
 	// restore snapshot
-	sc2 := NewSchema("N1", fakes.NewMockSchemaExecutor())
+	sc2 := NewSchema("N1", fakes.NewMockSchemaExecutor(), prometheus.NewPedanticRegistry())
 	assert.Nil(t, sc2.Restore(sink, parser))
 	assert.Equal(t, sc.Classes, sc2.Classes)
 

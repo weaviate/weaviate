@@ -350,7 +350,7 @@ func (s *Shard) mayStopAsyncReplication() {
 	s.hashtreeFullyInitialized = false
 }
 
-func (s *Shard) UpdateAsyncReplication(_ context.Context, enabled bool) error {
+func (s *Shard) updateAsyncReplicationConfig(_ context.Context, enabled bool) error {
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
 
