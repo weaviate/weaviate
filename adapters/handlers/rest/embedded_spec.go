@@ -5728,7 +5728,7 @@ func init() {
           "type": "object",
           "properties": {
             "groups": {
-              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "description": "Not used yet, string or regex. if a specific name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             },
@@ -12633,7 +12633,7 @@ func init() {
           "type": "object",
           "properties": {
             "groups": {
-              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "description": "Not used yet, string or regex. if a specific name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             },
@@ -12750,7 +12750,7 @@ func init() {
       "type": "object",
       "properties": {
         "groups": {
-          "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+          "description": "Not used yet, string or regex. if a specific name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         },
