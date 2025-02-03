@@ -57,7 +57,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.12.0
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/felixge/httpsnoop v1.0.4
-	github.com/getsentry/sentry-go v0.30.0
+	github.com/getsentry/sentry-go v0.31.1
 	github.com/go-ego/gse v0.80.3
 	github.com/googleapis/gax-go/v2 v2.14.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
