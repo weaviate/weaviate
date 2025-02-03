@@ -21,7 +21,7 @@ require (
 	github.com/hashicorp/memberlist v0.5.2
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/minio/minio-go/v7 v7.0.84
-	github.com/nyaruka/phonenumbers v1.0.54
+	github.com/nyaruka/phonenumbers v1.5.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/rs/cors v1.5.0
@@ -78,7 +78,7 @@ require (
 	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.9
 	github.com/weaviate/tiktoken-go v0.0.2
-	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa
+	golang.org/x/exp v0.0.0-20240525044651-4c93da0ed11d
 	golang.org/x/text v0.21.0
 	golang.org/x/time v0.9.0
 	google.golang.org/protobuf v1.36.3
