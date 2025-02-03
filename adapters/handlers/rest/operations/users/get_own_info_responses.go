@@ -94,31 +94,6 @@ func (o *GetOwnInfoUnauthorized) WriteResponse(rw http.ResponseWriter, producer 
 	rw.WriteHeader(401)
 }
 
-// GetOwnInfoNotFoundCode is the HTTP code returned for type GetOwnInfoNotFound
-const GetOwnInfoNotFoundCode int = 404
-
-/*
-GetOwnInfoNotFound User not found
-
-swagger:response getOwnInfoNotFound
-*/
-type GetOwnInfoNotFound struct {
-}
-
-// NewGetOwnInfoNotFound creates GetOwnInfoNotFound with default headers values
-func NewGetOwnInfoNotFound() *GetOwnInfoNotFound {
-
-	return &GetOwnInfoNotFound{}
-}
-
-// WriteResponse to the client
-func (o *GetOwnInfoNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(404)
-}
-
 // GetOwnInfoInternalServerErrorCode is the HTTP code returned for type GetOwnInfoInternalServerError
 const GetOwnInfoInternalServerErrorCode int = 500
 
