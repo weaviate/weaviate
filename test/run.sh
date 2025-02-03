@@ -120,7 +120,12 @@ function main() {
 
     echo_green "Start up weaviate and backing dbs in docker-compose..."
     echo "This could take some time..."
-    tools/test/run_ci_server.sh
+    if $run_acceptance_only_authz || $run_acceptance_only_python
+    then
+      tools/test/run_ci_server.sh --with-auth
+    else
+      tools/test/run_ci_server.sh
+    fi
 
     # echo_green "Import required schema and test fixtures..."
     # # Note: It's not best practice to do this as part of the test script

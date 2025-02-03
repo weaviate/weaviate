@@ -41,7 +41,7 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 		},
 	}
 
-	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Roles(params.Body.Roles...)[0]).Return(nil)
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users(params.ID)[0]).Return(nil)
 	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
 	controller.On("AddRolesForUser", conv.PrefixUserName(params.ID), params.Body.Roles).Return(nil)
 
@@ -350,7 +350,7 @@ func TestAssignRoleToUserForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -486,7 +486,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("AddRolesForUser", conv.PrefixUserName(tt.params.ID), tt.params.Body.Roles).Return(tt.assignErr)

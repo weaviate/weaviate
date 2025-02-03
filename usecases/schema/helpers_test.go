@@ -45,17 +45,22 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	cfg := config.Config{
 		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
+		SchemaRetrievalStrategy:     config.LeaderOnly,
 	}
+	fakeClusterState := fakes.NewFakeClusterState()
+	fakeValidator := &fakeValidator{}
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{})
 	handler, err := NewHandler(
-		schemaManager, schemaManager, &fakeValidator{}, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
+		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
+
 	require.Nil(t, err)
 	return &handler, schemaManager
 }
 
 func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorization.Authorizer) (*Handler, *fakeSchemaManager) {
-	cfg := config.Config{}
+	cfg := config.Config{SchemaRetrievalStrategy: config.LeaderOnly}
 	metaHandler := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
@@ -63,10 +68,13 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 			"model1", "model2",
 		},
 	}
+	fakeClusterState := fakes.NewFakeClusterState()
+	fakeValidator := &fakeValidator{}
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
 	handler, err := NewHandler(
-		metaHandler, metaHandler, &fakeValidator{}, logger, authorizer,
+		metaHandler, metaHandler, fakeValidator, logger, authorizer,
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
+		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
 }

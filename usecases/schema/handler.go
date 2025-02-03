@@ -64,6 +64,7 @@ type SchemaManager interface {
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
+	QueryClassVersions(names ...string) (map[string]uint64, error)
 }
 
 // SchemaReader allows reading the local schema with or without using a schema version.
@@ -78,6 +79,7 @@ type SchemaReader interface {
 	MultiTenancy(class string) models.MultiTenancyConfig
 	ClassInfo(class string) (ci clusterSchema.ClassInfo)
 	ReadOnlyClass(name string) *models.Class
+	ReadOnlyVersionedClass(name string) versioned.Class
 	ReadOnlySchema() models.Schema
 	CopyShardingState(class string) *sharding.State
 	ShardReplicas(class, shard string) ([]string, error)
@@ -128,6 +130,7 @@ type Handler struct {
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	parser                  Parser
+	classGetter             classGetter
 }
 
 // NewHandler creates a new handler
@@ -141,12 +144,14 @@ func NewHandler(
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
+	parser Parser, classGetter classGetter,
 ) (Handler, error) {
+	logger.WithField("schema_retrieval_strategy", config.SchemaRetrievalStrategy).Debug("creating schema handler")
 	handler := Handler{
 		config:                  config,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
-		parser:                  Parser{clusterState: clusterState, configParser: configParser, validator: validator, modules: moduleConfig},
+		parser:                  parser,
 		validator:               validator,
 		logger:                  logger,
 		Authorizer:              authorizer,
@@ -157,6 +162,7 @@ func NewHandler(
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
+		classGetter:             classGetter,
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)

@@ -153,7 +153,11 @@ func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
 	lastTokenRead = initialToken
 
 	for k, v := cursor.Seek(initialTokenBytes[:]); n < limit && k != nil && bytes.Compare(k, finalTokenBytes[:]) < 1; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+		if ctx.Err() != nil {
+			return objs, lastTokenRead, ctx.Err()
+		}
+
+		obj, err := storobj.FromBinaryUUIDOnly(v)
 		if err != nil {
 			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %w", err)
 		}
@@ -161,6 +165,16 @@ func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
 		uuidBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
 		if err != nil {
 			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %w", err)
+		}
+
+		// TODO: this validation may be removed once secondary keys are included when objects are deleted
+		deleted, _, err := bucket.UnsafeWasDeleted(uuidBytes)
+		if err != nil {
+			return objs, lastTokenRead, fmt.Errorf("cannot check object status: %w", err)
+		}
+
+		if deleted {
+			continue
 		}
 
 		replicaObj := replica.RepairResponse{

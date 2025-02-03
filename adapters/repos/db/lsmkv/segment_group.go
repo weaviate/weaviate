@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -232,7 +233,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
-			err = fsync(sg.dir)
+			err = diskio.Fsync(sg.dir)
 			if err != nil {
 				return nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 			}
@@ -449,6 +450,11 @@ func (sg *SegmentGroup) getErrDeleted(key []byte) ([]byte, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
+	return sg.getWithUpperSegmentBoundaryErrDeleted(key, len(sg.segments)-1)
+}
+
+// TODO: this method may be removed once secondary keys are included when objects are deleted
+func (sg *SegmentGroup) unsafeGetErrDeleted(key []byte) ([]byte, error) {
 	return sg.getWithUpperSegmentBoundaryErrDeleted(key, len(sg.segments)-1)
 }
 

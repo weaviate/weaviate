@@ -22,13 +22,13 @@ func MultiVectorsEqual(vecA, vecB [][]float32) bool {
 }
 
 func vectorsEqual[T []C, C float32 | []float32](vecA, vecB T, valuesEqual func(valueA, valueB C) bool) bool {
-	if len(vecA) != len(vecB) {
-		return false
-	}
 	if vecA == nil && vecB != nil {
 		return false
 	}
 	if vecA != nil && vecB == nil {
+		return false
+	}
+	if len(vecA) != len(vecB) {
 		return false
 	}
 	for i := range vecA {

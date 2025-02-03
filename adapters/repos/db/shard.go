@@ -82,7 +82,6 @@ type ShardLike interface {
 	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
-	UpdateAsyncReplication(ctx context.Context, enabled bool) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
@@ -159,6 +158,7 @@ type ShardLike interface {
 	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
+	updateAsyncReplicationConfig(ctx context.Context, enabled bool) error
 
 	Metrics() *Metrics
 
@@ -198,9 +198,6 @@ type Shard struct {
 	hashtree                   hashtree.AggregatedHashTree
 	hashtreeFullyInitialized   bool
 	asyncReplicationCancelFunc context.CancelFunc
-
-	objectPropagationNeededCond *sync.Cond
-	objectPropagationNeeded     bool
 
 	lastComparedHosts    []string
 	lastComparedHostsMux sync.RWMutex

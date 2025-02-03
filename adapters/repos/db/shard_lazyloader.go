@@ -269,11 +269,11 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) UpdateAsyncReplication(ctx context.Context, enabled bool) error {
+func (l *LazyLoadShard) updateAsyncReplicationConfig(ctx context.Context, enabled bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.UpdateAsyncReplication(ctx, enabled)
+	return l.shard.updateAsyncReplicationConfig(ctx, enabled)
 }
 
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
@@ -305,9 +305,10 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 func (l *LazyLoadShard) ObjectDigestsByTokenRange(ctx context.Context,
 	initialToken, finalToken uint64, limit int,
 ) (objs []replica.RepairResponse, lastTokenRead uint64, err error) {
-	if err := l.Load(ctx); err != nil {
+	if !l.isLoaded() {
 		return nil, 0, err
 	}
+
 	return l.shard.ObjectDigestsByTokenRange(ctx, initialToken, finalToken, limit)
 }
 

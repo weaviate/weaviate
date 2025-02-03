@@ -20,13 +20,16 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -37,7 +40,104 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-const propagationLimitPerHashbeatIteration = 100_000
+const maxHashtreeHeight = 20
+
+const (
+	defaultHashtreeHeight              = 16
+	defaultFrequency                   = 5 * time.Second
+	defaultFrequencyWhilePropagating   = 10 * time.Millisecond
+	defaultAliveNodesCheckingFrequency = 1 * time.Second
+	defaultLoggingFrequency            = 3 * time.Second
+	defaultDiffPerNodeTimeout          = 10 * time.Second
+	defaultPropagationTimeout          = 30 * time.Second
+	defaultPropagationLimit            = 100_000
+	defaultBatchSize                   = 100
+)
+
+type asyncReplicationConfig struct {
+	hashtreeHeight              int
+	frequency                   time.Duration
+	frequencyWhilePropagating   time.Duration
+	aliveNodesCheckingFrequency time.Duration
+	loggingFrequency            time.Duration
+	diffPerNodeTimeout          time.Duration
+	propagationTimeout          time.Duration
+	propagationLimit            int
+	batchSize                   int
+}
+
+func (s *Shard) asyncReplicationConfig() (config asyncReplicationConfig, err error) {
+	config.hashtreeHeight, err = optParseInt(
+		os.Getenv("ASYNC_REPLICATION_HASHTREE_HEIGHT"), defaultHashtreeHeight)
+	if err != nil {
+		return
+	}
+	if config.hashtreeHeight < 1 || config.hashtreeHeight > maxHashtreeHeight {
+		return asyncReplicationConfig{}, fmt.Errorf("hashtree height out of range: min height 1, max height %d", maxHashtreeHeight)
+	}
+
+	config.frequency, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY"), defaultFrequency)
+	if err != nil {
+		return
+	}
+
+	config.frequencyWhilePropagating, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING"), defaultFrequencyWhilePropagating)
+	if err != nil {
+		return
+	}
+
+	config.aliveNodesCheckingFrequency, err = optParseDuration(
+		os.Getenv("ASYNC_REPLICATION_ALIVE_NODES_CHECKING_FREQUENCY"), defaultAliveNodesCheckingFrequency)
+	if err != nil {
+		return
+	}
+
+	config.loggingFrequency, err = optParseDuration(
+		os.Getenv("ASYNC_REPLICATION_LOGGING_FREQUENCY"), defaultLoggingFrequency)
+	if err != nil {
+		return
+	}
+
+	config.diffPerNodeTimeout, err = optParseDuration(
+		os.Getenv("ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT"), defaultDiffPerNodeTimeout)
+	if err != nil {
+		return
+	}
+
+	config.propagationTimeout, err = optParseDuration(
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_TIMEOUT"), defaultPropagationTimeout)
+	if err != nil {
+		return
+	}
+
+	config.propagationLimit, err = optParseInt(
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_LIMIT"), defaultPropagationLimit)
+	if err != nil {
+		return
+	}
+
+	config.batchSize, err = optParseInt(
+		os.Getenv("ASYNC_REPLICATION_BATCH_SIZE"), defaultBatchSize)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+func optParseInt(s string, defaultInt int) (int, error) {
+	if s == "" {
+		return defaultInt, nil
+	}
+	return strconv.Atoi(s)
+}
+
+func optParseDuration(s string, defaultDuration time.Duration) (time.Duration, error) {
+	if s == "" {
+		return defaultDuration, nil
+	}
+	return time.ParseDuration(s)
+}
 
 func (s *Shard) initAsyncReplication() error {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -53,6 +153,11 @@ func (s *Shard) initAsyncReplication() error {
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	s.asyncReplicationCancelFunc = cancelFunc
+
+	config, err := s.asyncReplicationConfig()
+	if err != nil {
+		return err
+	}
 
 	start := time.Now()
 
@@ -114,6 +219,15 @@ func (s *Shard) initAsyncReplication() error {
 		if err != nil {
 			return err
 		}
+
+		if err := diskio.Fsync(s.pathHashTree()); err != nil {
+			return fmt.Errorf("fsync hashtree directory %q: %w", s.pathHashTree(), err)
+		}
+
+		if s.hashtree.Height() != config.hashtreeHeight {
+			// existing hashtree is erased if a different height was specified
+			s.hashtree = nil
+		}
 	}
 
 	if s.hashtree != nil {
@@ -125,11 +239,11 @@ func (s *Shard) initAsyncReplication() error {
 			WithField("took", fmt.Sprintf("%v", time.Since(start))).
 			Info("hashtree successfully initialized")
 
-		s.initHashBeater(ctx)
+		s.initHashBeater(ctx, config)
 		return nil
 	}
 
-	s.hashtree, err = s.buildCompactHashTree()
+	s.hashtree, err = s.buildCompactHashTree(config.hashtreeHeight)
 	if err != nil {
 		return err
 	}
@@ -204,7 +318,7 @@ func (s *Shard) initAsyncReplication() error {
 
 		s.asyncReplicationRWMux.Unlock()
 
-		s.initHashBeater(ctx)
+		s.initHashBeater(ctx, config)
 	}, s.index.logger)
 
 	return nil
@@ -222,14 +336,21 @@ func (s *Shard) mayStopAsyncReplication() {
 
 	if s.hashtreeFullyInitialized {
 		// the hashtree needs to be fully in sync with stored data before it can be persisted
-		s.dumpHashTree()
+		err := s.dumpHashTree()
+		if err != nil {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Errorf("store hashtree failed: %v", err)
+		}
 	}
 
 	s.hashtree = nil
 	s.hashtreeFullyInitialized = false
 }
 
-func (s *Shard) UpdateAsyncReplication(_ context.Context, enabled bool) error {
+func (s *Shard) updateAsyncReplicationConfig(_ context.Context, enabled bool) error {
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
 
@@ -253,8 +374,8 @@ func (s *Shard) UpdateAsyncReplication(_ context.Context, enabled bool) error {
 	return nil
 }
 
-func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
-	return hashtree.NewCompactHashTree(math.MaxUint64, 16)
+func (s *Shard) buildCompactHashTree(height int) (hashtree.AggregatedHashTree, error) {
+	return hashtree.NewCompactHashTree(math.MaxUint64, height)
 }
 
 func (s *Shard) dumpHashTree() error {
@@ -265,25 +386,33 @@ func (s *Shard) dumpHashTree() error {
 
 	f, err := os.OpenFile(hashtreeFilename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, os.ModePerm)
 	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+		return fmt.Errorf("storing hashtree %q: %w", hashtreeFilename, err)
 	}
-	defer f.Close()
 
 	w := bufio.NewWriter(f)
 
 	_, err = s.hashtree.Serialize(w)
 	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+		return fmt.Errorf("storing hashtree %q: %w", hashtreeFilename, err)
 	}
 
 	err = w.Flush()
 	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+		return fmt.Errorf("storing hashtree %q: %w", hashtreeFilename, err)
 	}
 
 	err = f.Sync()
 	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+		return fmt.Errorf("storing hashtree %q: %w", hashtreeFilename, err)
+	}
+
+	err = f.Close()
+	if err != nil {
+		return fmt.Errorf("closing hashtree %q: %w", hashtreeFilename, err)
+	}
+
+	if err := diskio.Fsync(s.pathHashTree()); err != nil {
+		return fmt.Errorf("fsync hashtree directory %q: %w", s.pathHashTree(), err)
 	}
 
 	return nil
@@ -308,15 +437,19 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	return digests[:n], nil
 }
 
-func (s *Shard) initHashBeater(ctx context.Context) {
+func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfig) {
+	propagationRequired := make(chan struct{})
+
+	var lastHashbeat time.Time
+	var lastHashbeatPropagatedObjects bool
+	var lastHashbeatMux sync.Mutex
+
 	enterrors.GoWrapper(func() {
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
 			WithField("shard_name", s.name).
 			Info("hashbeater started...")
-
-		s.objectPropagationRequired()
 
 		defer func() {
 			s.index.logger.
@@ -326,81 +459,67 @@ func (s *Shard) initHashBeater(ctx context.Context) {
 				Info("hashbeater stopped")
 		}()
 
-		t := time.NewTicker(1 * time.Second)
-		defer t.Stop()
+		var lastLog time.Time
 
-		backoffs := []time.Duration{
-			1 * time.Second,
-			3 * time.Second,
-			5 * time.Second,
-		}
+		backoffTimer := interval.NewBackoffTimer()
 
-		backoffTimer := interval.NewBackoffTimer(backoffs...)
-
-		for it := 0; ; it++ {
+		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.C:
-				err := s.waitUntilObjectPropagationRequired(ctx)
-				if err != nil {
-					if ctx.Err() != nil {
-						return
-					}
-					s.index.logger.
-						WithField("action", "async_replication").
-						WithField("class_name", s.class.Class).
-						WithField("shard_name", s.name).
-						WithField("hashbeat_iteration", it).
-						Warn(err)
-
-					time.Sleep(backoffTimer.CurrentInterval())
-					backoffTimer.IncreaseInterval()
-
-					continue
-				}
-
-				stats, err := s.hashBeat(ctx, 5*time.Second, 15*time.Second)
+			case <-propagationRequired:
+				stats, err := s.hashBeat(ctx, config)
 				if err != nil {
 					if ctx.Err() != nil {
 						return
 					}
 
 					if errors.Is(err, replica.ErrNoDiffFound) {
-						if it%1000 == 0 {
+						if time.Since(lastLog) >= config.loggingFrequency {
+							lastLog = time.Now()
+
 							s.index.logger.
 								WithField("action", "async_replication").
 								WithField("class_name", s.class.Class).
 								WithField("shard_name", s.name).
-								WithField("hashbeat_iteration", it).
 								WithField("hosts", s.getLastComparedHosts()).
 								Info("hashbeat iteration successfully completed: no differences were found")
 						}
 
 						backoffTimer.Reset()
+						lastHashbeatMux.Lock()
+						lastHashbeat = time.Now()
+						lastHashbeatPropagatedObjects = false
+						lastHashbeatMux.Unlock()
 						continue
 					}
 
-					s.index.logger.
-						WithField("action", "async_replication").
-						WithField("class_name", s.class.Class).
-						WithField("shard_name", s.name).
-						WithField("hashbeat_iteration", it).
-						Warnf("hashbeat iteration failed: %v", err)
+					if time.Since(lastLog) >= config.loggingFrequency {
+						lastLog = time.Now()
+
+						s.index.logger.
+							WithField("action", "async_replication").
+							WithField("class_name", s.class.Class).
+							WithField("shard_name", s.name).
+							Warnf("hashbeat iteration failed: %v", err)
+					}
 
 					time.Sleep(backoffTimer.CurrentInterval())
 					backoffTimer.IncreaseInterval()
-
-					s.objectPropagationRequired()
+					lastHashbeatMux.Lock()
+					lastHashbeat = time.Now()
+					lastHashbeatPropagatedObjects = false
+					lastHashbeatMux.Unlock()
 					continue
 				}
 
-				if it%1000 == 0 {
+				if time.Since(lastLog) >= config.loggingFrequency {
+					lastLog = time.Now()
+
 					s.index.logger.
 						WithField("action", "async_replication").
 						WithField("class_name", s.class.Class).
 						WithField("shard_name", s.name).
-						WithField("hashbeat_iteration", it).
 						WithField("host", stats.host).
 						WithField("diff_calculation_took", stats.diffCalculationTook.String()).
 						WithField("local_objects", stats.localObjects).
@@ -411,29 +530,26 @@ func (s *Shard) initHashBeater(ctx context.Context) {
 				}
 
 				backoffTimer.Reset()
-
-				if stats.objectsPropagated > 0 {
-					s.objectPropagationRequired()
-				}
+				lastHashbeatMux.Lock()
+				lastHashbeat = time.Now()
+				lastHashbeatPropagatedObjects = stats.objectsPropagated > 0
+				lastHashbeatMux.Unlock()
 			}
 		}
 	}, s.index.logger)
 
 	enterrors.GoWrapper(func() {
-		t := time.NewTicker(1 * time.Second)
-		defer t.Stop()
+		ft := time.NewTicker(10 * time.Millisecond)
+		defer ft.Stop()
 
-		// just in case host comparison is not enough
-		// this way we ensure hashbeat will be always triggered
-		jict := time.NewTicker(3 * time.Second)
-		defer jict.Stop()
+		nt := time.NewTicker(config.aliveNodesCheckingFrequency)
+		defer nt.Stop()
 
 		for {
 			select {
 			case <-ctx.Done():
-				s.objectPropagationNeededCond.Signal()
 				return
-			case <-t.C:
+			case <-nt.C:
 				comparedHosts := s.getLastComparedHosts()
 				aliveHosts := s.allAliveHostnames()
 
@@ -441,10 +557,19 @@ func (s *Shard) initHashBeater(ctx context.Context) {
 				slices.Sort(aliveHosts)
 
 				if !slices.Equal(comparedHosts, aliveHosts) {
-					s.objectPropagationRequired()
+					propagationRequired <- struct{}{}
+					s.setLastComparedNodes(aliveHosts)
 				}
-			case <-jict.C:
-				s.objectPropagationRequired()
+			case <-ft.C:
+				var shouldHashbeat bool
+				lastHashbeatMux.Lock()
+				shouldHashbeat = (lastHashbeatPropagatedObjects && time.Since(lastHashbeat) >= config.frequencyWhilePropagating) ||
+					time.Since(lastHashbeat) >= config.frequency
+				lastHashbeatMux.Unlock()
+
+				if shouldHashbeat {
+					propagationRequired <- struct{}{}
+				}
 			}
 		}
 	}, s.index.logger)
@@ -468,27 +593,6 @@ func (s *Shard) allAliveHostnames() []string {
 	return s.index.replicator.AllHostnames()
 }
 
-func (s *Shard) objectPropagationRequired() {
-	s.objectPropagationNeededCond.L.Lock()
-	s.objectPropagationNeeded = true
-	s.objectPropagationNeededCond.Signal()
-	s.objectPropagationNeededCond.L.Unlock()
-}
-
-func (s *Shard) waitUntilObjectPropagationRequired(ctx context.Context) error {
-	s.objectPropagationNeededCond.L.Lock()
-	for !s.objectPropagationNeeded {
-		if ctx.Err() != nil {
-			s.objectPropagationNeededCond.L.Unlock()
-			return ctx.Err()
-		}
-		s.objectPropagationNeededCond.Wait()
-	}
-	s.objectPropagationNeeded = false
-	s.objectPropagationNeededCond.L.Unlock()
-	return nil
-}
-
 type hashBeatHostStats struct {
 	host                string
 	diffCalculationTook time.Duration
@@ -498,7 +602,7 @@ type hashBeatHostStats struct {
 	objectProgationTook time.Duration
 }
 
-func (s *Shard) hashBeat(ctx context.Context, diffTimeout, propagationTimeout time.Duration) (stats *hashBeatHostStats, err error) {
+func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (stats *hashBeatHostStats, err error) {
 	var ht hashtree.AggregatedHashTree
 
 	s.asyncReplicationRWMux.RLock()
@@ -512,7 +616,7 @@ func (s *Shard) hashBeat(ctx context.Context, diffTimeout, propagationTimeout ti
 
 	diffCalculationStart := time.Now()
 
-	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, diffTimeout)
+	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("collecting differences: %w", err)
 	}
@@ -527,10 +631,10 @@ func (s *Shard) hashBeat(ctx context.Context, diffTimeout, propagationTimeout ti
 	remoteObjects := 0
 	objectsPropagated := 0
 
-	ctx, cancel := context.WithTimeout(ctx, propagationTimeout)
+	ctx, cancel := context.WithTimeout(ctx, config.propagationTimeout)
 	defer cancel()
 
-	for objectsPropagated < propagationLimitPerHashbeatIteration {
+	for objectsPropagated < config.propagationLimit {
 		initialToken, finalToken, err := rangeReader.Next()
 		if err != nil {
 			if errors.Is(err, hashtree.ErrNoMoreRanges) {
@@ -541,11 +645,12 @@ func (s *Shard) hashBeat(ctx context.Context, diffTimeout, propagationTimeout ti
 
 		localObjs, remoteObjs, propagations, err := s.stepsTowardsShardConsistency(
 			ctx,
+			config,
 			s.name,
 			shardDiffReader.Host,
 			initialToken,
 			finalToken,
-			propagationLimitPerHashbeatIteration-objectsPropagated,
+			config.propagationLimit-objectsPropagated,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("propagating local objects: %w", err)
@@ -555,8 +660,6 @@ func (s *Shard) hashBeat(ctx context.Context, diffTimeout, propagationTimeout ti
 		remoteObjects += remoteObjs
 		objectsPropagated += propagations
 	}
-
-	s.setLastComparedNodes(s.allAliveHostnames())
 
 	return &hashBeatHostStats{
 		host:                shardDiffReader.Host,
@@ -568,17 +671,15 @@ func (s *Shard) hashBeat(ctx context.Context, diffTimeout, propagationTimeout ti
 	}, nil
 }
 
-func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
+func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncReplicationConfig,
 	shardName string, host string, initialToken, finalToken uint64, limit int,
 ) (localObjects, remoteObjects, propagations int, err error) {
-	const maxBatchSize = 100
-
 	for localLastReadToken := initialToken; localLastReadToken < finalToken; {
 		if ctx.Err() != nil {
 			return localObjects, remoteObjects, propagations, ctx.Err()
 		}
 
-		localDigests, newLocalLastReadToken, err := s.index.DigestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, maxBatchSize)
+		localDigests, newLocalLastReadToken, err := s.index.DigestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, config.batchSize)
 		if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
 		}
@@ -604,7 +705,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 		// fetch digests from remote host in order to avoid sending unnecessary objects
 		for remoteLastTokenRead < newLocalLastReadToken {
 			remoteDigests, newRemoteLastTokenRead, err := s.index.replicator.DigestObjectsInTokenRange(ctx,
-				shardName, host, remoteLastTokenRead, newLocalLastReadToken, maxBatchSize)
+				shardName, host, remoteLastTokenRead, newLocalLastReadToken, config.batchSize)
 			if err != nil && !strings.Contains(err.Error(), storobj.ErrLimitReached.Error()) {
 				return localObjects, remoteObjects, propagations, fmt.Errorf("fetching remote object digests: %w", err)
 			}
@@ -614,19 +715,19 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 				break
 			}
 
+			remoteObjects += len(remoteDigests)
+
 			for _, d := range remoteDigests {
-				if len(localDigestsByUUID) == 0 {
-					// no more local objects need to be propagated in this iteration
-					break
-				}
-
-				remoteObjects++
-
 				localDigest, ok := localDigestsByUUID[d.ID]
 				if ok {
 					if localDigest.UpdateTime <= d.UpdateTime {
 						// older or up to date objects are not propagated
 						delete(localDigestsByUUID, d.ID)
+
+						if len(localDigestsByUUID) == 0 {
+							// no more local objects need to be propagated in this iteration
+							break
+						}
 					} else {
 						// older object is subject to be overwriten
 						remoteStaleUpdateTime[d.ID] = d.UpdateTime
@@ -675,14 +776,21 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 			}
 
 			obj := &objects.VObject{
-				ID:              replicaObj.ID,
-				LatestObject:    &replicaObj.Object.Object,
-				Vector:          replicaObj.Object.Vector,
-				Vectors:         vectors,
-				StaleUpdateTime: remoteStaleUpdateTime[replicaObj.ID.String()],
+				ID:                      replicaObj.ID,
+				LastUpdateTimeUnixMilli: replicaObj.LastUpdateTimeUnixMilli,
+				LatestObject:            &replicaObj.Object.Object,
+				Vector:                  replicaObj.Object.Vector,
+				Vectors:                 vectors,
+				StaleUpdateTime:         remoteStaleUpdateTime[replicaObj.ID.String()],
 			}
 
 			mergeObjs = append(mergeObjs, obj)
+		}
+
+		if len(mergeObjs) == 0 {
+			// no more local objects need to be propagated in this iteration
+			localLastReadToken = newLocalLastReadToken
+			continue
 		}
 
 		resp, err := s.index.replicator.Overwrite(ctx, host, s.class.Class, shardName, mergeObjs)
