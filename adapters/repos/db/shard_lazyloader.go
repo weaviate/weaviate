@@ -273,7 +273,7 @@ func (l *LazyLoadShard) updateAsyncReplicationConfig(ctx context.Context, enable
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.index.updateAsyncReplicationConfig(ctx, enabled)
+	return l.shard.updateAsyncReplicationConfig(ctx, enabled)
 }
 
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
