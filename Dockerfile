@@ -5,7 +5,16 @@
 ###############################################################################
 # Base build image
 FROM golang:1.22-alpine AS build_base
-RUN apk add bash ca-certificates git gcc g++ libc-dev
+
+# Install specific gcc version from Alpine 3.19 repository
+RUN apk add --no-cache \
+    bash \ 
+    libc-dev \
+    git \
+    ca-certificates \
+    gcc=14.2.0-r4 \
+    g++=14.2.0-r4
+
 WORKDIR /go/src/github.com/weaviate/weaviate
 ENV GO111MODULE=on
 # Populate the module cache based on the go.{mod,sum} files.
