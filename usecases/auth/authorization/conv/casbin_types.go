@@ -32,7 +32,7 @@ const (
 
 	// CRUD allow all actions on a resource
 	// this is internal for casbin to handle admin actions
-	CRUD = "(C)|(R)|(U)|(D)|(A)"
+	CRUD = "(C)|(R)|(U)|(D)"
 	// CRU allow all actions on a resource except DELETE
 	// this is internal for casbin to handle editor actions
 	CRU = "(C)|(R)|(U)"
@@ -47,14 +47,13 @@ var (
 		authorization.Root:   CRUD,
 	}
 	weaviate_actions_prefixes = map[string]string{
-		CRUD:                            "manage",
-		CRU:                             "manage",
-		authorization.ROLE_SCOPE_MATCH:  "manage",
-		authorization.CREATE:            "create",
-		authorization.READ:              "read",
-		authorization.UPDATE:            "update",
-		authorization.DELETE:            "delete",
-		authorization.ASSIGN_AND_REVOKE: "assign",
+		CRUD:                           "manage",
+		CRU:                            "manage",
+		authorization.ROLE_SCOPE_MATCH: "manage",
+		authorization.CREATE:           "create",
+		authorization.READ:             "read",
+		authorization.UPDATE:           "update",
+		authorization.DELETE:           "delete",
 	}
 )
 
@@ -168,6 +167,9 @@ func extractFromExtAction(inputAction string) (string, string, error) {
 	verb := strings.ToUpper(splits[0][:1])
 	if verb == "M" {
 		verb = CRUD
+	}
+	if verb == "A" {
+		verb = authorization.UPDATE
 	}
 
 	if !validVerb(verb) {
