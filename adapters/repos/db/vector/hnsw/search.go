@@ -697,7 +697,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			strategy = RRE
 		} else {
 			counter := float32(0)
-			entryPointNode.RLock()
+			entryPointNode.Lock()
 			if len(entryPointNode.connections) < 1 {
 				strategy = ACORN
 			} else {
@@ -706,7 +706,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 						counter++
 					}
 				}
-				entryPointNode.RUnlock()
+				entryPointNode.Unlock()
 				if counter/float32(len(h.nodes[entryPointID].connections[0])) > defaultAcornMaxFilterPercentage {
 					strategy = RRE
 				} else {
