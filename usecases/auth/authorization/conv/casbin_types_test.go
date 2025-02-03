@@ -74,6 +74,9 @@ var (
 		{permissionAction: authorization.UpdateTenants, testDescription: updateDesc, policyVerb: updateVerb},
 		{permissionAction: authorization.DeleteTenants, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
+	userTests = []innerTest{
+		{permissionAction: authorization.AssignAndRevokeUsers, testDescription: manageDesc, policyVerb: updateVerb},
+	}
 )
 
 func Test_policy(t *testing.T) {
@@ -782,6 +785,26 @@ func Test_permission(t *testing.T) {
 				},
 			},
 			tests: objectsDataTests,
+		},
+		{
+			name:   "a user",
+			policy: []string{"p", "/users/baz", "", authorization.UsersDomain},
+			permission: &models.Permission{
+				Users: &models.PermissionUsers{
+					Users: baz,
+				},
+			},
+			tests: userTests,
+		},
+		{
+			name:   "all users",
+			policy: []string{"p", "/users/*", "", authorization.UsersDomain},
+			permission: &models.Permission{
+				Users: &models.PermissionUsers{
+					Users: authorization.All,
+				},
+			},
+			tests: userTests,
 		},
 	}
 	for _, tt := range tests {

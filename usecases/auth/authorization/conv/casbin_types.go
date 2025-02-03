@@ -314,6 +314,11 @@ func weaviatePermissionAction(pathLastPart, verb, domain string) string {
 			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.TenantsDomain)
 		}
 		return action
+	case authorization.UsersDomain:
+		if verb == authorization.UPDATE {
+			action = authorization.AssignAndRevokeUsers
+		}
+		return action
 	default:
 		return action
 	}
@@ -386,6 +391,10 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Backups = &models.PermissionBackups{
 			Collection: &splits[2],
 		}
+	case authorization.UsersDomain:
+		permission.Users = &models.PermissionUsers{
+			Users: &splits[2],
+		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
@@ -393,7 +402,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Roles = authorization.AllRoles
 		permission.Collections = authorization.AllCollections
 		permission.Tenants = authorization.AllTenants
-	case authorization.ClusterDomain, authorization.UsersDomain:
+	case authorization.ClusterDomain:
 		// do nothing
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
