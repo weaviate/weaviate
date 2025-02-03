@@ -393,7 +393,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		}
 	case authorization.UsersDomain:
 		permission.Users = &models.PermissionUsers{
-			Users: &splits[2],
+			Users: &splits[1],
 		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups

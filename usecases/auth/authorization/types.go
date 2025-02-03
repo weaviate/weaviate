@@ -71,6 +71,9 @@ var (
 		Role:  All,
 		Scope: String(models.PermissionRolesScopeAll),
 	}
+	AllUsers = &models.PermissionUsers{
+		Users: All,
+	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
 	}
@@ -420,6 +423,7 @@ func viewerPermissions() []*models.Permission {
 			Roles:       AllRoles,
 			Collections: AllCollections,
 			Tenants:     AllTenants,
+			Users:       AllUsers,
 		})
 	}
 

@@ -514,6 +514,14 @@ func Test_permission(t *testing.T) {
 			tests: rolesTests,
 		},
 		{
+			name:   "all users",
+			policy: []string{"p", "/*", "", authorization.UsersDomain},
+			permission: &models.Permission{
+				Users: authorization.AllUsers,
+			},
+			tests: userTests,
+		},
+		{
 			name:       "cluster",
 			policy:     []string{"p", "/*", "", authorization.ClusterDomain},
 			permission: &models.Permission{},
@@ -788,7 +796,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a user",
-			policy: []string{"p", "/users/baz", "", authorization.UsersDomain},
+			policy: []string{"p", "/baz", "", authorization.UsersDomain},
 			permission: &models.Permission{
 				Users: &models.PermissionUsers{
 					Users: baz,
@@ -798,7 +806,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "all users",
-			policy: []string{"p", "/users/*", "", authorization.UsersDomain},
+			policy: []string{"p", "/*", "", authorization.UsersDomain},
 			permission: &models.Permission{
 				Users: &models.PermissionUsers{
 					Users: authorization.All,
