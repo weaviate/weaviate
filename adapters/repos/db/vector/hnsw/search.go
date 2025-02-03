@@ -159,7 +159,7 @@ func (h *hnsw) cacheSize() int64 {
 	return size
 }
 
-func (h *hnsw) acornParams(allowList helpers.AllowList) bool {
+func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
 	if allowList == nil || !h.acornSearch.Load() {
 		return false
 	}
@@ -179,7 +179,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
 ) (*priorityqueue.Queue[any], error,
 ) {
-	if h.acornParams(allowList) {
+	if h.acornEnabled(allowList) {
 		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, ACORN)
 	}
 	return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, SWEEPING)
@@ -691,23 +691,27 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	h.shardedNodeLocks.RLock(entryPointID)
 	entryPointNode := h.nodes[entryPointID]
 	h.shardedNodeLocks.RUnlock(entryPointID)
-	useAcorn := h.acornParams(allowList)
+	useAcorn := h.acornEnabled(allowList)
 	if useAcorn {
 		if entryPointNode == nil {
 			strategy = RRE
 		} else {
 			counter := float32(0)
-			entryPointNode.Lock()
-			for _, id := range entryPointNode.connections[0] {
-				if allowList.Contains(id) {
-					counter++
-				}
-			}
-			entryPointNode.Unlock()
-			if counter/float32(len(h.nodes[entryPointID].connections[0])) > defaultAcornMaxFilterPercentage {
-				strategy = RRE
-			} else {
+			entryPointNode.RLock()
+			if len(entryPointNode.connections) < 1 {
 				strategy = ACORN
+			} else {
+				for _, id := range entryPointNode.connections[0] {
+					if allowList.Contains(id) {
+						counter++
+					}
+				}
+				entryPointNode.RUnlock()
+				if counter/float32(len(h.nodes[entryPointID].connections[0])) > defaultAcornMaxFilterPercentage {
+					strategy = RRE
+				} else {
+					strategy = ACORN
+				}
 			}
 		}
 	} else {
