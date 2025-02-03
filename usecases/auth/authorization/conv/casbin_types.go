@@ -417,7 +417,7 @@ func validResource(input string) bool {
 }
 
 func validVerb(input string) bool {
-	return regexp.MustCompile(CRUD).MatchString(input) || input == "A"
+	return regexp.MustCompile(CRUD).MatchString(input)
 }
 
 func PrefixRoleName(name string) string {
