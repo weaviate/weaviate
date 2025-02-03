@@ -40,9 +40,9 @@ func TestAuthnGetOwnInfoWithAnonAccessEnabled(t *testing.T) {
 	t.Run("Get own info for anonymous access", func(t *testing.T) {
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), nil)
 		require.NotNil(t, err)
-		parsed, ok := err.(*users.GetOwnInfoNotFound) //nolint:errorlint
+		parsed, ok := err.(*users.GetOwnInfoUnauthorized) //nolint:errorlint
 		require.True(t, ok)
-		require.Equal(t, 404, parsed.Code())
+		require.Equal(t, 401, parsed.Code())
 	})
 }
 

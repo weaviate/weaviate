@@ -21,40 +21,43 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzConv "github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
 type authNHandlers struct {
 	authzController authorization.Controller
+	rbacConfig      rbacconf.Config
 	logger          logrus.FieldLogger
 }
 
-func setupAuthnHandlers(api *operations.WeaviateAPI, controller authorization.Controller, logger logrus.FieldLogger,
+func setupAuthnHandlers(api *operations.WeaviateAPI, controller authorization.Controller, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
 ) {
-	h := &authNHandlers{authzController: controller, logger: logger}
-
+	h := &authNHandlers{authzController: controller, logger: logger, rbacConfig: rbacConfig}
 	// user handlers
 	api.UsersGetOwnInfoHandler = users.GetOwnInfoHandlerFunc(h.getOwnInfo)
 }
 
 func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 	if principal == nil {
-		return users.NewGetOwnInfoNotFound()
+		return users.NewGetOwnInfoUnauthorized()
 	}
-	existingRoles, err := h.authzController.GetRolesForUser(principal.Username)
-	if err != nil {
-		return users.NewGetOwnInfoInternalServerError()
-	}
-	var roles []*models.Role
 
-	for roleName, policies := range existingRoles {
-		perms, err := authzConv.PoliciesToPermission(policies...)
+	var roles []*models.Role
+	if h.rbacConfig.Enabled {
+		existingRoles, err := h.authzController.GetRolesForUser(principal.Username)
 		if err != nil {
-			return users.NewGetOwnInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+			return users.NewGetOwnInfoInternalServerError()
 		}
-		roles = append(roles, &models.Role{
-			Name:        &roleName,
-			Permissions: perms,
-		})
+		for roleName, policies := range existingRoles {
+			perms, err := authzConv.PoliciesToPermission(policies...)
+			if err != nil {
+				return users.NewGetOwnInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+			}
+			roles = append(roles, &models.Role{
+				Name:        &roleName,
+				Permissions: perms,
+			})
+		}
 	}
 
 	h.logger.WithFields(logrus.Fields{

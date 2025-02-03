@@ -6290,12 +6290,11 @@ func init() {
     "UserInfo": {
       "type": "object",
       "required": [
-        "username",
-        "roles"
+        "username"
       ],
       "properties": {
         "groups": {
-          "description": "The groups associated with the provided key",
+          "description": "The groups associated to the user",
           "type": "array",
           "items": {
             "type": "string"
@@ -13308,12 +13307,11 @@ func init() {
     "UserInfo": {
       "type": "object",
       "required": [
-        "username",
-        "roles"
+        "username"
       ],
       "properties": {
         "groups": {
-          "description": "The groups associated with the provided key",
+          "description": "The groups associated to the user",
           "type": "array",
           "items": {
             "type": "string"

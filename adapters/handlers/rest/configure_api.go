@@ -674,6 +674,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	setupAuthnHandlers(api,
 		appState.ClusterService.Raft,
+		appState.ServerConfig.Config.Authorization.Rbac,
 		appState.Logger)
 	authz.SetupHandlers(api,
 		appState.ClusterService.Raft,

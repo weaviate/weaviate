@@ -31,11 +31,10 @@ import (
 // swagger:model UserInfo
 type UserInfo struct {
 
-	// The groups associated with the provided key
+	// The groups associated to the user
 	Groups []string `json:"groups"`
 
 	// roles
-	// Required: true
 	Roles []*Role `json:"roles"`
 
 	// The username associated with the provided key
@@ -62,9 +61,8 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 }
 
 func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
-
-	if err := validate.Required("roles", "body", m.Roles); err != nil {
-		return err
+	if swag.IsZero(m.Roles) { // not required
+		return nil
 	}
 
 	for i := 0; i < len(m.Roles); i++ {
