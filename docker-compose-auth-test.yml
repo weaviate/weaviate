@@ -1,6 +1,6 @@
 services:
   weaviate-auth:
-    image: weaviate/test-server
+    image: weaviate/test-auth-server
     build:
       context: .
       dockerfile: Dockerfile
