@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -50,7 +49,7 @@ const (
 	defaultLoggingFrequency            = 3 * time.Second
 	defaultDiffPerNodeTimeout          = 10 * time.Second
 	defaultPropagationTimeout          = 30 * time.Second
-	defaultPropagationLimit            = 100_000
+	defaultPropagationLimit            = 10_000
 	defaultBatchSize                   = 100
 )
 
@@ -257,6 +256,10 @@ func (s *Shard) initAsyncReplication() error {
 		// data inserted before v1.26 does not contain the required secondary index
 		// to support async replication thus such data is not inserted into the hashtree
 		err := bucket.IterateObjectDigests(ctx, 2, func(object *storobj.Object) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
 			if time.Since(prevProgressLogging) > time.Second {
 				s.index.logger.
 					WithField("action", "async_replication").
@@ -264,20 +267,16 @@ func (s *Shard) initAsyncReplication() error {
 					WithField("shard_name", s.name).
 					WithField("object_count", objCount).
 					WithField("took", fmt.Sprintf("%v", time.Since(start))).
-					Infof("hashtree initialization is progress...")
+					Infof("hashtree initialization in progress...")
 				prevProgressLogging = time.Now()
 			}
 
-			uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+			uuidBytes, err := parseBytesUUID(object.ID())
 			if err != nil {
 				return err
 			}
 
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-
-			err = s.mayUpsertObjectHashTree(object, uuid, objectInsertStatus{})
+			err = s.mayUpsertObjectHashTree(object, uuidBytes, objectInsertStatus{})
 			if err != nil {
 				return err
 			}
@@ -305,6 +304,17 @@ func (s *Shard) initAsyncReplication() error {
 		}
 
 		s.asyncReplicationRWMux.Lock()
+
+		if s.hashtree == nil {
+			s.asyncReplicationRWMux.Unlock()
+
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Info("hashtree initialization stopped")
+			return
+		}
 
 		s.hashtreeFullyInitialized = true
 
@@ -801,13 +811,15 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 		for _, r := range resp {
 			// NOTE: deleted objects are not propagated but locally deleted when conflict is detected
 
+			deletionStrategy := s.index.DeletionStrategy()
+
 			if !r.Deleted ||
-				s.index.Config.DeletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
+				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
 				continue
 			}
 
-			if s.index.Config.DeletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
-				(s.index.Config.DeletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
+			if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
+				(deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
 					r.UpdateTime > localDigestsByUUID[r.ID].UpdateTime) {
 
 				err := s.DeleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime))

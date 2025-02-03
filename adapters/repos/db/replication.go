@@ -400,7 +400,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 			// than the deletion, the object update can be proccessed despite
 			// the fact `currUpdateTime == u.StaleUpdateTime` does not hold.
 			if !locallyDeleted ||
-				idx.Config.DeletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
+				idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
 				currUpdateTime > u.LastUpdateTimeUnixMilli {
 				// object changed and its state differs from recent known state
 				r := replica.RepairResponse{
@@ -423,7 +423,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		// so to avoid creating/updating the locally deleted object
 		// time-based strategy and a more recent creation/update is required
 		if !u.Deleted && locallyDeleted &&
-			(idx.Config.DeletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
+			(idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
 				currUpdateTime > u.LastUpdateTimeUnixMilli) {
 			r := replica.RepairResponse{
 				ID:         id.String(),
