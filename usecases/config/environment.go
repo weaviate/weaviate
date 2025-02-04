@@ -239,7 +239,7 @@ func FromEnv(config *Config) error {
 			config.Authorization.Rbac.RootGroups = strings.Split(groupString, ",")
 		}
 
-		viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_READONLY_GROUPS")
+		viewerGroupString, ok := os.LookupEnv("AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
 		if ok {
 			config.Authorization.Rbac.ViewerRootGroups = strings.Split(viewerGroupString, ",")
 		}
