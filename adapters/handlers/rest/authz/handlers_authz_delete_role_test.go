@@ -64,7 +64,7 @@ func TestDeleteRoleBadRequest(t *testing.T) {
 				ID: authorization.BuiltInRoles[0],
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not delete builtin role",
+			expectedError: "you can not delete built-in role",
 		},
 	}
 
