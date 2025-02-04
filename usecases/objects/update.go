@@ -50,12 +50,6 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	m.metrics.UpdateObjectInc()
 	defer m.metrics.UpdateObjectDec()
 
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
-
 	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
 		m.logger.WithError(err).Errorf("memory pressure: cannot process update object")
 		return nil, fmt.Errorf("cannot process update object: %w", err)

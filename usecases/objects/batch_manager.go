@@ -26,7 +26,6 @@ import (
 // agnostic of underlying databases or storage providers
 type BatchManager struct {
 	config            *config.WeaviateConfig
-	locks             locks
 	schemaManager     schemaManager
 	logger            logrus.FieldLogger
 	authorizer        authorization.Authorizer
@@ -53,13 +52,12 @@ type batchRepoNew interface {
 
 // NewBatchManager creates a new manager
 func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider,
-	locks locks, schemaManager schemaManager, config *config.WeaviateConfig,
+	schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	prom *monitoring.PrometheusMetrics,
 ) *BatchManager {
 	return &BatchManager{
 		config:            config,
-		locks:             locks,
 		schemaManager:     schemaManager,
 		logger:            logger,
 		vectorRepo:        vectorRepo,

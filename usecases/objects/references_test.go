@@ -207,7 +207,6 @@ func Test_ReferenceAdd(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			m := newFakeGetManager(zooAnimalSchemaForTest())
 			m.authorizer.SetErr(tc.ErrAuth)
-			m.locks.Err = tc.ErrLock
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 			if tc.Stage >= 2 {
@@ -352,7 +351,6 @@ func Test_ReferenceUpdate(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			m := newFakeGetManager(zooAnimalSchemaForTest())
 			m.authorizer.SetErr(tc.ErrAuth)
-			m.locks.Err = tc.ErrLock
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			srcObj := &search.Result{
 				ClassName: cls,
@@ -545,7 +543,6 @@ func Test_ReferenceDelete(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			m := newFakeGetManager(zooAnimalSchemaForTest())
 			m.authorizer.SetErr(tc.ErrAuth)
-			m.locks.Err = tc.ErrLock
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			srcObj := &search.Result{
 				ClassName: cls,

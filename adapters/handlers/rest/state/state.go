@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/locks"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -52,7 +51,6 @@ type State struct {
 	AuthzController authorization.Controller
 
 	ServerConfig          *config.WeaviateConfig
-	Locks                 locks.ConnectorSchemaLock
 	Logger                *logrus.Logger
 	gqlMutex              sync.Mutex
 	GraphQL               graphql.GraphQL

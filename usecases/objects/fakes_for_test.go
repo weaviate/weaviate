@@ -186,18 +186,6 @@ func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
 }
 
-type fakeLocks struct {
-	Err error
-}
-
-func (f *fakeLocks) LockConnector() (func() error, error) {
-	return func() error { return nil }, f.Err
-}
-
-func (f *fakeLocks) LockSchema() (func() error, error) {
-	return func() error { return nil }, f.Err
-}
-
 type fakeVectorRepo struct {
 	mock.Mock
 }

@@ -45,12 +45,6 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, err
 	}
 
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
-
 	m.metrics.AddObjectInc()
 	defer m.metrics.AddObjectDec()
 

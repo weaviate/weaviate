@@ -63,7 +63,6 @@ func Test_UpdateAction(t *testing.T) {
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
-		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
 		cfg.Config.QueryDefaults.Limit = 20
 		cfg.Config.QueryMaximumResults = 200
@@ -73,7 +72,7 @@ func Test_UpdateAction(t *testing.T) {
 		projectorFake = &fakeProjector{}
 		metrics := &fakeMetrics{}
 		modulesProvider = getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
-		manager = NewManager(locks, schemaManager, cfg,
+		manager = NewManager(schemaManager, cfg,
 			logger, authorizer, db, modulesProvider, metrics, nil)
 	}
 

@@ -77,12 +77,6 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 
-	unlock, err := b.locks.LockSchema()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
-
 	b.metrics.BatchRefInc()
 	defer b.metrics.BatchRefDec()
 

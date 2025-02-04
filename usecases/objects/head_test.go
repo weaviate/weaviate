@@ -74,7 +74,6 @@ func Test_HeadObject(t *testing.T) {
 	}
 	for i, tc := range tests {
 		m.authorizer.SetErr(tc.authErr)
-		m.locks.Err = tc.lockErr
 		if tc.authErr == nil && tc.lockErr == nil {
 			m.repo.On("Exists", tc.class, id).Return(tc.mockedOk, tc.mockedErr).Once()
 		}

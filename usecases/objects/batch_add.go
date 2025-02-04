@@ -73,12 +73,6 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 ) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
-	unlock, err := b.locks.LockConnector()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
-
 	before := time.Now()
 	b.metrics.BatchInc()
 	defer b.metrics.BatchOp("total_uc_level", before.UnixNano())

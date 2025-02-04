@@ -33,12 +33,6 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}
 
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return false, &Error{"cannot lock", StatusInternalServerError, err}
-	}
-	defer unlock()
-
 	m.metrics.HeadObjectInc()
 	defer m.metrics.HeadObjectDec()
 
