@@ -1648,6 +1648,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	i.logger.Errorf("objectVectorSearch: Full Replicas Search %v", i.Config.ForceFullReplicasSearch)
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
