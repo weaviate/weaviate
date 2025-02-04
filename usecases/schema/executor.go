@@ -87,8 +87,6 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 	if err := g.Wait(); err != nil {
 		return err
 	}
-
-	e.TriggerSchemaUpdateCallbacks()
 	return errList
 }
 
