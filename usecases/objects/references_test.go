@@ -428,7 +428,6 @@ func Test_ReferenceDelete(t *testing.T) {
 		ErrTargetExists error
 		ErrSrcExists    error
 		ErrAuth         error
-		ErrLock         error
 		ErrSchema       error
 		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> PutObject()
 		Stage int
