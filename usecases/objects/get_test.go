@@ -1078,13 +1078,17 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 		opt(&r)
 	}
 
+	schemaManager := &fakeSchemaManager{
+		GetSchemaResponse: schema,
+	}
+
 	cfg := &config.WeaviateConfig{}
 	cfg.Config.QueryDefaults.Limit = 20
 	cfg.Config.QueryMaximumResults = 200
 	cfg.Config.TrackVectorDimensions = true
 	logger, _ := test.NewNullLogger()
 	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
-	r.Manager = NewManager(r.schemaManager, cfg, logger,
+	r.Manager = NewManager(schemaManager, cfg, logger,
 		r.authorizer, r.repo, r.modulesProvider, r.metrics, nil)
 
 	return r
