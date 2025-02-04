@@ -1393,6 +1393,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, shards []string, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	i.logger.Errorf("objectSearchByShard: searching  %s for %v", i.getClass().Class, keywordRanking)
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
@@ -1775,6 +1776,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	i.logger.Errorf("IncomingSearch: searching  %s for %v", i.getClass().Class, keywordRanking)
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
