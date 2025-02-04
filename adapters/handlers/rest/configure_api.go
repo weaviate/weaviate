@@ -703,7 +703,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	grpcServer := createGrpcServer(appState)
 	setupMiddlewares := makeSetupMiddlewares(appState)
-	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
+	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
 
 	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
 	if telemetryEnabled(appState) {

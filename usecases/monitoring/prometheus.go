@@ -26,7 +26,6 @@ type Config struct {
 	MonitorCriticalBucketsOnly bool   `json:"monitor_critical_buckets_only" yaml:"monitor_critical_buckets_only"`
 
 	// Metrics namespace group the metrics with common prefix.
-	// currently used only on ServerMetrics.
 	MetricsNamespace string `json:"metrics_namespace" yaml:"metrics_namespace" long:"metrics_namespace" default:""`
 }
 
