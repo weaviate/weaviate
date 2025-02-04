@@ -8,7 +8,6 @@ function release() {
   DOCKER_REPO=$DOCKER_REPO_WEAVIATE
 
   # for multi-platform build
-  docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
   docker buildx create --use
 
   # nightly tag was added to be pushed on merges to main branch, latest tag is used to get latest released version
