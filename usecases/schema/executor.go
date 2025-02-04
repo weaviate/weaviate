@@ -26,6 +26,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
+var _NUMCPU = runtime.GOMAXPROCS(0)
+
 type executor struct {
 	schemaReader SchemaReader
 	migrator     Migrator
@@ -58,7 +60,7 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 	cs := make([]*models.Class, len(all))
 
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
-	g.SetLimit(runtime.GOMAXPROCS(0) * 2)
+	g.SetLimit(_NUMCPU * 2)
 
 	var errList error
 	var errMutex sync.Mutex
@@ -260,19 +262,15 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 	e.callbacksLock.RLock()
 	defer e.callbacksLock.RUnlock()
 
-	wg := sync.WaitGroup{}
-	wg.Add(len(e.callbacks))
-	for _, cb := range e.callbacks {
-		cb := cb
-		enterrors.GoWrapper(func() {
-			wg.Done()
-			s := e.schemaReader.ReadOnlySchema()
-			cb(schema.Schema{
-				Objects: &s,
-			})
-		}, e.logger)
-	}
-	wg.Wait()
+	s := e.schemaReader.ReadOnlySchema()
+	schema := schema.Schema{Objects: &s}
+
+	// execute callbacks asynchronously in a single goroutine
+	enterrors.GoWrapper(func() {
+		for _, cb := range e.callbacks {
+			cb(schema)
+		}
+	}, e.logger)
 }
 
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive

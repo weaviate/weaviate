@@ -365,7 +365,7 @@ func (s *SchemaManager) apply(op applyOp) error {
 	}
 
 	if op.enableSchemaCallback {
-		// TriggerSchemaUpdateCallbacks it concurrent and at
+		// TriggerSchemaUpdateCallbacks is concurrent and at
 		// this point of time schema shall be up to date.
 		s.db.TriggerSchemaUpdateCallbacks()
 	}
