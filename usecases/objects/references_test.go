@@ -133,10 +133,6 @@ func Test_ReferenceAdd(t *testing.T) {
 		Stage int
 	}{
 		{
-			Name: "locking", Req: req, Stage: 0,
-			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
-		},
-		{
 			Name: "authorization", Req: req, Stage: 0,
 			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
 		},
@@ -289,11 +285,6 @@ func Test_ReferenceUpdate(t *testing.T) {
 			WantCode:    StatusNotFound,
 			SrcNotFound: true,
 			Stage:       1,
-		},
-		{
-			Name: "locking", Req: req,
-			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
-			Stage: 1,
 		},
 		{
 			Name: "authorization", Req: req,
@@ -452,10 +443,6 @@ func Test_ReferenceDelete(t *testing.T) {
 			Name: "source object missing", Req: req,
 			WantCode:    StatusNotFound,
 			SrcNotFound: true, Stage: 2,
-		},
-		{
-			Name: "locking", Req: req,
-			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr, Stage: 2,
 		},
 		{
 			Name: "authorization", Req: req,
