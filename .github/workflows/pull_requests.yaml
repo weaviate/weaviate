@@ -468,6 +468,7 @@ jobs:
     if: ${{ !github.event.pull_request.head.repo.fork && !startsWith(github.head_ref, 'build') }} # no PRs from fork
     needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
     name: push-docker
+    timeout-minutes: 30
     runs-on: ubuntu-latest-8-cores
     steps:
       - uses: actions/checkout@v4
@@ -489,6 +490,7 @@ jobs:
   Push-Docker-Fast:
     if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork    
     name: push-docker-fast
+    timeout-minutes: 30
     runs-on: ubuntu-latest-8-cores    
     steps:
       - uses: actions/checkout@v4
