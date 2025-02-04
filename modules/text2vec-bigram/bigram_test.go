@@ -174,3 +174,173 @@ func TestAddVector(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, vector, mod.vectors["hello"])
 }
+
+func TestBigramModule_VectorizeInput_EmptyInput(t *testing.T) {
+	mod := New()
+	input := ""
+	cfg := modules.NewClassBasedModuleConfig(&models.Class{}, mod.Name(), "", "")
+	vector, err := mod.VectorizeInput(context.Background(), input, cfg)
+	assert.Error(t, err)
+	assert.Nil(t, vector)
+}
+
+func TestBigramModule_VectorizeInput_UnknownVectoriser(t *testing.T) {
+	mod := New()
+	mod.activeVectoriser = "unknown"
+	input := "hello world"
+	cfg := modules.NewClassBasedModuleConfig(&models.Class{}, mod.Name(), "", "")
+	vector, err := mod.VectorizeInput(context.Background(), input, cfg)
+	assert.Error(t, err)
+	assert.Nil(t, vector)
+}
+
+func TestBigramModule_VectorizeObject(t *testing.T) {
+	mod := New()
+	mod.activeVectoriser = "alphabet"
+	obj := &models.Object{
+		Class: "Test",
+		Properties: map[string]interface{}{
+			"text": "hello world",
+		},
+	}
+	cfg := modules.NewClassBasedModuleConfig(&models.Class{}, mod.Name(), "", "")
+	vector, _, err := mod.VectorizeObject(context.Background(), obj, cfg)
+	assert.NoError(t, err)
+	assert.NotNil(t, vector)
+}
+
+func TestBigramModule_VectorizeBatch(t *testing.T) {
+	mod := New()
+	mod.activeVectoriser = "alphabet"
+	objs := []*models.Object{
+		{
+			Class: "Test",
+			Properties: map[string]interface{}{
+				"text": "hello world",
+			},
+		},
+		{
+			Class: "Test",
+			Properties: map[string]interface{}{
+				"text": "hello world",
+			},
+		},
+	}
+	skipObject := []bool{false, false}
+	cfg := modules.NewClassBasedModuleConfig(&models.Class{}, mod.Name(), "", "")
+	vectors, _, errors := mod.VectorizeBatch(context.Background(), objs, skipObject, cfg)
+	assert.Len(t, vectors, 2)
+	assert.Len(t, errors, 0)
+}
+
+func TestBigramModule_VectorizeBatch_SkipObject(t *testing.T) {
+	mod := New()
+	mod.activeVectoriser = "alphabet"
+	objs := []*models.Object{
+		{
+			Class: "Test",
+			Properties: map[string]interface{}{
+				"text": "hello world",
+			},
+		},
+		{
+			Class: "Test",
+			Properties: map[string]interface{}{
+				"text": "hello world",
+			},
+		},
+	}
+	skipObject := []bool{false, true}
+	cfg := modules.NewClassBasedModuleConfig(&models.Class{}, mod.Name(), "", "")
+	vectors, _, errors := mod.VectorizeBatch(context.Background(), objs, skipObject, cfg)
+	assert.Len(t, vectors, 1)
+	assert.Len(t, errors, 0)
+}
+
+func TestBigramModule_VectorizeBatch_Error(t *testing.T) {
+	mod := New()
+	mod.activeVectoriser = "alphabet"
+	objs := []*models.Object{
+		{
+			Class: "Test",
+			Properties: map[string]interface{}{
+				"text": "hello world",
+			},
+		},
+		{
+			Class: "Test",
+			Properties: map[string]interface{}{
+				"text": "hello world",
+			},
+		},
+	}
+	skipObject := []bool{false, false}
+	cfg := modules.NewClassBasedModuleConfig(&models.Class{}, mod.Name(), "", "")
+	vectors, _, errors := mod.VectorizeBatch(context.Background(), objs, skipObject, cfg)
+	assert.Len(t, vectors, 2)
+	assert.Len(t, errors, 0)
+}
+
+
+func TestBigramModule_MetaInfo(t *testing.T) {
+	mod := New()
+	meta, err := mod.MetaInfo()
+	assert.NoError(t, err)
+	assert.NotNil(t, meta)
+}
+
+func TestBigramModule_AdditionalProperties(t *testing.T) {
+	mod := New()
+	props := mod.AdditionalProperties()
+	assert.NotNil(t, props)
+}
+
+func TestBigramModule_VectorizableProperties(t *testing.T) {
+	mod := New()
+	vectorizable, props, err := mod.VectorizableProperties(modules.NewClassBasedModuleConfig(&models.Class{}, mod.Name(), "", ""))
+	assert.True(t, vectorizable)
+	assert.Nil(t, props)
+	assert.NoError(t, err)
+}
+
+func TestBigramModule_ClassConfigDefaults(t *testing.T) {
+	mod := New()
+	props := mod.ClassConfigDefaults()
+	assert.NotNil(t, props)
+}
+
+func TestBigramModule_PropertyConfigDefaults(t *testing.T) {
+	mod := New()
+	props := mod.PropertyConfigDefaults(nil)
+	assert.NotNil(t, props)
+}
+
+func TestBigramModule_ValidateClass(t *testing.T) {
+	mod := New()
+	err := mod.ValidateClass(context.Background(), &models.Class{}, modules.NewClassBasedModuleConfig(&models.Class{}, mod.Name(), "", ""))
+	assert.NoError(t, err)
+}
+
+func TestBigramModule_Arguments(t *testing.T) {
+	mod := New()
+	args := mod.Arguments()
+	assert.NotNil(t, args)
+}
+
+func TestBigramModule_VectorSearches(t *testing.T) {
+	mod := New()
+	searches := mod.VectorSearches()
+	assert.NotNil(t, searches)
+}
+
+func TestBigramModule_InitNearText(t *testing.T) {
+	mod := New()
+	err := mod.initNearText()
+	assert.NoError(t, err)
+}
+
+func TestBigramModule_InitExtension(t *testing.T) {
+	mod := New()
+	err := mod.InitExtension(nil)
+	assert.NoError(t, err)
+}
