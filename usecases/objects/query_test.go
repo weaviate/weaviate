@@ -44,7 +44,6 @@ func TestQuery(t *testing.T) {
 		param             QueryParams
 		mockedErr         *Error
 		authErr           error
-		lockErr           error
 		wantCode          int
 		mockedDBResponse  []search.Result
 		wantResponse      []*models.Object
@@ -65,14 +64,6 @@ func TestQuery(t *testing.T) {
 			param:          params,
 			authErr:        errAny,
 			wantCode:       StatusForbidden,
-			wantQueryInput: inputs,
-		},
-		{
-			name:           "internal error",
-			class:          cls,
-			param:          params,
-			lockErr:        errAny,
-			wantCode:       StatusInternalServerError,
 			wantQueryInput: inputs,
 		},
 		{
@@ -140,7 +131,7 @@ func TestQuery(t *testing.T) {
 	for i, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m.authorizer.SetErr(tc.authErr)
-			if tc.authErr == nil && tc.lockErr == nil {
+			if tc.authErr == nil {
 				m.repo.On("Query", &tc.wantQueryInput).Return(tc.mockedDBResponse, tc.mockedErr).Once()
 			}
 			if tc.wantUsageTracking {
