@@ -1270,6 +1270,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	i.logger.Errorf("objectSearch: searching  %s for %v", i.getClass().Class, keywordRanking)
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
