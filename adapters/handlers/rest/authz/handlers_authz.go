@@ -397,7 +397,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	}
 
 	if !h.userExists(params.ID) {
-		return authz.NewAssignRoleToUserNotFound()
+		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("username to assign role to doesn't exist")))
 	}
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
@@ -406,7 +406,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	}
 
 	if len(existedRoles) != len(params.Body.Roles) {
-		return authz.NewAssignRoleToUserNotFound()
+		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
 	if err := h.controller.AddRolesForUser(conv.PrefixUserName(params.ID), params.Body.Roles); err != nil {
@@ -563,7 +563,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 	}
 
 	if !h.userExists(params.ID) {
-		return authz.NewRevokeRoleFromUserNotFound()
+		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("username to revoke role from doesn't exist")))
 	}
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
@@ -572,7 +572,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 	}
 
 	if len(existedRoles) != len(params.Body.Roles) {
-		return authz.NewRevokeRoleFromUserNotFound()
+		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the request roles doesn't exist")))
 	}
 
 	if err := h.controller.RevokeRolesForUser(conv.PrefixUserName(params.ID), params.Body.Roles...); err != nil {
