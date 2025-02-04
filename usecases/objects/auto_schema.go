@@ -528,7 +528,7 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 		}
 		err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(className, names...)...)
 		if err != nil {
-			return 0, totalTenants, err
+			return 0, totalTenants, fmt.Errorf("add tenants because can't create collection: %w", err)
 		}
 		if err := m.addTenants(ctx, principal, className, tenants); err != nil {
 			return 0, totalTenants, fmt.Errorf("add tenants to class %q: %w", className, err)
