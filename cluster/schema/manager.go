@@ -21,9 +21,10 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	gproto "google.golang.org/protobuf/proto"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 var (
@@ -122,7 +123,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
 		i++
 	}
-
+	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
 	s.db.ReloadLocalDB(context.Background(), cs)
 }
@@ -363,15 +364,17 @@ func (s *SchemaManager) apply(op applyOp) error {
 		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
 	}
 
+	if op.enableSchemaCallback {
+		// TriggerSchemaUpdateCallbacks is concurrent and at
+		// this point of time schema shall be up to date.
+		s.db.TriggerSchemaUpdateCallbacks()
+	}
+
 	if !op.schemaOnly {
 		if err := op.updateStore(); err != nil {
 			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 		}
 	}
 
-	// Always trigger the schema callback last
-	if op.enableSchemaCallback {
-		s.db.TriggerSchemaUpdateCallbacks()
-	}
 	return nil
 }
