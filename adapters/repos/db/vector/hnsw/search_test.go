@@ -210,18 +210,18 @@ func TestAcornPercentage(t *testing.T) {
 	t.Run("check acorn params on different filter percentags", func(t *testing.T) {
 		vectorIndex.acornSearch.Store(false)
 		allowList := helpers.NewAllowList(1, 2, 3)
-		useAcorn := vectorIndex.acornParams(allowList)
+		useAcorn := vectorIndex.acornEnabled(allowList)
 		assert.False(t, useAcorn)
 
 		vectorIndex.acornSearch.Store(true)
 
-		useAcorn = vectorIndex.acornParams(allowList)
+		useAcorn = vectorIndex.acornEnabled(allowList)
 		assert.True(t, useAcorn)
 
 		vectorIndex.acornSearch.Store(true)
 
 		largerAllowList := helpers.NewAllowList(1, 2, 3, 4, 5)
-		useAcorn = vectorIndex.acornParams(largerAllowList)
+		useAcorn = vectorIndex.acornEnabled(largerAllowList)
 		// should be false as allow list percentage is 50%
 		assert.False(t, useAcorn)
 	})
