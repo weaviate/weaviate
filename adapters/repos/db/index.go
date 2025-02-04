@@ -1607,6 +1607,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32
 	}
 
 	if i.Config.ForceFullReplicasSearch {
+		i.logger.Errorf("remoteShardSearch: ForceFullReplicasSearch searching  %s for %v", i.getClass().Class, searchVectors)
 		// Force a search on all the replicas for the shard
 		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
 			i.logger, shardName, searchVectors, targetVectors, limit, localFilters,
@@ -1624,6 +1625,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32
 			outScores = append(outScores, remoteShardResult.Scores...)
 		}
 	} else {
+		i.logger.Errorf("remoteShardSearch: NOT ForceFullReplicasSearch searching  %s for %v", i.getClass().Class, searchVectors)
 		// Search only what is necessary
 		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
 			shardName, searchVectors, targetVectors, limit, localFilters,
@@ -1682,6 +1684,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
+	i.logger.Errorf("objectVectorSearch: searching  %s shards: %v", i.getClass().Class, shardNames)
 	for _, sn := range shardNames {
 		shardName := sn
 		shard, release, err := i.GetShard(ctx, shardName)
@@ -1709,6 +1712,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 		}
 
 		if shard == nil || i.Config.ForceFullReplicasSearch {
+			i.logger.Errorf("objectVectorSearch: ForceFullReplicasSearch searching  %s for %v", i.getClass().Class, searchVectors)
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
@@ -1731,6 +1735,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
+		i.logger.Errorf("objectVectorSearch: ForceFullReplicasSearch deduplicating  %s for %v", i.getClass().Class, searchVectors)
 		out, dists, err = searchResultDedup(out, dists)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not deduplicate result after full replicas search: %w", err)
