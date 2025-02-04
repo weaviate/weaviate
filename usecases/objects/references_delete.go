@@ -113,12 +113,6 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 	}
 
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return &Error{"cannot lock", StatusInternalServerError, err}
-	}
-	defer unlock()
-
 	if input.validateSchema(class) != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}

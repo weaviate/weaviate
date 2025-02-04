@@ -49,12 +49,6 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	unlock, err := t.locks.LockConnector()
-	if err != nil {
-		return nil, enterrors.NewErrLockConnector(err)
-	}
-	defer unlock()
-
 	// validate here, because filters can contain references that need to be authorized
 	if err := t.validateFilters(principal, params.Filters); err != nil {
 		return nil, errors.Wrap(err, "invalid 'where' filter")

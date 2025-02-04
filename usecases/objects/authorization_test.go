@@ -176,12 +176,11 @@ func Test_Kinds_Authorization(t *testing.T) {
 			}
 			t.Run(test.methodName, func(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
-				locks := &fakeLocks{}
 				cfg := &config.WeaviateConfig{}
 				authorizer := mocks.NewMockAuthorizer()
 				authorizer.SetErr(errors.New("just a test fake"))
 				vectorRepo := &fakeVectorRepo{}
-				manager := NewManager(locks, schemaManager,
+				manager := NewManager(schemaManager,
 					cfg, logger, authorizer,
 					vectorRepo, getFakeModulesProvider(), nil, nil)
 
@@ -265,13 +264,12 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			schemaManager := &fakeSchemaManager{}
-			locks := &fakeLocks{}
 			cfg := &config.WeaviateConfig{}
 			authorizer := mocks.NewMockAuthorizer()
 			authorizer.SetErr(errors.New("just a test fake"))
 			vectorRepo := &fakeVectorRepo{}
 			modulesProvider := getFakeModulesProvider()
-			manager := NewBatchManager(vectorRepo, modulesProvider, locks, schemaManager, cfg, logger, authorizer, nil)
+			manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

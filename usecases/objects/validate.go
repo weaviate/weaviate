@@ -44,12 +44,6 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 		return err
 	}
 
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
-
 	err = m.validateObjectAndNormalizeNames(ctx, repl, obj, nil, fetchedClasses)
 	if err != nil {
 		var forbidden autherrs.Forbidden

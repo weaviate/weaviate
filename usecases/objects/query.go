@@ -75,11 +75,6 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
 		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return nil, &Error{"cannot lock", StatusInternalServerError, err}
-	}
-	defer unlock()
 
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()

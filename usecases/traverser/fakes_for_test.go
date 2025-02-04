@@ -39,16 +39,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-type fakeLocks struct{}
-
-func (f *fakeLocks) LockConnector() (func() error, error) {
-	return func() error { return nil }, nil
-}
-
-func (f *fakeLocks) LockSchema() (func() error, error) {
-	return func() error { return nil }, nil
-}
-
 type ClassIndexCheck interface {
 	PropertyIndexed(property string) bool
 	VectorizeClassName() bool

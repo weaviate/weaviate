@@ -71,7 +71,6 @@ func newDeleteDependency() (*Manager, *fakeVectorRepo) {
 	vectorRepo := new(fakeVectorRepo)
 	logger, _ := test.NewNullLogger()
 	manager := NewManager(
-		new(fakeLocks),
 		new(fakeSchemaManager),
 		new(config.WeaviateConfig),
 		logger,

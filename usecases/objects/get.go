@@ -37,12 +37,6 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
-
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
@@ -68,12 +62,6 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
-
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 	return m.getObjectsFromRepo(ctx, offset, limit, sort, order, after, addl, tenant)
@@ -87,11 +75,6 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 		return nil, err
 	}
 
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 

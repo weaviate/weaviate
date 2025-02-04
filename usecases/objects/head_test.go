@@ -34,7 +34,6 @@ func Test_HeadObject(t *testing.T) {
 		mockedOk  bool
 		mockedErr error
 		authErr   error
-		lockErr   error
 		wantOK    bool
 		wantCode  int
 	}{
@@ -65,17 +64,10 @@ func Test_HeadObject(t *testing.T) {
 			wantOK:   false,
 			wantCode: StatusForbidden,
 		},
-		{
-			class:    cls,
-			lockErr:  errAny,
-			wantOK:   false,
-			wantCode: StatusInternalServerError,
-		},
 	}
 	for i, tc := range tests {
 		m.authorizer.SetErr(tc.authErr)
-		m.locks.Err = tc.lockErr
-		if tc.authErr == nil && tc.lockErr == nil {
+		if tc.authErr == nil {
 			m.repo.On("Exists", tc.class, id).Return(tc.mockedOk, tc.mockedErr).Once()
 		}
 		ok, err := m.Manager.HeadObject(context.Background(), nil, tc.class, id, nil, "")
