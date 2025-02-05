@@ -66,7 +66,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("newRole")[0]).
 					Return(nil).Once()
 				// Third call succeeds - has required permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
+				a.On("AuthorizeSilent", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
 					Return(nil).Once()
 			},
 			expectedError: "",
@@ -88,10 +88,10 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("newRole")[0]).
 					Return(nil).Once()
 				// Third call succeeds - has first permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
+				a.On("AuthorizeSilent", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
 					Return(nil).Once()
 				// Fourth call fails - missing second permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.UPDATE, "collections/XYZ").
+				a.On("AuthorizeSilent", &models.Principal{Username: "user"}, authorization.UPDATE, "collections/XYZ").
 					Return(errors.New("missing write permission")).Once()
 			},
 			expectedError: "missing write permission",
@@ -145,7 +145,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("existingRole")[0]).
 					Return(nil).Once()
 				// Third call succeeds - has required permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
+				a.On("AuthorizeSilent", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
 					Return(nil).Once()
 			},
 			expectedError: "",
@@ -167,10 +167,10 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("existingRole")[0]).
 					Return(nil).Once()
 				// Third call succeeds - has first permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
+				a.On("AuthorizeSilent", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
 					Return(nil).Once()
 				// Fourth call fails - missing delete permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.DELETE, "collections/XYZ").
+				a.On("AuthorizeSilent", &models.Principal{Username: "user"}, authorization.DELETE, "collections/XYZ").
 					Return(errors.New("missing delete permission")).Once()
 			},
 			expectedError: "missing delete permission",
@@ -239,10 +239,10 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.ROLE_SCOPE_MATCH, authorization.Roles("existingRole")[0]).
 					Return(nil).Once()
 				// Third call succeeds - has first permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
+				a.On("AuthorizeSilent", &models.Principal{Username: "user"}, authorization.READ, "collections/ABC").
 					Return(nil).Once()
 				// Fourth call fails - missing delete permission
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.DELETE, "collections/XYZ").
+				a.On("AuthorizeSilent", &models.Principal{Username: "user"}, authorization.DELETE, "collections/XYZ").
 					Return(errors.New("missing delete permission")).Once()
 			},
 			expectedError: "missing delete permission",
