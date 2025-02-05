@@ -26,7 +26,9 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled {
 		return nil
 	}
-
+	if h.Multivector() {
+		return errors.New("compression is not supported in multivector mode")
+	}
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
 	data := h.cache.All()

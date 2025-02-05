@@ -154,70 +154,80 @@ func TestMultiVectorHnsw(t *testing.T) {
 	})
 }
 
-func TestMultiVectorBQHnsw(t *testing.T) {
+func TestMultiVectorCompressHnsw(t *testing.T) {
 	var vectorIndex *hnsw
-	ctx := context.Background()
 	maxConnections := 8
 	efConstruction := 64
 	ef := 64
-	k := 10
 
-	t.Run("importing into hnsw", func(t *testing.T) {
-		index, err := New(Config{
-			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:                    "recallbenchmark",
-			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			DistanceProvider:      distancer.NewDotProductProvider(),
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				docID, relativeID := vectorIndex.cache.GetKeys(id)
-				return multiVectors[docID][relativeID], nil
-			},
-			TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
-				return multiVectors[id], nil
-			},
-		}, ent.UserConfig{
+	userConfigTest := []ent.UserConfig{
+		{
 			MaxConnections: maxConnections,
 			EFConstruction: efConstruction,
 			EF:             ef,
 			Multivector:    ent.MultivectorConfig{Enabled: true},
 			BQ:             ent.BQConfig{Enabled: true},
-		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
-		require.Nil(t, err)
-		vectorIndex = index
+		},
+		{
+			MaxConnections: maxConnections,
+			EFConstruction: efConstruction,
+			EF:             ef,
+			Multivector:    ent.MultivectorConfig{Enabled: true},
+			PQ:             ent.PQConfig{Enabled: true},
+		},
+		{
+			MaxConnections: maxConnections,
+			EFConstruction: efConstruction,
+			EF:             ef,
+			Multivector:    ent.MultivectorConfig{Enabled: true},
+			SQ:             ent.SQConfig{Enabled: true},
+		},
+	}
 
-		for i, vec := range multiVectors {
-			err := vectorIndex.AddMulti(ctx, uint64(i), vec)
-			require.Nil(t, err)
+	t.Run("creating hnsw with compression", func(t *testing.T) {
+		for _, userConfig := range userConfigTest {
+			_, err := New(Config{
+				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+				ID:                    "recallbenchmark",
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      distancer.NewDotProductProvider(),
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					docID, relativeID := vectorIndex.cache.GetKeys(id)
+					return multiVectors[docID][relativeID], nil
+				},
+				TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
+					return multiVectors[id], nil
+				},
+			}, userConfig, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			require.ErrorContains(t, err, "compression is not supported in multivector mode")
 		}
 	})
 
-	t.Run("inspect a query", func(t *testing.T) {
-		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+	t.Run("compressing hnsw after creation", func(t *testing.T) {
+		for _, userConfig := range userConfigTest {
+			index, err := New(Config{
+				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+				ID:                    "recallbenchmark",
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      distancer.NewDotProductProvider(),
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					docID, relativeID := vectorIndex.cache.GetKeys(id)
+					return multiVectors[docID][relativeID], nil
+				},
+				TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
+					return multiVectors[id], nil
+				},
+			}, ent.UserConfig{
+				MaxConnections: maxConnections,
+				EFConstruction: efConstruction,
+				EF:             ef,
+				Multivector:    ent.MultivectorConfig{Enabled: true},
+			},
+				cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 			require.Nil(t, err)
-			require.Equal(t, expectedResults[i], ids)
-		}
-	})
-
-	t.Run("delete some nodes", func(t *testing.T) {
-		// Delete the first node and then add back
-		newExpectedResults := [][]uint64{
-			{1, 2},
-			{2, 1},
-		}
-		err := vectorIndex.DeleteMulti(0)
-		require.Nil(t, err)
-		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
-			require.Nil(t, err)
-			require.Equal(t, newExpectedResults[i], ids)
-		}
-		err = vectorIndex.AddMulti(ctx, 0, multiVectors[0])
-		require.Nil(t, err)
-		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
-			require.Nil(t, err)
-			require.Equal(t, expectedResults[i], ids)
+			vectorIndex = index
+			err = vectorIndex.compress(userConfig)
+			require.ErrorContains(t, err, "compression is not supported in multivector mode")
 		}
 	})
 }

@@ -623,20 +623,6 @@ func Test_MultiDimensionTrackingMetrics(t *testing.T) {
 			importDimension: 64,
 			importTokens:    5,
 		},
-		{
-			name:      "BQ",
-			className: "BQ",
-			vectorConfig: func() *enthnsw.UserConfig {
-				cfg := enthnsw.NewDefaultUserConfig()
-				cfg.BQ.Enabled = true
-				cfg.Multivector = enthnsw.MultivectorConfig{Enabled: true}
-				return &cfg
-			},
-			expectedDims:    0.0,
-			expectedSegs:    4000.0, // 100 objects * 5 tokens * 64 dimensions / 8 for BQ
-			importDimension: 64,
-			importTokens:    5,
-		},
 	}
 
 	r := getRandomSeed()
