@@ -138,7 +138,7 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 	case 0:
 		return nil, fmt.Errorf("no children for operator: %s", pv.operator.Name())
 	case 1:
-		return &pv.children[0].docIDs, nil
+		return pv.children[0].mergeDocIDs()
 	}
 
 	var err error
