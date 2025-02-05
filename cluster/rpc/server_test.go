@@ -33,7 +33,7 @@ import (
 const raftGrpcMessageMaxSize = 1024 * 1024 * 1024
 
 func TestServerNewError(t *testing.T) {
-	sm := monitoring.NewGRPCServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
+	sm := monitoring.NewServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
 
 	var (
 		addr      = fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
@@ -55,7 +55,7 @@ func TestServerNewError(t *testing.T) {
 }
 
 func TestRaftRelatedRPC(t *testing.T) {
-	sm := monitoring.NewGRPCServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
+	sm := monitoring.NewServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
 
 	tests := []struct {
 		name     string
@@ -195,7 +195,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 }
 
 func TestQueryEndpoint(t *testing.T) {
-	sm := monitoring.NewGRPCServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
+	sm := monitoring.NewServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
 
 	tests := []struct {
 		name     string
@@ -284,7 +284,7 @@ func TestQueryEndpoint(t *testing.T) {
 }
 
 func TestApply(t *testing.T) {
-	sm := monitoring.NewGRPCServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
+	sm := monitoring.NewServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
 
 	tests := []struct {
 		name     string
