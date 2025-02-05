@@ -1270,6 +1270,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	i.logger.Errorf("objectVectorSearch: Full Replicas Search %v", i.Config.ForceFullReplicasSearch)
+	i.logger.Errorf("objectSearch: searching  %s for %v", i.getClass().Class, keywordRanking)
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
@@ -1392,6 +1394,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, shards []string, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	i.logger.Errorf("objectSearchByShard: searching  %s for %v", i.getClass().Class, keywordRanking)
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
@@ -1561,11 +1564,92 @@ func (i *Index) targetShardNames(ctx context.Context, tenant string) ([]string, 
 		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
+func (i *Index) localShardSearch(ctx context.Context, searchVectors [][]float32,
+	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
+	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
+	targetCombination *dto.TargetCombination, properties []string, shardName string,
+) ([]*storobj.Object, []float32, error) {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return nil, nil, err
+	}
+	if shard != nil {
+		defer release()
+	}
+
+	localCtx := helpers.InitSlowQueryDetails(ctx)
+	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
+	localShardResult, localShardScores, err := shard.ObjectVectorSearch(
+		localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+	// Append result to out
+	if i.replicationEnabled() {
+		storobj.AddOwnership(localShardResult, i.getSchema.NodeName(), shardName)
+	}
+	return localShardResult, localShardScores, nil
+}
+
+func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32,
+	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
+	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
+	targetCombination *dto.TargetCombination, properties []string, shardName string,
+) ([]*storobj.Object, []float32, error) {
+	var outObjects []*storobj.Object
+	var outScores []float32
+
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return nil, nil, err
+	}
+	if shard != nil {
+		defer release()
+	}
+
+	if i.Config.ForceFullReplicasSearch {
+		i.logger.Errorf("remoteShardSearch: ForceFullReplicasSearch searching  %s for %v", i.getClass().Class, searchVectors)
+		// Force a search on all the replicas for the shard
+		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
+			i.logger, shardName, searchVectors, targetVectors, limit, localFilters,
+			nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName(), targetCombination, properties)
+		// Only return an error if we failed to query remote shards AND we had no local shard to query
+		if err != nil && shard == nil {
+			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
+		}
+		// Append the result of the search to the outgoing result
+		for _, remoteShardResult := range remoteSearchResults {
+			if i.replicationEnabled() {
+				storobj.AddOwnership(remoteShardResult.Objects, remoteShardResult.Node, shardName)
+			}
+			outObjects = append(outObjects, remoteShardResult.Objects...)
+			outScores = append(outScores, remoteShardResult.Scores...)
+		}
+	} else {
+		i.logger.Errorf("remoteShardSearch: NOT ForceFullReplicasSearch searching  %s for %v", i.getClass().Class, searchVectors)
+		// Search only what is necessary
+		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
+			shardName, searchVectors, targetVectors, limit, localFilters,
+			nil, sort, nil, groupBy, additional, i.replicationEnabled(), targetCombination, properties)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
+		}
+
+		if i.replicationEnabled() {
+			storobj.AddOwnership(remoteResult, nodeName, shardName)
+		}
+		outObjects = remoteResult
+		outScores = remoteDists
+	}
+	return outObjects, outScores, nil
+}
+
 func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float32,
-	targetVectors []string, dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
-	groupBy *searchparams.GroupBy, additional additional.Properties,
+	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort,
+	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	i.logger.Errorf("objectVectorSearch: Full Replicas Search %v", i.Config.ForceFullReplicasSearch)
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
@@ -1582,8 +1666,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 
 		if shard != nil {
 			defer release()
-			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, filters,
-				sort, groupBy, additional, shard, targetCombination, properties)
+			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
+				sort, groupBy, additionalProps, shard, targetCombination, properties)
 		}
 	}
 
@@ -1602,76 +1686,49 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
-	for _, shardName := range shardNames {
-		shardName := shardName
-		eg.Go(func() error {
-			shard, release, err := i.GetShard(ctx, shardName)
-			if err != nil {
-				return nil
-			}
+	i.logger.Errorf("objectVectorSearch: searching  %s shards: %v", i.getClass().Class, shardNames)
+	for _, sn := range shardNames {
+		shardName := sn
+		shard, release, err := i.GetShard(ctx, shardName)
+		if err != nil {
+			return nil, nil, err
+		}
+		if shard != nil {
+			defer release()
+		}
 
-			if shard != nil {
-				defer release()
+		if shard != nil {
+			eg.Go(func() error {
+				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				if err1 != nil {
+					return fmt.Errorf(
+						"local shard object search %s: %w", shard.ID(), err1)
+				}
 
-				localCtx := helpers.InitSlowQueryDetails(ctx)
-				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
-				localShardResult, localShardScores, err := shard.ObjectVectorSearch(
-					localCtx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, targetCombination, properties)
-				if err != nil {
-					return errors.Wrapf(err, "shard %s", shard.ID())
-				}
-				// Append result to out
-				if i.replicationEnabled() {
-					storobj.AddOwnership(localShardResult, i.getSchema.NodeName(), shardName)
-				}
 				m.Lock()
 				out = append(out, localShardResult...)
 				dists = append(dists, localShardScores...)
 				m.Unlock()
-			}
+				return nil
+			})
+		}
 
-			// If we have no local shard or if we force the query to reach all replicas
-			if shard == nil || i.Config.ForceFullReplicasSearch {
-				if i.Config.ForceFullReplicasSearch {
-					// Force a search on all the replicas for the shard
-					remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
-						i.logger, shardName, searchVectors, targetVectors, limit, filters,
-						nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName(), targetCombination, properties)
-					// Only return an error if we failed to query remote shards AND we had no local shard to query
-					if err != nil && shard == nil {
-						return errors.Wrapf(err, "remote shard %s", shardName)
-					}
-					// Append the result of the search to the outgoing result
-					for _, remoteShardResult := range remoteSearchResults {
-						if i.replicationEnabled() {
-							storobj.AddOwnership(remoteShardResult.Objects, remoteShardResult.Node, shardName)
-						}
-						m.Lock()
-						out = append(out, remoteShardResult.Objects...)
-						dists = append(dists, remoteShardResult.Scores...)
-						m.Unlock()
-					}
-				} else {
-					// Search only what is necessary
-					remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
-						shardName, searchVectors, targetVectors, limit, filters,
-						nil, sort, nil, groupBy, additional, i.replicationEnabled(), targetCombination, properties)
-					if err != nil {
-						return errors.Wrapf(err, "remote shard %s", shardName)
-					}
-
-					if i.replicationEnabled() {
-						storobj.AddOwnership(remoteResult, nodeName, shardName)
-					}
-					m.Lock()
-					out = append(out, remoteResult...)
-					dists = append(dists, remoteDists...)
-					m.Unlock()
+		if shard == nil || i.Config.ForceFullReplicasSearch {
+			i.logger.Errorf("objectVectorSearch: ForceFullReplicasSearch searching  %s for %v", i.getClass().Class, searchVectors)
+			eg.Go(func() error {
+				// If we have no local shard or if we force the query to reach all replicas
+				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				if err2 != nil {
+					return fmt.Errorf(
+						"remote shard object search %s: %w", shardName, err2)
 				}
-			}
-
-			return nil
-		}, shardName)
+				m.Lock()
+				out = append(out, remoteShardObject...)
+				dists = append(dists, remoteShardScores...)
+				m.Unlock()
+				return nil
+			})
+		}
 	}
 
 	if err := eg.Wait(); err != nil {
@@ -1680,6 +1737,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
+		i.logger.Errorf("objectVectorSearch: ForceFullReplicasSearch deduplicating  %s for %v", i.getClass().Class, searchVectors)
 		out, dists, err = searchResultDedup(out, dists)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not deduplicate result after full replicas search: %w", err)
@@ -1725,6 +1783,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	i.logger.Errorf("IncomingSearch: searching  %s for %v", i.getClass().Class, keywordRanking)
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
