@@ -13,6 +13,7 @@ package planets
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,19 +68,35 @@ func BaseClass(className string) *models.Class {
 			{
 				Name: "description", DataType: []string{schema.DataTypeText.String()},
 			},
+			{
+				Name: "image", DataType: []string{schema.DataTypeBlob.String()},
+			},
 		},
 	}
 }
 
 func InsertObjects(t *testing.T, className string) {
-	for _, company := range Planets {
+	InsertObjectsWithImages(t, className, "")
+}
+
+func InsertObjectsWithImages(t *testing.T, className, dataFolderPath string) {
+	getProperties := func(t *testing.T, name, description, dataFolderPath string) map[string]interface{} {
+		properties := map[string]interface{}{
+			"name":        name,
+			"description": description,
+		}
+		if dataFolderPath != "" {
+			imageBase64, err := GetImageBlob(dataFolderPath, strings.ToLower(name))
+			require.NoError(t, err)
+			properties["image"] = imageBase64
+		}
+		return properties
+	}
+	for _, planet := range Planets {
 		obj := &models.Object{
-			Class: className,
-			ID:    company.ID,
-			Properties: map[string]interface{}{
-				"name":        company.Name,
-				"description": company.Description,
-			},
+			Class:      className,
+			ID:         planet.ID,
+			Properties: getProperties(t, planet.Name, planet.Description, dataFolderPath),
 		}
 		helper.CreateObject(t, obj)
 		helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
@@ -91,7 +108,10 @@ func CreateTweetTest(t *testing.T, className string) {
 }
 
 func CreateTweetTestWithParams(t *testing.T, className, params string) {
-	prompt := "Write a short tweet about planet {name}"
+	CreatePromptTestWithParams(t, className, "Write a short tweet about planet {name}", params)
+}
+
+func CreatePromptTestWithParams(t *testing.T, className, prompt, params string) {
 	query := fmt.Sprintf(`
 			{
 				Get {
@@ -117,7 +137,7 @@ func CreateTweetTestWithParams(t *testing.T, className, params string) {
 	result := graphqlhelper.AssertGraphQLWithTimeout(t, helper.RootAuth, 5*time.Minute, query)
 	objs := result.Get("Get", className).AsSlice()
 	require.Len(t, objs, 2)
-	for _, obj := range objs {
+	for i, obj := range objs {
 		name := obj.(map[string]interface{})["name"]
 		assert.NotEmpty(t, name)
 		additional, ok := obj.(map[string]interface{})["_additional"].(map[string]interface{})
@@ -132,7 +152,7 @@ func CreateTweetTestWithParams(t *testing.T, className, params string) {
 		require.True(t, ok)
 		require.NotEmpty(t, singleResult)
 		// print the results of the prompt
-		t.Logf("Prompt: %s\nResult: %s\n", prompt, singleResult)
+		t.Logf("[%v]Prompt: %s\nResult: %s\n", i, prompt, singleResult)
 	}
 }
 
@@ -141,7 +161,10 @@ func CreateTweetTestGRPC(t *testing.T, className string) {
 }
 
 func CreateTweetTestWithParamsGRPC(t *testing.T, className string, params *pb.GenerativeProvider) {
-	prompt := "Write a short tweet about planet {name}"
+	CreatePromptTestWithParamsGRPC(t, className, "Write a short tweet about planet {name}", params)
+}
+
+func CreatePromptTestWithParamsGRPC(t *testing.T, className, prompt string, params *pb.GenerativeProvider) {
 	var queries []*pb.GenerativeProvider
 	if params != nil {
 		queries = []*pb.GenerativeProvider{params}
@@ -159,7 +182,7 @@ func CreateTweetTestWithParamsGRPC(t *testing.T, className string, params *pb.Ge
 	resp := grpchelper.AssertSearchWithTimeout(t, req, 5*time.Minute)
 	require.NotNil(t, resp)
 	require.Len(t, resp.Results, 2)
-	for _, res := range resp.Results {
+	for i, res := range resp.Results {
 		require.Len(t, res.Generative.GetValues(), 1)
 		require.NotEmpty(t, res.Generative.GetValues()[0].Result)
 		if params.GetReturnMetadata() {
@@ -186,6 +209,11 @@ func CreateTweetTestWithParamsGRPC(t *testing.T, className string, params *pb.Ge
 				require.NotEmpty(t, metadata.GetGoogle())
 			}
 		}
-		t.Logf("Prompt: %s\nResult: %s\n", prompt, res.Generative.GetValues()[0].Result)
+		t.Logf("[%v]Prompt: %s\nResult: %s\n", i, prompt, res.Generative.GetValues()[0].Result)
 	}
+}
+
+func GetImageBlob(dataFolderPath, name string) (string, error) {
+	path := fmt.Sprintf("%s/images/%s.jpg", dataFolderPath, name)
+	return helper.GetBase64EncodedData(path)
 }

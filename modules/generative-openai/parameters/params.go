@@ -30,6 +30,7 @@ type Params struct {
 	Stop             []string
 	Temperature      *float64
 	TopP             *float64
+	Images           []string
 }
 
 func extract(field *ast.ObjectField) interface{} {
@@ -64,6 +65,8 @@ func extract(field *ast.ObjectField) interface{} {
 				out.Temperature = gqlparser.GetValueAsFloat64(f)
 			case "topP":
 				out.TopP = gqlparser.GetValueAsFloat64(f)
+			case "images":
+				out.Images = gqlparser.GetValueAsStringArray(f)
 			default:
 				// do nothing
 			}

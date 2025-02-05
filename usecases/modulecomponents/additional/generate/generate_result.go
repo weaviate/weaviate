@@ -14,14 +14,12 @@ package generate
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
@@ -51,10 +49,6 @@ func (p *GenerateProvider) generateResult(ctx context.Context,
 		_, err = p.generateForAllSearchResults(ctx, in, *task, properties, client, settings, debug, cfg)
 	}
 	if prompt != nil {
-		prompt, err = validatePrompt(prompt)
-		if err != nil {
-			return nil, err
-		}
 		_, err = p.generatePerSearchResult(ctx, in, *prompt, client, settings, debug, cfg)
 	}
 
@@ -85,18 +79,6 @@ func (p *GenerateProvider) getClient(provider string) (modulecapabilities.Genera
 	return nil, fmt.Errorf("client not found for provider: %s", provider)
 }
 
-func validatePrompt(prompt *string) (*string, error) {
-	matched, err := regexp.MatchString("{([\\s\\w]*)}", *prompt)
-	if err != nil {
-		return nil, err
-	}
-	if !matched {
-		return nil, errors.Errorf("Prompt does not contain any properties. Use {PROPERTY_NAME} in the prompt to instuct Weaviate which data to use")
-	}
-
-	return prompt, err
-}
-
 func (p *GenerateProvider) generatePerSearchResult(ctx context.Context,
 	in []search.Result,
 	prompt string,
@@ -107,14 +89,14 @@ func (p *GenerateProvider) generatePerSearchResult(ctx context.Context,
 ) ([]search.Result, error) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, p.maximumNumberOfGoroutines)
-	for i, result := range in {
+	for i := range in {
 		wg.Add(1)
 		i := i
-		textProperties := p.getTextProperties(result, nil)
 		enterrors.GoWrapper(func() {
 			sem <- struct{}{}
 			defer wg.Done()
 			defer func() { <-sem }()
+			textProperties := p.getTextProperties(in[i], nil)
 			generateResult, err := client.GenerateSingleResult(ctx, textProperties, prompt, settings, debug, cfg)
 			p.setIndividualResult(in, i, generateResult, err)
 		}, p.logger)

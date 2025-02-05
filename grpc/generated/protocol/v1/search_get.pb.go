@@ -130,7 +130,7 @@ type SearchRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// required
+	//required
 	Collection string `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
 	// parameters
 	Tenant           string            `protobuf:"bytes,10,opt,name=tenant,proto3" json:"tenant,omitempty"`
@@ -161,9 +161,9 @@ type SearchRequest struct {
 	NearImu      *NearIMUSearch     `protobuf:"bytes,51,opt,name=near_imu,json=nearImu,proto3,oneof" json:"near_imu,omitempty"`
 	Generative   *GenerativeSearch  `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
 	Rerank       *Rerank            `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Uses_125Api bool `protobuf:"varint,101,opt,name=uses_125_api,json=uses125Api,proto3" json:"uses_125_api,omitempty"`
 	Uses_127Api bool `protobuf:"varint,102,opt,name=uses_127_api,json=uses127Api,proto3" json:"uses_127_api,omitempty"`
 }
@@ -375,7 +375,7 @@ func (x *SearchRequest) GetRerank() *Rerank {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *SearchRequest) GetUses_123Api() bool {
 	if x != nil {
 		return x.Uses_123Api
@@ -383,7 +383,7 @@ func (x *SearchRequest) GetUses_123Api() bool {
 	return false
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *SearchRequest) GetUses_125Api() bool {
 	if x != nil {
 		return x.Uses_125Api
@@ -838,7 +838,7 @@ type Targets struct {
 
 	TargetVectors []string          `protobuf:"bytes,1,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"`
 	Combination   CombinationMethod `protobuf:"varint,2,opt,name=combination,proto3,enum=weaviate.v1.CombinationMethod" json:"combination,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Weights           map[string]float32  `protobuf:"bytes,3,rep,name=weights,proto3" json:"weights,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"fixed32,2,opt,name=value,proto3"` // deprecated in 1.26.2 - use weights_for_targets
 	WeightsForTargets []*WeightsForTarget `protobuf:"bytes,4,rep,name=weights_for_targets,json=weightsForTargets,proto3" json:"weights_for_targets,omitempty"`
 }
@@ -889,7 +889,7 @@ func (x *Targets) GetCombination() CombinationMethod {
 	return CombinationMethod_COMBINATION_METHOD_UNSPECIFIED
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *Targets) GetWeights() map[string]float32 {
 	if x != nil {
 		return x.Weights
@@ -913,12 +913,12 @@ type Hybrid struct {
 	Properties []string `protobuf:"bytes,2,rep,name=properties,proto3" json:"properties,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Vector      []float32         `protobuf:"fixed32,3,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vector_bytes
 	Alpha       float32           `protobuf:"fixed32,4,opt,name=alpha,proto3" json:"alpha,omitempty"`
 	FusionType  Hybrid_FusionType `protobuf:"varint,5,opt,name=fusion_type,json=fusionType,proto3,enum=weaviate.v1.Hybrid_FusionType" json:"fusion_type,omitempty"`
 	VectorBytes []byte            `protobuf:"bytes,6,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string        `protobuf:"bytes,7,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	NearText      *NearTextSearch `protobuf:"bytes,8,opt,name=near_text,json=nearText,proto3" json:"near_text,omitempty"`                // targets in msg is ignored and should not be set for hybrid
 	NearVector    *NearVector     `protobuf:"bytes,9,opt,name=near_vector,json=nearVector,proto3" json:"near_vector,omitempty"`          // same as above. Use the target vector in the hybrid message
@@ -926,7 +926,6 @@ type Hybrid struct {
 	// only vector distance, but keep it extendable
 	//
 	// Types that are assignable to Threshold:
-	//
 	//	*Hybrid_VectorDistance
 	Threshold isHybrid_Threshold `protobuf_oneof:"threshold"`
 }
@@ -977,7 +976,7 @@ func (x *Hybrid) GetProperties() []string {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *Hybrid) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -1006,7 +1005,7 @@ func (x *Hybrid) GetVectorBytes() []byte {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *Hybrid) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1070,7 +1069,7 @@ type NearTextSearch struct {
 	Distance  *float64             `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
 	MoveTo    *NearTextSearch_Move `protobuf:"bytes,4,opt,name=move_to,json=moveTo,proto3,oneof" json:"move_to,omitempty"`
 	MoveAway  *NearTextSearch_Move `protobuf:"bytes,5,opt,name=move_away,json=moveAway,proto3,oneof" json:"move_away,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,6,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,7,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1142,7 +1141,7 @@ func (x *NearTextSearch) GetMoveAway() *NearTextSearch_Move {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearTextSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1165,7 +1164,7 @@ type NearImageSearch struct {
 	Image     string   `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1223,7 +1222,7 @@ func (x *NearImageSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearImageSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1246,7 +1245,7 @@ type NearAudioSearch struct {
 	Audio     string   `protobuf:"bytes,1,opt,name=audio,proto3" json:"audio,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1304,7 +1303,7 @@ func (x *NearAudioSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearAudioSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1327,7 +1326,7 @@ type NearVideoSearch struct {
 	Video     string   `protobuf:"bytes,1,opt,name=video,proto3" json:"video,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1385,7 +1384,7 @@ func (x *NearVideoSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearVideoSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1408,7 +1407,7 @@ type NearDepthSearch struct {
 	Depth     string   `protobuf:"bytes,1,opt,name=depth,proto3" json:"depth,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1466,7 +1465,7 @@ func (x *NearDepthSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearDepthSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1489,7 +1488,7 @@ type NearThermalSearch struct {
 	Thermal   string   `protobuf:"bytes,1,opt,name=thermal,proto3" json:"thermal,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1547,7 +1546,7 @@ func (x *NearThermalSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearThermalSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1570,7 +1569,7 @@ type NearIMUSearch struct {
 	Imu       string   `protobuf:"bytes,1,opt,name=imu,proto3" json:"imu,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1628,7 +1627,7 @@ func (x *NearIMUSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearIMUSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1831,15 +1830,15 @@ type NearVector struct {
 
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Vector      []float32 `protobuf:"fixed32,1,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vector_bytes
 	Certainty   *float64  `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance    *float64  `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
 	VectorBytes []byte    `protobuf:"bytes,4,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,5,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,6,opt,name=targets,proto3" json:"targets,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	VectorPerTarget  map[string][]byte  `protobuf:"bytes,7,rep,name=vector_per_target,json=vectorPerTarget,proto3" json:"vector_per_target,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"` // deprecated in 1.26.2 - use vector_for_targets
 	VectorForTargets []*VectorForTarget `protobuf:"bytes,8,rep,name=vector_for_targets,json=vectorForTargets,proto3" json:"vector_for_targets,omitempty"`
 }
@@ -1876,7 +1875,7 @@ func (*NearVector) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{19}
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearVector) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -1905,7 +1904,7 @@ func (x *NearVector) GetVectorBytes() []byte {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearVector) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1920,7 +1919,7 @@ func (x *NearVector) GetTargets() *Targets {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearVector) GetVectorPerTarget() map[string][]byte {
 	if x != nil {
 		return x.VectorPerTarget
@@ -1943,7 +1942,7 @@ type NearObject struct {
 	Id        string   `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -2001,7 +2000,7 @@ func (x *NearObject) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearObject) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -2078,7 +2077,7 @@ type SearchReply struct {
 
 	Took    float32         `protobuf:"fixed32,1,opt,name=took,proto3" json:"took,omitempty"`
 	Results []*SearchResult `protobuf:"bytes,2,rep,name=results,proto3" json:"results,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	GenerativeGroupedResult  *string           `protobuf:"bytes,3,opt,name=generative_grouped_result,json=generativeGroupedResult,proto3,oneof" json:"generative_grouped_result,omitempty"`
 	GroupByResults           []*GroupByResult  `protobuf:"bytes,4,rep,name=group_by_results,json=groupByResults,proto3" json:"group_by_results,omitempty"`
 	GenerativeGroupedResults *GenerativeResult `protobuf:"bytes,5,opt,name=generative_grouped_results,json=generativeGroupedResults,proto3,oneof" json:"generative_grouped_results,omitempty"`
@@ -2130,7 +2129,7 @@ func (x *SearchReply) GetResults() []*SearchResult {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *SearchReply) GetGenerativeGroupedResult() string {
 	if x != nil && x.GenerativeGroupedResult != nil {
 		return *x.GenerativeGroupedResult
@@ -2210,7 +2209,7 @@ type GroupByResult struct {
 	NumberOfObjects int64           `protobuf:"varint,4,opt,name=number_of_objects,json=numberOfObjects,proto3" json:"number_of_objects,omitempty"`
 	Objects         []*SearchResult `protobuf:"bytes,5,rep,name=objects,proto3" json:"objects,omitempty"`
 	Rerank          *RerankReply    `protobuf:"bytes,6,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Generative       *GenerativeReply  `protobuf:"bytes,7,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
 	GenerativeResult *GenerativeResult `protobuf:"bytes,8,opt,name=generative_result,json=generativeResult,proto3,oneof" json:"generative_result,omitempty"`
 }
@@ -2289,7 +2288,7 @@ func (x *GroupByResult) GetRerank() *RerankReply {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *GroupByResult) GetGenerative() *GenerativeReply {
 	if x != nil {
 		return x.Generative
@@ -2375,7 +2374,7 @@ type MetadataResult struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Vector                    []float32 `protobuf:"fixed32,2,rep,packed,name=vector,proto3" json:"vector,omitempty"`
 	CreationTimeUnix          int64     `protobuf:"varint,3,opt,name=creation_time_unix,json=creationTimeUnix,proto3" json:"creation_time_unix,omitempty"`
 	CreationTimeUnixPresent   bool      `protobuf:"varint,4,opt,name=creation_time_unix_present,json=creationTimeUnixPresent,proto3" json:"creation_time_unix_present,omitempty"`
@@ -2390,9 +2389,9 @@ type MetadataResult struct {
 	ExplainScore              string    `protobuf:"bytes,13,opt,name=explain_score,json=explainScore,proto3" json:"explain_score,omitempty"`
 	ExplainScorePresent       bool      `protobuf:"varint,14,opt,name=explain_score_present,json=explainScorePresent,proto3" json:"explain_score_present,omitempty"`
 	IsConsistent              *bool     `protobuf:"varint,15,opt,name=is_consistent,json=isConsistent,proto3,oneof" json:"is_consistent,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Generative string `protobuf:"bytes,16,opt,name=generative,proto3" json:"generative,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	GenerativePresent   bool       `protobuf:"varint,17,opt,name=generative_present,json=generativePresent,proto3" json:"generative_present,omitempty"`
 	IsConsistentPresent bool       `protobuf:"varint,18,opt,name=is_consistent_present,json=isConsistentPresent,proto3" json:"is_consistent_present,omitempty"`
 	VectorBytes         []byte     `protobuf:"bytes,19,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
@@ -2441,7 +2440,7 @@ func (x *MetadataResult) GetId() string {
 	return ""
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *MetadataResult) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -2540,7 +2539,7 @@ func (x *MetadataResult) GetIsConsistent() bool {
 	return false
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *MetadataResult) GetGenerative() string {
 	if x != nil {
 		return x.Generative
@@ -2548,7 +2547,7 @@ func (x *MetadataResult) GetGenerative() string {
 	return ""
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *MetadataResult) GetGenerativePresent() bool {
 	if x != nil {
 		return x.GenerativePresent
@@ -2603,22 +2602,22 @@ type PropertiesResult struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	NonRefProperties *structpb.Struct       `protobuf:"bytes,1,opt,name=non_ref_properties,json=nonRefProperties,proto3" json:"non_ref_properties,omitempty"`
 	RefProps         []*RefPropertiesResult `protobuf:"bytes,2,rep,name=ref_props,json=refProps,proto3" json:"ref_props,omitempty"`
 	TargetCollection string                 `protobuf:"bytes,3,opt,name=target_collection,json=targetCollection,proto3" json:"target_collection,omitempty"`
 	Metadata         *MetadataResult        `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	NumberArrayProperties []*NumberArrayProperties `protobuf:"bytes,5,rep,name=number_array_properties,json=numberArrayProperties,proto3" json:"number_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	IntArrayProperties []*IntArrayProperties `protobuf:"bytes,6,rep,name=int_array_properties,json=intArrayProperties,proto3" json:"int_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TextArrayProperties []*TextArrayProperties `protobuf:"bytes,7,rep,name=text_array_properties,json=textArrayProperties,proto3" json:"text_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	BooleanArrayProperties []*BooleanArrayProperties `protobuf:"bytes,8,rep,name=boolean_array_properties,json=booleanArrayProperties,proto3" json:"boolean_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	ObjectProperties []*ObjectProperties `protobuf:"bytes,9,rep,name=object_properties,json=objectProperties,proto3" json:"object_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	ObjectArrayProperties []*ObjectArrayProperties `protobuf:"bytes,10,rep,name=object_array_properties,json=objectArrayProperties,proto3" json:"object_array_properties,omitempty"`
 	NonRefProps           *Properties              `protobuf:"bytes,11,opt,name=non_ref_props,json=nonRefProps,proto3" json:"non_ref_props,omitempty"`
 	RefPropsRequested     bool                     `protobuf:"varint,12,opt,name=ref_props_requested,json=refPropsRequested,proto3" json:"ref_props_requested,omitempty"`
@@ -2656,7 +2655,7 @@ func (*PropertiesResult) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{27}
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetNonRefProperties() *structpb.Struct {
 	if x != nil {
 		return x.NonRefProperties
@@ -2685,7 +2684,7 @@ func (x *PropertiesResult) GetMetadata() *MetadataResult {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetNumberArrayProperties() []*NumberArrayProperties {
 	if x != nil {
 		return x.NumberArrayProperties
@@ -2693,7 +2692,7 @@ func (x *PropertiesResult) GetNumberArrayProperties() []*NumberArrayProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetIntArrayProperties() []*IntArrayProperties {
 	if x != nil {
 		return x.IntArrayProperties
@@ -2701,7 +2700,7 @@ func (x *PropertiesResult) GetIntArrayProperties() []*IntArrayProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetTextArrayProperties() []*TextArrayProperties {
 	if x != nil {
 		return x.TextArrayProperties
@@ -2709,7 +2708,7 @@ func (x *PropertiesResult) GetTextArrayProperties() []*TextArrayProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetBooleanArrayProperties() []*BooleanArrayProperties {
 	if x != nil {
 		return x.BooleanArrayProperties
@@ -2717,7 +2716,7 @@ func (x *PropertiesResult) GetBooleanArrayProperties() []*BooleanArrayProperties
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetObjectProperties() []*ObjectProperties {
 	if x != nil {
 		return x.ObjectProperties
@@ -2725,7 +2724,7 @@ func (x *PropertiesResult) GetObjectProperties() []*ObjectProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetObjectArrayProperties() []*ObjectArrayProperties {
 	if x != nil {
 		return x.ObjectArrayProperties
