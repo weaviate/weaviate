@@ -70,11 +70,51 @@ func (b *Bucket) Cursor() *CursorReplace {
 	}
 }
 
-// CursorWith holds a RLock for the flushing state. It needs to be closed using the
-// .Close() methods or otherwise the lock will never be released
-func (b *Bucket) CursorWith(desiredSecondaryIndexCount int) *CursorReplace {
+// CursorInMemWith returns a cursor which scan over the primary key of entries
+// not yet persisted on disk.
+// Segment creation and compaction will be blocked until the cursor is closed
+func (b *Bucket) CursorInMemWith(desiredSecondaryIndexCount int) *CursorReplace {
 	b.flushLock.RLock()
 
+	if b.strategy != StrategyReplace {
+		panic("CursorInMemWith() called on strategy other than 'replace'")
+	}
+
+	var innerCursors []innerCursorReplace
+
+	// we have a flush-RLock, so we have the guarantee that the flushing state
+	// will not change for the lifetime of the cursor, thus there can only be two
+	// states: either a flushing memtable currently exists - or it doesn't
+	var flushingMemtableCursor innerCursorReplace
+	var releaseFlushingMemtable func()
+
+	if b.flushing != nil {
+		flushingMemtableCursor, releaseFlushingMemtable = b.flushing.newBlockingCursor()
+		innerCursors = append(innerCursors, flushingMemtableCursor)
+	}
+
+	activeMemtableCursor, releaseActiveMemtable := b.active.newBlockingCursor()
+	innerCursors = append(innerCursors, activeMemtableCursor)
+
+	return &CursorReplace{
+		// cursor are in order from oldest to newest, with the memtable cursor
+		// being at the very top
+		innerCursors: innerCursors,
+		unlock: func() {
+			if b.flushing != nil {
+				releaseFlushingMemtable()
+			}
+			releaseActiveMemtable()
+			b.flushLock.RUnlock()
+		},
+	}
+}
+
+// CursorOnDiskWith returns a cursor which scan over the primary key of entries
+// already persisted on disk.
+// New segments can still be created but compaction will be prevented
+// while any cursor remains active
+func (b *Bucket) CursorOnDiskWith(desiredSecondaryIndexCount int) *CursorReplace {
 	if b.strategy != StrategyReplace {
 		panic("CursorWith(desiredSecondaryIndexCount) called on strategy other than 'replace'")
 	}
@@ -85,22 +125,10 @@ func (b *Bucket) CursorWith(desiredSecondaryIndexCount int) *CursorReplace {
 
 	innerCursors, unlockSegmentGroup := b.disk.newCursorsWith(desiredSecondaryIndexCount)
 
-	// we have a flush-RLock, so we have the guarantee that the flushing state
-	// will not change for the lifetime of the cursor, thus there can only be two
-	// states: either a flushing memtable currently exists - or it doesn't
-	if b.flushing != nil {
-		innerCursors = append(innerCursors, b.flushing.newCursor())
-	}
-
-	innerCursors = append(innerCursors, b.active.newCursor())
-
 	return &CursorReplace{
-		// cursor are in order from oldest to newest, with the memtable cursor
-		// being at the very top
 		innerCursors: innerCursors,
 		unlock: func() {
 			unlockSegmentGroup()
-			b.flushLock.RUnlock()
 		},
 	}
 }

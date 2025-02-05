@@ -51,6 +51,27 @@ func (m *Memtable) newCursor() innerCursorReplace {
 	}
 }
 
+func (m *Memtable) newBlockingCursor() (innerCursorReplace, func()) {
+	// This cursor is a really primitive approach, it actually requires
+	// flattening the entire memtable - even if the cursor were to point to the
+	// very last element. However, given that the memtable will on average be
+	// only half it's max capacity and even that is relatively small, we might
+	// get away with the full-flattening and a linear search. Let's not optimize
+	// prematurely.
+	m.RLock()
+
+	data := m.key.flattenInOrder()
+
+	return &memtableCursor{
+		data: data,
+		keyFn: func(n *binarySearchNode) []byte {
+			return n.key
+		},
+		lock:   func() {},
+		unlock: func() {},
+	}, m.RUnlock
+}
+
 func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 	// This cursor is a really primitive approach, it actually requires
 	// flattening the entire memtable - even if the cursor were to point to the

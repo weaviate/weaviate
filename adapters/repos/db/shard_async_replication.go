@@ -255,7 +255,7 @@ func (s *Shard) initAsyncReplication() error {
 
 		// data inserted before v1.26 does not contain the required secondary index
 		// to support async replication thus such data is not inserted into the hashtree
-		err := bucket.IterateObjectDigests(ctx, 2, func(object *storobj.Object) error {
+		err := bucket.ApplyToObjectDigests(ctx, 2, func(object *storobj.Object) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
