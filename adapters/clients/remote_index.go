@@ -13,6 +13,7 @@ package clients
 
 import (
 	"bytes"
+	"log"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -409,6 +410,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	targetCombination *dto.TargetCombination,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	log.Printf("SearchShard: sending remote search host %s index %s shard %s", host, index, shard)
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
 		Marshal(vector, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)

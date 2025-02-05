@@ -1608,7 +1608,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32
 	}
 
 	if i.Config.ForceFullReplicasSearch {
-		i.logger.Errorf("remoteShardSearch: ForceFullReplicasSearch searching  %s for %v", i.getClass().Class, searchVectors)
+		i.logger.Errorf("remoteShardSearch: ForceFullReplicasSearch searching class %s shard %s for %v", i.getClass().Class, shardName, searchVectors)
 		// Force a search on all the replicas for the shard
 		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
 			i.logger, shardName, searchVectors, targetVectors, limit, localFilters,
