@@ -59,7 +59,7 @@ func Test_GetAction(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		cfg.Config.QueryDefaults.Limit = 20
 		cfg.Config.QueryMaximumResults = 200
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
@@ -688,7 +688,7 @@ func Test_GetThing(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		cfg.Config.QueryDefaults.Limit = 20
 		cfg.Config.QueryMaximumResults = 200
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
@@ -973,7 +973,7 @@ func Test_GetObject(t *testing.T) {
 	)
 
 	t.Run("without projection", func(t *testing.T) {
-		m := newFakeGetManager(schema)
+		m := newFakeGetManager(t, schema)
 		m.repo.On("Object", className, id, mock.Anything, mock.Anything, "").Return((*search.Result)(nil), nil).Once()
 		_, err := m.GetObject(context.Background(), &principal, className, id, adds, nil, "")
 		if err == nil {
@@ -994,7 +994,7 @@ func Test_GetObject(t *testing.T) {
 	})
 
 	t.Run("with projection", func(t *testing.T) {
-		m := newFakeGetManager(schema)
+		m := newFakeGetManager(t, schema)
 		m.extender.multi = []search.Result{
 			{
 				ID:        id,
@@ -1061,18 +1061,20 @@ type fakeGetManager struct {
 	repo            *fakeVectorRepo
 	extender        *fakeExtender
 	projector       *fakeProjector
-	authorizer      *mocks.FakeAuthorizer
+	authorizer      *mocks.Authorizer
 	locks           *fakeLocks
 	metrics         *fakeMetrics
 	modulesProvider *fakeModulesProvider
 }
 
-func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fakeGetManager {
+func newFakeGetManager(t *testing.T, schema schema.Schema, opts ...func(*fakeGetManager)) fakeGetManager {
+	authzMock := mocks.NewAuthorizer(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	r := fakeGetManager{
 		repo:            new(fakeVectorRepo),
 		extender:        new(fakeExtender),
 		projector:       new(fakeProjector),
-		authorizer:      mocks.NewMockAuthorizer(),
+		authorizer:      authzMock,
 		locks:           new(fakeLocks),
 		metrics:         new(fakeMetrics),
 		modulesProvider: new(fakeModulesProvider),

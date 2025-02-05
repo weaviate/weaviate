@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -70,7 +71,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 				},
 			},
 		}
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		logger, _ := test.NewNullLogger()
 
 		modulesProvider = getFakeModulesProvider()
@@ -265,7 +266,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		}
 		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		logger, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		modulesProvider = getFakeModulesProvider()
@@ -379,7 +380,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		}
 		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		logger, _ := test.NewNullLogger()
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
@@ -440,7 +441,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		}
 		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		logger, _ := test.NewNullLogger()
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
@@ -496,7 +497,7 @@ func Test_AddObjectWithUUIDProps(t *testing.T) {
 		}
 		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		logger, _ := test.NewNullLogger()
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}

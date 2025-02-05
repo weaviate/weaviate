@@ -16,6 +16,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -134,7 +135,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			// Configure test setup
-			handler, fakeSchema := newTestHandler(t, &fakeDB{})
+			handler, fakeSchema := newTestHandler(t, false)
 			log, _ := test.NewNullLogger()
 			classGetter, err := NewClassGetter(testCase.strategy, &handler.parser, fakeSchema, fakeSchema, log)
 			require.NoError(t, err)

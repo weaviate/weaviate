@@ -74,7 +74,7 @@ func TestRestoreStatus(t *testing.T) {
 	var (
 		backendType = "s3"
 		id          = "1234"
-		m           = createManager(nil, nil, nil, nil)
+		m           = createManager(t, nil, nil, nil, nil)
 		starTime    = time.Now().UTC()
 		nodeHome    = id + "/" + nodeName
 		path        = "bucket/backups/" + nodeHome
@@ -143,7 +143,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 
 	t.Run("BackendFailure", func(t *testing.T) { //  backend provider fails
 		backend := newFakeBackend()
-		m2 := createManager(nil, nil, backend, ErrAny)
+		m2 := createManager(t, nil, nil, backend, ErrAny)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{
 			Backend: backendName,
 			ID:      id,
@@ -160,7 +160,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		backend.On("GetObject", ctx, req.ID, BackupFile).Return(nil, ErrAny)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		m2 := createManager(nil, nil, backend, nil)
+		m2 := createManager(t, nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
 		if err == nil || !strings.Contains(err.Error(), "find") {
 			t.Errorf("must return an error if it fails to get meta data: %v", err)
@@ -171,7 +171,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
 		backend.On("GetObject", ctx, req.ID, BackupFile).Return(nil, backup.ErrNotFound{})
 
-		m3 := createManager(nil, nil, backend, nil)
+		m3 := createManager(t, nil, nil, backend, nil)
 
 		_, err = m3.Restore(ctx, nil, req)
 		if !errors.As(err, &backup.ErrNotFound{}) {
@@ -184,7 +184,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		m2 := createManager(nil, nil, backend, nil)
+		m2 := createManager(t, nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), backup.Failed)
@@ -208,7 +208,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		m2 := createManager(nil, nil, backend, nil)
+		m2 := createManager(t, nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), errMsgHigherVersion)
@@ -222,7 +222,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		m2 := createManager(nil, nil, backend, nil)
+		m2 := createManager(t, nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), backup.Failed)
@@ -234,7 +234,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Success)})
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		m2 := createManager(nil, nil, backend, nil)
+		m2 := createManager(t, nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
 		assert.NotNil(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
@@ -246,7 +246,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: string(backup.Success)})
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		m2 := createManager(nil, nil, backend, nil)
+		m2 := createManager(t, nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
 		assert.NotNil(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
@@ -258,7 +258,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		bytes := marshalMeta(meta)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		m2 := createManager(nil, nil, backend, nil)
+		m2 := createManager(t, nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"unknown"}})
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "unknown")
@@ -269,7 +269,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		bytes := marshalMeta(meta)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		m2 := createManager(nil, nil, backend, nil)
+		m2 := createManager(t, nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: id, Exclude: []string{cls}})
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "empty")
@@ -364,7 +364,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(dataPath)
 		backend.On("Read", any, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
-		m := createManager(sourcer, nil, backend, nil)
+		m := createManager(t, sourcer, nil, backend, nil)
 		resp1, err := m.Restore(ctx, nil, &req1)
 		assert.Nil(t, err)
 		status1 := string(backup.Started)
@@ -395,10 +395,10 @@ func TestManagerRestoreBackup(t *testing.T) {
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		// simulate work by delaying return of SourceDataPath()
 		backend.On("SourceDataPath").Return(t.TempDir()).After(time.Hour)
-		m2 := createManager(sourcer, nil, backend, nil)
+		m2 := createManager(t, sourcer, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: backupID})
 		assert.Nil(t, err)
-		m := createManager(sourcer, nil, backend, nil)
+		m := createManager(t, sourcer, nil, backend, nil)
 		resp1, err := m.Restore(ctx, nil, &req1)
 		assert.Nil(t, err)
 		status1 := string(backup.Started)
@@ -435,7 +435,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(dataPath)
 		backend.On("Read", any, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
-		m := createManager(sourcer, nil, backend, nil)
+		m := createManager(t, sourcer, nil, backend, nil)
 		resp1, err := m.Restore(ctx, nil, &req1)
 		assert.Nil(t, err)
 		status1 := string(backup.Started)
@@ -473,7 +473,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		m := createManager(sourcer, nil, backend, nil)
+		m := createManager(t, sourcer, nil, backend, nil)
 		resp1, err := m.Restore(ctx, nil, &req1)
 		assert.Nil(t, err)
 		status1 := string(backup.Started)
@@ -557,7 +557,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
 		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		bm := createManager(nil, nil, backend, nil)
+		bm := createManager(t, nil, nil, backend, nil)
 		resp := bm.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, errMetaNotFound.Error())
 		assert.Equal(t, resp.Timeout, time.Duration(0))
@@ -572,7 +572,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		// simulate work by delaying return of SourceDataPath()
 		backend.On("SourceDataPath").Return(t.TempDir()).After(time.Minute * 2)
-		m := createManager(sourcer, nil, backend, nil)
+		m := createManager(t, sourcer, nil, backend, nil)
 		resp := m.OnCanCommit(ctx, &req)
 		assert.Equal(t, resp.Err, "")
 		resp = m.OnCanCommit(ctx, &req)
@@ -591,7 +591,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
-		m := createManager(sourcer, nil, backend, nil)
+		m := createManager(t, sourcer, nil, backend, nil)
 		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{
 			Method:  OpRestore,
@@ -617,7 +617,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
-		m := createManager(sourcer, nil, backend, nil)
+		m := createManager(t, sourcer, nil, backend, nil)
 		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{
 			Method:  OpRestore,
@@ -639,7 +639,7 @@ func TestRestoreOnStatus(t *testing.T) {
 	var (
 		backendType = "s3"
 		id          = "1234"
-		m           = createManager(nil, nil, nil, nil)
+		m           = createManager(t, nil, nil, nil, nil)
 		ctx         = context.Background()
 		starTime    = time.Now().UTC()
 		nodeHome    = id + "/" + nodeName

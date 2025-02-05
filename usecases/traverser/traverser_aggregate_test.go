@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,7 +31,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 	principal := &models.Principal{}
 	logger, _ := test.NewNullLogger()
 	locks := &fakeLocks{}
-	authorizer := mocks.NewMockAuthorizer()
+	authorizer := mocks.NewAuthorizer(t)
 	vectorRepo := &fakeVectorRepo{}
 	explorer := &fakeExplorer{}
 	schemaGetter := &fakeSchemaGetter{aggregateTestSchema}

@@ -21,8 +21,10 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -35,7 +37,8 @@ import (
 
 func TestSimpleFieldParamsOK(t *testing.T) {
 	t.Parallel()
-	resolver := newMockResolver()
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	expectedParams := dto.GetParams{
 		ClassName:  "SomeAction",
 		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -50,7 +53,8 @@ func TestSimpleFieldParamsOK(t *testing.T) {
 func TestExtractIntField(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	expectedParams := dto.GetParams{
 		ClassName:  "SomeAction",
@@ -67,7 +71,8 @@ func TestExtractIntField(t *testing.T) {
 func TestExtractGeoCoordinatesField(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	expectedParams := dto.GetParams{
 		ClassName:  "SomeAction",
@@ -99,7 +104,8 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 func TestExtractUUIDField(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	expectedParams := dto.GetParams{
 		ClassName:  "SomeAction",
@@ -130,7 +136,8 @@ func TestExtractUUIDField(t *testing.T) {
 func TestExtractUUIDArrayField(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	expectedParams := dto.GetParams{
 		ClassName:  "SomeAction",
@@ -339,7 +346,8 @@ func TestExtractPhoneNumberField(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolver := newMockResolver()
+			resolver, authzMock := newMockResolver(t)
+			authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 			resolver.On("GetClass", test.expectedParams).
 				Return(test.resolverReturn, nil).Once()
@@ -733,8 +741,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolver := newMockResolverWithVectorizer("mock-custom-near-text-module")
-
+			resolver, authzMock := newMockResolverWithVectorizer(t, "mock-custom-near-text-module")
+			authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			resolver.On("GetClass", test.expectedParams).
 				Return(test.resolverReturn, nil).Once()
 			result := resolver.AssertResolve(t, test.query)
@@ -746,8 +754,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 func TestNearCustomTextRanker(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolverWithVectorizer("mock-custom-near-text-module")
-
+	resolver, authzMock := newMockResolverWithVectorizer(t, "mock-custom-near-text-module")
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	t.Run("for actions", func(t *testing.T) {
 		query := `{ Get { SomeAction(nearCustomText: {
 								concepts: ["c1", "c2", "c3"],
@@ -1222,8 +1230,8 @@ func TestNearCustomTextRanker(t *testing.T) {
 func TestNearVectorRanker(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
-
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	t.Run("for actions", func(t *testing.T) {
 		query := `{ Get { SomeAction(nearVector: {
 								vector: [0.123, 0.984]
@@ -1524,7 +1532,8 @@ func TestNearVectorRanker(t *testing.T) {
 func TestExtractPagination(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	expectedParams := dto.GetParams{
 		ClassName:  "SomeAction",
@@ -1544,7 +1553,8 @@ func TestExtractPagination(t *testing.T) {
 func TestExtractPaginationWithOffset(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	expectedParams := dto.GetParams{
 		ClassName:  "SomeAction",
@@ -1565,7 +1575,8 @@ func TestExtractPaginationWithOffset(t *testing.T) {
 func TestExtractPaginationWithOnlyOffset(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	expectedParams := dto.GetParams{
 		ClassName:  "SomeAction",
@@ -1586,7 +1597,8 @@ func TestExtractPaginationWithOnlyOffset(t *testing.T) {
 func TestExtractCursor(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	expectedParams := dto.GetParams{
 		ClassName:  "SomeAction",
@@ -1611,7 +1623,8 @@ func TestExtractCursor(t *testing.T) {
 func TestExtractGroupParams(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	expectedParams := dto.GetParams{
 		ClassName:  "SomeAction",
@@ -1633,7 +1646,8 @@ func TestGetRelation(t *testing.T) {
 	t.Parallel()
 
 	t.Run("without using custom fragments", func(t *testing.T) {
-		resolver := newMockResolver()
+		resolver, authzMock := newMockResolver(t)
+		authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		expectedParams := dto.GetParams{
 			ClassName: "SomeAction",
@@ -1679,7 +1693,8 @@ func TestGetRelation(t *testing.T) {
 	})
 
 	t.Run("with a custom fragment one level deep", func(t *testing.T) {
-		resolver := newMockResolver()
+		resolver, authzMock := newMockResolver(t)
+		authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		expectedParams := dto.GetParams{
 			ClassName: "SomeAction",
@@ -1710,7 +1725,8 @@ func TestGetRelation(t *testing.T) {
 	})
 
 	t.Run("with a custom fragment multiple levels deep", func(t *testing.T) {
-		resolver := newMockResolver()
+		resolver, authzMock := newMockResolver(t)
+		authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		expectedParams := dto.GetParams{
 			ClassName: "SomeAction",
@@ -1763,7 +1779,8 @@ func TestGetRelation(t *testing.T) {
 func TestNearObject(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	t.Run("for objects with beacon", func(t *testing.T) {
 		query := `{ Get { SomeAction(
@@ -1993,7 +2010,7 @@ func TestNearObject(t *testing.T) {
 func TestNearTextNoNoModules(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolverWithNoModules()
+	resolver, _ := newMockResolverWithNoModules(t)
 
 	t.Run("for nearText that is not available", func(t *testing.T) {
 		query := `{ Get { SomeAction(nearText: {
@@ -2022,21 +2039,22 @@ func TestNearTextNoNoModules(t *testing.T) {
 
 func TestBM25WithSort(t *testing.T) {
 	t.Parallel()
-	resolver := newMockResolverWithNoModules()
+	resolver, _ := newMockResolverWithNoModules(t)
 	query := `{Get{SomeAction(bm25:{query:"apple",properties:["name"]},sort:[{path:["name"],order:desc}]){intField}}}`
 	resolver.AssertFailToResolve(t, query, "bm25 search is not compatible with sort")
 }
 
 func TestHybridWithSort(t *testing.T) {
 	t.Parallel()
-	resolver := newMockResolverWithNoModules()
+	resolver, _ := newMockResolverWithNoModules(t)
 	query := `{Get{SomeAction(hybrid:{query:"apple"},sort:[{path:["name"],order:desc}]){intField}}}`
 	resolver.AssertFailToResolve(t, query, "hybrid search is not compatible with sort")
 }
 
 func TestHybridWithTargets(t *testing.T) {
 	t.Parallel()
-	resolver := newMockResolverWithNoModules()
+	resolver, authMock := newMockResolverWithNoModules(t)
+	authMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	var emptySubsearches []searchparams.WeightedSearchResult
 
 	t.Run("hybrid search", func(t *testing.T) {
@@ -2243,7 +2261,8 @@ func TestHybridWithTargets(t *testing.T) {
 
 func TestHybridWithVectorDistance(t *testing.T) {
 	t.Parallel()
-	resolver := newMockResolverWithNoModules()
+	resolver, authMock := newMockResolverWithNoModules(t)
+	authMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	query := `{Get{SomeAction(hybrid:{query:"apple", maxVectorDistance: 0.5}){intField}}}`
 
 	var emptySubsearches []searchparams.WeightedSearchResult
@@ -2269,7 +2288,8 @@ func TestHybridWithVectorDistance(t *testing.T) {
 func TestNearObjectNoModules(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolverWithNoModules()
+	resolver, authMock := newMockResolverWithNoModules(t)
+	authMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	t.Run("for objects with beacon", func(t *testing.T) {
 		query := `{ Get { SomeAction(
@@ -2440,7 +2460,8 @@ func TestNearObjectNoModules(t *testing.T) {
 func TestNearVectorNoModules(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolverWithNoModules()
+	resolver, authMock := newMockResolverWithNoModules(t)
+	authMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	t.Run("for actions", func(t *testing.T) {
 		query := `{ Get { SomeAction(nearVector: {
@@ -2625,18 +2646,22 @@ func TestNearVectorNoModules(t *testing.T) {
 
 func TestSort(t *testing.T) {
 	t.Parallel()
+	resolverWithNoModules, authMock := newMockResolverWithNoModules(t)
+	authMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
+	resolver, resolverAuthzMock := newMockResolver(t)
+	resolverAuthzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	tests := []struct {
 		name     string
 		resolver *mockResolver
 	}{
 		{
 			name:     "with modules",
-			resolver: newMockResolver(),
+			resolver: resolver,
 		},
 		{
 			name:     "with no modules",
-			resolver: newMockResolverWithNoModules(),
+			resolver: resolverWithNoModules,
 		},
 	}
 	for _, tt := range tests {
@@ -2702,18 +2727,22 @@ func TestSort(t *testing.T) {
 
 func TestGroupBy(t *testing.T) {
 	t.Parallel()
+	resolverWithNoModules, authMock := newMockResolverWithNoModules(t)
+	authMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
+	resolver, resolverAuthzMock := newMockResolver(t)
+	resolverAuthzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	tests := []struct {
 		name     string
 		resolver *mockResolver
 	}{
 		{
 			name:     "with modules",
-			resolver: newMockResolver(),
+			resolver: resolver,
 		},
 		{
 			name:     "with no modules",
-			resolver: newMockResolverWithNoModules(),
+			resolver: resolverWithNoModules,
 		},
 	}
 	for _, tt := range tests {

@@ -18,8 +18,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func TestAddTenants(t *testing.T) {
@@ -73,6 +75,12 @@ func TestAddTenants(t *testing.T) {
 			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
 				// MT validation is done leader side now
 				fakeSchemaManager.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.CREATE,
+					authorization.ShardsMetadata(mtNilClass.Class, tenants[0].Name)[0],
+					authorization.ShardsMetadata(mtNilClass.Class, tenants[1].Name)[0]).
+					Return(nil)
 			},
 		},
 		{
@@ -83,6 +91,12 @@ func TestAddTenants(t *testing.T) {
 			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
 				// MT validation is done leader side now
 				fakeSchemaManager.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.CREATE,
+					authorization.ShardsMetadata(mtDisabledClass.Class, tenants[0].Name)[0],
+					authorization.ShardsMetadata(mtDisabledClass.Class, tenants[1].Name)[0]).
+					Return(nil)
 			},
 		},
 		{
@@ -92,6 +106,12 @@ func TestAddTenants(t *testing.T) {
 			errMsgs: nil,
 			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
 				fakeSchemaManager.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.CREATE,
+					authorization.ShardsMetadata("UnknownClass", tenants[0].Name)[0],
+					authorization.ShardsMetadata("UnknownClass", tenants[1].Name)[0]).
+					Return(nil)
 			},
 		},
 		{
@@ -102,8 +122,16 @@ func TestAddTenants(t *testing.T) {
 				{Name: ""},
 				{Name: "Bbbb"},
 			},
-			errMsgs:   []string{"tenant"},
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {},
+			errMsgs: []string{"tenant"},
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.CREATE,
+					authorization.ShardsMetadata(mtEnabledClass.Class, "Aaaa")[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, "")[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, "Bbbb")[0]).
+					Return(nil)
+			},
 		},
 		{
 			name:  "InvalidActivityStatus",
@@ -118,7 +146,15 @@ func TestAddTenants(t *testing.T) {
 				"DOES_NOT_EXIST_1",
 				"DOES_NOT_EXIST_2",
 			},
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {},
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.CREATE,
+					authorization.ShardsMetadata(mtEnabledClass.Class, "Aaaa")[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, "Bbbb")[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, "Bbbb2")[0]).
+					Return(nil)
+			},
 		},
 		{
 			name:  "Success",
@@ -131,6 +167,13 @@ func TestAddTenants(t *testing.T) {
 			errMsgs: []string{},
 			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
 				fakeSchemaManager.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.CREATE,
+					authorization.ShardsMetadata(mtEnabledClass.Class, "Aaaa")[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, "Bbbb")[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, "Cccc")[0]).
+					Return(nil)
 			},
 		},
 		// TODO test with replication factor >= 2
@@ -140,7 +183,7 @@ func TestAddTenants(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Isolate schema for each tests
-			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler, fakeSchemaManager := newTestHandler(t, false)
 
 			test.mockCalls(fakeSchemaManager)
 
@@ -213,9 +256,15 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
-				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.UPDATE,
+					authorization.ShardsMetadata(mtNilClass.Class, tenants[0].Name)[0],
+					authorization.ShardsMetadata(mtNilClass.Class, tenants[1].Name)[0]).
+					Return(nil)
+				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
 					{Tenant: models.Tenant{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD}},
 					{Tenant: models.Tenant{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT}},
 				}, 0, nil)
@@ -227,9 +276,15 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
-				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.UPDATE,
+					authorization.ShardsMetadata(mtDisabledClass.Class, tenants[0].Name)[0],
+					authorization.ShardsMetadata(mtDisabledClass.Class, tenants[1].Name)[0]).
+					Return(nil)
+				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
 					{Tenant: models.Tenant{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD}},
 					{Tenant: models.Tenant{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT}},
 				}, 0, nil)
@@ -241,9 +296,15 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
-				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.UPDATE,
+					authorization.ShardsMetadata("UnknownClass", tenants[0].Name)[0],
+					authorization.ShardsMetadata("UnknownClass", tenants[1].Name)[0]).
+					Return(nil)
+				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
 					{Tenant: models.Tenant{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD}},
 					{Tenant: models.Tenant{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT}},
 				}, 0, nil)
@@ -257,7 +318,13 @@ func TestUpdateTenants(t *testing.T) {
 			},
 			errMsgs:         []string{"tenant"},
 			expectedTenants: tenants,
-			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.UPDATE,
+					authorization.ShardsMetadata(mtEnabledClass.Class, "")[0]).
+					Return(nil)
+			},
 		},
 		{
 			name:  "InvalidActivityStatus",
@@ -272,7 +339,14 @@ func TestUpdateTenants(t *testing.T) {
 				"WARM",
 			},
 			expectedTenants: tenants,
-			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.UPDATE,
+					authorization.ShardsMetadata(mtEnabledClass.Class, tenants[0].Name)[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, tenants[1].Name)[0]).
+					Return(nil)
+			},
 		},
 		{
 			name:  "EmptyActivityStatus",
@@ -283,7 +357,14 @@ func TestUpdateTenants(t *testing.T) {
 			},
 			errMsgs:         []string{"invalid activity status"},
 			expectedTenants: tenants,
-			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.UPDATE,
+					authorization.ShardsMetadata(mtEnabledClass.Class, tenants[0].Name)[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, tenants[1].Name)[0]).
+					Return(nil)
+			},
 		},
 		{
 			name:  "Success",
@@ -297,9 +378,15 @@ func TestUpdateTenants(t *testing.T) {
 				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
 				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
 			},
-			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
-				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.UPDATE,
+					authorization.ShardsMetadata(mtEnabledClass.Class, tenants[0].Name)[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, tenants[1].Name)[0]).
+					Return(nil)
+				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
 					{Tenant: models.Tenant{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD}},
 					{Tenant: models.Tenant{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT}},
 				}, 0, nil)
@@ -310,7 +397,7 @@ func TestUpdateTenants(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Isolate schema for each tests
-			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler, fakeSchemaManager := newTestHandler(t, false)
 			test.mockCalls(fakeSchemaManager)
 
 			_, err := handler.UpdateTenants(ctx, nil, test.class, test.updateTenants)
@@ -384,6 +471,14 @@ func TestDeleteTenants(t *testing.T) {
 			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.DELETE,
+					authorization.ShardsMetadata(mtNilClass.Class, tenants[0].Name)[0],
+					authorization.ShardsMetadata(mtNilClass.Class, tenants[1].Name)[0],
+					authorization.ShardsMetadata(mtNilClass.Class, tenants[2].Name)[0],
+					authorization.ShardsMetadata(mtNilClass.Class, tenants[3].Name)[0]).
+					Return(nil)
 				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
@@ -394,6 +489,14 @@ func TestDeleteTenants(t *testing.T) {
 			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.DELETE,
+					authorization.ShardsMetadata(mtDisabledClass.Class, tenants[0].Name)[0],
+					authorization.ShardsMetadata(mtDisabledClass.Class, tenants[1].Name)[0],
+					authorization.ShardsMetadata(mtDisabledClass.Class, tenants[2].Name)[0],
+					authorization.ShardsMetadata(mtDisabledClass.Class, tenants[3].Name)[0]).
+					Return(nil)
 				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
@@ -404,6 +507,14 @@ func TestDeleteTenants(t *testing.T) {
 			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.DELETE,
+					authorization.ShardsMetadata("UnknownClass", tenants[0].Name)[0],
+					authorization.ShardsMetadata("UnknownClass", tenants[1].Name)[0],
+					authorization.ShardsMetadata("UnknownClass", tenants[2].Name)[0],
+					authorization.ShardsMetadata("UnknownClass", tenants[3].Name)[0]).
+					Return(nil)
 				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
@@ -417,7 +528,15 @@ func TestDeleteTenants(t *testing.T) {
 			},
 			errMsgs:         []string{"empty tenant name at index 1"},
 			expectedTenants: tenants,
-			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.DELETE,
+					authorization.ShardsMetadata(mtEnabledClass.Class, "Aaaa")[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, "")[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, "Bbbb")[0]).
+					Return(nil)
+			},
 		},
 		{
 			name:            "Success",
@@ -426,6 +545,12 @@ func TestDeleteTenants(t *testing.T) {
 			errMsgs:         []string{},
 			expectedTenants: tenants[2:],
 			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.authzMock.On("Authorize",
+					mock.AnythingOfType("*models.Principal"),
+					authorization.DELETE,
+					authorization.ShardsMetadata(mtEnabledClass.Class, tenants[0].Name)[0],
+					authorization.ShardsMetadata(mtEnabledClass.Class, tenants[1].Name)[0]).
+					Return(nil)
 				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
@@ -434,7 +559,7 @@ func TestDeleteTenants(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Isolate schema for each tests
-			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler, fakeSchemaManager := newTestHandler(t, false)
 			test.mockCalls(fakeSchemaManager)
 
 			tenantNames := make([]string, len(test.tenants))
