@@ -35,7 +35,7 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSchemaManager) {
+func newTestHandler(t *testing.T, withAuthzExpect bool) (*Handler, *fakeSchemaManager) {
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
@@ -49,10 +49,14 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
-	authzMock := mocks.NewAuthorizer(t)
-	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	schemaManager.authzMock = mocks.NewAuthorizer(t)
+
+	if withAuthzExpect {
+		schemaManager.authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	}
+
 	handler, err := NewHandler(
-		schemaManager, schemaManager, fakeValidator, logger, authzMock,
+		schemaManager, schemaManager, fakeValidator, logger, schemaManager.authzMock,
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 
