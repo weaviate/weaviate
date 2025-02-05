@@ -58,7 +58,8 @@ type node struct {
 }
 
 func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
-	allNodes *[]*node, withAuthzExpectation bool) {
+	allNodes *[]*node, withAuthzExpectation bool,
+) {
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
 

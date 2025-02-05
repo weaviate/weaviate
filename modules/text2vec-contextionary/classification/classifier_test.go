@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -99,7 +100,7 @@ func TestContextualClassifier_Classify(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewAuthorizer(t)
-
+		authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		vectorRepo := newFakeVectorRepoContextual(testDataToBeClassified(), testDataPossibleTargets())
 		logger, _ := test.NewNullLogger()
 
@@ -191,6 +192,7 @@ func TestContextualClassifier_Classify(t *testing.T) {
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
+			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			class, err := classifier.Schedule(context.Background(), nil, params)
 			require.Nil(t, err, "should not error")
 			require.NotNil(t, class)
@@ -239,6 +241,7 @@ func TestContextualClassifier_Classify(t *testing.T) {
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
+			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			class, err := classifier.Schedule(context.Background(), nil, params)
 			require.Nil(t, err, "should not error")
 			require.NotNil(t, class)
