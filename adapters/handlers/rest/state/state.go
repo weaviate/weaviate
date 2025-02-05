@@ -65,8 +65,7 @@ type State struct {
 
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics
-	HTTPServerMetrics  *monitoring.ServerMetrics
-	GRPCServerMetrics  *monitoring.ServerMetrics
+	ServerMetrics      *monitoring.ServerMetrics
 	BackupManager      *backup.Handler
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager

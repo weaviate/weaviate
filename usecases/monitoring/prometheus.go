@@ -145,60 +145,56 @@ type PrometheusMetrics struct {
 	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
-func NewHTTPServerMetrics(namespace string, reg prometheus.Registerer) *ServerMetrics {
-	return newServerMetrics(namespace, "http", reg)
-}
-
-func NewGRPCServerMetrics(namespace string, reg prometheus.Registerer) *ServerMetrics {
-	return newServerMetrics(namespace, "grpc", reg)
-}
-
-// newServerMetrics return the ServerMetrics for given `transport` (http, grpc)
-func newServerMetrics(namespace string, transport string, reg prometheus.Registerer) *ServerMetrics {
+// NewServerMetrics return the ServerMetrics that can be used in any of the grpc or http servers.
+//
+// Example for HTTP servers.
+//
+//	weaviate_request_duration_seconds_sum{instance="node-1", method="DELETE", route="/v1/schema/{className}", status_code="200"}
+//
+// Example For GRPC servers
+//
+//	weaviate_request_duration_seconds_sum{instance="node-1", method="gRPC", route="/grpc.health.v1.Health/Check", status_code="OK"}
+func NewServerMetrics(namespace string, reg prometheus.Registerer) *ServerMetrics {
 	r := promauto.With(reg)
 
-	transportLabel := prometheus.Labels{"transport": transport}
-
 	return &ServerMetrics{
-		TCPActiveConnections: r.NewGauge(prometheus.GaugeOpts{
-			Namespace:   namespace,
-			ConstLabels: transportLabel,
-			Name:        "tcp_active_connections",
-			Help:        "Current number of accepted TCP connections.",
-		}),
+		// TODO(kavi): TCPActiveConnections is not currently not used in those servers
+		// mainly because auto-generated code via swagger doesn't make it easy to instrument
+		// underlying TCP listeners.
+		TCPActiveConnections: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "tcp_active_connections",
+			Help:      "Current number of accepted TCP connections.",
+		}, []string{"protocol"}),
 		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace:   namespace,
-			ConstLabels: transportLabel,
-			Name:        "request_duration_seconds",
-			Help:        "Time (in seconds) spent serving HTTP requests.",
-			Buckets:     LatencyBuckets,
+			Namespace: namespace,
+			Name:      "request_duration_seconds",
+			Help:      "Time (in seconds) spent serving HTTP requests.",
+			Buckets:   LatencyBuckets,
 		}, []string{"method", "route", "status_code"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace:   namespace,
-			ConstLabels: transportLabel,
-			Name:        "request_message_bytes",
-			Help:        "Size (in bytes) of messages received in the request.",
-			Buckets:     sizeBuckets,
+			Namespace: namespace,
+			Name:      "request_message_bytes",
+			Help:      "Size (in bytes) of messages received in the request.",
+			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace:   namespace,
-			ConstLabels: prometheus.Labels{"transport": transport},
-			Name:        "response_message_bytes",
-			Help:        "Size (in bytes) of messages sent in response.",
-			Buckets:     sizeBuckets,
+			Namespace: namespace,
+			Name:      "response_message_bytes",
+			Help:      "Size (in bytes) of messages sent in response.",
+			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace:   namespace,
-			ConstLabels: transportLabel,
-			Name:        "inflight_requests",
-			Help:        "Current number of inflight requests.",
+			Namespace: namespace,
+			Name:      "inflight_requests",
+			Help:      "Current number of inflight requests.",
 		}, []string{"method", "route"}),
 	}
 }
 
 // ServerMetrics exposes set of prometheus metrics for http and grpc servers.
 type ServerMetrics struct {
-	TCPActiveConnections prometheus.Gauge
+	TCPActiveConnections *prometheus.GaugeVec
 	RequestDuration      *prometheus.HistogramVec
 	RequestBodySize      *prometheus.HistogramVec
 	ResponseBodySize     *prometheus.HistogramVec
