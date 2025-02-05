@@ -77,7 +77,8 @@ func (_m *Authorizer) AuthorizeSilent(principal *models.Principal, verb string, 
 func NewAuthorizer(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *Authorizer {
+},
+) *Authorizer {
 	mock := &Authorizer{}
 	mock.Mock.Test(t)
 

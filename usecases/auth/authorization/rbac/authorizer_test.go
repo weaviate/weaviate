@@ -96,7 +96,7 @@ func setupTestManager(t *testing.T, logger *logrus.Logger) (*manager, error) {
 	})
 
 	rbacDir := filepath.Join(tmpDir, "rbac")
-	if err := os.MkdirAll(rbacDir, 0755); err != nil {
+	if err := os.MkdirAll(rbacDir, 0o755); err != nil {
 		return nil, err
 	}
 

@@ -453,6 +453,7 @@ type fakeAuthorizer struct{}
 func (f *fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
+
 func (f *fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
 	return nil
 }

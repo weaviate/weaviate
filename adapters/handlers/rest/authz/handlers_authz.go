@@ -63,7 +63,8 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 		oidcConfigs:    oidcConfigs,
 		apiKeysConfigs: apiKeysConfigs,
 		logger:         logger,
-		metrics:        metrics}
+		metrics:        metrics,
+	}
 
 	// rbac role handlers
 	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
