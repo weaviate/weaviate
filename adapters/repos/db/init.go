@@ -102,7 +102,7 @@ func (db *DB) init(ctx context.Context) error {
 				DisableLazyLoadShards:               db.config.DisableLazyLoadShards,
 				ForceFullReplicasSearch:             db.config.ForceFullReplicasSearch,
 				LSMEnableSegmentsChecksumValidation: db.config.LSMEnableSegmentsChecksumValidation,
-				ReplicationFactor:                   NewAtomicInt64(class.ReplicationConfig.Factor),
+				ReplicationFactor:                   class.ReplicationConfig.Factor,
 				AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 			}, db.schemaGetter.CopyShardingState(class.Class),
