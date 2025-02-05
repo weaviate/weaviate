@@ -35,6 +35,9 @@ type mockAuthorizer struct{}
 func (m *mockAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
 	return nil
 }
+func (m *mockAuthorizer) AuthorizeSilent(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
 
 func newMockResolver(cfg config.Config) *mockResolver {
 	field, err := Build(&testhelper.CarSchema, cfg, nil, &mockAuthorizer{})
