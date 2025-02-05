@@ -410,7 +410,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	targetCombination *dto.TargetCombination,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	log.Printf("SearchShard: sending remote search shard %s index %s host %s keywordranking %v", shard, index, host)
+	log.Printf("SearchShard: sending remote search shard %s index %s host %s keywordranking %v", shard, index, host, keywordRanking)
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
 		Marshal(vector, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
