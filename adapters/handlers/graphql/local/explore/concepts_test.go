@@ -634,7 +634,7 @@ func Test_ResolveExplore(t *testing.T) {
 
 func Test_ExploreWithNoText2VecClasses(t *testing.T) {
 	t.Run("with distance", func(t *testing.T) {
-		resolver := newMockResolverEmptySchema(t)
+		resolver, _ := newMockResolverEmptySchema(t)
 		query := `
 		{
 				Explore(
@@ -649,7 +649,7 @@ func Test_ExploreWithNoText2VecClasses(t *testing.T) {
 	})
 
 	t.Run("with certainty", func(t *testing.T) {
-		resolver := newMockResolverEmptySchema(t)
+		resolver, _ := newMockResolverEmptySchema(t)
 		query := `
 		{
 				Explore(

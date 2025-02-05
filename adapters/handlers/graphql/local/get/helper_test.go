@@ -631,15 +631,14 @@ func getFakeModulesProvider() ModulesProvider {
 	return newFakeModulesProvider()
 }
 
-func newMockResolver(t *testing.T) *mockResolver {
+func newMockResolver(t *testing.T) (*mockResolver, *mocks.Authorizer) {
 	return newMockResolverWithVectorizer(t, config.VectorizerModuleText2VecContextionary)
 }
 
-func newMockResolverWithVectorizer(t *testing.T, vectorizer string) *mockResolver {
+func newMockResolverWithVectorizer(t *testing.T, vectorizer string) (*mockResolver, *mocks.Authorizer) {
 	logger, _ := test.NewNullLogger()
 	simpleSchema := test_helper.CreateSimpleSchema(vectorizer)
 	authzMock := mocks.NewAuthorizer(t)
-	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	field, err := Build(&simpleSchema, logger, getFakeModulesProvider(), authzMock)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
@@ -649,10 +648,10 @@ func newMockResolverWithVectorizer(t *testing.T, vectorizer string) *mockResolve
 	mocker.RootFieldName = "Get"
 	mocker.RootField = field
 	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker), "RequestsLog": RequestsLog(mockLog)}
-	return mocker
+	return mocker, authzMock
 }
 
-func newMockResolverWithNoModules(t *testing.T) *mockResolver {
+func newMockResolverWithNoModules(t *testing.T) (*mockResolver, *mocks.Authorizer) {
 	logger, _ := test.NewNullLogger()
 	authzMock := mocks.NewAuthorizer(t)
 	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -665,7 +664,7 @@ func newMockResolverWithNoModules(t *testing.T) *mockResolver {
 	mocker.RootFieldName = "Get"
 	mocker.RootField = field
 	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker), "RequestsLog": RequestsLog(mockLog)}
-	return mocker
+	return mocker, authzMock
 }
 
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,

@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -23,8 +24,8 @@ import (
 func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver(t)
-
+	resolver, authzMock := newMockResolver(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	expectedParams := dto.GetParams{
 		ClassName: "SomeThing",
 		AdditionalProperties: additional.Properties{

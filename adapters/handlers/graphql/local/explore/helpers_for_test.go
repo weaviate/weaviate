@@ -108,9 +108,8 @@ func newMockResolverNoModules(t *testing.T) *mockResolver {
 	return mocker
 }
 
-func newMockResolverEmptySchema(t *testing.T) *mockResolver {
+func newMockResolverEmptySchema(t *testing.T) (*mockResolver, *mocks.Authorizer) {
 	authzMock := mocks.NewAuthorizer(t)
-	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	field := Build(&models.Schema{}, getFakeModulesProvider(), authzMock)
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
@@ -120,7 +119,7 @@ func newMockResolverEmptySchema(t *testing.T) *mockResolver {
 		"Resolver":    Resolver(mocker),
 		"RequestsLog": mockLog,
 	}
-	return mocker
+	return mocker, authzMock
 }
 
 func (m *mockResolver) Explore(ctx context.Context,

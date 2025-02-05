@@ -582,7 +582,7 @@ func Test_GetClass_WithFilters(t *testing.T) {
 				metrics.On("AddUsageDimensions", mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything)
 				traverser, authzMock := newTraverser()
-				authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+				authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				if test.expectedError == nil {
 					// search.
 					//	On("VectorSearch", mock.Anything, mock.Anything).
