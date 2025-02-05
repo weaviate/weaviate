@@ -40,13 +40,13 @@ const (
 //
 // ```
 //
-//	svrMetrics := monitoring.NewServerMetrics(metrics, prometheus.DefaultRegisterer)
+//	svrMetrics := monitoring.NewGRPCServerMetrics(metrics, prometheus.DefaultRegisterer)
 //	grpcServer := grpc.NewServer(monitoring.InstrumentGrpc(*svrMetrics)...)
 //
 //	grpcServer.Serve(listener)
 //
 // ```
-func InstrumentGrpc(svrMetrics ServerMetrics) []grpc.ServerOption {
+func InstrumentGrpc(svrMetrics *ServerMetrics) []grpc.ServerOption {
 	grpcOptions := []grpc.ServerOption{
 		grpc.StatsHandler(NewGrpcStatsHandler(
 			svrMetrics.InflightRequests,
