@@ -185,7 +185,6 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 	}
 
 	t.Run("creating hnsw with compression", func(t *testing.T) {
-
 		for _, userConfig := range userConfigTest {
 			_, err := New(Config{
 				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
@@ -202,7 +201,6 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 			}, userConfig, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 			require.ErrorContains(t, err, "compression is not supported in multivector mode")
 		}
-
 	})
 
 	t.Run("compressing hnsw after creation", func(t *testing.T) {
@@ -219,7 +217,8 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 				TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
 					return multiVectors[id], nil
 				},
-			}, ent.UserConfig{MaxConnections: maxConnections,
+			}, ent.UserConfig{
+				MaxConnections: maxConnections,
 				EFConstruction: efConstruction,
 				EF:             ef,
 				Multivector:    ent.MultivectorConfig{Enabled: true},
@@ -231,7 +230,6 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 			require.ErrorContains(t, err, "compression is not supported in multivector mode")
 		}
 	})
-
 }
 
 func TestMultivectorPersistence(t *testing.T) {
