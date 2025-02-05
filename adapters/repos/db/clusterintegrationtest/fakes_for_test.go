@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
@@ -37,7 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
-	authmocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	authzmocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -57,8 +58,7 @@ type node struct {
 }
 
 func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
-	allNodes *[]*node,
-) {
+	allNodes *[]*node, withAuthzExpectation bool) {
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
 
@@ -103,7 +103,11 @@ func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
 	}
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
-	mockAuthz := authmocks.NewAuthorizer(t)
+	mockAuthz := authzmocks.NewAuthorizer(t)
+	if withAuthzExpectation {
+		mockAuthz.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	}
+
 	n.backupManager = ubak.NewHandler(
 		logger, mockAuthz, n.schemaManager, n.repo, backendProvider)
 

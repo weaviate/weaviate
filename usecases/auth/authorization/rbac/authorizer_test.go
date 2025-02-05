@@ -86,11 +86,7 @@ func TestAuthorization(t *testing.T) {
 }
 
 func setupTestManager(t *testing.T, logger *logrus.Logger) (*manager, error) {
-	tmpDir, err := os.MkdirTemp("", "rbac-test-*")
-	if err != nil {
-		return nil, err
-	}
-
+	tmpDir := os.TempDir()
 	t.Cleanup(func() {
 		os.RemoveAll(tmpDir)
 	})

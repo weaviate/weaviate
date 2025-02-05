@@ -372,7 +372,7 @@ func TestSchema(t *testing.T) {
 		for _, testCase := range schemaTests {
 			// Run each test independently with their own handler
 			t.Run(testCase.name, func(t *testing.T) {
-				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler, fakeSchemaManager := newTestHandler(t, true)
 				defer fakeSchemaManager.AssertExpectations(t)
 				testCase.fn(t, handler, fakeSchemaManager)
 			})

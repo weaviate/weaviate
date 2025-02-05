@@ -33,86 +33,86 @@ func Test_Schema_Authorization(t *testing.T) {
 		methodName        string
 		additionalArgs    []interface{}
 		expectedVerb      string
-		expectedResources []string
+		expectedResources string
 	}
 
 	tests := []testCase{
 		{
 			methodName:        "GetSchema",
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.CollectionsMetadata(),
+			expectedResources: authorization.CollectionsMetadata()[0],
 		},
 		{
 			methodName:        "GetConsistentSchema",
 			expectedVerb:      authorization.READ,
 			additionalArgs:    []interface{}{false},
-			expectedResources: authorization.CollectionsMetadata(),
+			expectedResources: authorization.CollectionsMetadata()[0],
 		},
 		{
 			methodName:        "GetClass",
 			additionalArgs:    []interface{}{"classname"},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.CollectionsMetadata("classname"),
+			expectedResources: authorization.CollectionsMetadata("classname")[0],
 		},
 		{
 			methodName:        "GetConsistentClass",
 			additionalArgs:    []interface{}{"classname", false},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.CollectionsMetadata("classname"),
+			expectedResources: authorization.CollectionsMetadata("classname")[0],
 		},
 		{
 			methodName:        "GetCachedClass",
 			additionalArgs:    []interface{}{"classname"},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.CollectionsMetadata("classname"),
+			expectedResources: authorization.CollectionsMetadata("classname")[0],
 		},
 		{
 			methodName:        "AddClass",
 			additionalArgs:    []interface{}{&models.Class{Class: "classname"}},
 			expectedVerb:      authorization.CREATE,
-			expectedResources: authorization.CollectionsMetadata("Classname"),
+			expectedResources: authorization.CollectionsMetadata("Classname")[0],
 		},
 		{
 			methodName:        "UpdateClass",
 			additionalArgs:    []interface{}{"class", &models.Class{Class: "class"}},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.CollectionsMetadata("class"),
+			expectedResources: authorization.CollectionsMetadata("class")[0],
 		},
 		{
 			methodName:        "DeleteClass",
 			additionalArgs:    []interface{}{"somename"},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: authorization.CollectionsMetadata("somename"),
+			expectedResources: authorization.CollectionsMetadata("somename")[0],
 		},
 		{
 			methodName:        "AddClassProperty",
 			additionalArgs:    []interface{}{&models.Class{Class: "classname"}, "classname", false, &models.Property{}},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.CollectionsMetadata("classname"),
+			expectedResources: authorization.CollectionsMetadata("classname")[0],
 		},
 		{
 			methodName:        "DeleteClassProperty",
 			additionalArgs:    []interface{}{"somename", "someprop"},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.CollectionsMetadata("somename"),
+			expectedResources: authorization.CollectionsMetadata("somename")[0],
 		},
 		{
 			methodName:        "UpdateShardStatus",
 			additionalArgs:    []interface{}{"className", "shardName", "targetStatus"},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.ShardsMetadata("className", "shardName"),
+			expectedResources: authorization.ShardsMetadata("className", "shardName")[0],
 		},
 		{
 			methodName:        "ShardsStatus",
 			additionalArgs:    []interface{}{"className", "tenant"},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("className", "tenant"),
+			expectedResources: authorization.ShardsMetadata("className", "tenant")[0],
 		},
 		{
 			methodName:        "AddTenants",
 			additionalArgs:    []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
 			expectedVerb:      authorization.CREATE,
-			expectedResources: authorization.ShardsMetadata("className", "P1"),
+			expectedResources: authorization.ShardsMetadata("className", "P1")[0],
 		},
 		{
 			methodName: "UpdateTenants",
@@ -120,25 +120,25 @@ func Test_Schema_Authorization(t *testing.T) {
 				{Name: "P1", ActivityStatus: models.TenantActivityStatusHOT},
 			}},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.ShardsMetadata("className", "P1"),
+			expectedResources: authorization.ShardsMetadata("className", "P1")[0],
 		},
 		{
 			methodName:        "DeleteTenants",
 			additionalArgs:    []interface{}{"className", []string{"P1"}},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: authorization.ShardsMetadata("className", "P1"),
+			expectedResources: authorization.ShardsMetadata("className", "P1")[0],
 		},
 		{
 			methodName:        "GetConsistentTenants",
 			additionalArgs:    []interface{}{"className", false, []string{}},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("className"),
+			expectedResources: authorization.ShardsMetadata("className")[0],
 		},
 		{
 			methodName:        "ConsistentTenantExists",
 			additionalArgs:    []interface{}{"className", false, "P1"},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("className", "P1"),
+			expectedResources: authorization.ShardsMetadata("className", "P1")[0],
 		},
 	}
 
