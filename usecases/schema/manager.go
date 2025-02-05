@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -205,6 +206,7 @@ func NewManager(validator validator,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser,
+	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
@@ -212,7 +214,8 @@ func NewManager(validator validator,
 		validator,
 		logger, authorizer,
 		managerConfig, configParser, vectorizerValidator, invertedConfigValidator,
-		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(config.LeaderOnly, &parser, schemaManager, schemaReader, logger))
+		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}

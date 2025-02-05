@@ -146,7 +146,6 @@ func NewHandler(
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser, classGetter *ClassGetter,
 ) (Handler, error) {
-	logger.WithField("schema_retrieval_strategy", config.SchemaRetrievalStrategy).Debug("creating schema handler")
 	handler := Handler{
 		config:                  config,
 		schemaReader:            schemaReader,

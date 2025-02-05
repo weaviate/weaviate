@@ -15,11 +15,11 @@ import (
 
 	// go-sdk-common/v3/ldcontext defines LaunchDarkly's model for contexts
 
+	"fmt"
 	"os"
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
-	"github.com/sirupsen/logrus"
 
 	// go-sdk-common/v3/ldmigration defines LaunchDarkly's model for migration feature flags
 	_ "github.com/launchdarkly/go-sdk-common/v3/ldmigration"
@@ -31,69 +31,72 @@ import (
 	_ "github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 )
 
-// ldClient is not nil if the LD integration has been successfully configured. It's a global variable to ease the usage of feature flags and
-// ensure they can be instantiated anywhere in the code.
-var ldClient *ld.LDClient
+type LDIntegration struct {
+	// ldClient is not nil if the LD integration has been successfully configured.
+	ldClient *ld.LDClient
 
-// ldContext is the current context configured for this particular process. It is a global variable as it needs to be used when registering
-// a flag in the LD SDK
-var ldContext ldcontext.Context
+	// ldContext is the current context configured for this particular process.
+	ldContext ldcontext.Context
+}
+
+const (
+	WeaviateLDApiKey     = "WEAVIATE_LD_API_KEY"
+	WeaviateLDClusterKey = "WEAVIATE_LD_CLUSTER_KEY"
+	WeaviateLDOrgKey     = "WEAVIATE_LD_ORG_KEY"
+
+	LDContextOrgKey     = "org"
+	LDContextClusterKey = "cluster"
+	LDContextNodeKey    = "node"
+)
 
 // ConfigureLDIntegration will configure the necessary global variables to have `FeatureFlag` struct be able to use LD flags
-func ConfigureLDIntegration(logger logrus.FieldLogger) {
+func ConfigureLDIntegration() (*LDIntegration, error) {
 	var err error
-	logger = logger.WithField("action", "ld_integration")
 
 	// Fetch all the necessary env variable and exit if one fails
-	ldApiKey, ok := os.LookupEnv("WEAVIATE_LD_API_KEY")
+	ldApiKey, ok := os.LookupEnv(WeaviateLDApiKey)
 	if !ok {
-		logger.Info("LD integration disabled as WEVIATE_LD_API_KEY is not present")
-		return
+		return nil, fmt.Errorf("could not locate %s env variable", WeaviateLDApiKey)
 	}
-	clusterKey, ok := os.LookupEnv("WEAVIATE_LD_CLUSTER_KEY")
+	orgKey, ok := os.LookupEnv(WeaviateLDOrgKey)
 	if !ok {
-		logger.Info("LD integration disabled as WEVIATE_LD_CLUSTER_KEY is not present")
-		return
+		return nil, fmt.Errorf("could not locate %s env variable", WeaviateLDOrgKey)
 	}
-	orgKey, ok := os.LookupEnv("WEAVIATE_LD_ORG_KEY")
+	clusterKey, ok := os.LookupEnv(WeaviateLDClusterKey)
 	if !ok {
-		logger.Info("LD integration disabled as WEVIATE_LD_ORG_KEY is not present")
-		return
+		return nil, fmt.Errorf("could not locate %s env variable", WeaviateLDClusterKey)
 	}
+	// Re-using the current approach to parse the nodeName in the config
 	nodeKey, ok := os.LookupEnv("CLUSTER_HOSTNAME")
 	if !ok || nodeKey == "" {
 		nodeKey, err = os.Hostname()
 		if err != nil {
-			logger.Infof("LD integration disabled as CLUSTER_HOSTNAME is not present and os hostname returned error: %w", err)
-			return
+			return nil, fmt.Errorf("could not locate CLUSTER_HOSTNAME env variable")
 		}
 	}
 
-	ldClient, err = ld.MakeClient(ldApiKey, 5*time.Second)
+	// Instantiate the LD client
+	ldClient, err := ld.MakeClient(ldApiKey, 5*time.Second)
 	if err != nil {
-		ldClient = nil
-		logger.Infof("LD integration disabled as LD SDK init returned: %w", err)
-		return
+		return nil, fmt.Errorf("could not instantiate LD Client: %w", err)
 	}
-	// Can happen according to docs
+	// Can happen according to LD SDK docs
 	if ldClient == nil {
-		logger.Info("LD integration disabled as LD SDK init returned success but client is nil")
-		return
+		return nil, fmt.Errorf("LD client instantiation successful but client is nil")
 	}
 
-	clusterContext := ldcontext.NewBuilder(clusterKey).Kind("cluster").Build()
-	orgContext := ldcontext.NewBuilder(orgKey).Kind("org").Build()
-	nodeContext := ldcontext.NewBuilder(nodeKey).Kind("node").Build()
-	ldContext, err = ldcontext.NewMultiBuilder().Add(clusterContext).Add(orgContext).Add(nodeContext).TryBuild()
+	// Instantiate the LD context
+	orgContext := ldcontext.NewBuilder(orgKey).Kind(LDContextOrgKey).Build()
+	clusterContext := ldcontext.NewBuilder(clusterKey).Kind(LDContextClusterKey).Build()
+	nodeContext := ldcontext.NewBuilder(nodeKey).Kind(LDContextNodeKey).Build()
+	ldContext, err := ldcontext.NewMultiBuilder().Add(clusterContext).Add(orgContext).Add(nodeContext).TryBuild()
 	if err != nil {
-		// Set client to nil to "disable" the LD integration
-		ldClient = nil
-		logger.Info("LD integration disabled as LD context init returned: %w", err)
-		return
+		return nil, fmt.Errorf("could not instantiate LD context: %w", err)
 	}
-	logger.WithFields(logrus.Fields{
-		"context_cluster": clusterKey,
-		"context_org":     orgKey,
-		"context_node":    nodeKey,
-	}).Infof("Configured LD integration")
+
+	// Success
+	return &LDIntegration{
+		ldClient:  ldClient,
+		ldContext: ldContext,
+	}, nil
 }

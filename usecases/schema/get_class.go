@@ -14,7 +14,6 @@ package schema
 import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -24,29 +23,32 @@ type ClassGetter struct {
 	schemaManager SchemaManager
 	logger        logrus.FieldLogger
 
-	schemaRetrievalStrategy *configRuntime.FeatureFlag[string]
+	collectionRetrievalStrategy *configRuntime.FeatureFlag[string]
 }
 
-func NewClassGetter(schemaRetrievalStrategy config.SchemaRetrievalStrategy, schemaParser *Parser, schemaManager SchemaManager, schemaReader SchemaReader, logger logrus.FieldLogger) *ClassGetter {
+func NewClassGetter(
+	schemaParser *Parser,
+	schemaManager SchemaManager,
+	schemaReader SchemaReader,
+	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
+	logger logrus.FieldLogger,
+) *ClassGetter {
 	return &ClassGetter{
-		parser:        schemaParser,
-		schemaReader:  schemaReader,
-		schemaManager: schemaManager,
-		logger:        logger,
-		schemaRetrievalStrategy: configRuntime.NewFeatureFlag(
-			"collection-retrieval-strategy",
-			string(schemaRetrievalStrategy),
-		).WithEnvDefault("COLLECTION_STRATEGY_RETRIEVAL").WithLogOnChange(logger),
+		parser:                      schemaParser,
+		schemaReader:                schemaReader,
+		schemaManager:               schemaManager,
+		logger:                      logger,
+		collectionRetrievalStrategy: collectionRetrievalStrategyFF,
 	}
 }
 
 func (cg *ClassGetter) getClasses(names []string) (map[string]versioned.Class, error) {
-	switch config.SchemaRetrievalStrategy(cg.schemaRetrievalStrategy.Get()) {
-	case config.LeaderOnly:
+	switch configRuntime.CollectionRetrievalStrategy(cg.collectionRetrievalStrategy.Get()) {
+	case configRuntime.LeaderOnly:
 		return cg.getClassesLeaderOnly(names)
-	case config.LeaderOnMismatch:
+	case configRuntime.LeaderOnMismatch:
 		return cg.getClassesLeaderOnMismatch(names)
-	case config.LocalOnly:
+	case configRuntime.LocalOnly:
 		return cg.getClassesLocalOnly(names)
 
 		// This can happen if the feature flag gets configured with an invalid strategy
@@ -103,7 +105,7 @@ func (cg *ClassGetter) getClassesLocalOnly(names []string) (map[string]versioned
 		}
 		cg.logger.WithFields(logrus.Fields{
 			"missing":    missingClasses,
-			"suggestion": "This node received a data request for a class that is not present on the local schema on the node. If the class was just updated in the schema and you want to be able to query it immediately consider changing the " + config.SchemaRetrievalStrategyEnvVariable + " config to \"" + config.SchemaRetrievalStrategyToString[config.LeaderOnly] + "\".",
+			"suggestion": "This node received a data request for a class that is not present on the local schema on the node. If the class was just updated in the schema and you want to be able to query it immediately consider changing the " + configRuntime.CollectionRetrievalStrategyEnvVariable + " config to \"" + configRuntime.LeaderOnly + "\".",
 		}).Warn("not all classes found locally")
 	}
 	return vclasses, nil
@@ -147,7 +149,7 @@ func (cg *ClassGetter) getClassesLeaderOnMismatch(names []string) (map[string]ve
 		cg.logger.WithFields(logrus.Fields{
 			"classes":    versionedClassesToQueryFromLeader,
 			"error":      err,
-			"suggestion": "This node received a data request for a class that is not present on the local schema on the node. If the class was just updated in the schema and you want to be able to query it immediately consider changing the " + config.SchemaRetrievalStrategyEnvVariable + " config to \"" + config.SchemaRetrievalStrategyToString[config.LeaderOnly] + "\".",
+			"suggestion": "This node received a data request for a class that is not present on the local schema on the node. If the class was just updated in the schema and you want to be able to query it immediately consider changing the " + configRuntime.CollectionRetrievalStrategyEnvVariable + " config to \"" + configRuntime.LeaderOnly + "\".",
 		}).Warn("unable to query classes from leader")
 		// return as many classes as we could get (to match previous behavior of the caller)
 		return versionedClassesToReturn, err

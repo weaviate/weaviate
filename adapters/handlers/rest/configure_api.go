@@ -115,7 +115,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
-	runtimeConfig "github.com/weaviate/weaviate/usecases/config/runtime"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -486,6 +486,14 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	offloadmod, _ := appState.Modules.OffloadBackend("offload-s3")
 
+	collectionRetrievalStrategyConfigFlag := configRuntime.NewFeatureFlag(
+		configRuntime.CollectionRetrievalStrategyLDKey,
+		string(configRuntime.LeaderOnly),
+		appState.LDIntegration,
+		configRuntime.CollectionRetrievalStrategyEnvVariable,
+		appState.Logger,
+	)
+
 	schemaManager, err := schemaUC.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
@@ -494,6 +502,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, scaler,
 		offloadmod, *schemaParser,
+		collectionRetrievalStrategyConfigFlag,
 	)
 	if err != nil {
 		appState.Logger.
@@ -771,11 +780,15 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created startup context, nothing done so far")
 
-	runtimeConfig.ConfigureLDIntegration(logger)
+	ldInteg, err := configRuntime.ConfigureLDIntegration()
+	if err != nil {
+		logger.WithField("action", "startup").Infof("Feature flag LD integration disabled: %s", err)
+	}
+	appState.LDIntegration = ldInteg
 	// Load the config using the flags
 	serverConfig := &config.WeaviateConfig{}
 	appState.ServerConfig = serverConfig
-	err := serverConfig.LoadConfig(options, logger)
+	err = serverConfig.LoadConfig(options, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
