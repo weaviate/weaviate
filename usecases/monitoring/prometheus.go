@@ -18,6 +18,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+const (
+	DefaultMetricsNamespace = "weaviate"
+)
+
 type Config struct {
 	Enabled                    bool   `json:"enabled" yaml:"enabled"`
 	Tool                       string `json:"tool" yaml:"tool"`
@@ -141,10 +145,22 @@ type PrometheusMetrics struct {
 	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
+// NewServerMetrics return the ServerMetrics that can be used in any of the grpc or http servers.
+//
+// Example for HTTP servers.
+//
+//	weaviate_request_duration_seconds_sum{instance="node-1", method="DELETE", route="/v1/schema/{className}", status_code="200"}
+//
+// Example For GRPC servers
+//
+//	weaviate_request_duration_seconds_sum{instance="node-1", method="gRPC", route="/grpc.health.v1.Health/Check", status_code="OK"}
 func NewServerMetrics(namespace string, reg prometheus.Registerer) *ServerMetrics {
 	r := promauto.With(reg)
 
 	return &ServerMetrics{
+		// TODO(kavi): TCPActiveConnections is not currently not used in those servers
+		// mainly because auto-generated code via swagger doesn't make it easy to instrument
+		// underlying TCP listeners.
 		TCPActiveConnections: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "tcp_active_connections",
