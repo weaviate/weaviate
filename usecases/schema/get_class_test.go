@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	shardingCfg "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -26,13 +26,13 @@ func TestClassGetterFromSchema(t *testing.T) {
 	testCases := []struct {
 		name          string
 		getFromSchema []string
-		strategy      config.SchemaRetrievalStrategy
+		strategy      configRuntime.CollectionRetrievalStrategy
 		schemaExpect  func(*fakeSchemaManager)
 	}{
 		{
 			name:          "Read only from leader",
 			getFromSchema: []string{"class1", "class2", "class3"},
-			strategy:      config.LeaderOnly,
+			strategy:      configRuntime.LeaderOnly,
 			schemaExpect: func(f *fakeSchemaManager) {
 				f.On("QueryReadOnlyClasses", []string{"class1", "class2", "class3"}).Return(map[string]versioned.Class{
 					"class1": {Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw", ShardingConfig: make(map[string]interface{})}},
@@ -44,7 +44,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 		{
 			name:          "Read only from local",
 			getFromSchema: []string{"class1", "class2", "class3"},
-			strategy:      config.LocalOnly,
+			strategy:      configRuntime.LocalOnly,
 			schemaExpect: func(f *fakeSchemaManager) {
 				f.On("ReadOnlyVersionedClass", "class1").Return(versioned.Class{Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
 				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
@@ -54,7 +54,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 		{
 			name:          "Read all from leader if mismatch",
 			getFromSchema: []string{"class1", "class2", "class3"},
-			strategy:      config.LeaderOnMismatch,
+			strategy:      configRuntime.LeaderOnMismatch,
 			schemaExpect: func(f *fakeSchemaManager) {
 				// First we will query the versions from the leader
 				f.On("QueryClassVersions", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
@@ -77,7 +77,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 		{
 			name:          "Read subset from leader if mismatch",
 			getFromSchema: []string{"class1", "class2", "class3"},
-			strategy:      config.LeaderOnMismatch,
+			strategy:      configRuntime.LeaderOnMismatch,
 			schemaExpect: func(f *fakeSchemaManager) {
 				// First we will query the versions from the leader
 				f.On("QueryClassVersions", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
@@ -98,7 +98,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 		{
 			name:          "Read from leader local equal",
 			getFromSchema: []string{"class1", "class2", "class3"},
-			strategy:      config.LeaderOnMismatch,
+			strategy:      configRuntime.LeaderOnMismatch,
 			schemaExpect: func(f *fakeSchemaManager) {
 				// First we will query the versions from the leader
 				f.On("QueryClassVersions", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
@@ -114,7 +114,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 		{
 			name:          "Read from leader local ahead",
 			getFromSchema: []string{"class1", "class2", "class3"},
-			strategy:      config.LeaderOnMismatch,
+			strategy:      configRuntime.LeaderOnMismatch,
 			schemaExpect: func(f *fakeSchemaManager) {
 				// First we will query the versions from the leader
 				f.On("QueryClassVersions", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
@@ -136,8 +136,20 @@ func TestClassGetterFromSchema(t *testing.T) {
 			// Configure test setup
 			handler, fakeSchema := newTestHandler(t, &fakeDB{})
 			log, _ := test.NewNullLogger()
-			classGetter, err := NewClassGetter(testCase.strategy, &handler.parser, fakeSchema, fakeSchema, log)
-			require.NoError(t, err)
+			classGetter := NewClassGetter(
+				&handler.parser,
+				fakeSchema,
+				fakeSchema,
+				configRuntime.NewFeatureFlag(
+					"fake-key",
+					string(testCase.strategy),
+					nil,
+					"",
+					log,
+				),
+				log,
+			)
+			require.NotNil(t, classGetter)
 
 			// Configure expectation
 			testCase.schemaExpect(fakeSchema)
