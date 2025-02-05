@@ -55,7 +55,15 @@ type authZHandlers struct {
 func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter,
 	apiKeysConfigs config.APIKey, oidcConfigs config.OIDC, rconfig rbacconf.Config, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
-	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, rbacconfig: rconfig, oidcConfigs: oidcConfigs, apiKeysConfigs: apiKeysConfigs, logger: logger, metrics: metrics}
+	h := &authZHandlers{
+		controller:     controller,
+		authorizer:     authorizer,
+		schemaReader:   schemaReader,
+		rbacconfig:     rconfig,
+		oidcConfigs:    oidcConfigs,
+		apiKeysConfigs: apiKeysConfigs,
+		logger:         logger,
+		metrics:        metrics}
 
 	// rbac role handlers
 	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
@@ -89,7 +97,7 @@ func (h *authZHandlers) authorizeRoleScopes(principal *models.Principal, origina
 		// Verify user has all permissions they're trying to grant
 		var errs error
 		for _, policy := range policies {
-			if err := h.authorizer.Authorize(principal, policy.Verb, policy.Resource); err != nil {
+			if err := h.authorizer.AuthorizeSilent(principal, policy.Verb, policy.Resource); err != nil {
 				errs = errors.Join(errs, err)
 			}
 		}

@@ -20,6 +20,8 @@ import (
 // ...) is hidden through this interface
 type Authorizer interface {
 	Authorize(principal *models.Principal, verb string, resources ...string) error
+	// AuthorizeSilent Silent authorization without audit logs
+	AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error
 }
 
 // DummyAuthorizer is a pluggable Authorizer which can be used if no specific
@@ -30,5 +32,9 @@ type DummyAuthorizer struct{}
 // Authorize on the DummyAuthorizer will allow any subject access to any
 // resource
 func (d *DummyAuthorizer) Authorize(principal *models.Principal, verb string, resources ...string) error {
+	return nil
+}
+
+func (d *DummyAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
 	return nil
 }
