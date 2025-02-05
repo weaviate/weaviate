@@ -434,6 +434,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	if bucket == nil {
 		return fmt.Errorf("bucket '%s' not found", bucketName)
 	}
+
 	replacementBucket := s.bucketsByName[replacementBucketName]
 	if replacementBucket == nil {
 		return fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
@@ -446,6 +447,10 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	currReplacementBucketDir := replacementBucket.dir
 	newReplacementBucketDir := currBucketDir
 
+	if err := bucket.Shutdown(ctx); err != nil {
+		return errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
+	}
+
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
 	}
@@ -456,9 +461,6 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
 
-	if err := bucket.Shutdown(ctx); err != nil {
-		return errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
-	}
 	if err := os.RemoveAll(newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed removing dir '%s'", newBucketDir)
 	}
