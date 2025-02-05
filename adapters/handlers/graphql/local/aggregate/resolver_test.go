@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -985,7 +986,7 @@ func Test_Resolve(t *testing.T) {
 func (tests testCases) AssertExtraction(t *testing.T, className string) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			resolver := newMockResolver(config.Config{})
+			resolver := newMockResolver(t, config.Config{})
 
 			expectedParams := &aggregation.Params{
 				ClassName:        schema.ClassName(className),

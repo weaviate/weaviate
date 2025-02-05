@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -69,7 +70,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
@@ -323,7 +324,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
@@ -468,7 +469,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)

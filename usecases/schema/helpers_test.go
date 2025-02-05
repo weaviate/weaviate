@@ -49,8 +49,10 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
+	authzMock := mocks.NewAuthorizer(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	handler, err := NewHandler(
-		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, fakeValidator, logger, authzMock,
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 

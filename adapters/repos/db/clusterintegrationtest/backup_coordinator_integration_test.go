@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -55,7 +56,7 @@ func TestDistributedBackups(t *testing.T) {
 				name: fmt.Sprintf("node-%d", i),
 			}
 
-			node.init(dirName, shardStateSerialized, &nodes)
+			node.init(t, dirName, shardStateSerialized, &nodes)
 			nodes = append(nodes, node)
 		}
 	})

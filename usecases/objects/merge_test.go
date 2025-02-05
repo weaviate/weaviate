@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -431,7 +432,7 @@ func Test_MergeObject(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newFakeGetManager(zooAnimalSchemaForTest())
+			m := newFakeGetManager(t, zooAnimalSchemaForTest())
 			m.timeSource = fakeTimeSource{}
 			cls := ""
 			if tc.updated != nil {

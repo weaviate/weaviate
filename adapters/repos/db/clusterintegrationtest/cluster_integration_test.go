@@ -28,9 +28,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -81,7 +81,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 				name: fmt.Sprintf("node-%d", i),
 			}
 
-			node.init(dirName, shardStateSerialized, &nodes)
+			node.init(t, dirName, shardStateSerialized, &nodes)
 			nodes = append(nodes, node)
 		}
 	})
@@ -712,7 +712,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 					name: fmt.Sprintf("node-%d", i),
 				}
 
-				node.init(dirName, shardStateSerialized, &nodes)
+				node.init(t, dirName, shardStateSerialized, &nodes)
 				nodes = append(nodes, node)
 			}
 

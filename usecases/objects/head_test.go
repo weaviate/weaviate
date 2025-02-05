@@ -17,6 +17,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -25,7 +27,7 @@ func Test_HeadObject(t *testing.T) {
 	var (
 		cls    = "MyClass"
 		id     = strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
-		m      = newFakeGetManager(schema.Schema{})
+		m      = newFakeGetManager(t, schema.Schema{})
 		errAny = errors.New("any")
 	)
 
@@ -73,7 +75,7 @@ func Test_HeadObject(t *testing.T) {
 		},
 	}
 	for i, tc := range tests {
-		m.authorizer.SetErr(tc.authErr)
+		m.authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(tc.authErr)
 		m.locks.Err = tc.lockErr
 		if tc.authErr == nil && tc.lockErr == nil {
 			m.repo.On("Exists", tc.class, id).Return(tc.mockedOk, tc.mockedErr).Once()

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -139,7 +140,7 @@ func TestFilterClasses(t *testing.T) {
 func TestHandlerValidateCoordinationOperation(t *testing.T) {
 	var (
 		ctx = context.Background()
-		bm  = createManager(nil, nil, nil, nil)
+		bm  = createManager(t, nil, nil, nil, nil)
 	)
 
 	{ // OnCanCommit

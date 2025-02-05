@@ -24,6 +24,7 @@ import (
 	"os"
 	"path"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -36,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
+	authmocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -54,7 +56,7 @@ type node struct {
 	hostname      string
 }
 
-func (n *node) init(dirName string, shardStateRaw []byte,
+func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
 	allNodes *[]*node,
 ) {
 	localDir := path.Join(dirName, n.name)
@@ -101,12 +103,12 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	}
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
+	mockAuthz := authmocks.NewAuthorizer(t)
 	n.backupManager = ubak.NewHandler(
-		logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider)
+		logger, mockAuthz, n.schemaManager, n.repo, backendProvider)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
-	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
+	n.scheduler = ubak.NewScheduler(mockAuthz, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
@@ -446,14 +448,4 @@ func (f *fakeBackupBackend) successLocalMeta() backup.BackupDescriptor {
 
 func (f *fakeBackupBackend) reset() {
 	f.counter = 0
-}
-
-type fakeAuthorizer struct{}
-
-func (f *fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
-	return nil
-}
-
-func (f *fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
-	return nil
 }

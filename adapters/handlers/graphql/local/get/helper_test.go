@@ -16,8 +16,10 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 
@@ -28,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -629,28 +631,16 @@ func getFakeModulesProvider() ModulesProvider {
 	return newFakeModulesProvider()
 }
 
-type fakeAuthorizer struct{}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
-	return nil
+func newMockResolver(t *testing.T) *mockResolver {
+	return newMockResolverWithVectorizer(t, config.VectorizerModuleText2VecContextionary)
 }
 
-func (f *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, action string, resource ...string) error {
-	return nil
-}
-
-func getFakeAuthorizer() authorization.Authorizer {
-	return &fakeAuthorizer{}
-}
-
-func newMockResolver() *mockResolver {
-	return newMockResolverWithVectorizer(config.VectorizerModuleText2VecContextionary)
-}
-
-func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
+func newMockResolverWithVectorizer(t *testing.T, vectorizer string) *mockResolver {
 	logger, _ := test.NewNullLogger()
 	simpleSchema := test_helper.CreateSimpleSchema(vectorizer)
-	field, err := Build(&simpleSchema, logger, getFakeModulesProvider(), getFakeAuthorizer())
+	authzMock := mocks.NewAuthorizer(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	field, err := Build(&simpleSchema, logger, getFakeModulesProvider(), authzMock)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
@@ -662,9 +652,11 @@ func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 	return mocker
 }
 
-func newMockResolverWithNoModules() *mockResolver {
+func newMockResolverWithNoModules(t *testing.T) *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := Build(&test_helper.SimpleSchema, logger, nil, getFakeAuthorizer())
+	authzMock := mocks.NewAuthorizer(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	field, err := Build(&test_helper.SimpleSchema, logger, nil, authzMock)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}

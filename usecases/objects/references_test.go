@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -40,7 +41,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 				Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 			},
 		}
-		m := newFakeGetManager(zooAnimalSchemaForTest())
+		m := newFakeGetManager(t, zooAnimalSchemaForTest())
 		m.repo.On("Exists", "Animal", mock.Anything).Return(true, nil)
 		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: cls,
@@ -66,7 +67,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 				Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 			},
 		}
-		m := newFakeGetManager(zooAnimalSchemaForTest())
+		m := newFakeGetManager(t, zooAnimalSchemaForTest())
 		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 		err := m.AddObjectReference(context.Background(), nil, &req, nil, "")
 		require.NotNil(t, err)
@@ -82,7 +83,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 				Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 			},
 		}
-		m := newFakeGetManager(zooAnimalSchemaForTest())
+		m := newFakeGetManager(t, zooAnimalSchemaForTest())
 		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("any"))
 		err := m.AddObjectReference(context.Background(), nil, &req, nil, "")
 		require.NotNil(t, err)
@@ -205,8 +206,8 @@ func Test_ReferenceAdd(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.Name, func(t *testing.T) {
-			m := newFakeGetManager(zooAnimalSchemaForTest())
-			m.authorizer.SetErr(tc.ErrAuth)
+			m := newFakeGetManager(t, zooAnimalSchemaForTest())
+			m.authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(tc.ErrAuth)
 			m.locks.Err = tc.ErrLock
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
@@ -350,9 +351,8 @@ func Test_ReferenceUpdate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.Name, func(t *testing.T) {
-			m := newFakeGetManager(zooAnimalSchemaForTest())
-			m.authorizer.SetErr(tc.ErrAuth)
-			m.locks.Err = tc.ErrLock
+			m := newFakeGetManager(t, zooAnimalSchemaForTest())
+			m.authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(tc.ErrAuth)
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			srcObj := &search.Result{
 				ClassName: cls,
@@ -543,8 +543,8 @@ func Test_ReferenceDelete(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.Name, func(t *testing.T) {
-			m := newFakeGetManager(zooAnimalSchemaForTest())
-			m.authorizer.SetErr(tc.ErrAuth)
+			m := newFakeGetManager(t, zooAnimalSchemaForTest())
+			m.authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(tc.ErrAuth)
 			m.locks.Err = tc.ErrLock
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			srcObj := &search.Result{
@@ -596,7 +596,7 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	m := newFakeGetManager(articleSchemaForTest())
+	m := newFakeGetManager(t, articleSchemaForTest())
 
 	req := AddReferenceInput{
 		Class:    "Article",
@@ -642,7 +642,7 @@ func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	m := newFakeGetManager(articleSchemaForTest())
+	m := newFakeGetManager(t, articleSchemaForTest())
 
 	req := DeleteReferenceInput{
 		Class:    "Article",

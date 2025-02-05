@@ -14,10 +14,14 @@ package aggregate
 import (
 	"context"
 	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/mock"
 
 	testhelper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -30,18 +34,10 @@ type mockResolver struct {
 	testhelper.MockResolver
 }
 
-type mockAuthorizer struct{}
-
-func (m *mockAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
-	return nil
-}
-
-func (m *mockAuthorizer) AuthorizeSilent(principal *models.Principal, action string, resource ...string) error {
-	return nil
-}
-
-func newMockResolver(cfg config.Config) *mockResolver {
-	field, err := Build(&testhelper.CarSchema, cfg, nil, &mockAuthorizer{})
+func newMockResolver(t *testing.T, cfg config.Config) *mockResolver {
+	authzMock := mocks.NewAuthorizer(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	field, err := Build(&testhelper.CarSchema, cfg, nil, authzMock)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}

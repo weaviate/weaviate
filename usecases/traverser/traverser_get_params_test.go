@@ -18,17 +18,17 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
+	logrus "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/searchparams"
-
-	logrus "github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -170,7 +170,7 @@ func TestGet_NestedRefDepthLimit(t *testing.T) {
 				QueryCrossReferenceDepthLimit: depth,
 			},
 		}
-		return NewTraverser(&cfg, &fakeLocks{}, logger, mocks.NewMockAuthorizer(),
+		return NewTraverser(&cfg, &fakeLocks{}, logger, mocks.NewAuthorizer(t),
 			&fakeVectorRepo{}, &fakeExplorer{}, schemaGetter, nil, nil, -1)
 	}
 
@@ -255,12 +255,13 @@ func Test_GetClass_WithFilters(t *testing.T) {
 		return out
 	}
 
-	newTraverser := func() *Traverser {
+	newTraverser := func() (*Traverser, *mocks.Authorizer) {
 		logger, _ := logrus.NewNullLogger()
 		schemaGetter := &fakeSchemaGetter{schemaForFiltersValidation()}
 		cfg := config.WeaviateConfig{}
-		return NewTraverser(&cfg, &fakeLocks{}, logger, mocks.NewMockAuthorizer(),
-			&fakeVectorRepo{}, &fakeExplorer{}, schemaGetter, nil, nil, -1)
+		authzMock := mocks.NewAuthorizer(t)
+		return NewTraverser(&cfg, &fakeLocks{}, logger, authzMock,
+			&fakeVectorRepo{}, &fakeExplorer{}, schemaGetter, nil, nil, -1), authzMock
 	}
 
 	buildInvalidRefCountTests := func(op filters.Operator, path []interface{},
@@ -580,13 +581,12 @@ func Test_GetClass_WithFilters(t *testing.T) {
 				metrics := &fakeMetrics{}
 				metrics.On("AddUsageDimensions", mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything)
-				traverser := newTraverser()
-
+				traverser, authzMock := newTraverser()
+				authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 				if test.expectedError == nil {
 					// search.
 					//	On("VectorSearch", mock.Anything, mock.Anything).
 					//	Return(searchResults, nil)
-
 					_, err := traverser.GetClass(context.Background(), nil, params)
 					assert.Nil(t, err)
 

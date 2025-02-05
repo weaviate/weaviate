@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -108,7 +109,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 
 	t.Run("classification journey", func(t *testing.T) {
 		repo := newFakeClassificationRepo()
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		classifier := classification.New(sg, repo, vrepo, authorizer, logger, nil)
 
 		params := models.Classification{
@@ -225,7 +226,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 
 	t.Run("classification journey", func(t *testing.T) {
 		repo := newFakeClassificationRepo()
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		classifier := classification.New(sg, repo, vrepo, authorizer, logger, nil)
 
 		params := models.Classification{

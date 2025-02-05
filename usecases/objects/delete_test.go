@@ -32,7 +32,7 @@ func Test_DeleteObjectsWithSameId(t *testing.T) {
 		id  = strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
 	)
 
-	manager, vectorRepo := newDeleteDependency()
+	manager, vectorRepo := newDeleteDependency(t)
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 		ClassName: cls,
 	}, nil).Once()
@@ -51,7 +51,7 @@ func Test_DeleteObject(t *testing.T) {
 		errNotFound = errors.New("object not found")
 	)
 
-	manager, repo := newDeleteDependency()
+	manager, repo := newDeleteDependency(t)
 
 	repo.On("DeleteObject", cls, id, mock.Anything).Return(nil).Once()
 	err := manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
@@ -67,15 +67,17 @@ func Test_DeleteObject(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
-func newDeleteDependency() (*Manager, *fakeVectorRepo) {
+func newDeleteDependency(t *testing.T) (*Manager, *fakeVectorRepo) {
 	vectorRepo := new(fakeVectorRepo)
 	logger, _ := test.NewNullLogger()
+	authzMock := mocks.NewAuthorizer(t)
+	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	manager := NewManager(
 		new(fakeLocks),
 		new(fakeSchemaManager),
 		new(config.WeaviateConfig),
 		logger,
-		mocks.NewMockAuthorizer(),
+		authzMock,
 		vectorRepo,
 		getFakeModulesProvider(),
 		new(fakeMetrics), nil)
