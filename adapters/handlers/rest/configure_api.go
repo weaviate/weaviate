@@ -622,6 +622,32 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		reindexTaskNamesWithArgs["ShardInvertedReindexTask_SpecifiedIndex"] = appState.ServerConfig.Config.ReindexIndexesAtStartup
 	}
 
+	reindexTasksV2Names := []string{}
+	reindexTasksV2Args := map[string]any{}
+	reindexFinishedV2 := make(chan error, 1)
+	if appState.ServerConfig.Config.ReindexMapToBlockmaxAtStartup {
+		reindexTasksV2Names = append(reindexTasksV2Names, "ShardInvertedReindexTask_MapToBlockmax")
+		reindexTasksV2Args["ShardInvertedReindexTask_MapToBlockmax"] = map[string]bool{
+			"ReindexMapToBlockmaxSwapBuckets": appState.ServerConfig.Config.ReindexMapToBlockmaxSwapBuckets,
+			"ReindexMapToBlockmaxTidyBuckets": appState.ServerConfig.Config.ReindexMapToBlockmaxTidyBuckets,
+		}
+	}
+
+	if len(reindexTasksV2Names) > 0 {
+		waitForMetaStore := func() error {
+			// wait until meta store is ready, as reindex tasks need schema
+			<-storeReadyCtx.Done()
+			if err := context.Cause(storeReadyCtx); !errors.Is(err, metaStoreReadyErr) {
+				return err
+			}
+			return nil
+		}
+		if err := runReindexerV2(reindexCtx, waitForMetaStore, migrator, appState.Logger, reindexTasksV2Names,
+			reindexTasksV2Args, reindexFinishedV2); err != nil {
+			os.Exit(1) // fail only in case of error (effectively when reindexer is not created)
+		}
+	}
+
 	if len(reindexTaskNamesWithArgs) > 0 {
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
@@ -653,6 +679,85 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	return appState
+}
+
+func runReindexerV2(reindexCtx context.Context, waitForMetaStore func() error,
+	migrator *db.Migrator, logger logrus.FieldLogger,
+	reindexTasksV2Names []string, reindexTasksV2Args map[string]any, reindexFinishedV2 chan<- error,
+) error {
+	logger = logger.WithField("action", "reindexV2")
+
+	reindexer, err := migrator.ReindexerV2(reindexTasksV2Names, reindexTasksV2Args)
+	if err != nil {
+		logger.WithError(err).Error("creating reindexer")
+		return err
+	}
+
+	if reindexer.HasOnBefore() {
+		start := time.Now()
+		logger.Debug("starting waiting for meta store")
+		if err := waitForMetaStore(); err != nil {
+			err = fmt.Errorf("meta store not available: %w", err)
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished waiting for meta store")
+
+			reindexFinishedV2 <- err
+			return nil
+		}
+		logger.WithField("took", time.Since(start)).Debug("finished waiting for meta store")
+
+		start = time.Now()
+		logger.Debug("starting on before")
+		if err := reindexer.OnBefore(reindexCtx); err != nil {
+			err = fmt.Errorf("on before: %w", err)
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished on before")
+		} else {
+			logger.WithField("took", time.Since(start)).Debug("finished on before")
+		}
+
+		// continue even in onBefore failed on some tasks.
+		// remaining tasks will proceed with reindexing.
+		enterrors.GoWrapper(func() {
+			start = time.Now()
+			logger.Debug("starting reindexing")
+			if err := reindexer.Reindex(reindexCtx); err != nil {
+				err = fmt.Errorf("reindex: %w", err)
+				logger.WithField("took", time.Since(start)).WithError(err).Error("finished reindexing")
+
+				reindexFinishedV2 <- err
+				return
+			}
+			logger.WithField("took", time.Since(start)).Debug("finished reindexing")
+			reindexFinishedV2 <- nil
+		}, logger)
+
+		return nil
+	}
+
+	enterrors.GoWrapper(func() {
+		start := time.Now()
+		logger.Debug("starting waiting for meta store")
+		if err := waitForMetaStore(); err != nil {
+			err = fmt.Errorf("meta store not available: %w", err)
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished waiting for meta store")
+
+			reindexFinishedV2 <- err
+			return
+		}
+		logger.WithField("took", time.Since(start)).Debug("finished waiting for meta store")
+
+		start = time.Now()
+		logger.Debug("starting reindexing")
+		if err := reindexer.Reindex(reindexCtx); err != nil {
+			err = fmt.Errorf("reindex: %w", err)
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished reindexing")
+
+			reindexFinishedV2 <- err
+			return
+		}
+		logger.WithField("took", time.Since(start)).Debug("finished reindexing")
+	}, logger)
+
+	return nil
 }
 
 func parseNode2Port(appState *state.State) (m map[string]int, err error) {
