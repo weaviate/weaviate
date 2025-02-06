@@ -109,6 +109,8 @@ type Compose struct {
 	withWeaviateBasicAuthPassword string
 	withWeaviateApiKey            bool
 	weaviateApiKeyUsers           []ApiKeyUser
+	weaviateAdminlistAdmins       []string
+	weaviateAdminlistUsers        []string
 	withWeaviateRbac              bool
 	weaviateRbacAdmins            []string
 	weaviateRbacRootGroups        []string
@@ -433,6 +435,16 @@ func (d *Compose) WithWeaviateBasicAuth(username, password string) *Compose {
 func (d *Compose) WithWeaviateAuth() *Compose {
 	d.withWeaviateAuth = true
 	return d.With1NodeCluster()
+}
+
+func (d *Compose) WithAdminListAdmins(users ...string) *Compose {
+	d.weaviateAdminlistAdmins = users
+	return d
+}
+
+func (d *Compose) WithAdminListUsers(users ...string) *Compose {
+	d.weaviateAdminlistUsers = users
+	return d
 }
 
 func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
@@ -776,6 +788,13 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
+	}
+	if len(d.weaviateAdminlistAdmins) > 0 {
+		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
+		settings["AUTHORIZATION_ADMINLIST_USERS"] = strings.Join(d.weaviateAdminlistAdmins, ",")
+		if len(d.weaviateAdminlistUsers) > 0 {
+			settings["AUTHORIZATION_ADMINLIST_READONLY_USERS"] = strings.Join(d.weaviateAdminlistUsers, ",")
+		}
 	}
 
 	if d.withWeaviateApiKey {
