@@ -217,7 +217,7 @@ type GRPCServerMetrics struct {
 
 func NewGRPCServerMetrics(namespace string, reg prometheus.Registerer) *GRPCServerMetrics {
 	r := promauto.With(reg)
-	subsystem := "grpc"
+	subsystem := "grpc_server"
 
 	return &GRPCServerMetrics{
 		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
