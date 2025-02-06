@@ -129,16 +129,14 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
-		if appState.ServerConfig.Config.Monitoring.Enabled {
-			handler = monitoring.InstrumentHTTP(
-				handler,
-				context,
-				appState.HTTPServerMetrics.InflightRequests,
-				appState.HTTPServerMetrics.RequestDuration,
-				appState.HTTPServerMetrics.RequestBodySize,
-				appState.HTTPServerMetrics.ResponseBodySize,
-			)
-		}
+		handler = monitoring.InstrumentHTTP(
+			handler,
+			context,
+			appState.HTTPServerMetrics.InflightRequests,
+			appState.HTTPServerMetrics.RequestDuration,
+			appState.HTTPServerMetrics.RequestBodySize,
+			appState.HTTPServerMetrics.ResponseBodySize,
+		)
 		// Must be the last middleware as it might skip the next handler
 		handler = addClusterHandlerMiddleware(handler, appState)
 		if appState.ServerConfig.Config.Sentry.Enabled {
