@@ -68,6 +68,11 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
+	http.HandleFunc("/debug/index/rebuild/inverted/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		appState.ReindexCtxCancel()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
 	// newLogLevel can be one of: panic, fatal, error, warn, info, debug, trace (defaults to info)
 	http.HandleFunc("/debug/config/logger/level", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		newLogLevel := r.URL.Query().Get("newLogLevel")
