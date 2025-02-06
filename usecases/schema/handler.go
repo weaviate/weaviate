@@ -164,7 +164,6 @@ func NewHandler(
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
 		classGetter:             classGetter,
-		authFilter:              authFilter,
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)
