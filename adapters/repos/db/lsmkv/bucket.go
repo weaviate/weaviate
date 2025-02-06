@@ -338,14 +338,14 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
-func (b *Bucket) ApplyToObjectDigests(ctx context.Context, desiredSecondaryIndexCount int, f func(object *storobj.Object) error) error {
+func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storobj.Object) error) error {
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
-	onDiskCursor := b.CursorOnDiskWith(desiredSecondaryIndexCount)
+	onDiskCursor := b.CursorOnDisk()
 	defer onDiskCursor.Close()
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
 	err := func() error {
-		inMemCursor := b.CursorInMemWith(desiredSecondaryIndexCount)
+		inMemCursor := b.CursorInMem()
 		defer inMemCursor.Close()
 
 		for k, v := inMemCursor.First(); k != nil; k, v = inMemCursor.Next() {

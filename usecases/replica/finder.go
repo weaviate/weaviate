@@ -399,10 +399,10 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	return nil, ErrNoDiffFound
 }
 
-func (f *Finder) DigestObjectsInTokenRange(ctx context.Context,
-	shardName string, host string, initialToken, finalToken uint64, limit int,
-) (ds []RepairResponse, lastTokenRead uint64, err error) {
-	return f.client.DigestObjectsInTokenRange(ctx, host, f.class, shardName, initialToken, finalToken, limit)
+func (f *Finder) DigestObjectsInRange(ctx context.Context,
+	shardName string, host string, initialUUID, finalUUID strfmt.UUID, limit int,
+) (ds []RepairResponse, err error) {
+	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
 }
 
 // Overwrite specified object with most recent contents

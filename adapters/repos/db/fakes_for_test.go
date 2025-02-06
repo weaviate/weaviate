@@ -370,10 +370,10 @@ func (*fakeReplicationClient) FindUUIDs(ctx context.Context,
 	return nil, nil
 }
 
-func (c *fakeReplicationClient) DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
-	initialToken, finalToken uint64, limit int,
-) ([]replica.RepairResponse, uint64, error) {
-	return nil, 0, nil
+func (c *fakeReplicationClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
+	initialUUID, finalUUID strfmt.UUID, limit int,
+) ([]replica.RepairResponse, error) {
+	return nil, nil
 }
 
 func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string, level int,
