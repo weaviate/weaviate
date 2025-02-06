@@ -47,6 +47,7 @@ func TestAdminlistWithRBACEndpoints(t *testing.T) {
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
+	defer compose.Terminate(ctx)
 
 	// as admin you can all the endpoints, but nothing happens
 	testRoleName := "testing"
