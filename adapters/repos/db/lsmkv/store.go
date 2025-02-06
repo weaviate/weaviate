@@ -451,17 +451,25 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
 	}
 
+	s.bucketAccessLock.Lock()
 	replacementBucket.flushLock.Lock()
 	replacementBucket.disk.maintenanceLock.Lock()
 
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
+		replacementBucket.disk.maintenanceLock.Unlock()
+		replacementBucket.flushLock.Unlock()
+		s.bucketAccessLock.Unlock()
 		return errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
 	}
 	if err := os.Rename(currReplacementBucketDir, newReplacementBucketDir); err != nil {
+		replacementBucket.disk.maintenanceLock.Unlock()
+		replacementBucket.flushLock.Unlock()
+		s.bucketAccessLock.Unlock()
 		return errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
 	}
-	replacementBucket.flushLock.Unlock()
 	replacementBucket.disk.maintenanceLock.Unlock()
+	replacementBucket.flushLock.Unlock()
+	s.bucketAccessLock.Unlock()
 
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
