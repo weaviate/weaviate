@@ -146,44 +146,31 @@ type PrometheusMetrics struct {
 }
 
 // NewHTPServerMetrics return the ServerMetrics that can be used in any of the grpc or http servers.
-//
-// Example for HTTP servers.
-//
-//	weaviate_request_duration_seconds_sum{instance="node-1", method="DELETE", route="/v1/schema/{className}", status_code="200"}
-//
-// Example For GRPC servers
-//
-//	weaviate_request_duration_seconds_sum{instance="node-1", method="gRPC", route="/grpc.health.v1.Health/Check", status_code="OK"}
 func NewHTTPServerMetrics(namespace string, reg prometheus.Registerer) *HTTPServerMetrics {
 	r := promauto.With(reg)
-	subsystem := "http"
 
 	return &HTTPServerMetrics{
 		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Subsystem: subsystem,
-			Name:      "request_duration_seconds",
+			Name:      "http_request_duration_seconds",
 			Help:      "Time (in seconds) spent serving requests.",
 			Buckets:   LatencyBuckets,
 		}, []string{"method", "route", "status_code"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Subsystem: subsystem,
-			Name:      "request_message_bytes",
-			Help:      "Size (in bytes) of messages received in the request.",
+			Name:      "http_request_size_bytes",
+			Help:      "Size (in bytes) of the request received.",
 			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Subsystem: subsystem,
-			Name:      "response_message_bytes",
-			Help:      "Size (in bytes) of messages sent in response.",
+			Name:      "http_response_size_bytes",
+			Help:      "Size (in bytes) of the response sent.",
 			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
-			Subsystem: subsystem,
-			Name:      "inflight_requests",
+			Name:      "http_requests_inflight",
 			Help:      "Current number of inflight requests.",
 		}, []string{"method", "route"}),
 	}
@@ -208,34 +195,28 @@ type GRPCServerMetrics struct {
 
 func NewGRPCServerMetrics(namespace string, reg prometheus.Registerer) *GRPCServerMetrics {
 	r := promauto.With(reg)
-	subsystem := "grpc_server"
-
 	return &GRPCServerMetrics{
 		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Subsystem: subsystem,
-			Name:      "request_duration_seconds",
+			Name:      "grpc_server_request_duration_seconds",
 			Help:      "Time (in seconds) spent serving requests.",
 			Buckets:   LatencyBuckets,
 		}, []string{"service", "method", "status"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Subsystem: subsystem,
-			Name:      "request_message_bytes",
-			Help:      "Size (in bytes) of messages received in the request.",
+			Name:      "grpc_server_request_size_bytes",
+			Help:      "Size (in bytes) of the request received.",
 			Buckets:   sizeBuckets,
 		}, []string{"service", "method"}),
 		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Subsystem: subsystem,
-			Name:      "response_message_bytes",
-			Help:      "Size (in bytes) of messages sent in response.",
+			Name:      "grpc_server_response_size_bytes",
+			Help:      "Size (in bytes) of the response sent.",
 			Buckets:   sizeBuckets,
 		}, []string{"service", "method"}),
 		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
-			Subsystem: subsystem,
-			Name:      "inflight_requests",
+			Name:      "grpc_server_requests_inflight",
 			Help:      "Current number of inflight requests.",
 		}, []string{"service", "method"}),
 	}
