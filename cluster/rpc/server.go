@@ -52,7 +52,7 @@ type Server struct {
 	sentryEnabled      bool
 
 	grpcServer *grpc.Server
-	metrics    *monitoring.ServerMetrics
+	metrics    *monitoring.GRPCServerMetrics
 }
 
 // NewServer returns the Server implementing the RPC interface for RAFT peers management and execute/query commands.
@@ -64,7 +64,7 @@ func NewServer(
 	listenAddress string,
 	grpcMessageMaxSize int,
 	sentryEnabled bool,
-	metrics *monitoring.ServerMetrics,
+	metrics *monitoring.GRPCServerMetrics,
 	log *logrus.Logger,
 ) *Server {
 	return &Server{

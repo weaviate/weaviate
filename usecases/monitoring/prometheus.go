@@ -154,51 +154,100 @@ type PrometheusMetrics struct {
 // Example For GRPC servers
 //
 //	weaviate_request_duration_seconds_sum{instance="node-1", method="gRPC", route="/grpc.health.v1.Health/Check", status_code="OK"}
-func NewServerMetrics(namespace string, reg prometheus.Registerer) *ServerMetrics {
+func NewHTTPServerMetrics(namespace string, reg prometheus.Registerer) *HTTPServerMetrics {
 	r := promauto.With(reg)
+	subsystem := "http"
 
-	return &ServerMetrics{
+	return &HTTPServerMetrics{
 		// TODO(kavi): TCPActiveConnections is not currently not used in those servers
 		// mainly because auto-generated code via swagger doesn't make it easy to instrument
 		// underlying TCP listeners.
 		TCPActiveConnections: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
+			Subsystem: subsystem,
 			Name:      "tcp_active_connections",
 			Help:      "Current number of accepted TCP connections.",
 		}, []string{"protocol"}),
 		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
+			Subsystem: subsystem,
 			Name:      "request_duration_seconds",
-			Help:      "Time (in seconds) spent serving HTTP requests.",
+			Help:      "Time (in seconds) spent serving requests.",
 			Buckets:   LatencyBuckets,
 		}, []string{"method", "route", "status_code"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
+			Subsystem: subsystem,
 			Name:      "request_message_bytes",
 			Help:      "Size (in bytes) of messages received in the request.",
 			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
+			Subsystem: subsystem,
 			Name:      "response_message_bytes",
 			Help:      "Size (in bytes) of messages sent in response.",
 			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
+			Subsystem: subsystem,
 			Name:      "inflight_requests",
 			Help:      "Current number of inflight requests.",
 		}, []string{"method", "route"}),
 	}
 }
 
-// ServerMetrics exposes set of prometheus metrics for http and grpc servers.
-type ServerMetrics struct {
+// HTTPServerMetrics exposes set of prometheus metrics for http servers.
+type HTTPServerMetrics struct {
 	TCPActiveConnections *prometheus.GaugeVec
 	RequestDuration      *prometheus.HistogramVec
 	RequestBodySize      *prometheus.HistogramVec
 	ResponseBodySize     *prometheus.HistogramVec
 	InflightRequests     *prometheus.GaugeVec
+}
+
+// GRPCServerMetrics exposes set of prometheus metrics for grpc servers.
+type GRPCServerMetrics struct {
+	RequestDuration  *prometheus.HistogramVec
+	RequestBodySize  *prometheus.HistogramVec
+	ResponseBodySize *prometheus.HistogramVec
+	InflightRequests *prometheus.GaugeVec
+}
+
+func NewGRPCServerMetrics(namespace string, reg prometheus.Registerer) *GRPCServerMetrics {
+	r := promauto.With(reg)
+	subsystem := "grpc"
+
+	return &GRPCServerMetrics{
+		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "request_duration_seconds",
+			Help:      "Time (in seconds) spent serving requests.",
+			Buckets:   LatencyBuckets,
+		}, []string{"service", "method", "status"}),
+		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "request_message_bytes",
+			Help:      "Size (in bytes) of messages received in the request.",
+			Buckets:   sizeBuckets,
+		}, []string{"service", "method"}),
+		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "response_message_bytes",
+			Help:      "Size (in bytes) of messages sent in response.",
+			Buckets:   sizeBuckets,
+		}, []string{"service", "method"}),
+		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "inflight_requests",
+			Help:      "Current number of inflight requests.",
+		}, []string{"service", "method"}),
+	}
 }
 
 // Delete Shard deletes existing label combinations that match both
