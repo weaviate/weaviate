@@ -166,7 +166,6 @@ func NewHandler(
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
 		classGetter:             classGetter,
-		authFilter:              authFilter,
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)
@@ -189,7 +188,7 @@ func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency b
 		}
 	}
 
-	filteredClasses := h.authFilter.Filter(
+	filteredClasses := filter.New[*models.Class](h.Authorizer, h.config).Filter(
 		principal,
 		fullSchema.Objects.Classes,
 		authorization.READ,

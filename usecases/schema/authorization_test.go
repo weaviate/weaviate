@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
@@ -37,17 +38,6 @@ func Test_Schema_Authorization(t *testing.T) {
 	}
 
 	tests := []testCase{
-		{
-			methodName:        "GetSchema",
-			expectedVerb:      authorization.READ,
-			expectedResources: authorization.CollectionsMetadata(),
-		},
-		{
-			methodName:        "GetConsistentSchema",
-			expectedVerb:      authorization.READ,
-			additionalArgs:    []interface{}{false},
-			expectedResources: authorization.CollectionsMetadata(),
-		},
 		{
 			methodName:        "GetClass",
 			additionalArgs:    []interface{}{"classname"},
@@ -129,12 +119,6 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
 		{
-			methodName:        "GetConsistentTenants",
-			additionalArgs:    []interface{}{"className", false, []string{}},
-			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("className"),
-		},
-		{
 			methodName:        "ConsistentTenantExists",
 			additionalArgs:    []interface{}{"className", false, "P1"},
 			expectedVerb:      authorization.READ,
@@ -159,7 +143,9 @@ func Test_Schema_Authorization(t *testing.T) {
 				"StartServing", "Shutdown", "Statistics",
 				// Cluster/nodes related endpoint
 				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
-				// revert to schema v0 (non raft)
+				// revert to schema v0 (non raft),
+				"GetConsistentSchema", "GetConsistentTenants",
+				// ignored because it will check if schema has collections otherwise returns nothing
 				"StoreSchemaV1":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
