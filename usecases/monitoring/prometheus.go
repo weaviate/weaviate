@@ -201,24 +201,24 @@ func NewGRPCServerMetrics(namespace string, reg prometheus.Registerer) *GRPCServ
 			Name:      "grpc_server_request_duration_seconds",
 			Help:      "Time (in seconds) spent serving requests.",
 			Buckets:   LatencyBuckets,
-		}, []string{"service", "method", "status"}),
+		}, []string{"grpc_service", "method", "status"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Name:      "grpc_server_request_size_bytes",
 			Help:      "Size (in bytes) of the request received.",
 			Buckets:   sizeBuckets,
-		}, []string{"service", "method"}),
+		}, []string{"grpc_service", "method"}),
 		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Name:      "grpc_server_response_size_bytes",
 			Help:      "Size (in bytes) of the response sent.",
 			Buckets:   sizeBuckets,
-		}, []string{"service", "method"}),
+		}, []string{"grpc_service", "method"}),
 		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "grpc_server_requests_inflight",
 			Help:      "Current number of inflight requests.",
-		}, []string{"service", "method"}),
+		}, []string{"grpc_service", "method"}),
 	}
 }
 
