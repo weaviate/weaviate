@@ -512,16 +512,20 @@ func TestGRPCSearch(t *testing.T) {
 		t.Run("regular vectors with weights", func(t *testing.T) {
 			tests := []struct {
 				combination       protocol.CombinationMethod
+				targetVectors     []string
 				weightsForTargets []*protocol.WeightsForTarget
 			}{
 				{
-					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE,
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE,
+					targetVectors: []string{"regular"},
 				},
 				{
-					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_SUM,
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_SUM,
+					targetVectors: []string{"regular"},
 				},
 				{
-					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MIN,
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MIN,
+					targetVectors: []string{"regular"},
 				},
 				{
 					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL,
@@ -529,6 +533,7 @@ func TestGRPCSearch(t *testing.T) {
 						{Target: "regular", Weight: 0.2},
 						{Target: "regular", Weight: 0.8},
 					},
+					targetVectors: []string{"regular", "regular"},
 				},
 				{
 					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE,
@@ -536,6 +541,7 @@ func TestGRPCSearch(t *testing.T) {
 						{Target: "regular", Weight: 0.2},
 						{Target: "regular", Weight: 0.8},
 					},
+					targetVectors: []string{"regular", "regular"},
 				},
 			}
 			for _, tt := range tests {
@@ -557,7 +563,7 @@ func TestGRPCSearch(t *testing.T) {
 							Targets: &protocol.Targets{
 								Combination:       tt.combination,
 								WeightsForTargets: tt.weightsForTargets,
-								TargetVectors:     []string{"regular", "regular"},
+								TargetVectors:     tt.targetVectors,
 							},
 						},
 						Uses_123Api: true,
@@ -621,16 +627,20 @@ func TestGRPCSearch(t *testing.T) {
 			descriptionVectors := getDescriptionVectors(t)
 			tests := []struct {
 				combination       protocol.CombinationMethod
+				targetVectors     []string
 				weightsForTargets []*protocol.WeightsForTarget
 			}{
 				{
-					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE,
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE,
+					targetVectors: []string{"regular", "colbert", "description"},
 				},
 				{
-					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_SUM,
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_SUM,
+					targetVectors: []string{"regular", "colbert", "description"},
 				},
 				{
-					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MIN,
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MIN,
+					targetVectors: []string{"regular", "colbert", "description"},
 				},
 				{
 					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL,
@@ -641,6 +651,7 @@ func TestGRPCSearch(t *testing.T) {
 						{Target: "description", Weight: 0.1},
 						{Target: "description", Weight: 0.1},
 					},
+					targetVectors: []string{"regular", "regular", "colbert", "description", "description"},
 				},
 				{
 					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE,
@@ -651,6 +662,7 @@ func TestGRPCSearch(t *testing.T) {
 						{Target: "description", Weight: 0.1},
 						{Target: "description", Weight: 0.1},
 					},
+					targetVectors: []string{"regular", "regular", "colbert", "description", "description"},
 				},
 			}
 			for _, tt := range tests {
@@ -690,7 +702,7 @@ func TestGRPCSearch(t *testing.T) {
 							Targets: &protocol.Targets{
 								WeightsForTargets: tt.weightsForTargets,
 								Combination:       tt.combination,
-								TargetVectors:     []string{"regular", "regular", "colbert", "description", "description"},
+								TargetVectors:     tt.targetVectors,
 							},
 						},
 						Uses_123Api: true,
@@ -707,6 +719,7 @@ func TestGRPCSearch(t *testing.T) {
 			descriptionVectors := getDescriptionVectors(t)
 			tests := []struct {
 				combination       protocol.CombinationMethod
+				targetVectors     []string
 				weightsForTargets []*protocol.WeightsForTarget
 			}{
 				{
@@ -762,6 +775,296 @@ func TestGRPCSearch(t *testing.T) {
 								WeightsForTargets: tt.weightsForTargets,
 								Combination:       tt.combination,
 								TargetVectors:     []string{"regular", "description"},
+							},
+						},
+						Uses_123Api: true,
+						Uses_125Api: true,
+						Uses_127Api: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					assert.Len(t, resp.Results, 2)
+				})
+			}
+		})
+	})
+	t.Run("hybrid", func(t *testing.T) {
+		t.Run("legacy regular vectors with weights", func(t *testing.T) {
+			tests := []struct {
+				combination       protocol.CombinationMethod
+				weightsForTargets []*protocol.WeightsForTarget
+			}{
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE,
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_SUM,
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MIN,
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL,
+					weightsForTargets: []*protocol.WeightsForTarget{
+						{Target: "regular", Weight: 0.2},
+						{Target: "regular", Weight: 0.8},
+					},
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE,
+					weightsForTargets: []*protocol.WeightsForTarget{
+						{Target: "regular", Weight: 0.2},
+						{Target: "regular", Weight: 0.8},
+					},
+				},
+			}
+			for _, tt := range tests {
+				t.Run(tt.combination.String(), func(t *testing.T) {
+					resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+						Collection: class.Class,
+						HybridSearch: &protocol.Hybrid{
+							Query: "Earth",
+							NearVector: &protocol.NearVector{
+								VectorForTargets: []*protocol.VectorForTarget{
+									{
+										Name:        "regular",
+										VectorBytes: byteops.Fp32SliceToBytes(regularVectors[0]),
+									},
+									{
+										Name:        "regular",
+										VectorBytes: byteops.Fp32SliceToBytes(regularVectors[1]),
+									},
+								},
+							},
+							Targets: &protocol.Targets{
+								Combination:       tt.combination,
+								WeightsForTargets: tt.weightsForTargets,
+								TargetVectors:     []string{"regular", "regular"},
+							},
+						},
+						Uses_123Api: true,
+						Uses_125Api: true,
+						Uses_127Api: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					assert.Len(t, resp.Results, 2)
+				})
+			}
+		})
+		t.Run("regular vectors with weights", func(t *testing.T) {
+			tests := []struct {
+				combination       protocol.CombinationMethod
+				targetVectors     []string
+				weightsForTargets []*protocol.WeightsForTarget
+			}{
+				{
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE,
+					targetVectors: []string{"regular"},
+				},
+				{
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_SUM,
+					targetVectors: []string{"regular"},
+				},
+				{
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MIN,
+					targetVectors: []string{"regular"},
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL,
+					weightsForTargets: []*protocol.WeightsForTarget{
+						{Target: "regular", Weight: 0.2},
+						{Target: "regular", Weight: 0.8},
+					},
+					targetVectors: []string{"regular", "regular"},
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE,
+					weightsForTargets: []*protocol.WeightsForTarget{
+						{Target: "regular", Weight: 0.2},
+						{Target: "regular", Weight: 0.8},
+					},
+					targetVectors: []string{"regular", "regular"},
+				},
+			}
+			for _, tt := range tests {
+				t.Run(tt.combination.String(), func(t *testing.T) {
+					resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+						Collection: class.Class,
+						HybridSearch: &protocol.Hybrid{
+							Query: "Mars",
+							NearVector: &protocol.NearVector{
+								VectorForTargets: []*protocol.VectorForTarget{
+									{
+										Name: "regular",
+										Vectors: []*protocol.Vectors{
+											{
+												Type:        protocol.Vectors_VECTOR_TYPE_MULTI_FP32,
+												VectorBytes: byteops.Fp32SliceOfSlicesToBytes(regularVectors),
+											},
+										},
+									},
+								},
+							},
+							Targets: &protocol.Targets{
+								Combination:       tt.combination,
+								WeightsForTargets: tt.weightsForTargets,
+								TargetVectors:     tt.targetVectors,
+							},
+						},
+						Uses_123Api: true,
+						Uses_125Api: true,
+						Uses_127Api: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					assert.Len(t, resp.Results, 1)
+				})
+			}
+		})
+		t.Run("regular and colbert and description vectors with weights", func(t *testing.T) {
+			descriptionVectors := getDescriptionVectors(t)
+			tests := []struct {
+				combination       protocol.CombinationMethod
+				targetVectors     []string
+				weightsForTargets []*protocol.WeightsForTarget
+			}{
+				{
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE,
+					targetVectors: []string{"regular", "colbert", "description"},
+				},
+				{
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_SUM,
+					targetVectors: []string{"regular", "colbert", "description"},
+				},
+				{
+					combination:   protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MIN,
+					targetVectors: []string{"regular", "colbert", "description"},
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL,
+					weightsForTargets: []*protocol.WeightsForTarget{
+						{Target: "regular", Weight: 0.2},
+						{Target: "regular", Weight: 0.4},
+						{Target: "colbert", Weight: 0.2},
+						{Target: "description", Weight: 0.1},
+						{Target: "description", Weight: 0.1},
+					},
+					targetVectors: []string{"regular", "regular", "colbert", "description", "description"},
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE,
+					weightsForTargets: []*protocol.WeightsForTarget{
+						{Target: "regular", Weight: 0.2},
+						{Target: "regular", Weight: 0.4},
+						{Target: "colbert", Weight: 0.2},
+						{Target: "description", Weight: 0.1},
+						{Target: "description", Weight: 0.1},
+					},
+					targetVectors: []string{"regular", "regular", "colbert", "description", "description"},
+				},
+			}
+			for _, tt := range tests {
+				t.Run(tt.combination.String(), func(t *testing.T) {
+					resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+						Collection: class.Class,
+						HybridSearch: &protocol.Hybrid{
+							Query: "Mars",
+							NearVector: &protocol.NearVector{
+								VectorForTargets: []*protocol.VectorForTarget{
+									{
+										Name: "regular",
+										Vectors: []*protocol.Vectors{
+											{
+												Type:        protocol.Vectors_VECTOR_TYPE_MULTI_FP32,
+												VectorBytes: byteops.Fp32SliceOfSlicesToBytes(regularVectors),
+											},
+										},
+									},
+									{
+										Name: "colbert",
+										Vectors: []*protocol.Vectors{
+											{
+												Type:        protocol.Vectors_VECTOR_TYPE_MULTI_FP32,
+												VectorBytes: byteops.Fp32SliceOfSlicesToBytes(colbertVectors[0]),
+											},
+										},
+									},
+									{
+										Name: "description",
+										Vectors: []*protocol.Vectors{
+											{
+												Type:        protocol.Vectors_VECTOR_TYPE_MULTI_FP32,
+												VectorBytes: byteops.Fp32SliceOfSlicesToBytes(descriptionVectors),
+											},
+										},
+									},
+								},
+							},
+							Targets: &protocol.Targets{
+								WeightsForTargets: tt.weightsForTargets,
+								Combination:       tt.combination,
+								TargetVectors:     tt.targetVectors,
+							},
+						},
+						Uses_123Api: true,
+						Uses_125Api: true,
+						Uses_127Api: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					assert.Len(t, resp.Results, 1)
+				})
+			}
+		})
+		t.Run("legacy regular vectors with weights", func(t *testing.T) {
+			tests := []struct {
+				combination       protocol.CombinationMethod
+				weightsForTargets []*protocol.WeightsForTarget
+			}{
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE,
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_SUM,
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MIN,
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL,
+					weightsForTargets: []*protocol.WeightsForTarget{
+						{Target: "regular", Weight: 0.2},
+						{Target: "regular", Weight: 0.8},
+					},
+				},
+				{
+					combination: protocol.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE,
+					weightsForTargets: []*protocol.WeightsForTarget{
+						{Target: "regular", Weight: 0.2},
+						{Target: "regular", Weight: 0.8},
+					},
+				},
+			}
+			for _, tt := range tests {
+				t.Run(tt.combination.String(), func(t *testing.T) {
+					resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+						Collection: class.Class,
+						NearVector: &protocol.NearVector{
+							VectorForTargets: []*protocol.VectorForTarget{
+								{
+									Name:        "regular",
+									VectorBytes: byteops.Fp32SliceToBytes(regularVectors[0]),
+								},
+								{
+									Name:        "regular",
+									VectorBytes: byteops.Fp32SliceToBytes(regularVectors[1]),
+								},
+							},
+							Targets: &protocol.Targets{
+								Combination:       tt.combination,
+								WeightsForTargets: tt.weightsForTargets,
+								TargetVectors:     []string{"regular", "regular"},
 							},
 						},
 						Uses_123Api: true,
