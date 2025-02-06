@@ -30,9 +30,6 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "user1"}
-	params := authz.GetRolesForUserParams{
-		ID: "testUser",
-	}
 
 	policies := []authorization.Policy{
 		{
@@ -45,31 +42,60 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 	returnedPolices := map[string][]authorization.Policy{
 		"testRole": policies,
 	}
-
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Roles("testRole")[0]).Return(nil)
-	controller.On("GetRolesForUser", params.ID).Return(returnedPolices, nil)
-
-	h := &authZHandlers{
-		authorizer: authorizer,
-		controller: controller,
-		logger:     logger,
-	}
-	res := h.getRolesForUser(params, principal)
-	parsed, ok := res.(*authz.GetRolesForUserOK)
-	assert.True(t, ok)
-	assert.NotNil(t, parsed)
-
-	permissions, err := conv.PoliciesToPermission(policies...)
-	assert.Nil(t, err)
-
-	roles := []*models.Role{
+	tests := []struct {
+		name        string
+		params      authz.GetRolesForUserParams
+		principal   *models.Principal
+		expectAuthz bool
+	}{
 		{
-			Name:        String("testRole"),
-			Permissions: permissions,
+			name: "success",
+			params: authz.GetRolesForUserParams{
+				ID: "testUser",
+			},
+			principal:   &models.Principal{Username: "user1"},
+			expectAuthz: true,
+		},
+		{
+			name: "success for own user",
+			params: authz.GetRolesForUserParams{
+				ID: "user1",
+			},
+			principal:   &models.Principal{Username: "user1"},
+			expectAuthz: false,
 		},
 	}
-	expectedRoles := models.RolesListResponse(roles)
-	assert.Equal(t, expectedRoles, parsed.Payload)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.expectAuthz {
+				authorizer.On("Authorize", principal, authorization.READ, authorization.Roles("testRole")[0]).Return(nil)
+			}
+			controller.On("GetRolesForUser", tt.params.ID).Return(returnedPolices, nil)
+
+			h := &authZHandlers{
+				authorizer: authorizer,
+				controller: controller,
+				logger:     logger,
+			}
+			res := h.getRolesForUser(tt.params, principal)
+			parsed, ok := res.(*authz.GetRolesForUserOK)
+			assert.True(t, ok)
+			assert.NotNil(t, parsed)
+
+			permissions, err := conv.PoliciesToPermission(policies...)
+			assert.Nil(t, err)
+
+			roles := []*models.Role{
+				{
+					Name:        String("testRole"),
+					Permissions: permissions,
+				},
+			}
+			expectedRoles := models.RolesListResponse(roles)
+			assert.Equal(t, expectedRoles, parsed.Payload)
+		})
+	}
 }
 
 func TestGetRolesForUserForbidden(t *testing.T) {
