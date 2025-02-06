@@ -340,7 +340,6 @@ def test_obj_exists(
 
     required_permissions = [
         Permissions.data(collection=col.name, read=True),
-        Permissions.collections(collection=col.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
