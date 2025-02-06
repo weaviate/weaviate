@@ -145,7 +145,7 @@ type PrometheusMetrics struct {
 	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
-// NewServerMetrics return the ServerMetrics that can be used in any of the grpc or http servers.
+// NewHTPServerMetrics return the ServerMetrics that can be used in any of the grpc or http servers.
 //
 // Example for HTTP servers.
 //
