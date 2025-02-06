@@ -159,15 +159,6 @@ func NewHTTPServerMetrics(namespace string, reg prometheus.Registerer) *HTTPServ
 	subsystem := "http"
 
 	return &HTTPServerMetrics{
-		// TODO(kavi): TCPActiveConnections is not currently not used in those servers
-		// mainly because auto-generated code via swagger doesn't make it easy to instrument
-		// underlying TCP listeners.
-		TCPActiveConnections: r.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Subsystem: subsystem,
-			Name:      "tcp_active_connections",
-			Help:      "Current number of accepted TCP connections.",
-		}, []string{"protocol"}),
 		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Subsystem: subsystem,
