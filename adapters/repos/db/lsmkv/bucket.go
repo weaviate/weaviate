@@ -1332,6 +1332,18 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("flush: %w", err)
 	}
 
+	if b.strategy == StrategyInverted {
+		tombstones, err := b.flushing.GetTombstones()
+		if err != nil {
+			return fmt.Errorf("get tombstones: %w", err)
+		}
+		tbArray := tombstones.ToArray()
+		// add flushing memtable tombstones to all segments
+		for _, seg := range b.disk.segments {
+			seg.invertedData.tombstones.SetMany(tbArray)
+		}
+	}
+
 	segment, err := b.initAndPrecomputeNewSegment()
 	if err != nil {
 		return fmt.Errorf("precompute metadata: %w", err)
