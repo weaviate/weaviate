@@ -356,7 +356,7 @@ var (
 	metrics     *PrometheusMetrics = nil
 )
 
-func Init() {
+func init() {
 	metrics = newPrometheusMetrics()
 }
 

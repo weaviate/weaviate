@@ -34,18 +34,18 @@ const (
 	keyRouteName  key = 2
 )
 
-// InstrumentGRPC accepts server metrics and returns the few `[]grpc.ServerOption` which you can
+// InstrumentGrpc accepts server metrics and returns the few `[]grpc.ServerOption` which you can
 // then wrap it with any `grpc.Server` to get these metrics instrumented automatically.
 //
 // ```
 //
 //	svrMetrics := monitoring.NewGRPCServerMetrics(metrics, prometheus.DefaultRegisterer)
-//	grpcServer := grpc.NewServer(monitoring.InstrumentGRPC(*svrMetrics)...)
+//	grpcServer := grpc.NewServer(monitoring.InstrumentGrpc(*svrMetrics)...)
 //
 //	grpcServer.Serve(listener)
 //
 // ```
-func InstrumentGRPC(svrMetrics *GRPCServerMetrics) []grpc.ServerOption {
+func InstrumentGrpc(svrMetrics *GRPCServerMetrics) []grpc.ServerOption {
 	grpcOptions := []grpc.ServerOption{
 		grpc.StatsHandler(NewGrpcStatsHandler(
 			svrMetrics.InflightRequests,

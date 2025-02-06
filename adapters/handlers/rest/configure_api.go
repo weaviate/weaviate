@@ -198,47 +198,48 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	config.ServerVersion = build.Version
 
 	appState := startupRoutine(ctx, options)
+
 	if appState.ServerConfig.Config.Monitoring.Enabled {
+		appState.HTTPServerMetrics = monitoring.NewHTTPServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
+		appState.GRPCServerMetrics = monitoring.NewGRPCServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
+
 		appState.TenantActivity = tenantactivity.NewHandler()
+
+		// export build tags to prometheus metric
+		build.SetPrometheusBuildInfo()
+		prometheus.MustRegister(version.NewCollector(build.AppName))
+
+		opts := armonprometheus.PrometheusOpts{
+			Expiration: 0, // never expire any metrics,
+			Registerer: prometheus.DefaultRegisterer,
+		}
+
+		sink, err := armonprometheus.NewPrometheusSinkFrom(opts)
+		if err != nil {
+			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create prometheus sink for raft metrics")
+		}
+
+		cfg := armonmetrics.DefaultConfig("weaviate_internal") // to differentiate it's coming from internal/dependency packages.
+		cfg.EnableHostname = false                             // no `host` label
+		cfg.EnableHostnameLabel = false                        // no `hostname` label
+		cfg.EnableServiceLabel = false                         // no `service` label
+		cfg.EnableRuntimeMetrics = false                       // runtime metrics already provided by prometheus
+		cfg.EnableTypePrefix = true                            // to have some meaningful suffix to identify type of metrics.
+		cfg.TimerGranularity = time.Second                     // time should always in seconds
+
+		_, err = armonmetrics.NewGlobal(cfg, sink)
+		if err != nil {
+			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create metric registry raft metrics")
+		}
+
+		// only monitoring tool supported at the moment is prometheus
+		enterrors.GoWrapper(func() {
+			mux := http.NewServeMux()
+			mux.Handle("/metrics", promhttp.Handler())
+			mux.Handle("/tenant-activity", appState.TenantActivity)
+			http.ListenAndServe(fmt.Sprintf(":%d", appState.ServerConfig.Config.Monitoring.Port), mux)
+		}, appState.Logger)
 	}
-
-	appState.HTTPServerMetrics = monitoring.NewHTTPServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
-	appState.GRPCServerMetrics = monitoring.NewGRPCServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
-
-	// export build tags to prometheus metric
-	build.SetPrometheusBuildInfo()
-	prometheus.MustRegister(version.NewCollector(build.AppName))
-
-	opts := armonprometheus.PrometheusOpts{
-		Expiration: 0, // never expire any metrics,
-		Registerer: prometheus.DefaultRegisterer,
-	}
-
-	sink, err := armonprometheus.NewPrometheusSinkFrom(opts)
-	if err != nil {
-		appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create prometheus sink for raft metrics")
-	}
-
-	cfg := armonmetrics.DefaultConfig("weaviate_internal") // to differentiate it's coming from internal/dependency packages.
-	cfg.EnableHostname = false                             // no `host` label
-	cfg.EnableHostnameLabel = false                        // no `hostname` label
-	cfg.EnableServiceLabel = false                         // no `service` label
-	cfg.EnableRuntimeMetrics = false                       // runtime metrics already provided by prometheus
-	cfg.EnableTypePrefix = true                            // to have some meaningful suffix to identify type of metrics.
-	cfg.TimerGranularity = time.Second                     // time should always in seconds
-
-	_, err = armonmetrics.NewGlobal(cfg, sink)
-	if err != nil {
-		appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create metric registry raft metrics")
-	}
-
-	// only monitoring tool supported at the moment is prometheus
-	enterrors.GoWrapper(func() {
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", promhttp.Handler())
-		mux.Handle("/tenant-activity", appState.TenantActivity)
-		http.ListenAndServe(fmt.Sprintf(":%d", appState.ServerConfig.Config.Monitoring.Port), mux)
-	}, appState.Logger)
 
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		err := sentry.Init(sentry.ClientOptions{
@@ -309,7 +310,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	limitResources(appState)
 
-	err = registerModules(appState)
+	err := registerModules(appState)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -331,8 +332,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	// var vectorMigrator schema.Migrator
 	// var migrator schema.Migrator
 
-	promMetrics := monitoring.GetMetrics()
-	appState.Metrics = promMetrics
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		promMetrics := monitoring.GetMetrics()
+		appState.Metrics = promMetrics
+	}
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
@@ -702,7 +705,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 
 	var grpcInstrument []grpc.ServerOption
-	grpcInstrument = monitoring.InstrumentGRPC(appState.GRPCServerMetrics)
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
+	}
 
 	grpcServer := createGrpcServer(appState, grpcInstrument...)
 	setupMiddlewares := makeSetupMiddlewares(appState)
@@ -799,14 +804,6 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.Exit(1)
 	}
 
-	if !appState.ServerConfig.Config.Monitoring.Enabled {
-		// should be before any prometheus registration happens.
-
-		// NOTE: We assign noop so that we don't have to use `monitoring.enabled` springled across codebases and
-		// all instrumentation would work without any error or panic even if monitoring is disabled.
-		prometheus.DefaultRegisterer = &monitoring.NoopPrometheusRegistery{}
-	}
-	monitoring.Init()
 	monitoring.InitConfig(serverConfig.Config.Monitoring)
 
 	if serverConfig.Config.DisableGraphQL {

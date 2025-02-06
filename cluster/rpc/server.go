@@ -156,7 +156,7 @@ func (s *Server) Open() error {
 				grpc_sentry.UnaryServerInterceptor(),
 			)))
 	}
-	options = append(options, monitoring.InstrumentGRPC(s.metrics)...)
+	options = append(options, monitoring.InstrumentGrpc(s.metrics)...)
 	s.grpcServer = grpc.NewServer(options...)
 	cmd.RegisterClusterServiceServer(s.grpcServer, s)
 	enterrors.GoWrapper(func() {
