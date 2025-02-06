@@ -91,10 +91,8 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		},
 	)
 	if len(filteredQuery) == 0 {
-		return nil, &Error{
-			"unauthorized to access any collection", StatusForbidden,
-			fmt.Errorf("unauthorized to access collection %s", q.Class),
-		}
+		err = fmt.Errorf("unauthorized to access collection %s", q.Class)
+		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
 
 	res, rerr := m.vectorRepo.Query(ctx, filteredQuery[0])

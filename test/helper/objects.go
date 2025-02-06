@@ -374,6 +374,7 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	resp, err := Client(t).Schema.TenantsGet(params, nil)
 	return resp, err
 }
+
 func GetTenantsWithAuthz(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) (*schema.TenantsGetOK, error) {
 	t.Helper()
 	params := schema.NewTenantsGetParams().WithClassName(class)
