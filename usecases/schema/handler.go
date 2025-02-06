@@ -133,7 +133,6 @@ type Handler struct {
 	scaleOut                scaleOut
 	parser                  Parser
 	classGetter             *ClassGetter
-	authFilter              *filter.ResourceFilter[*models.Class]
 }
 
 // NewHandler creates a new handler
@@ -149,7 +148,6 @@ func NewHandler(
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser, classGetter *ClassGetter,
 ) (Handler, error) {
-	authFilter := filter.New[*models.Class](authorizer, config)
 	handler := Handler{
 		config:                  config,
 		schemaReader:            schemaReader,
