@@ -92,9 +92,6 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, err
 	}
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(cls.Class)...); err != nil {
-		return nil, 0, err
-	}
 
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
@@ -201,9 +198,6 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
 	err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
 	if err != nil {
-		return err
-	}
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
 		return err
 	}
 
