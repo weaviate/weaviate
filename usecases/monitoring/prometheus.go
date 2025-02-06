@@ -18,6 +18,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+const (
+	DefaultMetricsNamespace = "weaviate"
+)
+
 type Config struct {
 	Enabled                    bool   `json:"enabled" yaml:"enabled"`
 	Tool                       string `json:"tool" yaml:"tool"`
@@ -141,48 +145,81 @@ type PrometheusMetrics struct {
 	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
-func NewServerMetrics(namespace string, reg prometheus.Registerer) *ServerMetrics {
+// NewHTPServerMetrics return the ServerMetrics that can be used in any of the grpc or http servers.
+func NewHTTPServerMetrics(namespace string, reg prometheus.Registerer) *HTTPServerMetrics {
 	r := promauto.With(reg)
 
-	return &ServerMetrics{
-		TCPActiveConnections: r.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "tcp_active_connections",
-			Help:      "Current number of accepted TCP connections.",
-		}, []string{"protocol"}),
+	return &HTTPServerMetrics{
 		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Name:      "request_duration_seconds",
-			Help:      "Time (in seconds) spent serving HTTP requests.",
+			Name:      "http_request_duration_seconds",
+			Help:      "Time (in seconds) spent serving requests.",
 			Buckets:   LatencyBuckets,
 		}, []string{"method", "route", "status_code"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Name:      "request_message_bytes",
-			Help:      "Size (in bytes) of messages received in the request.",
+			Name:      "http_request_size_bytes",
+			Help:      "Size (in bytes) of the request received.",
 			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Name:      "response_message_bytes",
-			Help:      "Size (in bytes) of messages sent in response.",
+			Name:      "http_response_size_bytes",
+			Help:      "Size (in bytes) of the response sent.",
 			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "inflight_requests",
+			Name:      "http_requests_inflight",
 			Help:      "Current number of inflight requests.",
 		}, []string{"method", "route"}),
 	}
 }
 
-// ServerMetrics exposes set of prometheus metrics for http and grpc servers.
-type ServerMetrics struct {
+// HTTPServerMetrics exposes set of prometheus metrics for http servers.
+type HTTPServerMetrics struct {
 	TCPActiveConnections *prometheus.GaugeVec
 	RequestDuration      *prometheus.HistogramVec
 	RequestBodySize      *prometheus.HistogramVec
 	ResponseBodySize     *prometheus.HistogramVec
 	InflightRequests     *prometheus.GaugeVec
+}
+
+// GRPCServerMetrics exposes set of prometheus metrics for grpc servers.
+type GRPCServerMetrics struct {
+	RequestDuration  *prometheus.HistogramVec
+	RequestBodySize  *prometheus.HistogramVec
+	ResponseBodySize *prometheus.HistogramVec
+	InflightRequests *prometheus.GaugeVec
+}
+
+func NewGRPCServerMetrics(namespace string, reg prometheus.Registerer) *GRPCServerMetrics {
+	r := promauto.With(reg)
+	return &GRPCServerMetrics{
+		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "grpc_server_request_duration_seconds",
+			Help:      "Time (in seconds) spent serving requests.",
+			Buckets:   LatencyBuckets,
+		}, []string{"grpc_service", "method", "status"}),
+		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "grpc_server_request_size_bytes",
+			Help:      "Size (in bytes) of the request received.",
+			Buckets:   sizeBuckets,
+		}, []string{"grpc_service", "method"}),
+		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "grpc_server_response_size_bytes",
+			Help:      "Size (in bytes) of the response sent.",
+			Buckets:   sizeBuckets,
+		}, []string{"grpc_service", "method"}),
+		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "grpc_server_requests_inflight",
+			Help:      "Current number of inflight requests.",
+		}, []string{"grpc_service", "method"}),
+	}
 }
 
 // Delete Shard deletes existing label combinations that match both
