@@ -1553,10 +1553,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	// active memtable
 	output[len(segmentsDisk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
-	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
-
-	allTombstones[len(segmentsDisk)] = sroar.NewBitmap()
-	allTombstones[len(segmentsDisk)+1] = sroar.NewBitmap()
+	allTombstones := make([][]uint64, 2)
 
 	for i, queryTerm := range query {
 		key := []byte(queryTerm)
@@ -1576,7 +1573,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			if err != nil {
 				return nil, lock, err
 			}
-			allTombstones[len(segmentsDisk)+1] = tombstones
+			allTombstones[1] = tombstones.ToArray()
 
 			if n2 > 0 {
 				active.advanceOnTombstoneOrFilter()
@@ -1596,9 +1593,10 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 				return nil, lock, err
 			}
 
-			allTombstones[len(segmentsDisk)] = sroar.Or(allTombstones[len(segmentsDisk)+1], tombstones)
+			allTombstones[0] = tombstones.ToArray()
 			if n2 > 0 {
-				flushing.tombstones = allTombstones[len(segmentsDisk)+1]
+				tombstones, _ = b.active.GetTombstones()
+				flushing.tombstones = tombstones
 				flushing.advanceOnTombstoneOrFilter()
 			}
 
@@ -1627,10 +1625,16 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		if err != nil {
 			return nil, lock, err
 		}
-		allTombstones[j] = sroar.Or(allTombstones[j+1], tombstones)
+
+		if b.flushing != nil {
+			tombstones.SetMany(allTombstones[0])
+		}
+		if b.active != nil {
+			tombstones.SetMany(allTombstones[1])
+		}
 		for i, key := range query {
 
-			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones[j+1], filterDocIds, averagePropLength, config)
+			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, tombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
