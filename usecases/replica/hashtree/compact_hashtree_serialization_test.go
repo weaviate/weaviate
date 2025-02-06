@@ -23,7 +23,7 @@ import (
 func TestCompactHashTreeSerialization(t *testing.T) {
 	capacity := uint64(math.MaxUint64)
 
-	for h := 1; h < 10; h++ {
+	for h := 0; h < 10; h++ {
 		ht, err := NewCompactHashTree(capacity, h)
 		require.NoError(t, err)
 
