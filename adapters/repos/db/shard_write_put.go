@@ -22,7 +22,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -319,24 +318,31 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 		return fmt.Errorf("invalid object last update time")
 	}
 
-	h := murmur3.New64()
-	h.Write(uuidBytes)
-	token := h.Sum64()
+	leaf := s.hashtreeLeafFor(uuidBytes)
 
 	var objectDigest [16 + 8]byte
-
 	copy(objectDigest[:], uuidBytes)
 
 	if status.oldUpdateTime > 0 {
 		// Given only latest object version is maintained, previous registration is erased
 		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
-		s.hashtree.AggregateLeafWith(token, objectDigest[:])
+		s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 	}
 
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
-	s.hashtree.AggregateLeafWith(token, objectDigest[:])
+	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
 	return nil
+}
+
+func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {
+	hashtreeHeight := s.asyncReplicationConfig.hashtreeHeight
+
+	if hashtreeHeight == 0 {
+		return 0
+	}
+
+	return binary.BigEndian.Uint64(uuidBytes[:8]) >> (64 - hashtreeHeight)
 }
 
 type objectInsertStatus struct {
@@ -423,19 +429,6 @@ func (s *Shard) determineMutableInsertStatus(previous, next *storobj.Object) (ob
 	return out, nil
 }
 
-func objectToken(uuid []byte) []byte {
-	h := murmur3.New64()
-	h.Write(uuid)
-	token := h.Sum64()
-
-	var tokenBytes [8 + 16]byte
-	// Important: token is suffixed with object uuid because only unique secondary indexes are supported
-	binary.BigEndian.PutUint64(tokenBytes[:], token)
-	copy(tokenBytes[8:], uuid)
-
-	return tokenBytes[:]
-}
-
 func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	docID uint64,
 ) error {
@@ -448,7 +441,6 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 
 	return bucket.Put(id, data,
 		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes),
-		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMTokenRangeSecondaryIndex, objectToken(id)),
 	)
 }
 

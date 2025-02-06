@@ -73,7 +73,7 @@ func (b *Bucket) Cursor() *CursorReplace {
 // CursorInMemWith returns a cursor which scan over the primary key of entries
 // not yet persisted on disk.
 // Segment creation and compaction will be blocked until the cursor is closed
-func (b *Bucket) CursorInMemWith(desiredSecondaryIndexCount int) *CursorReplace {
+func (b *Bucket) CursorInMem() *CursorReplace {
 	b.flushLock.RLock()
 
 	if b.strategy != StrategyReplace {
@@ -114,16 +114,12 @@ func (b *Bucket) CursorInMemWith(desiredSecondaryIndexCount int) *CursorReplace 
 // already persisted on disk.
 // New segments can still be created but compaction will be prevented
 // while any cursor remains active
-func (b *Bucket) CursorOnDiskWith(desiredSecondaryIndexCount int) *CursorReplace {
+func (b *Bucket) CursorOnDisk() *CursorReplace {
 	if b.strategy != StrategyReplace {
 		panic("CursorWith(desiredSecondaryIndexCount) called on strategy other than 'replace'")
 	}
 
-	if b.secondaryIndices != uint16(desiredSecondaryIndexCount) {
-		panic("CursorWith(desiredSecondaryIndexCount) called on a bucket with a different secondary index count")
-	}
-
-	innerCursors, unlockSegmentGroup := b.disk.newCursorsWith(desiredSecondaryIndexCount)
+	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithFlushingSupport()
 
 	return &CursorReplace{
 		innerCursors: innerCursors,

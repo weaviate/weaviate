@@ -109,7 +109,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, node)
-			time.Sleep(time.Second)
+			time.Sleep(5 * time.Second)
 		})
 	}
 
