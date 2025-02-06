@@ -13,12 +13,12 @@ package clients
 
 import (
 	"bytes"
-	"log"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
