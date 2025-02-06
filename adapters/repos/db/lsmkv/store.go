@@ -451,7 +451,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
 	}
 
-	s.bucketAccessLock.Lock()
+
 	replacementBucket.flushLock.Lock()
 	replacementBucket.disk.maintenanceLock.Lock()
 
@@ -469,7 +469,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	}
 	replacementBucket.disk.maintenanceLock.Unlock()
 	replacementBucket.flushLock.Unlock()
-	s.bucketAccessLock.Unlock()
+	
 
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
