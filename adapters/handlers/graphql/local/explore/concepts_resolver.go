@@ -17,6 +17,7 @@ import (
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -80,6 +81,7 @@ func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
 func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) {
 	principal := restCtx.GetPrincipalFromContext(p.Context)
 
+	// TODO-RBAC: filter response instead of gating it
 	err := r.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData()...)
 	if err != nil {
 		return nil, err
