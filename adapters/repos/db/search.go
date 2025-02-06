@@ -88,7 +88,6 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 }
 
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
-	db.logger.Errorf("Search: searching  %s for %v", params.ClassName, params.KeywordRanking)
 	if params.Pagination == nil {
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
