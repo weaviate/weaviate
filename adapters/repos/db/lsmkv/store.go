@@ -246,6 +246,25 @@ func (s *Store) Shutdown(ctx context.Context) error {
 	return eg.Wait()
 }
 
+func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	s.bucketAccessLock.Lock()
+	defer s.bucketAccessLock.Unlock()
+
+	bucket, ok := s.bucketsByName[bucketName]
+	if !ok {
+		return fmt.Errorf("shutdown bucket %q of store %q: bucket not found", bucketName, s.dir)
+	}
+	if err := bucket.Shutdown(ctx); err != nil {
+		return errors.Wrapf(err, "shutdown bucket %q of store %q", bucketName, s.dir)
+	}
+	delete(s.bucketsByName, bucketName)
+
+	return nil
+}
+
 func (s *Store) WriteWALs() error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()

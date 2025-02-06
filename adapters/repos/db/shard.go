@@ -117,6 +117,7 @@ type ShardLike interface {
 	Versioner() *shardVersioner // Get the shard versioner
 
 	isReadOnly() error
+	pathLSM() string
 
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
@@ -169,7 +170,14 @@ type ShardLike interface {
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
+
+	RegisterAddToPropertyValueIndex(callback onAddToPropertyValueIndex)
+	RegisterDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex)
 }
+
+type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
+
+type onDeleteFromPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
 
 // Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
@@ -243,6 +251,9 @@ type Shard struct {
 	inUseCounter atomic.Int64
 	// allows concurrent shut read/write
 	shutdownLock *sync.RWMutex
+
+	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
+	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
 }
 
 func (s *Shard) ID() string {
@@ -254,7 +265,7 @@ func (s *Shard) path() string {
 }
 
 func (s *Shard) pathLSM() string {
-	return path.Join(s.path(), "lsm")
+	return shardPathLSM(s.index.path(), s.name)
 }
 
 func (s *Shard) pathHashTree() string {
@@ -375,6 +386,10 @@ func shardPath(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName)
 }
 
+func shardPathLSM(indexPath, shardName string) string {
+	return path.Join(indexPath, shardName, "lsm")
+}
+
 func bucketKeyPropertyLength(length int) ([]byte, error) {
 	return inverted.LexicographicallySortableInt64(int64(length))
 }
@@ -388,4 +403,12 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 
 func (s *Shard) Activity() int32 {
 	return s.activityTracker.Load()
+}
+
+func (s *Shard) RegisterAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {
+	s.callbacksAddToPropertyValueIndex = append(s.callbacksAddToPropertyValueIndex, callback)
+}
+
+func (s *Shard) RegisterDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
+	s.callbacksRemoveFromPropertyValueIndex = append(s.callbacksRemoveFromPropertyValueIndex, callback)
 }
