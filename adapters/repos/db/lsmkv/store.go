@@ -453,8 +453,6 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 
 
 	replacementBucket.flushLock.Lock()
-	replacementBucket.disk.maintenanceLock.Lock()
-
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		replacementBucket.disk.maintenanceLock.Unlock()
 		replacementBucket.flushLock.Unlock()
@@ -467,9 +465,8 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		s.bucketAccessLock.Unlock()
 		return errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
 	}
-	replacementBucket.disk.maintenanceLock.Unlock()
 	replacementBucket.flushLock.Unlock()
-	
+
 
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
