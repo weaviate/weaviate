@@ -336,7 +336,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 		diff.Set(0) // init comparison at root level
 
-		for l := 0; l < ht.Height(); l++ {
+		for l := 0; l <= ht.Height(); l++ {
 			_, err := ht.Level(l, diff, digests)
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", host, err)

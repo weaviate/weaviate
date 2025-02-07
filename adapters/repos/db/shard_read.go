@@ -165,10 +165,6 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 		n++
 	}
 
-	if n == limit {
-		return objs, storobj.ErrLimitReached
-	}
-
 	return objs, nil
 }
 
