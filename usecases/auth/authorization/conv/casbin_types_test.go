@@ -45,8 +45,7 @@ var (
 	manageVerb = CRUD
 
 	rolesTestsR = []innerTest{
-		{permissionAction: authorization.ReadRoles, testDescription: readDesc,
-			policyVerb: authorization.VerbWithScope(readVerb, authorization.ROLE_SCOPE_MATCH)},
+		{permissionAction: authorization.ReadRoles, testDescription: readDesc, policyVerb: authorization.VerbWithScope(readVerb, authorization.ROLE_SCOPE_MATCH)},
 	}
 	rolesTestsCUD = []innerTest{
 		{permissionAction: authorization.CreateRoles, testDescription: createVerb, policyVerb: authorization.VerbWithScope(createVerb, authorization.ROLE_SCOPE_ALL)},
