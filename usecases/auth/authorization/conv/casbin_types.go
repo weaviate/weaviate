@@ -214,17 +214,18 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		role := "*"
 		if permission.Roles != nil && permission.Roles.Role != nil {
 			role = *permission.Roles.Role
-			if verb == CRUD {
+			if verb != authorization.READ {
 				// Default verb for role management
-				verb = authorization.ROLE_SCOPE_MATCH
+				scope := verb + "_" + authorization.ROLE_SCOPE_MATCH
 				if permission.Roles.Scope != nil {
 					// Determine verb based on scope
 					switch *permission.Roles.Scope {
 					case models.PermissionRolesScopeAll:
-						verb = CRUD
+						scope = verb
 					default:
 					}
 				}
+				verb = scope
 			}
 		}
 		resource = CasbinRoles(role)
@@ -368,11 +369,16 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		}
 
 		if mapped.Verb != authorization.READ {
-			scope := models.PermissionRolesScopeMatch // default
-			switch mapped.Verb {
-			case authorization.ROLE_SCOPE_ALL:
-				scope = models.PermissionRolesScopeAll
+			verbSplits := strings.Split(mapped.Verb, "_")
+			scope := models.PermissionRolesScopeAll
+			if len(verbSplits) == 2 {
+				mapped.Verb = verbSplits[0]
+				scope = verbSplits[1]
+				if scope == authorization.ROLE_SCOPE_MATCH {
+					scope = models.PermissionRolesScopeMatch
+				}
 			}
+
 			permission.Roles.Scope = &scope
 		}
 	case authorization.NodesDomain:

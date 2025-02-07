@@ -38,7 +38,7 @@ func TestRemovePermissionsSuccessUpdate(t *testing.T) {
 		Body: authz.RemovePermissionsBody{
 			Permissions: []*models.Permission{
 				{
-					Action: String("manage_roles"),
+					Action: String("create_roles"),
 					Roles:  &models.PermissionRoles{},
 				},
 			},
@@ -92,7 +92,7 @@ func TestRemovePermissionsBadRequest(t *testing.T) {
 		// 			Name: String("someName"),
 		// 			Permissions: []*models.Permission{
 		// 				{
-		// 					Action: String("manage_roles"),
+		// 					Action: String("create_roles"),
 		// 				},
 		// 			},
 		// 		},
@@ -107,7 +107,7 @@ func TestRemovePermissionsBadRequest(t *testing.T) {
 				Body: authz.RemovePermissionsBody{
 					Permissions: []*models.Permission{
 						{
-							Action: String("manage_roles"),
+							Action: String("create_roles"),
 						},
 					},
 				},
@@ -154,7 +154,7 @@ func TestRemovePermissionsForbidden(t *testing.T) {
 				Body: authz.RemovePermissionsBody{
 					Permissions: []*models.Permission{
 						{
-							Action: String("manage_roles"),
+							Action: String("read_roles"),
 							Roles:  &models.PermissionRoles{},
 						},
 					},
@@ -261,7 +261,7 @@ func TestRemovePermissionsInternalServerError(t *testing.T) {
 				Body: authz.RemovePermissionsBody{
 					Permissions: []*models.Permission{
 						{
-							Action: String("manage_roles"),
+							Action: String("update_roles"),
 							Roles:  &models.PermissionRoles{},
 						},
 					},
