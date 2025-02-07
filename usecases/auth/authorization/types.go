@@ -455,5 +455,9 @@ func adminPermissions() []*models.Permission {
 }
 
 func VerbWithScope(verb, scope string) string {
+	if strings.Contains(verb, "_") {
+		return verb
+	}
+
 	return fmt.Sprintf("%s_%s", verb, scope)
 }
