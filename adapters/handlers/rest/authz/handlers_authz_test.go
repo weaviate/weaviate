@@ -33,7 +33,6 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 		authorizeSetup func(*mocks.Authorizer)
 		expectedError  string
 	}
-
 	tests := []testCase{
 		{
 			name:         "has full role management permissions",
@@ -45,7 +44,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName: "newRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call succeeds - has full permissions
-				a.On("Authorize", &models.Principal{Username: "admin"}, authorization.CREATE, authorization.Roles("newRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "admin"}, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).
 					Return(nil).Once()
 			},
 			expectedError: "",
@@ -60,7 +59,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName: "newRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call fails - no full permissions
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.CREATE, authorization.Roles("newRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).
 					Return(errors.New("no full permissions")).Once()
 				// Second call succeeds - has role scope match
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles("newRole")[0]).
@@ -82,7 +81,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName: "newRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call fails - no full permissions
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.CREATE, authorization.Roles("newRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).
 					Return(errors.New("no full permissions")).Once()
 				// Second call succeeds - has role scope match
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles("newRole")[0]).
@@ -106,7 +105,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName: "newRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call fails - no full permissions
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.CREATE, authorization.Roles("newRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).
 					Return(errors.New("no full permissions")).Once()
 				// Second call fails - no role scope match
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles("newRole")[0]).
@@ -124,7 +123,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName: "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call succeeds - has full permissions
-				a.On("Authorize", &models.Principal{Username: "admin"}, authorization.UPDATE, authorization.Roles("existingRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "admin"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(nil).Once()
 			},
 			expectedError: "",
@@ -139,7 +138,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName: "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call fails - no full permissions
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.UPDATE, authorization.Roles("existingRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
 				// Second call succeeds - has role scope match
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles("existingRole")[0]).
@@ -161,7 +160,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName: "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call fails - no full permissions
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.UPDATE, authorization.Roles("existingRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
 				// Second call succeeds - has role scope match
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles("existingRole")[0]).
@@ -185,7 +184,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName: "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call fails - no full permissions
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.UPDATE, authorization.Roles("existingRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
 				// Second call fails - no role scope match
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles("existingRole")[0]).
@@ -201,7 +200,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName:     "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call succeeds - has full permissions
-				a.On("Authorize", &models.Principal{Username: "admin"}, authorization.DELETE, authorization.Roles("existingRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "admin"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(nil).Once()
 			},
 			expectedError: "",
@@ -214,7 +213,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName:     "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call fails - no full permissions
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.DELETE, authorization.Roles("existingRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
 				// Second call succeeds - has role scope match
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH), authorization.Roles("existingRole")[0]).
@@ -233,7 +232,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName: "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call fails - no full permissions
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.DELETE, authorization.Roles("existingRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
 				// Second call succeeds - has role scope match
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH), authorization.Roles("existingRole")[0]).
@@ -255,7 +254,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			roleName:     "existingRole",
 			authorizeSetup: func(a *mocks.Authorizer) {
 				// First call fails - no full permissions
-				a.On("Authorize", &models.Principal{Username: "user"}, authorization.DELETE, authorization.Roles("existingRole")[0]).
+				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
 				// Second call succeeds - has role scope match
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH), authorization.Roles("existingRole")[0]).

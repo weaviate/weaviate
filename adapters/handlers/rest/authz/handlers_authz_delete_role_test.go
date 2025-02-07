@@ -35,7 +35,7 @@ func TestDeleteRoleSuccess(t *testing.T) {
 		ID: "roleToRemove",
 	}
 	controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{"roleToRemove": {}}, nil)
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Roles("roleToRemove")[0]).Return(nil)
+	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("roleToRemove")[0]).Return(nil)
 	controller.On("DeleteRoles", params.ID).Return(nil)
 
 	h := &authZHandlers{
@@ -116,9 +116,10 @@ func TestDeleteRoleForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{tt.params.ID: {}}, nil)
-			authorizer.On("Authorize", tt.principal, authorization.DELETE, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
-
+			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			if tt.authorizeErr != nil {
+				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			}
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
@@ -163,7 +164,7 @@ func TestDeleteRoleInternalServerError(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{tt.params.ID: {}}, nil)
-			authorizer.On("Authorize", tt.principal, authorization.DELETE, authorization.Roles(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
 			controller.On("DeleteRoles", tt.params.ID).Return(tt.upsertErr)
 
 			h := &authZHandlers{
