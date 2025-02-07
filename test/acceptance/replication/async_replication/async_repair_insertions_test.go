@@ -79,13 +79,12 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 
 	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, node)
-		time.Sleep(5 * time.Second)
 	})
 
 	t.Run(fmt.Sprintf("assert node %d has all the objects", node), func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			count := common.CountObjects(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class)
-			assert.EqualValues(ct, len(paragraphIDs), count)
+			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", replica.One)
+			assert.Len(t, resp, len(paragraphIDs))
 		}, 60*time.Second, 1*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }
