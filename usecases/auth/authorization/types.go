@@ -453,3 +453,7 @@ func adminPermissions() []*models.Permission {
 
 	return perms
 }
+
+func VerbWithScope(verb, scope string) string {
+	return fmt.Sprintf("%s_%s", verb, scope)
+}
