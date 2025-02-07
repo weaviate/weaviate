@@ -952,9 +952,7 @@ func UnmarshalPropertiesFromObject(data []byte, properties map[string]interface{
 
 	// clear out old values in case an object misses values. This should NOT shrink the capacity of the map, eg there
 	// are no allocations when adding the properties of the next object again
-	for k := range properties {
-		delete(properties, k)
-	}
+	clear(properties)
 
 	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
 	rw := byteops.NewReadWriter(data, byteops.WithPosition(startPos))
