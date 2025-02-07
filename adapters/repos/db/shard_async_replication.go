@@ -466,7 +466,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 
 		var lastLog time.Time
 
-		backoffTimer := interval.NewBackoffTimer()
+		backoffTimer := interval.NewBackoffTimer(1*time.Second, 3*time.Second, 5*time.Second)
 
 		for {
 			select {
