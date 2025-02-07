@@ -692,6 +692,17 @@ func bytesFromUUID(id strfmt.UUID) (uuidBytes []byte, err error) {
 	return uuidParsed.MarshalBinary()
 }
 
+func incToNextLexValue(b []byte) bool {
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] < 0xFF {
+			b[i]++
+			return false
+		}
+		b[i] = 0x00
+	}
+	return true
+}
+
 func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncReplicationConfig,
 	shardName string, host string, initialLeaf, finalLeaf uint64, limit int,
 ) (localObjects, remoteObjects, propagations int, err error) {
@@ -808,6 +819,13 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 			if len(remoteDigests) < config.batchSize {
 				break
 			}
+		}
+
+		// to avoid reading the last uuid in the next iteration
+		overflow := incToNextLexValue(lastLocalUUIDBytes)
+		if overflow {
+			// no more local objects need to be propagated
+			break
 		}
 
 		currLocalUUIDBytes = lastLocalUUIDBytes
