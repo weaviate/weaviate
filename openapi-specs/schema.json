@@ -149,7 +149,8 @@
               "default": "match",
               "description": "set the scope for the manage role permission"
             }
-          }
+          },
+          "required": ["scope"]
         },
         "collections": {
           "type": "object",

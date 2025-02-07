@@ -716,8 +716,9 @@ type PermissionRoles struct {
 	Role *string `json:"role,omitempty"`
 
 	// set the scope for the manage role permission
+	// Required: true
 	// Enum: [all match]
-	Scope *string `json:"scope,omitempty"`
+	Scope *string `json:"scope"`
 }
 
 // Validate validates this permission roles
@@ -764,8 +765,9 @@ func (m *PermissionRoles) validateScopeEnum(path, location string, value string)
 }
 
 func (m *PermissionRoles) validateScope(formats strfmt.Registry) error {
-	if swag.IsZero(m.Scope) { // not required
-		return nil
+
+	if err := validate.Required("roles"+"."+"scope", "body", m.Scope); err != nil {
+		return err
 	}
 
 	// value enum

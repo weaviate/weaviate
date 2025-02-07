@@ -5698,6 +5698,9 @@ func init() {
         "roles": {
           "description": "resources applicable for role actions",
           "type": "object",
+          "required": [
+            "scope"
+          ],
           "properties": {
             "role": {
               "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
@@ -12633,6 +12636,9 @@ func init() {
         "roles": {
           "description": "resources applicable for role actions",
           "type": "object",
+          "required": [
+            "scope"
+          ],
           "properties": {
             "role": {
               "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
@@ -12745,6 +12751,9 @@ func init() {
     "PermissionRoles": {
       "description": "resources applicable for role actions",
       "type": "object",
+      "required": [
+        "scope"
+      ],
       "properties": {
         "role": {
           "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
