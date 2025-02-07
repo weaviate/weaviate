@@ -94,7 +94,7 @@ func (h *authZHandlers) authorizeRoleScopes(principal *models.Principal, origina
 	}
 
 	// Check if user can manage roles with matching permissions
-	if err = h.authorizer.Authorize(principal, originalVerb+"_"+authorization.ROLE_SCOPE_MATCH, authorization.Roles(roleName)...); err == nil {
+	if err = h.authorizer.Authorize(principal, authorization.VerbWithScope(originalVerb, authorization.ROLE_SCOPE_MATCH), authorization.Roles(roleName)...); err == nil {
 		// Verify user has all permissions they're trying to grant
 		var errs error
 		for _, policy := range policies {
