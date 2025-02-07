@@ -154,6 +154,7 @@ func (p *Parser) anthropic(in *pb.GenerativeAnthropic) map[string]any {
 			StopSequences: in.StopSequences.GetValues(),
 			TopP:          in.TopP,
 			TopK:          p.int64ToInt(in.TopK),
+			Images:        p.getImages(in.Images),
 		},
 	}
 }
@@ -184,6 +185,7 @@ func (p *Parser) aws(in *pb.GenerativeAWS) map[string]any {
 			TargetVariant: in.GetTargetVariant(),
 			Model:         in.GetModel(),
 			Temperature:   in.Temperature,
+			Images:        p.getImages(in.Images),
 		},
 	}
 }
@@ -231,6 +233,7 @@ func (p *Parser) ollama(in *pb.GenerativeOllama) map[string]any {
 			ApiEndpoint: in.GetApiEndpoint(),
 			Model:       in.GetModel(),
 			Temperature: in.Temperature,
+			Images:      p.getImages(in.Images),
 		},
 	}
 }
@@ -254,6 +257,7 @@ func (p *Parser) openai(in *pb.GenerativeOpenAI) map[string]any {
 			Stop:             in.Stop.GetValues(),
 			Temperature:      in.Temperature,
 			TopP:             in.TopP,
+			Images:           p.getImages(in.Images),
 		},
 	}
 }
@@ -276,6 +280,7 @@ func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 			StopSequences:    in.StopSequences.GetValues(),
 			PresencePenalty:  in.PresencePenalty,
 			FrequencyPenalty: in.FrequencyPenalty,
+			Images:           p.getImages(in.Images),
 		},
 	}
 }
@@ -315,6 +320,13 @@ func (p *Parser) friendliai(in *pb.GenerativeFriendliAI) map[string]any {
 			TopP:        in.TopP,
 		},
 	}
+}
+
+func (p *Parser) getImages(in *pb.TextArray) []string {
+	if in != nil && len(in.Values) > 0 {
+		return in.Values
+	}
+	return nil
 }
 
 func (p *Parser) int64ToInt(in *int64) *int {
