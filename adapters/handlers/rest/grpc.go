@@ -12,18 +12,19 @@
 package rest
 
 import (
-	"github.com/weaviate/weaviate/adapters/handlers/grpc"
+	grpcHandler "github.com/weaviate/weaviate/adapters/handlers/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"google.golang.org/grpc"
 )
 
-func createGrpcServer(state *state.State) *grpc.GRPCServer {
-	return grpc.CreateGRPCServer(state)
+func createGrpcServer(state *state.State, options ...grpc.ServerOption) *grpc.Server {
+	return grpcHandler.CreateGRPCServer(state, options...)
 }
 
-func startGrpcServer(server *grpc.GRPCServer, state *state.State) {
+func startGrpcServer(server *grpc.Server, state *state.State) {
 	enterrors.GoWrapper(func() {
-		if err := grpc.StartAndListen(server, state); err != nil {
+		if err := grpcHandler.StartAndListen(server, state); err != nil {
 			state.Logger.WithField("action", "grpc_startup").WithError(err).
 				Fatal("failed to start grpc server")
 		}

@@ -133,10 +133,10 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 			handler = monitoring.InstrumentHTTP(
 				handler,
 				context,
-				appState.ServerMetrics.InflightRequests,
-				appState.ServerMetrics.RequestDuration,
-				appState.ServerMetrics.RequestBodySize,
-				appState.ServerMetrics.ResponseBodySize,
+				appState.HTTPServerMetrics.InflightRequests,
+				appState.HTTPServerMetrics.RequestDuration,
+				appState.HTTPServerMetrics.RequestBodySize,
+				appState.HTTPServerMetrics.ResponseBodySize,
 			)
 		}
 		// Must be the last middleware as it might skip the next handler

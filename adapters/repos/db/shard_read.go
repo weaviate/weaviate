@@ -458,10 +458,6 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 			dists []float32
 		)
 		eg.Go(func() error {
-			if allowList != nil {
-				defer allowList.Close()
-			}
-
 			vidx, err := s.getVectorIndex(targetVector)
 			if err != nil {
 				return err
@@ -503,6 +499,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
+	}
+	if allowList != nil {
+		defer allowList.Close()
 	}
 
 	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, targetCombination, limit, targetDist)
