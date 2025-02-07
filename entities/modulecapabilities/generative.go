@@ -46,8 +46,6 @@ type GenerativeClient interface {
 	GenerateAllResults(ctx context.Context,
 		textProperties []map[string]string, task string, requestParams interface{}, debug bool, cfg moduletools.ClassConfig,
 	) (*GenerateResponse, error)
-	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, requestParams interface{}, debug bool,
-	) (*GenerateResponse, error)
 }
 
 // GenerativeProperty defines all needed additional request / response parameters
