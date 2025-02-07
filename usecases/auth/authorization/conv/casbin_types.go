@@ -218,11 +218,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			role = *permission.Roles.Role
 			if permission.Roles.Scope != nil {
 				// Determine verb based on scope
-				switch *permission.Roles.Scope {
-				case models.PermissionRolesScopeAll:
-					verb = authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_ALL)
-				default:
-				}
+				verb = authorization.VerbWithScope(verb, strings.ToUpper(*permission.Roles.Scope))
 			}
 		}
 		resource = CasbinRoles(role)
