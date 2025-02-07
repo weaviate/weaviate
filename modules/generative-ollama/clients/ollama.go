@@ -53,7 +53,7 @@ func (v *ollama) GenerateSingleResult(ctx context.Context, textProperties map[st
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt, options, debug)
+	return v.generate(ctx, cfg, forPrompt, textProperties, options, debug)
 }
 
 func (v *ollama) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
@@ -61,11 +61,11 @@ func (v *ollama) GenerateAllResults(ctx context.Context, textProperties []map[st
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask, options, debug)
+	return v.generate(ctx, cfg, forTask, nil, options, debug)
 }
 
-func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	params := v.getParameters(cfg, options)
+func (v *ollama) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, textProperties map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options, textProperties)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
 	ollamaUrl := v.getOllamaUrl(ctx, params.ApiEndpoint)
@@ -76,6 +76,9 @@ func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 	if params.Temperature != nil {
 		input.Options = &generateOptions{Temperature: params.Temperature}
+	}
+	if len(params.Images) > 0 {
+		input.Images = params.Images
 	}
 
 	body, err := json.Marshal(input)
@@ -122,7 +125,7 @@ func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}, nil
 }
 
-func (v *ollama) getParameters(cfg moduletools.ClassConfig, options interface{}) ollamaparams.Params {
+func (v *ollama) getParameters(cfg moduletools.ClassConfig, options interface{}, textProperties map[string]string) ollamaparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params ollamaparams.Params
@@ -135,6 +138,19 @@ func (v *ollama) getParameters(cfg moduletools.ClassConfig, options interface{})
 	if params.Model == "" {
 		params.Model = settings.Model()
 	}
+
+	if len(params.Images) > 0 && len(textProperties) > 0 {
+		images := make([]string, len(params.Images))
+		for i, imageProperty := range params.Images {
+			if image, ok := textProperties[imageProperty]; ok {
+				images[i] = image
+			} else {
+				images[i] = imageProperty
+			}
+		}
+		params.Images = images
+	}
+
 	return params
 }
 
@@ -188,6 +204,7 @@ type generateInput struct {
 	Prompt  string           `json:"prompt"`
 	Stream  bool             `json:"stream"`
 	Options *generateOptions `json:"options,omitempty"`
+	Images  []string         `json:"images,omitempty"`
 }
 
 type generateOptions struct {

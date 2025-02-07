@@ -24,6 +24,7 @@ type Params struct {
 	StopSequences []string
 	TopP          *float64
 	TopK          *int
+	Images        []string
 }
 
 func extract(field *ast.ObjectField) interface{} {
@@ -46,6 +47,8 @@ func extract(field *ast.ObjectField) interface{} {
 				out.TopP = gqlparser.GetValueAsFloat64(f)
 			case "topK":
 				out.TopK = gqlparser.GetValueAsInt(f)
+			case "images":
+				out.Images = gqlparser.GetValueAsStringArray(f)
 			default:
 				// do nothing
 			}
