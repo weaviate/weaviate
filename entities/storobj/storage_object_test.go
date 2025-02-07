@@ -725,7 +725,7 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 
 	// test with reused property map
 	for i := 0; i < 2; i++ {
-		require.Nil(t, UnmarshalPropertiesFromObject(byteObject, &extractedProperties, propertyNames, propStrings))
+		require.Nil(t, UnmarshalPropertiesFromObject(byteObject, extractedProperties, propertyNames, propStrings))
 		for key := range expected {
 			require.Equal(t, expected[key], extractedProperties[key])
 		}
@@ -1267,7 +1267,7 @@ func TestMemoryReuse(t *testing.T) {
 		copy(reuseableBuff, asBinary)
 
 		afterProp := map[string]interface{}{}
-		require.Nil(t, UnmarshalProperties(reuseableBuff, &afterProp, propStrings, propStringsList))
+		require.Nil(t, UnmarshalProperties(reuseableBuff, afterProp, propStrings, propStringsList))
 		afterProps = append(afterProps, afterProp)
 	}
 
