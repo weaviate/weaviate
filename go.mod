@@ -2,47 +2,6 @@ module github.com/weaviate/weaviate
 
 require (
 	cloud.google.com/go/storage v1.43.0
-	github.com/bmatcuk/doublestar v1.3.4
-	github.com/buger/jsonparser v1.1.1
-	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
-	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
-	github.com/docker/go-connections v0.5.0
-	github.com/fatih/camelcase v1.0.0
-	github.com/go-openapi/errors v0.22.0
-	github.com/go-openapi/loads v0.22.0
-	github.com/go-openapi/runtime v0.24.2
-	github.com/go-openapi/spec v0.21.0
-	github.com/go-openapi/strfmt v0.23.0
-	github.com/go-openapi/swag v0.23.0
-	github.com/go-openapi/validate v0.24.0
-	github.com/golang-jwt/jwt/v4 v4.5.1
-	github.com/google/uuid v1.6.0
-	github.com/hashicorp/memberlist v0.5.2
-	github.com/jessevdk/go-flags v1.6.1
-	github.com/minio/minio-go/v7 v7.0.84
-	github.com/nyaruka/phonenumbers v1.0.54
-	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v1.20.5
-	github.com/rs/cors v1.5.0
-	github.com/sirupsen/logrus v1.9.3
-	github.com/spaolacci/murmur3 v1.1.0
-	github.com/stretchr/testify v1.10.0
-	github.com/testcontainers/testcontainers-go v0.35.0
-	github.com/weaviate/contextionary v1.2.1
-	github.com/willf/bloom v2.0.3+incompatible
-	go.etcd.io/bbolt v1.3.11
-	go.opentelemetry.io/otel v1.32.0 // indirect
-	golang.org/x/net v0.34.0
-	golang.org/x/oauth2 v0.25.0
-	golang.org/x/sync v0.11.0
-	golang.org/x/sys v0.29.0
-	gonum.org/v1/gonum v0.15.1
-	google.golang.org/api v0.216.0
-	google.golang.org/grpc v1.69.4
-	gopkg.in/yaml.v2 v2.4.0
-)
-
-require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.17.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.0
 	github.com/KimMachineGun/automemlimit v0.7.0
@@ -52,39 +11,75 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.4
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.57
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.24.3
+	github.com/bmatcuk/doublestar v1.3.4
+	github.com/buger/jsonparser v1.1.1
 	github.com/casbin/casbin/v2 v2.103.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/coreos/go-oidc/v3 v3.12.0
+	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
+	github.com/docker/go-connections v0.5.0
 	github.com/edsrzf/mmap-go v1.2.0
+	github.com/fatih/camelcase v1.0.0
 	github.com/felixge/httpsnoop v1.0.4
 	github.com/getsentry/sentry-go v0.30.0
 	github.com/go-ego/gse v0.80.3
 	github.com/go-jose/go-jose/v4 v4.0.5
+	github.com/go-openapi/errors v0.22.0
+	github.com/go-openapi/loads v0.22.0
+	github.com/go-openapi/runtime v0.24.2
+	github.com/go-openapi/spec v0.21.0
+	github.com/go-openapi/strfmt v0.23.0
+	github.com/go-openapi/swag v0.23.0
+	github.com/go-openapi/validate v0.24.0
+	github.com/golang-jwt/jwt/v4 v4.5.1
+	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.14.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/hashicorp/go-hclog v1.6.3
+	github.com/hashicorp/memberlist v0.5.2
 	github.com/hashicorp/raft v1.7.2
 	github.com/hashicorp/raft-boltdb/v2 v2.3.1
 	github.com/ikawaha/kagome-dict-ko v0.2.1
 	github.com/ikawaha/kagome-dict/ipa v1.2.0
 	github.com/ikawaha/kagome/v2 v2.10.0
+	github.com/jessevdk/go-flags v1.6.1
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.2.0
 	github.com/launchdarkly/go-server-sdk/v7 v7.8.0
+	github.com/minio/minio-go/v7 v7.0.84
+	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/oauth2-proxy/mockoidc v0.0.0-20240214162133-caebfff84d25
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
+	github.com/pkg/errors v0.9.1
+	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/common v0.62.0
+	github.com/rs/cors v1.5.0
+	github.com/sirupsen/logrus v1.9.3
+	github.com/spaolacci/murmur3 v1.1.0
+	github.com/stretchr/testify v1.10.0
 	github.com/tailor-inc/graphql v0.5.7
+	github.com/testcontainers/testcontainers-go v0.35.0
 	github.com/urfave/cli/v2 v2.27.5
 	github.com/vmihailenco/msgpack/v5 v5.4.1
+	github.com/weaviate/contextionary v1.2.1
 	github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa
 	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.9
 	github.com/weaviate/tiktoken-go v0.0.2
-	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa
+	github.com/willf/bloom v2.0.3+incompatible
+	go.etcd.io/bbolt v1.3.11
+	golang.org/x/net v0.34.0
+	golang.org/x/oauth2 v0.25.0
+	golang.org/x/sync v0.11.0
+	golang.org/x/sys v0.29.0
 	golang.org/x/text v0.22.0
 	golang.org/x/time v0.9.0
+	gonum.org/v1/gonum v0.15.1
+	google.golang.org/api v0.216.0
+	google.golang.org/grpc v1.69.4
 	google.golang.org/protobuf v1.36.3
+	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
@@ -214,11 +209,13 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.54.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.57.0 // indirect
+	go.opentelemetry.io/otel v1.32.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.19.0 // indirect
 	go.opentelemetry.io/otel/metric v1.32.0 // indirect
 	go.opentelemetry.io/otel/trace v1.32.0 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	golang.org/x/crypto v0.32.0 // indirect
+	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa // indirect
 	google.golang.org/genproto v0.0.0-20241118233622-e639e219e697 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241209162323-e6fa225c2576 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250102185135-69823020774d // indirect
