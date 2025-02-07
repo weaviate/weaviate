@@ -807,7 +807,10 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found."
+            "description": "role or user is not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -874,7 +877,10 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found."
+            "description": "role or user is not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -7430,7 +7436,10 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found."
+            "description": "role or user is not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -7497,7 +7506,10 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found."
+            "description": "role or user is not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",

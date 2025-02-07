@@ -37,6 +37,8 @@ var defaultMaxTokens = map[string]int{
 	"claude-3-opus-20240229":     4096,
 	"claude-3-sonnet-20240229":   4096,
 	"claude-3-haiku-20240307":    4096,
+	"claude-3-5-sonnet-20241022": 8192,
+	"claude-3-5-haiku-20241022":  8192,
 }
 
 var (

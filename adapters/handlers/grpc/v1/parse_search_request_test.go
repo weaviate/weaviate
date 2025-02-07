@@ -16,11 +16,20 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearDepth"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImu"
+	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -33,15 +42,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearDepth"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImu"
-	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 )
 
 func TestGRPCRequest(t *testing.T) {
@@ -51,6 +51,7 @@ func TestGRPCRequest(t *testing.T) {
 	dotClass := "DotClass"
 	objClass := "ObjClass"
 	multiVecClass := "MultiVecClass"
+	multiVecClassWithColBERT := "MultiVecClassWithColBERT"
 	singleNamedVecClass := "SingleNamedVecClass"
 	regularWithColBERTClass := "RegularWithColBERTClass"
 	one := float64(1.0)
@@ -141,6 +142,34 @@ func TestGRPCRequest(t *testing.T) {
 						"custom": {
 							VectorIndexType:   "hnsw",
 							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine},
+							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+						},
+						"first": {
+							VectorIndexType:   "flat",
+							VectorIndexConfig: flat.UserConfig{Distance: vectorIndex.DistanceCosine},
+							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+						"second": {
+							VectorIndexType:   "flat",
+							VectorIndexConfig: flat.UserConfig{Distance: vectorIndex.DistanceCosine},
+							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+					},
+				},
+				{
+					Class: multiVecClassWithColBERT,
+					Properties: []*models.Property{
+						{Name: "first", DataType: schema.DataTypeText.PropString()},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"custom": {
+							VectorIndexType:   "hnsw",
+							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine},
+							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+						},
+						"custom_colbert": {
+							VectorIndexType:   "hnsw",
+							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine, Multivector: hnsw.MultivectorConfig{Enabled: true}},
 							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
 						},
 						"first": {
@@ -339,7 +368,7 @@ func TestGRPCRequest(t *testing.T) {
 		{
 			name: "hybrid nearvector returns all named vectors with colbert fp32 vectors",
 			req: &pb.SearchRequest{
-				Collection: multiVecClass,
+				Collection: multiVecClassWithColBERT,
 				Metadata:   &pb.MetadataRequest{Vector: true},
 				Properties: &pb.PropertiesRequest{},
 
@@ -360,14 +389,14 @@ func TestGRPCRequest(t *testing.T) {
 							},
 						},
 					},
-					TargetVectors: []string{"custom"},
+					TargetVectors: []string{"custom_colbert"},
 				},
 			},
 			out: dto.GetParams{
-				ClassName:            multiVecClass,
+				ClassName:            multiVecClassWithColBERT,
 				Pagination:           defaultPagination,
 				Properties:           search.SelectProperties{},
-				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second", "custom_colbert"}, Vector: true, NoProps: true},
 				HybridSearch: &searchparams.HybridSearch{
 					Alpha:           1.0,
 					Query:           "nearvecquery",
@@ -377,9 +406,9 @@ func TestGRPCRequest(t *testing.T) {
 						Certainty:     1.0,
 						Distance:      1.0,
 						WithDistance:  true,
-						TargetVectors: []string{"custom"},
+						TargetVectors: []string{"custom_colbert"},
 					},
-					TargetVectors: []string{"custom"},
+					TargetVectors: []string{"custom_colbert"},
 				},
 			},
 			error: false,
@@ -418,7 +447,7 @@ func TestGRPCRequest(t *testing.T) {
 		{
 			name: "nearvector with colbert fp32 vectors",
 			req: &pb.SearchRequest{
-				Collection: multiVecClass,
+				Collection: multiVecClassWithColBERT,
 				Metadata:   &pb.MetadataRequest{Vector: true},
 				Properties: &pb.PropertiesRequest{},
 				NearVector: &pb.NearVector{
@@ -429,18 +458,18 @@ func TestGRPCRequest(t *testing.T) {
 							Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
 						},
 					},
-					TargetVectors: []string{"custom"},
+					TargetVectors: []string{"custom_colbert"},
 				},
 			},
 			out: dto.GetParams{
-				ClassName:            multiVecClass,
+				ClassName:            multiVecClassWithColBERT,
 				Pagination:           defaultPagination,
 				Properties:           search.SelectProperties{},
-				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second", "custom_colbert"}, Vector: true, NoProps: true},
 				NearVector: &searchparams.NearVector{
 					Vectors:       []models.Vector{[][]float32{{1, 2, 3}}},
 					Certainty:     1.0,
-					TargetVectors: []string{"custom"},
+					TargetVectors: []string{"custom_colbert"},
 				},
 			},
 			error: false,
@@ -598,6 +627,31 @@ func TestGRPCRequest(t *testing.T) {
 		{
 			name: "Vectors returns all named colbert fp32 vectors",
 			req: &pb.SearchRequest{
+				Collection: multiVecClassWithColBERT,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vectors: []*pb.Vectors{
+						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}, {1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
+					},
+					TargetVectors: []string{"custom_colbert"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            multiVecClassWithColBERT,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second", "custom_colbert"}, Vector: true, NoProps: true},
+				NearVector: &searchparams.NearVector{
+					TargetVectors: []string{"custom_colbert"},
+					Vectors:       []models.Vector{[][]float32{{1, 2, 3}, {1, 2, 3}}},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Should error when passed ColBERT vectors when normal vectors are only supported",
+			req: &pb.SearchRequest{
 				Collection: multiVecClass,
 				Metadata:   &pb.MetadataRequest{Vector: true},
 				Properties: &pb.PropertiesRequest{},
@@ -608,17 +662,7 @@ func TestGRPCRequest(t *testing.T) {
 					TargetVectors: []string{"custom"},
 				},
 			},
-			out: dto.GetParams{
-				ClassName:            multiVecClass,
-				Pagination:           defaultPagination,
-				Properties:           search.SelectProperties{},
-				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
-				NearVector: &searchparams.NearVector{
-					TargetVectors: []string{"custom"},
-					Vectors:       []models.Vector{[][]float32{{1, 2, 3}, {1, 2, 3}}},
-				},
-			},
-			error: false,
+			error: true,
 		},
 		{
 			name: "Vectors throws error if no target vectors are given",
@@ -1677,7 +1721,7 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "group by ref prop with colbert fp32 vectors",
+			name: "should error group by ref prop with unsupported colbert fp32 vectors",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
 				GroupBy: &pb.GroupBy{Path: []string{"ref"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
@@ -1688,18 +1732,7 @@ func TestGRPCRequest(t *testing.T) {
 				},
 				Properties: &pb.PropertiesRequest{},
 			},
-			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination,
-				Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}},
-				AdditionalProperties: additional.Properties{
-					Vector:  true,
-					NoProps: false,
-					Group:   true,
-				},
-				NearVector: &searchparams.NearVector{Vectors: []models.Vector{[][]float32{{1, 2, 3}, {11, 22, 33}, {111, 222, 333}}}},
-				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "ref", Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}}},
-			},
-			error: false,
+			error: true,
 		},
 		{
 			name: "group by with too long path",
@@ -2096,9 +2129,24 @@ func TestGRPCRequest(t *testing.T) {
 				NearVector: &pb.NearVector{
 					Targets: &pb.Targets{TargetVectors: []string{"first", "first", "second"}},
 					VectorForTargets: []*pb.VectorForTarget{
-						{Name: "first", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}},
-						{Name: "first", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{2, 3, 4})}}},
-						{Name: "second", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3, 4})}}},
+						{
+							Name: "first",
+							Vectors: []*pb.Vectors{
+								{
+									Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
+									VectorBytes: byteVectorMulti([][]float32{{1, 2, 3}, {2, 3, 4}}),
+								},
+							},
+						},
+						{
+							Name: "second",
+							Vectors: []*pb.Vectors{
+								{
+									Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
+									VectorBytes: byteVectorMulti([][]float32{{1, 2, 3, 4}}),
+								},
+							},
+						},
 					},
 				},
 				Metadata: &pb.MetadataRequest{Certainty: true},

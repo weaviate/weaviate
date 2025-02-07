@@ -22,6 +22,8 @@ import (
 
 	"github.com/pkg/errors"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
+	"golang.org/x/sync/errgroup"
+
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -52,7 +54,6 @@ import (
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -807,14 +808,14 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"] = "false" // incompatible
 
 		if len(d.weaviateRbacAdmins) > 0 {
-			settings["AUTHORIZATION_ROOT_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
+			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
 		}
 		if len(d.weaviateRbacViewers) > 0 {
 			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
 		}
 
 		if len(d.weaviateRbacRootGroups) > 0 {
-			settings["AUTHORIZATION_ROOT_GROUPS"] = strings.Join(d.weaviateRbacRootGroups, ",")
+			settings["AUTHORIZATION_RBAC_ROOT_GROUPS"] = strings.Join(d.weaviateRbacRootGroups, ",")
 		}
 	}
 

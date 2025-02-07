@@ -336,6 +336,7 @@ RevokeRoleFromUserNotFound describes a response with status code 404, with defau
 role or user is not found.
 */
 type RevokeRoleFromUserNotFound struct {
+	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this revoke role from user not found response has a 2xx status code
@@ -369,14 +370,25 @@ func (o *RevokeRoleFromUserNotFound) Code() int {
 }
 
 func (o *RevokeRoleFromUserNotFound) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserNotFound  %+v", 404, o.Payload)
 }
 
 func (o *RevokeRoleFromUserNotFound) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserNotFound  %+v", 404, o.Payload)
+}
+
+func (o *RevokeRoleFromUserNotFound) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *RevokeRoleFromUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

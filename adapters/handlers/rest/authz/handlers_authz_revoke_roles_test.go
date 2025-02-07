@@ -319,8 +319,9 @@ func TestRevokeRoleFromUserOrUserNotFound(t *testing.T) {
 				logger:         logger,
 			}
 			res := h.revokeRoleFromUser(tt.params, tt.principal)
-			_, ok := res.(*authz.RevokeRoleFromUserNotFound)
+			parsed, ok := res.(*authz.RevokeRoleFromUserNotFound)
 			assert.True(t, ok)
+			assert.Contains(t, parsed.Payload.Error[0].Message, "doesn't exist")
 		})
 	}
 }
