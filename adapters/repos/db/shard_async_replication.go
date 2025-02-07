@@ -201,7 +201,7 @@ func (s *Shard) initAsyncReplication() error {
 		}
 
 		// attempt to load hashtree from file
-		s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
+		s.hashtree, err = hashtree.DeserializeHashTree(bufio.NewReader(f))
 		if err != nil {
 			s.index.logger.
 				WithField("action", "async_replication").
