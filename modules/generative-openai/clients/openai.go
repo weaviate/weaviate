@@ -81,7 +81,7 @@ func (v *openai) GenerateSingleResult(ctx context.Context, textProperties map[st
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt, options, debug)
+	return v.generate(ctx, cfg, forPrompt, textProperties, options, debug)
 }
 
 func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
@@ -89,11 +89,11 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask, options, debug)
+	return v.generate(ctx, cfg, forTask, nil, options, debug)
 }
 
-func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	params := v.getParameters(cfg, options)
+func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, textProperties map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options, textProperties)
 	isAzure := config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
@@ -176,7 +176,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}, nil
 }
 
-func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{}) openaiparams.Params {
+func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{}, textProperties map[string]string) openaiparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params openaiparams.Params
@@ -222,6 +222,17 @@ func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{})
 		maxTokens := int(settings.MaxTokens())
 		params.MaxTokens = &maxTokens
 	}
+
+	if len(params.Images) > 0 && len(textProperties) > 0 {
+		images := make([]string, len(params.Images))
+		for i, imageProperty := range params.Images {
+			if image, ok := textProperties[imageProperty]; ok {
+				images[i] = image
+			}
+		}
+		params.Images = images
+	}
+
 	return params
 }
 
@@ -289,9 +300,28 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params) (gener
 		}, nil
 	} else {
 		var input generateInput
+
+		var content interface{}
+		if len(params.Images) > 0 {
+			imageInput := contentImageInput{}
+			imageInput = append(imageInput, contentText{
+				Type: "text",
+				Text: prompt,
+			})
+			for i := range params.Images {
+				imageInput = append(imageInput, contentImage{
+					Type:     "image_url",
+					ImageURL: contentImageURL{URL: fmt.Sprintf("data:image/jpeg;base64,%s", params.Images[i])},
+				})
+			}
+			content = imageInput
+		} else {
+			content = prompt
+		}
+
 		messages := []message{{
 			Role:    "user",
-			Content: prompt,
+			Content: content,
 		}}
 
 		var tokens *int
@@ -448,10 +478,32 @@ type generateInput struct {
 	TopP             *float64  `json:"top_p,omitempty"`
 }
 
-type message struct {
+type responseMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 	Name    string `json:"name,omitempty"`
+}
+
+type message struct {
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // string or array of contentText and contentImage
+	Name    string      `json:"name,omitempty"`
+}
+
+type contentImageInput []interface{}
+
+type contentText struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type contentImage struct {
+	Type     string          `json:"type"`
+	ImageURL contentImageURL `json:"image_url"`
+}
+
+type contentImageURL struct {
+	URL string `json:"url"`
 }
 
 type generateResponse struct {
@@ -463,8 +515,8 @@ type generateResponse struct {
 type choice struct {
 	FinishReason string
 	Index        float32
-	Text         string   `json:"text,omitempty"`
-	Message      *message `json:"message,omitempty"`
+	Text         string           `json:"text,omitempty"`
+	Message      *responseMessage `json:"message,omitempty"`
 }
 
 type openAIApiError struct {

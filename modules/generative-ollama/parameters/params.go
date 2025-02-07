@@ -20,6 +20,7 @@ type Params struct {
 	ApiEndpoint string
 	Model       string
 	Temperature *float64
+	Images      []string
 }
 
 func extract(field *ast.ObjectField) interface{} {
@@ -34,6 +35,8 @@ func extract(field *ast.ObjectField) interface{} {
 				out.Model = gqlparser.GetValueAsStringOrEmpty(f)
 			case "temperature":
 				out.Temperature = gqlparser.GetValueAsFloat64(f)
+			case "images":
+				out.Images = gqlparser.GetValueAsStringArray(f)
 			default:
 				// do nothing
 			}

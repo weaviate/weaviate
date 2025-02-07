@@ -158,7 +158,7 @@ func (v *google) GenerateSingleResult(ctx context.Context, textProperties map[st
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt, options, debug)
+	return v.generate(ctx, cfg, forPrompt, textProperties, options, debug)
 }
 
 func (v *google) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
@@ -166,11 +166,11 @@ func (v *google) GenerateAllResults(ctx context.Context, textProperties []map[st
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask, options, debug)
+	return v.generate(ctx, cfg, forTask, nil, options, debug)
 }
 
-func (v *google) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	params := v.getParameters(cfg, options)
+func (v *google) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, textProperties map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options, textProperties)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
 	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(params.ApiEndpoint)
@@ -247,7 +247,7 @@ func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte, 
 	}, nil
 }
 
-func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{}) googleparams.Params {
+func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{}, textProperties map[string]string) googleparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params googleparams.Params
@@ -290,6 +290,19 @@ func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{})
 		maxTokens := settings.TokenLimit()
 		params.MaxTokens = &maxTokens
 	}
+
+	if len(params.Images) > 0 && len(textProperties) > 0 {
+		images := make([]string, len(params.Images))
+		for i, imageProperty := range params.Images {
+			if image, ok := textProperties[imageProperty]; ok {
+				images[i] = image
+			} else {
+				images[i] = imageProperty
+			}
+		}
+		params.Images = images
+	}
+
 	return params
 }
 
@@ -375,9 +388,9 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-func (v *google) getGenerateResponse(content string, params map[string]interface{}, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
-	if content != "" {
-		trimmedResponse := strings.Trim(content, "\n")
+func (v *google) getGenerateResponse(content *string, params map[string]interface{}, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
+	if content != nil && *content != "" {
+		trimmedResponse := strings.Trim(*content, "\n")
 		return &modulecapabilities.GenerateResponse{
 			Result: &trimmedResponse,
 			Params: params,
@@ -415,7 +428,7 @@ func (v *google) getPayload(useGenerativeAI bool, prompt string, params googlepa
 			Prompt: &generateMessagePrompt{
 				Messages: []generateMessage{
 					{
-						Content: prompt,
+						Content: &prompt,
 					},
 				},
 			},
@@ -453,15 +466,21 @@ func (v *google) getPayload(useGenerativeAI bool, prompt string, params googlepa
 }
 
 func (v *google) getGeminiPayload(prompt string, params googleparams.Params) any {
+	parts := []part{
+		{
+			Text: &prompt,
+		},
+	}
+	for _, image := range params.Images {
+		parts = append(parts, part{
+			InlineData: &inlineData{Data: image, MimeType: "image/png"},
+		})
+	}
 	input := generateContentRequest{
 		Contents: []content{
 			{
-				Role: "user",
-				Parts: []part{
-					{
-						Text: prompt,
-					},
-				},
+				Role:  "user",
+				Parts: parts,
 			},
 		},
 		GenerationConfig: &generationConfig{
@@ -606,8 +625,8 @@ type tokenCount struct {
 }
 
 type candidate struct {
-	Author  string `json:"author"`
-	Content string `json:"content"`
+	Author  *string `json:"author,omitempty"`
+	Content *string `json:"content,omitempty"`
 }
 
 type safetyAttributes struct {
@@ -638,7 +657,7 @@ type generateMessagePrompt struct {
 
 type generateMessage struct {
 	Author           string                    `json:"author,omitempty"`
-	Content          string                    `json:"content,omitempty"`
+	Content          *string                   `json:"content,omitempty"`
 	CitationMetadata *generateCitationMetadata `json:"citationMetadata,omitempty"`
 }
 
@@ -682,8 +701,13 @@ type content struct {
 }
 
 type part struct {
-	Text       string `json:"text,omitempty"`
-	InlineData string `json:"inline_data,omitempty"`
+	Text       *string     `json:"text,omitempty"`
+	InlineData *inlineData `json:"inline_data,omitempty"`
+}
+
+type inlineData struct {
+	MimeType string `json:"mime_type,omitempty"`
+	Data     string `json:"data,omitempty"`
 }
 
 type safetySetting struct {
