@@ -964,10 +964,10 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 }
 
 // UnmarshalProperties accepts serialized properties as data and populates resultProperties map with the properties specified by propertyPaths.
-func UnmarshalProperties(data []byte, properties map[string]interface{}, propStrings [][]string) error {
+func UnmarshalProperties(data []byte, properties map[string]interface{}, propertyPaths [][]string) error {
 	var returnError error
 	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
-		propertyName := propStrings[idx][len(propStrings[idx])-1]
+		propertyName := propertyPaths[idx][len(propertyPaths[idx])-1]
 
 		switch dataType {
 		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
@@ -1050,7 +1050,7 @@ func UnmarshalProperties(data []byte, properties map[string]interface{}, propStr
 		default:
 			returnError = fmt.Errorf("unknown data type %v", dataType)
 		}
-	}, propStrings...)
+	}, propertyPaths...)
 
 	return returnError
 }
