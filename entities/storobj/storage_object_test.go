@@ -1250,9 +1250,9 @@ func TestMemoryReuse(t *testing.T) {
 			Properties: beforeProp,
 		}
 
-		propStringsList := make([][]string, 0, len(beforeProp))
+		propertyPaths := make([][]string, 0, len(beforeProp))
 		for j := range beforeProp {
-			propStringsList = append(propStringsList, []string{j})
+			propertyPaths = append(propertyPaths, []string{j})
 		}
 
 		before := FromObject(&obj, nil, nil, nil)
@@ -1262,7 +1262,7 @@ func TestMemoryReuse(t *testing.T) {
 		copy(reuseableBuff, asBinary)
 
 		afterProp := map[string]interface{}{}
-		require.Nil(t, UnmarshalProperties(reuseableBuff, afterProp, propStringsList))
+		require.Nil(t, UnmarshalProperties(reuseableBuff, afterProp, propertyPaths))
 		afterProps = append(afterProps, afterProp)
 	}
 
@@ -1306,13 +1306,13 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 	var props *PropertyExtraction
 
 	if len(propStrings) > 0 {
-		propStringsList := make([][]string, len(propStrings))
+		propertyPaths := make([][]string, len(propStrings))
 		for i, prop := range propStrings {
-			propStringsList[i] = []string{prop}
+			propertyPaths[i] = []string{prop}
 		}
 
 		props = &PropertyExtraction{
-			PropertyPaths: propStringsList,
+			PropertyPaths: propertyPaths,
 		}
 	}
 
