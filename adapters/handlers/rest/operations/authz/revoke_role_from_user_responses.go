@@ -173,6 +173,11 @@ RevokeRoleFromUserNotFound role or user is not found.
 swagger:response revokeRoleFromUserNotFound
 */
 type RevokeRoleFromUserNotFound struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewRevokeRoleFromUserNotFound creates RevokeRoleFromUserNotFound with default headers values
@@ -181,12 +186,27 @@ func NewRevokeRoleFromUserNotFound() *RevokeRoleFromUserNotFound {
 	return &RevokeRoleFromUserNotFound{}
 }
 
+// WithPayload adds the payload to the revoke role from user not found response
+func (o *RevokeRoleFromUserNotFound) WithPayload(payload *models.ErrorResponse) *RevokeRoleFromUserNotFound {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the revoke role from user not found response
+func (o *RevokeRoleFromUserNotFound) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *RevokeRoleFromUserNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(404)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // RevokeRoleFromUserInternalServerErrorCode is the HTTP code returned for type RevokeRoleFromUserInternalServerError
