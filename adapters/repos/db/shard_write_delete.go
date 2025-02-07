@@ -175,7 +175,8 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 }
 
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
-	previousObject, err := storobj.FromBinary(previous)
+	// TODO: cannot do as AnalyzeObject requires all properties to be present
+	previousObject, err := storobj.FromBinary_exp(previous)
 	if err != nil {
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}

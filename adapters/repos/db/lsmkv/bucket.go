@@ -324,7 +324,8 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	i := 0
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+		// TODO: investigate the callers of this method
+		obj, err := storobj.FromBinary_exp(v)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}

@@ -224,7 +224,8 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinary(objBytes)
+	// TODO: cannot touch as this is used for merging existing object with an old one
+	obj, err := storobj.FromBinary_exp(objBytes)
 	if err != nil {
 		return nil, err
 	}

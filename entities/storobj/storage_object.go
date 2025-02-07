@@ -106,7 +106,7 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 	}
 }
 
-func FromBinary(data []byte) (*Object, error) {
+func FromBinary_exp(data []byte) (*Object, error) {
 	ko := &Object{}
 	if err := ko.UnmarshalBinary(data); err != nil {
 		return nil, err

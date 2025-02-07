@@ -215,7 +215,8 @@ func (s *Shard) iterateOnLSMObjects(ctx context.Context, fromID uint64, fn func(
 		if v == nil {
 			continue
 		}
-		obj, err := storobj.FromBinary(v)
+		// TODO: it looks like this only requires vectors
+		obj, err := storobj.FromBinary_exp(v)
 		if err != nil {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}

@@ -59,7 +59,8 @@ func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props 
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	// TODO: this could be changed to use props and additional as well, however, need to check out the callers
+	obj, err := storobj.FromBinary_exp(bytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal object")
 	}
@@ -83,7 +84,8 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	// TODO: should be possible to use the parameters
+	obj, err := storobj.FromBinary_exp(bytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal object")
 	}
@@ -116,7 +118,8 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 			continue
 		}
 
-		obj, err := storobj.FromBinary(bytes)
+		// TODO: this is not so easily changeable
+		obj, err := storobj.FromBinary_exp(bytes)
 		if err != nil {
 			return nil, errors.Wrap(err, "unmarshal kind object")
 		}
@@ -241,7 +244,8 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 			"uuid found for docID, but object is nil")
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	// TODO: it should be possible to refactor this as well
+	obj, err := storobj.FromBinary_exp(bytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal kind object")
 	}
@@ -662,7 +666,8 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
-		obj, err := storobj.FromBinary(val)
+		// TODO: could be very hard to change
+		obj, err := storobj.FromBinary_exp(val)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
 		}
