@@ -28,6 +28,8 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(rest)
 		helper.SetupGRPCClient(t, grpc)
+		// Define path to test/helper/sample-schema/planets/data folder
+		dataFolderPath := "../../../test/helper/sample-schema/planets/data"
 		// Data
 		data := planets.Planets
 		// Define class
@@ -47,6 +49,7 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 			name               string
 			generativeModel    string
 			absentModuleConfig bool
+			withImages         bool
 		}{
 			{
 				name:            "claude-3-5-sonnet-20240620",
@@ -69,6 +72,11 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 				generativeModel:    "claude-3-5-sonnet-20240620",
 				absentModuleConfig: true,
 			},
+			{
+				name:            "claude-3-5-sonnet-20241022",
+				generativeModel: "claude-3-5-sonnet-20241022",
+				withImages:      true,
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -86,7 +94,11 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					planets.InsertObjects(t, class.Class)
+					if tt.withImages {
+						planets.InsertObjectsWithImages(t, class.Class, dataFolderPath)
+					} else {
+						planets.InsertObjects(t, class.Class)
+					}
 				})
 				t.Run("check objects existence", func(t *testing.T) {
 					for _, planet := range data {
@@ -131,6 +143,33 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 						Kind:           &pb.GenerativeProvider_Anthropic{Anthropic: annthropic},
 					})
 				})
+				if tt.withImages {
+					t.Run("image prompt", func(t *testing.T) {
+						t.Run("graphql", func(t *testing.T) {
+							prompt := "Describe image"
+							params := "anthropic:{images:\"image\"}"
+							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
+						})
+						t.Run("grpc", func(t *testing.T) {
+							prompt := "Give a short answer: What's on the image?"
+							annthropic := &pb.GenerativeAnthropic{
+								MaxTokens:   grpchelper.ToPtr(int64(90)),
+								Model:       grpchelper.ToPtr(tt.generativeModel),
+								Temperature: grpchelper.ToPtr(0.9),
+								TopK:        grpchelper.ToPtr(int64(90)),
+								TopP:        grpchelper.ToPtr(0.9),
+								Images:      &pb.TextArray{Values: []string{"image"}},
+							}
+							if tt.absentModuleConfig {
+								annthropic.BaseUrl = grpchelper.ToPtr("https://api.anthropic.com")
+							}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, prompt, &pb.GenerativeProvider{
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Anthropic{Anthropic: annthropic},
+							})
+						})
+					})
+				}
 			})
 		}
 	}
