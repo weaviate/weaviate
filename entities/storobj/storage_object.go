@@ -375,7 +375,6 @@ func objectsByDocIDSequential(bucket bucket, ids []uint64,
 		bufPool.Put(lsmBuf)
 	}()
 
-	// TODO: consider removing the pointer here
 	var props *PropertyExtraction = nil
 	// not all code paths forward the list of properties that should be extracted - if nil is passed fall back
 	if properties != nil {
