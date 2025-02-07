@@ -216,16 +216,16 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			role = *permission.Roles.Role
 			if verb != authorization.READ {
 				// Default verb for role management
-				scope := verb + "_" + authorization.ROLE_SCOPE_MATCH
+				verbWithScope := authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_MATCH)
 				if permission.Roles.Scope != nil {
 					// Determine verb based on scope
 					switch *permission.Roles.Scope {
 					case models.PermissionRolesScopeAll:
-						scope = verb
+						verbWithScope = verb
 					default:
 					}
 				}
-				verb = scope
+				verb = verbWithScope
 			}
 		}
 		resource = CasbinRoles(role)
