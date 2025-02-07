@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/locks"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -54,7 +53,6 @@ type State struct {
 
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration
-	Locks                 locks.ConnectorSchemaLock
 	Logger                *logrus.Logger
 	gqlMutex              sync.Mutex
 	GraphQL               graphql.GraphQL
