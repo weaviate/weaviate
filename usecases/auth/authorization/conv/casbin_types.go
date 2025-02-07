@@ -214,10 +214,8 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		role := "*"
 		if permission.Roles != nil && permission.Roles.Role != nil {
 			role = *permission.Roles.Role
-			if permission.Roles.Scope != nil {
-				// Determine verb based on scope
-				verb = authorization.VerbWithScope(verb, strings.ToUpper(*permission.Roles.Scope))
-			}
+			// Scope is required nad has to be set
+			verb = authorization.VerbWithScope(verb, strings.ToUpper(*permission.Roles.Scope))
 		}
 		resource = CasbinRoles(role)
 	case authorization.ClusterDomain:

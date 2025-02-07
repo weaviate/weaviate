@@ -501,7 +501,7 @@ func Test_permission(t *testing.T) {
 			name:   "all roles",
 			policy: []string{"p", "/*", "", authorization.RolesDomain},
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Role: authorization.String("*"), Scope: authorization.String(models.PermissionRolesScopeMatch)},
+				Roles: &models.PermissionRoles{Role: authorization.String("*"), Scope: authorization.String(models.PermissionRolesScopeAll)},
 			},
 			tests: rolesTestsR,
 		},
@@ -517,7 +517,7 @@ func Test_permission(t *testing.T) {
 			name:   "a role",
 			policy: []string{"p", "/custom", authorization.ROLE_SCOPE_MATCH, authorization.RolesDomain},
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Role: authorization.String("custom"), Scope: authorization.String(models.PermissionRolesScopeMatch)},
+				Roles: &models.PermissionRoles{Role: authorization.String("custom"), Scope: authorization.String(models.PermissionRolesScopeAll)},
 			},
 			tests: rolesTestsR,
 		},
