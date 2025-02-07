@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -723,7 +722,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 		}
 
 		localDigests, err := s.index.DigestObjectsInRange(ctx, shardName, currLocalUUID, finalUUID, config.batchSize)
-		if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
+		if err != nil {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
 		}
 
@@ -765,7 +764,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 
 			remoteDigests, err := s.index.replicator.DigestObjectsInRange(ctx,
 				shardName, host, currRemoteUUID, lastLocalUUID, config.batchSize)
-			if err != nil && !strings.Contains(err.Error(), storobj.ErrLimitReached.Error()) {
+			if err != nil {
 				return localObjects, remoteObjects, propagations, fmt.Errorf("fetching remote object digests: %w", err)
 			}
 
@@ -823,34 +822,30 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 			uuids = append(uuids, strfmt.UUID(uuid))
 		}
 
-		replicaObjs, err := s.index.FetchObjects(ctx, shardName, uuids)
+		localObjs, err := s.MultiObjectByID(ctx, wrapIDsInMulti(uuids))
 		if err != nil {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local objects: %w", err)
 		}
 
-		mergeObjs := make([]*objects.VObject, 0, len(replicaObjs))
+		mergeObjs := make([]*objects.VObject, 0, len(localObjs))
 
-		for _, replicaObj := range replicaObjs {
-			if replicaObj.Deleted {
-				continue
-			}
-
+		for _, obj := range localObjs {
 			var vectors models.Vectors
 
-			if replicaObj.Object.Vectors != nil {
-				vectors = make(models.Vectors, len(replicaObj.Object.Vectors))
-				for i, v := range replicaObj.Object.Vectors {
+			if obj.Object.Vectors != nil {
+				vectors = make(models.Vectors, len(obj.Object.Vectors))
+				for i, v := range obj.Object.Vectors {
 					vectors[i] = v
 				}
 			}
 
 			obj := &objects.VObject{
-				ID:                      replicaObj.ID,
-				LastUpdateTimeUnixMilli: replicaObj.LastUpdateTimeUnixMilli,
-				LatestObject:            &replicaObj.Object.Object,
-				Vector:                  replicaObj.Object.Vector,
+				ID:                      obj.ID(),
+				LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
+				LatestObject:            &obj.Object,
+				Vector:                  obj.Object.Vector,
 				Vectors:                 vectors,
-				StaleUpdateTime:         remoteStaleUpdateTime[replicaObj.ID.String()],
+				StaleUpdateTime:         remoteStaleUpdateTime[obj.ID().String()],
 			}
 
 			mergeObjs = append(mergeObjs, obj)
