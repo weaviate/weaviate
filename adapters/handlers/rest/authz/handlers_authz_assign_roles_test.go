@@ -143,8 +143,9 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 				logger:         logger,
 			}
 			res := h.assignRoleToUser(tt.params, tt.principal)
-			_, ok := res.(*authz.AssignRoleToUserNotFound)
+			parsed, ok := res.(*authz.AssignRoleToUserNotFound)
 			assert.True(t, ok)
+			assert.Contains(t, parsed.Payload.Error[0].Message, "doesn't exist")
 		})
 	}
 }

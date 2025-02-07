@@ -52,7 +52,7 @@ type Server struct {
 	sentryEnabled      bool
 
 	grpcServer *grpc.Server
-	metrics    *monitoring.ServerMetrics
+	metrics    *monitoring.GRPCServerMetrics
 }
 
 // NewServer returns the Server implementing the RPC interface for RAFT peers management and execute/query commands.
@@ -64,7 +64,7 @@ func NewServer(
 	listenAddress string,
 	grpcMessageMaxSize int,
 	sentryEnabled bool,
-	metrics *monitoring.ServerMetrics,
+	metrics *monitoring.GRPCServerMetrics,
 	log *logrus.Logger,
 ) *Server {
 	return &Server{
@@ -156,7 +156,11 @@ func (s *Server) Open() error {
 				grpc_sentry.UnaryServerInterceptor(),
 			)))
 	}
-	options = append(options, monitoring.InstrumentGrpc(*s.metrics)...)
+
+	if s.metrics != nil {
+		options = append(options, monitoring.InstrumentGrpc(s.metrics)...)
+	}
+
 	s.grpcServer = grpc.NewServer(options...)
 	cmd.RegisterClusterServiceServer(s.grpcServer, s)
 	enterrors.GoWrapper(func() {

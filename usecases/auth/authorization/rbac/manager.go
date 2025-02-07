@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
@@ -208,52 +207,6 @@ func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
 		return err
 	}
 	return m.casbin.InvalidateCache()
-}
-
-// Authorize verify if the user has access to a resource to do specific action
-func (m *manager) Authorize(principal *models.Principal, verb string, resources ...string) error {
-	if m == nil {
-		return fmt.Errorf("rbac enforcer expected but not set up")
-	}
-	if principal == nil {
-		return errors.NewUnauthenticated()
-	}
-
-	logger := m.logger.WithFields(logrus.Fields{
-		"action":         "authorize",
-		"user":           principal.Username,
-		"component":      authorization.ComponentName,
-		"request_action": verb,
-	})
-	if len(principal.Groups) > 0 {
-		logger.WithFields(logrus.Fields{"groups": principal.Groups})
-	}
-
-	for _, resource := range resources {
-		allowed, err := m.checkPermissions(principal, resource, verb)
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"resource": resource,
-			}).WithError(err).Error("failed to enforce policy")
-			return err
-		}
-
-		perm, err := conv.PathToPermission(verb, resource)
-		if err != nil {
-			return err
-		}
-
-		logger.WithFields(logrus.Fields{
-			"resources": prettyPermissionsResources(perm),
-			"results":   prettyStatus(allowed),
-		}).Info()
-
-		if !allowed {
-			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm)))
-		}
-	}
-
-	return nil
 }
 
 // BatchEnforcers is not needed after some digging they just loop over requests,

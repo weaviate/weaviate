@@ -106,7 +106,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 		require.NotNil(t, err)
 		var parsed *authz.CreateRoleBadRequest
 		require.True(t, errors.As(err, &parsed))
-		require.Contains(t, parsed.Payload.Error[0].Message, "builtin role")
+		require.Contains(t, parsed.Payload.Error[0].Message, "built-in role")
 	})
 
 	t.Run("fail to delete builtin role", func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 		require.NotNil(t, err)
 		var parsed *authz.DeleteRoleBadRequest
 		require.True(t, errors.As(err, &parsed))
-		require.Contains(t, parsed.Payload.Error[0].Message, "builtin role")
+		require.Contains(t, parsed.Payload.Error[0].Message, "built-in role")
 	})
 
 	t.Run("add builtin role permission", func(t *testing.T) {
@@ -133,7 +133,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 		require.NotNil(t, err)
 		var parsed *authz.AddPermissionsBadRequest
 		require.True(t, errors.As(err, &parsed))
-		require.Contains(t, parsed.Payload.Error[0].Message, "builtin role")
+		require.Contains(t, parsed.Payload.Error[0].Message, "built-in role")
 	})
 
 	t.Run("remove builtin role permission", func(t *testing.T) {
@@ -149,7 +149,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 		require.NotNil(t, err)
 		var parsed *authz.RemovePermissionsBadRequest
 		require.True(t, errors.As(err, &parsed))
-		require.Contains(t, parsed.Payload.Error[0].Message, "builtin role")
+		require.Contains(t, parsed.Payload.Error[0].Message, "built-in role")
 	})
 }
 

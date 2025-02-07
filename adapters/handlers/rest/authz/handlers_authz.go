@@ -55,7 +55,16 @@ type authZHandlers struct {
 func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter,
 	apiKeysConfigs config.APIKey, oidcConfigs config.OIDC, rconfig rbacconf.Config, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
-	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, rbacconfig: rconfig, oidcConfigs: oidcConfigs, apiKeysConfigs: apiKeysConfigs, logger: logger, metrics: metrics}
+	h := &authZHandlers{
+		controller:     controller,
+		authorizer:     authorizer,
+		schemaReader:   schemaReader,
+		rbacconfig:     rconfig,
+		oidcConfigs:    oidcConfigs,
+		apiKeysConfigs: apiKeysConfigs,
+		logger:         logger,
+		metrics:        metrics,
+	}
 
 	// rbac role handlers
 	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
@@ -89,7 +98,7 @@ func (h *authZHandlers) authorizeRoleScopes(principal *models.Principal, origina
 		// Verify user has all permissions they're trying to grant
 		var errs error
 		for _, policy := range policies {
-			if err := h.authorizer.Authorize(principal, policy.Verb, policy.Resource); err != nil {
+			if err := h.authorizer.AuthorizeSilent(principal, policy.Verb, policy.Resource); err != nil {
 				errs = errors.Join(errs, err)
 			}
 		}
@@ -114,7 +123,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	}
 
 	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
-		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
+		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as built-in role %s", *params.Body.Name)))
 	}
 
 	if err := h.authorizeRoleScopes(principal, authorization.CREATE, policies[*params.Body.Name], *params.Body.Name); err != nil {
@@ -147,7 +156,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
-		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", params.ID)))
+		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update built-in role %s", params.ID)))
 	}
 
 	if err := validatePermissions(params.Body.Permissions...); err != nil {
@@ -199,7 +208,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	}
 
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
-		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", params.ID)))
+		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update built-in role %s", params.ID)))
 	}
 
 	permissions, err := conv.PermissionToPolicies(params.Body.Permissions...)
@@ -345,7 +354,7 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 
 func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
-		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
+		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not delete built-in role %s", params.ID)))
 	}
 
 	roles, err := h.controller.GetRoles(params.ID)
@@ -397,7 +406,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	}
 
 	if !h.userExists(params.ID) {
-		return authz.NewAssignRoleToUserNotFound()
+		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("username to assign role to doesn't exist")))
 	}
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
@@ -406,7 +415,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	}
 
 	if len(existedRoles) != len(params.Body.Roles) {
-		return authz.NewAssignRoleToUserNotFound()
+		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
 	if err := h.controller.AddRolesForUser(conv.PrefixUserName(params.ID), params.Body.Roles); err != nil {
@@ -490,9 +499,11 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 
-		if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(roleName)...); err != nil {
-			authErr = err
-			continue
+		if params.ID != principal.Username {
+			if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(roleName)...); err != nil {
+				authErr = err
+				continue
+			}
 		}
 
 		response = append(response, &models.Role{
@@ -563,7 +574,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 	}
 
 	if !h.userExists(params.ID) {
-		return authz.NewRevokeRoleFromUserNotFound()
+		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("username to revoke role from doesn't exist")))
 	}
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
@@ -572,7 +583,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 	}
 
 	if len(existedRoles) != len(params.Body.Roles) {
-		return authz.NewRevokeRoleFromUserNotFound()
+		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the request roles doesn't exist")))
 	}
 
 	if err := h.controller.RevokeRolesForUser(conv.PrefixUserName(params.ID), params.Body.Roles...); err != nil {

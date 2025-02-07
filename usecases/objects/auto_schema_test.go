@@ -18,17 +18,17 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/versioned"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/test_utils"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -1694,5 +1694,9 @@ func assertPropsMatch(t *testing.T, propsA, propsB []*models.Property) {
 type fakeAuthorizer struct{}
 
 func (f fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
+	return nil
+}
+
+func (f fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
 	return nil
 }

@@ -13,6 +13,7 @@ package mocks
 
 import (
 	mock "github.com/stretchr/testify/mock"
+
 	models "github.com/weaviate/weaviate/entities/models"
 )
 
@@ -34,6 +35,31 @@ func (_m *Authorizer) Authorize(principal *models.Principal, verb string, resour
 
 	if len(ret) == 0 {
 		panic("no return value specified for Authorize")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*models.Principal, string, ...string) error); ok {
+		r0 = rf(principal, verb, resources...)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AuthorizeSilent provides a mock function with given fields: principal, verb, resources
+func (_m *Authorizer) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
+	_va := make([]interface{}, len(resources))
+	for _i := range resources {
+		_va[_i] = resources[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, principal, verb)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AuthorizeSilent")
 	}
 
 	var r0 error
