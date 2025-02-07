@@ -483,13 +483,6 @@ func Test_policy(t *testing.T) {
 
 				policy, err := policy(tt.permission)
 				require.Nil(t, err)
-				//if tt.permission.Roles != nil {
-				//	// handle scopes
-				//	tt.policy.Verb = authorization.ROLE_SCOPE_MATCH
-				//	if tt.permission.Roles.Scope != nil {
-				//		tt.policy.Verb = authorization.ROLE_SCOPE_ALL
-				//	}
-				//}
 				require.Equal(t, tt.policy, policy)
 			})
 		}
@@ -841,12 +834,16 @@ func Test_permission(t *testing.T) {
 		tt.policy[1] = fmt.Sprintf("%s%s", tt.policy[3], tt.policy[1])
 		for _, ttt := range tt.tests {
 			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
+				policyForTest := make([]string, len(tt.policy))
+				copy(policyForTest, tt.policy)
 				tt.permission.Action = authorization.String(ttt.permissionAction)
 				// TODO-RBAC : this test has to be rewritten and consider scopes
-				if tt.policy[2] == authorization.ROLE_SCOPE_MATCH {
-					tt.policy[2] = ttt.policyVerb + "_" + authorization.ROLE_SCOPE_MATCH
+				if policyForTest[2] == authorization.ROLE_SCOPE_MATCH {
+					policyForTest[2] = ttt.policyVerb + "_" + authorization.ROLE_SCOPE_MATCH
+				} else {
+					policyForTest[2] = ttt.policyVerb
 				}
-				permission, err := permission(tt.policy, true)
+				permission, err := permission(policyForTest, true)
 				require.Nil(t, err)
 				require.Equal(t, tt.permission, permission)
 			})
