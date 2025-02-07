@@ -180,19 +180,13 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 
 	combinedIds, combinedScores, combinedExplanations = b.sortResultsByScore(combinedIds, combinedScores, combinedExplanations)
 
-	// min between limit and len(combinedIds)
 	limit = int(math.Min(float64(limit), float64(len(combinedIds))))
 
-	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional)
+	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit)
 	if err != nil {
 		return nil, nil
 	}
-
-	if len(combinedIds) <= limit {
-		return combinedObjects, combinedScores
-	}
-
-	return combinedObjects[len(combinedObjects)-limit:], combinedScores[len(combinedObjects)-limit:]
+	return combinedObjects, combinedScores
 }
 
 type aggregate func(float32, float32) float32
@@ -245,58 +239,66 @@ func (b *BM25Searcher) sortResultsByScore(ids []uint64, scores []float32, explan
 	return sorter.ids, sorter.scores, sorter.explanations
 }
 
-func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
+	// reverse arrays to start with the highest score
+	slices.Reverse(ids)
+	slices.Reverse(scores)
+	if explanations != nil {
+		slices.Reverse(explanations)
+	}
+
+	objs := make([]*storobj.Object, 0, limit)
+	scoresResult := make([]float32, 0, limit)
+	explanationsResults := make([][]*terms.DocPointerWithScore, 0, limit)
+
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 
-	objs, err := storobj.ObjectsByDocID(objectsBucket, ids, additionalProps, nil, b.logger)
-	if err != nil {
-		return objs, nil, errors.Errorf("objects loading")
-	}
-
-	// at least one object was deleted
-	if len(objs) != len(ids) {
-		idsTmp := make([]uint64, len(objs))
-		j := 0
-		for i := range scores {
-			if j >= len(objs) {
-				break
-			}
-			if objs[j].DocID != ids[i] {
+	startAt := 0
+	endAt := limit
+	for len(objs) < limit && startAt < len(ids) {
+		objsBatch, err := storobj.ObjectsByDocID(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
+		if err != nil {
+			return objs, nil, errors.Errorf("objects loading")
+		}
+		for i, obj := range objsBatch {
+			if obj == nil {
 				continue
 			}
-			scores[j] = scores[i]
-			idsTmp[j] = ids[i]
-			if explanations != nil {
-				explanations[j] = explanations[i]
+			if obj.DocID != ids[startAt+i] {
+				continue
 			}
-			j++
+			objs = append(objs, obj)
+			scoresResult = append(scoresResult, scores[startAt+i])
+			if explanations != nil {
+				explanationsResults = append(explanationsResults, explanations[startAt+i])
+			}
 		}
-		scores = scores[:j]
-		explanations = explanations[:j]
-		queryTerms = queryTerms[:j]
+		startAt = endAt
+		endAt = int(math.Min(float64(endAt+limit), float64(len(ids))))
 	}
 
-	if explanations != nil && len(explanations) == len(scores) {
-		queryTermId := 0
+	if explanationsResults != nil && len(explanationsResults) == len(scoresResult) {
 		for k := range objs {
 			// add score explanation
 			if objs[k].AdditionalProperties() == nil {
 				objs[k].Object.Additional = make(map[string]interface{})
 			}
-			for j, result := range explanations[k] {
+			for j, result := range explanationsResults[k] {
 				if result == nil {
-					queryTermId++
 					continue
 				}
 				queryTerm := queryTerms[j]
 				objs[k].Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.Frequency
 				objs[k].Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.PropLength
-				queryTermId++
 			}
 		}
 	}
 
-	return objs, scores, nil
+	// reverse back the arrays to the expected order
+	slices.Reverse(objs)
+	slices.Reverse(scoresResult)
+
+	return objs, scoresResult, nil
 }
 
 type scoreSorter struct {
