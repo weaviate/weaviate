@@ -714,10 +714,8 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 	byteObject, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	var propertyNames []string
 	var propStrings [][]string
 	for key := range properties {
-		propertyNames = append(propertyNames, key)
 		propStrings = append(propStrings, []string{key})
 	}
 
@@ -725,7 +723,7 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 
 	// test with reused property map
 	for i := 0; i < 2; i++ {
-		require.Nil(t, UnmarshalPropertiesFromObject(byteObject, extractedProperties, propertyNames, propStrings))
+		require.Nil(t, UnmarshalPropertiesFromObject(byteObject, extractedProperties, propStrings))
 		for key := range expected {
 			require.Equal(t, expected[key], extractedProperties[key])
 		}
@@ -950,7 +948,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 
 				t.Run("with explicit properties", func(t *testing.T) {
 					after, err := FromBinaryOptional(asBinary, additional.Properties{},
-						&PropertyExtraction{PropStrings: []string{"name"}, PropStringsList: [][]string{{"name"}}},
+						&PropertyExtraction{PropertyPaths: [][]string{{"name"}}},
 					)
 					require.Nil(t, err)
 
@@ -964,7 +962,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 						NoProps:      true,
 						ModuleParams: map[string]interface{}{"foo": "bar"}, // this causes the property extraction code to run
 					},
-						&PropertyExtraction{PropStrings: nil, PropStringsList: nil},
+						&PropertyExtraction{PropertyPaths: nil},
 					)
 					require.Nil(t, err)
 
@@ -1252,11 +1250,8 @@ func TestMemoryReuse(t *testing.T) {
 			Properties: beforeProp,
 		}
 
-		propStrings := make([]string, 0, len(beforeProp))
 		propStringsList := make([][]string, 0, len(beforeProp))
-
 		for j := range beforeProp {
-			propStrings = append(propStrings, j)
 			propStringsList = append(propStringsList, []string{j})
 		}
 
@@ -1267,7 +1262,7 @@ func TestMemoryReuse(t *testing.T) {
 		copy(reuseableBuff, asBinary)
 
 		afterProp := map[string]interface{}{}
-		require.Nil(t, UnmarshalProperties(reuseableBuff, afterProp, propStrings, propStringsList))
+		require.Nil(t, UnmarshalProperties(reuseableBuff, afterProp, propStringsList))
 		afterProps = append(afterProps, afterProp)
 	}
 
@@ -1317,8 +1312,7 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 		}
 
 		props = &PropertyExtraction{
-			PropStrings:     propStrings,
-			PropStringsList: propStringsList,
+			PropertyPaths: propStringsList,
 		}
 	}
 
