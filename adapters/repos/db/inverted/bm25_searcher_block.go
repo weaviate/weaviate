@@ -253,7 +253,8 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 		return objs, nil, errors.Errorf("objects loading")
 	}
 
-	if len(objs) != len(scores) {
+	// at least one object was deleted
+	if len(objs) != len(ids) {
 		idsTmp := make([]uint64, len(objs))
 		j := 0
 		for i := range scores {
@@ -272,6 +273,7 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 		}
 		scores = scores[:j]
 		explanations = explanations[:j]
+		queryTerms = queryTerms[:j]
 	}
 
 	if explanations != nil && len(explanations) == len(scores) {
