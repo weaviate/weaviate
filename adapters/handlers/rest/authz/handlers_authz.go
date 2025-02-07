@@ -89,7 +89,7 @@ func (h *authZHandlers) authorizeRoleScopes(principal *models.Principal, origina
 	// If not, we check for matching permissions and authorize each permission being added or removed from the role.
 	// NOTE: logic is inverted for error checks if err == nil
 	var err error
-	if err = h.authorizer.Authorize(principal, originalVerb, authorization.Roles(roleName)...); err == nil {
+	if err = h.authorizer.Authorize(principal, authorization.VerbWithScope(originalVerb, authorization.ROLE_SCOPE_ALL), authorization.Roles(roleName)...); err == nil {
 		return nil
 	}
 
@@ -260,7 +260,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.READ, nil, params.ID); err != nil {
 		return authz.NewHasPermissionForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -281,7 +281,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 }
 
 func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles()...); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.READ, nil, ""); err != nil {
 		return authz.NewGetRolesForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -318,7 +318,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 }
 
 func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.READ, nil, params.ID); err != nil {
 		return authz.NewGetRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -500,7 +500,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		}
 
 		if params.ID != principal.Username {
-			if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(roleName)...); err != nil {
+			if err := h.authorizeRoleScopes(principal, authorization.READ, nil, roleName); err != nil {
 				authErr = err
 				continue
 			}
@@ -533,7 +533,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
+	if err := h.authorizeRoleScopes(principal, authorization.READ, nil, params.ID); err != nil {
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
