@@ -212,9 +212,11 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinUsers(user)
 	case authorization.RolesDomain:
 		role := "*"
+		// default verb for role to handle cases where role is nil
+		verb = authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_MATCH)
 		if permission.Roles != nil && permission.Roles.Role != nil {
 			role = *permission.Roles.Role
-			// Scope is required nad has to be set
+			// Scope is required can't be nil if role exists
 			verb = authorization.VerbWithScope(verb, strings.ToUpper(*permission.Roles.Scope))
 		}
 		resource = CasbinRoles(role)
