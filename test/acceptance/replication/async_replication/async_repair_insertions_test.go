@@ -84,7 +84,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 	t.Run(fmt.Sprintf("assert node %d has all the objects", node), func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", replica.One)
-			assert.Len(t, resp, len(paragraphIDs))
+			assert.Len(ct, resp, len(paragraphIDs))
 		}, 60*time.Second, 1*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }

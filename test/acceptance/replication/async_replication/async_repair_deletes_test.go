@@ -99,7 +99,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 	t.Run("assert node has objects already deleted", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", replica.One)
-			assert.Len(t, resp, 0)
+			assert.Len(ct, resp, 0)
 		}, 60*time.Second, 1*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }
