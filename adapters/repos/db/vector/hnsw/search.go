@@ -35,6 +35,14 @@ import (
 
 const defaultAcornMaxFilterPercentage = 0.4
 
+type FilterStrategy int
+
+const (
+	SWEEPING FilterStrategy = iota
+	ACORN
+	RRE
+)
+
 func (h *hnsw) searchTimeEF(k int) int {
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
@@ -151,26 +159,37 @@ func (h *hnsw) cacheSize() int64 {
 	return size
 }
 
-func (h *hnsw) acornParams(allowList helpers.AllowList) (bool, int) {
-	useAcorn := h.acornSearch.Load()
-	var M int
-
-	if allowList != nil && useAcorn {
-		cacheSize := h.cacheSize()
-		allowListSize := allowList.Len()
-		if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > defaultAcornMaxFilterPercentage {
-			useAcorn = false
-		}
-		M = int(cacheSize / int64(max(1, allowListSize)))
-		M = min(M, 8)
+func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
+	if allowList == nil || !h.acornSearch.Load() {
+		return false
 	}
-	return useAcorn, M
+
+	cacheSize := h.cacheSize()
+	allowListSize := allowList.Len()
+	if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > defaultAcornMaxFilterPercentage {
+		return false
+	}
+
+	return true
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
-	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
+	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
+) (*priorityqueue.Queue[any], error,
+) {
+	if h.acornEnabled(allowList) {
+		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, ACORN)
+	}
+	return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, SWEEPING)
+}
+
+func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
+	queryVector []float32,
+	entrypoints *priorityqueue.Queue[any], ef int, level int,
+	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
+	strategy FilterStrategy) (*priorityqueue.Queue[any], error,
 ) {
 	start := time.Now()
 	defer func() {
@@ -181,8 +200,6 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	visited := h.pools.visitedLists.Borrow()
 	visitedExp := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.RUnlock()
-
-	useAcorn, M := h.acornParams(allowList)
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -211,13 +228,15 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 		return nil, errors.Wrapf(err, "calculate distance of current last result")
 	}
 	var connectionsReusable []uint64
-
 	var sliceConnectionsReusable *common.VectorUint64Slice
 	var slicePendingNextRound *common.VectorUint64Slice
 	var slicePendingThisRound *common.VectorUint64Slice
 
-	if allowList != nil && useAcorn {
-		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
+	if allowList == nil {
+		strategy = SWEEPING
+	}
+	if strategy == ACORN {
+		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(8 * h.maximumConnectionsLayerZero)
 		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 		slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 	} else {
@@ -261,7 +280,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 			continue
 		}
 
-		if allowList == nil || !useAcorn {
+		if strategy != ACORN {
 			if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
 				// How is it possible that we could ever have more connections than the
 				// allowed maximum? It is not anymore, but there was a bug that allowed
@@ -291,7 +310,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 			copy(pendingNextRound, candidateNode.connections[level])
 			hop := 1
 			maxHops := 2
-			for hop <= maxHops && realLen < M*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
+			for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
 				if cap(pendingThisRound) >= len(pendingNextRound) {
 					pendingThisRound = pendingThisRound[:len(pendingNextRound)]
 				} else {
@@ -300,7 +319,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 				}
 				copy(pendingThisRound, pendingNextRound)
 				pendingNextRound = pendingNextRound[:0]
-				for index < len(pendingThisRound) && realLen < M*h.maximumConnectionsLayerZero {
+				for index < len(pendingThisRound) && realLen < 8*h.maximumConnectionsLayerZero {
 					nodeId := pendingThisRound[index]
 					index++
 					if ok := visited.Visited(nodeId); ok {
@@ -335,7 +354,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 							continue
 						}
 
-						if realLen >= M*h.maximumConnectionsLayerZero {
+						if realLen >= 8*h.maximumConnectionsLayerZero {
 							break
 						}
 
@@ -364,6 +383,12 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 
 			// make sure we never visit this neighbor again
 			visited.Visit(neighborID)
+
+			if strategy == RRE && level == 0 {
+				if !allowList.Contains(neighborID) {
+					continue
+				}
+			}
 			var distance float32
 			var err error
 			if h.compressed.Load() {
@@ -387,7 +412,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
-				if !useAcorn && level == 0 && allowList != nil {
+				if strategy == SWEEPING && level == 0 && allowList != nil {
 					// we are on the lowest level containing the actual candidates and we
 					// have an allow list (i.e. the user has probably set some sort of a
 					// filter restricting this search further. As a result we have to
@@ -421,7 +446,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 		}
 	}
 
-	if allowList != nil && useAcorn {
+	if strategy == ACORN {
 		h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
 		h.pools.tempVectorsUint64.Put(slicePendingNextRound)
 		h.pools.tempVectorsUint64.Put(slicePendingThisRound)
@@ -581,111 +606,11 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 			"tombstone was added", docID)
 }
 
-type FastSet struct {
-	boolSet []bool
-	size    int
-}
-
-func NewFastSet(allow helpers.AllowList) *FastSet {
-	bools := make([]bool, allow.Max()+1)
-	it := allow.Iterator()
-	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		bools[docID] = true
-	}
-	return &FastSet{
-		boolSet: bools,
-		size:    allow.Len(),
-	}
-}
-
-func (s *FastSet) Contains(node uint64) bool {
-	return uint64(len(s.boolSet)) > node && s.boolSet[node]
-}
-
-func (s *FastSet) DeepCopy() helpers.AllowList {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Insert(ids ...uint64) {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) WrapOnWrite() helpers.AllowList {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Slice() []uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) IsEmpty() bool {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Len() int {
-	return s.size
-}
-
-func (s *FastSet) Min() uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Max() uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Size() uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Truncate(uint64) helpers.AllowList {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Close() {
-}
-
-func (s *FastSet) Iterator() helpers.AllowListIterator {
-	return &fastIterator{
-		source:  s,
-		current: 0,
-	}
-}
-
-func (s *FastSet) LimitedIterator(limit int) helpers.AllowListIterator {
-	panic("DeepCopy")
-}
-
-type fastIterator struct {
-	current uint64
-	source  *FastSet
-}
-
-func (s *fastIterator) Len() int {
-	return s.source.Len()
-}
-
-func (s *fastIterator) Next() (uint64, bool) {
-	index := s.current
-	size := uint64(len(s.source.boolSet))
-	for index < size && !s.source.boolSet[index] {
-		index++
-	}
-	s.current = index + 1
-	return index, index < size
-}
-
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	if h.isEmpty() {
 		return nil, nil, nil
-	}
-
-	useAcorn, _ := h.acornParams(allowList)
-
-	if allowList != nil && useAcorn {
-		allowList = NewFastSet(allowList)
 	}
 
 	if k < 0 {
@@ -762,24 +687,50 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 	eps := priorityqueue.NewMin[any](10)
 	eps.Insert(entryPointID, entryPointDistance)
-	if allowList != nil && useAcorn {
-		size := h.maximumConnectionsLayerZero
-		if size >= ef {
-			size = ef - 1
+	var strategy FilterStrategy
+	h.shardedNodeLocks.RLock(entryPointID)
+	entryPointNode := h.nodes[entryPointID]
+	h.shardedNodeLocks.RUnlock(entryPointID)
+	useAcorn := h.acornEnabled(allowList)
+	if useAcorn {
+		if entryPointNode == nil {
+			strategy = RRE
+		} else {
+			counter := float32(0)
+			entryPointNode.Lock()
+			if len(entryPointNode.connections) < 1 {
+				strategy = ACORN
+			} else {
+				for _, id := range entryPointNode.connections[0] {
+					if allowList.Contains(id) {
+						counter++
+					}
+				}
+				entryPointNode.Unlock()
+				if counter/float32(len(h.nodes[entryPointID].connections[0])) > defaultAcornMaxFilterPercentage {
+					strategy = RRE
+				} else {
+					strategy = ACORN
+				}
+			}
 		}
-		it := allowList.Iterator()
-		i := 0
-		seeds := make([]uint64, size)
-		for idx, ok := it.Next(); ok && i < size; idx, ok = it.Next() {
-			seeds[i] = idx
-			i++
-		}
-		for _, entryPoint := range seeds {
-			entryPointDistance, _ := h.distToNode(compressorDistancer, entryPoint, searchVec)
-			eps.Insert(entryPoint, entryPointDistance)
-		}
+	} else {
+		strategy = SWEEPING
 	}
-	res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer)
+
+	if allowList != nil && useAcorn {
+		it := allowList.Iterator()
+		idx, ok := it.Next()
+		h.shardedNodeLocks.RLockAll()
+		for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
+			idx, ok = it.Next()
+		}
+		h.shardedNodeLocks.RUnlockAll()
+
+		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
+		eps.Insert(idx, entryPointDistance)
+	}
+	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}

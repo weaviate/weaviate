@@ -72,7 +72,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		class = params.Class
 	}
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(class)...); err != nil {
 		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
 

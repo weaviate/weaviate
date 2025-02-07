@@ -51,7 +51,7 @@ OCI_TAG        := docker tag
 ifeq ($(CI),true)
   # buildx is used on the CI for cross-platform builds
 	_               := $(shell ./tools/dev/ensure-buildx-builder.sh)
-	OCI_BUILD       := DOCKER_BUILDKIT=1 docker buildx build $(OCI_PLATFORMS) $(OCI_BUILD_ARGS)
+	OCI_BUILD       := DOCKER_BUILDKIT=1 docker buildx build --load $(OCI_PLATFORMS) $(OCI_BUILD_ARGS)
 else
 	OCI_BUILD       := DOCKER_BUILDKIT=1 docker build $(OCI_BUILD_ARGS)
 endif

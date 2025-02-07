@@ -19,10 +19,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
@@ -30,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -95,7 +95,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		if schemaClass == nil {
 			err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(object.Class)...)
 			if err != nil {
-				return 0, err
+				return 0, fmt.Errorf("auto schema can't create objects because can't create collection: %w", err)
 			}
 
 			// it returns the newly created class and version
@@ -110,7 +110,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
 				err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(schemaClass.Class)...)
 				if err != nil {
-					return 0, err
+					return 0, fmt.Errorf("auto schema can't create objects because can't update collection: %w", err)
 				}
 				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
 					principal, schemaClass, schemaClass.Class, true, newProperties...)
@@ -528,7 +528,7 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 		}
 		err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(className, names...)...)
 		if err != nil {
-			return 0, totalTenants, err
+			return 0, totalTenants, fmt.Errorf("add tenants because can't create collection: %w", err)
 		}
 		if err := m.addTenants(ctx, principal, className, tenants); err != nil {
 			return 0, totalTenants, fmt.Errorf("add tenants to class %q: %w", className, err)

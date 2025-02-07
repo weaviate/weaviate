@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -450,5 +451,9 @@ func (f *fakeBackupBackend) reset() {
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
+	return nil
+}
+
+func (f *fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
 	return nil
 }

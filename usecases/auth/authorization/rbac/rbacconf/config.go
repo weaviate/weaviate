@@ -17,9 +17,9 @@ import "fmt"
 // has no rights whatsoever
 type Config struct {
 	Enabled          bool     `json:"enabled" yaml:"enabled"`
-	RootUsers        []string `json:"admins" yaml:"admins"`
-	RootGroups       []string `json:"rootGroups" yaml:"rootGroups"`
-	ViewerRootGroups []string `json:"viewerRootGroups" yaml:"viewerRootGroups"`
+	RootUsers        []string `json:"root_users" yaml:"root_users"`
+	RootGroups       []string `json:"root_groups" yaml:"root_groups"`
+	ViewerRootGroups []string `json:"experimental_readonly_root_groups" yaml:"experimental_readonly_root_groups"`
 }
 
 // Validate admin list config for viability, can be called from the central

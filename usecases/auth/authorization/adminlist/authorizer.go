@@ -69,6 +69,10 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb string, resourc
 	return fmt.Errorf("adminlist: %w", errors.NewForbidden(principal, verb, resources...))
 }
 
+func (a *Authorizer) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
+	return a.Authorize(principal, verb, resources...)
+}
+
 func (a *Authorizer) addAdminUserList(users []string) {
 	// build a map for more efficient lookup on long lists
 	if a.adminUsers == nil {

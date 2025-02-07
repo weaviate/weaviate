@@ -228,7 +228,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "you can not create role with the same name as builtin role",
+			expectedError: "you can not create role with the same name as built-in role",
 		},
 	}
 

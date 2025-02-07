@@ -336,6 +336,7 @@ AssignRoleToUserNotFound describes a response with status code 404, with default
 role or user is not found.
 */
 type AssignRoleToUserNotFound struct {
+	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this assign role to user not found response has a 2xx status code
@@ -369,14 +370,25 @@ func (o *AssignRoleToUserNotFound) Code() int {
 }
 
 func (o *AssignRoleToUserNotFound) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserNotFound  %+v", 404, o.Payload)
 }
 
 func (o *AssignRoleToUserNotFound) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserNotFound  %+v", 404, o.Payload)
+}
+
+func (o *AssignRoleToUserNotFound) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *AssignRoleToUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
