@@ -48,7 +48,7 @@ type Service struct {
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
-func New(cfg Config) *Service {
+func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 	rpcListenAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
 	// When using FQDN lookup we might want to advertise a different IP than the one we'll be listening on.
 	// This address is then sent to raft peers as the address this node listen on.
@@ -72,7 +72,6 @@ func New(cfg Config) *Service {
 	fsm := NewFSM(cfg, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
 
-	svrMetrics := monitoring.NewServerMetrics("weaviate_cluster", prometheus.DefaultRegisterer)
 	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{

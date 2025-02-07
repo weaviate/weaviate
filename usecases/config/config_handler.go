@@ -133,8 +133,6 @@ type Config struct {
 
 	// map[className][]propertyName
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
-
-	SchemaRetrievalStrategy SchemaRetrievalStrategy `json:"schema_retrieval_strategy" yaml:"schema_retrieval_strategy"`
 }
 
 // Validate the configuration
