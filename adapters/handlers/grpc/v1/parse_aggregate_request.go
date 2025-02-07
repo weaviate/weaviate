@@ -95,7 +95,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 	switch search := req.GetSearch().(type) {
 	case *pb.AggregateRequest_NearVector:
 		if nv := search.NearVector; nv != nil {
-			params.NearVector, err = parseNearVec(nv, targetVectors)
+			params.NearVector, _, err = parseNearVec(nv, targetVectors, class, nil)
 			if err != nil {
 				return nil, fmt.Errorf("parse near vector: %w", err)
 			}
@@ -240,9 +240,14 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 			var vector models.Vector
 			// vectors has precedent for being more efficient
 			if len(hs.Vectors) > 0 {
-				vector, err = extractVector(hs.Vectors)
-				if err != nil {
-					return nil, fmt.Errorf("hybrid: %w", err)
+				switch len(hs.Vectors) {
+				case 1:
+					vector, err = extractVector(hs.Vectors[0])
+					if err != nil {
+						return nil, fmt.Errorf("hybrid: %w", err)
+					}
+				default:
+					return nil, fmt.Errorf("hybrid: only 1 vector supported, found %d vectors", len(hs.Vectors))
 				}
 			} else if len(hs.VectorBytes) > 0 {
 				vector = byteops.Fp32SliceFromBytes(hs.VectorBytes)
@@ -284,11 +289,12 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 			}
 
 			if nearVec != nil {
-				params.Hybrid.NearVectorParams, err = parseNearVec(nearVec, targetVectors)
+				params.Hybrid.NearVectorParams, _, err = parseNearVec(nearVec, targetVectors, class, nil)
 				if err != nil {
 					return nil, err
 				}
 
+				params.Hybrid.TargetVectors = params.Hybrid.NearVectorParams.TargetVectors
 				if nearVec.Distance != nil {
 					params.Hybrid.NearVectorParams.Distance = *nearVec.Distance
 					params.Hybrid.NearVectorParams.WithDistance = true

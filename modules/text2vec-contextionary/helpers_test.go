@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
@@ -31,7 +32,6 @@ import (
 	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 	text2vecadditionalprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
 	text2vecneartext "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
-
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -326,6 +326,10 @@ func getFakeModulesProvider() *fakeModulesProvider {
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
+
+func (f *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, action string, resource ...string) error {
 	return nil
 }
 

@@ -51,6 +51,10 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 					Description: "topK",
 					Type:        graphql.Int,
 				},
+				"images": &graphql.InputObjectFieldConfig{
+					Description: "images",
+					Type:        graphql.NewList(graphql.String),
+				},
 			},
 		}),
 		DefaultValue: nil,

@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -51,6 +52,7 @@ type State struct {
 	AuthzController authorization.Controller
 
 	ServerConfig          *config.WeaviateConfig
+	LDIntegration         *configRuntime.LDIntegration
 	Logger                *logrus.Logger
 	gqlMutex              sync.Mutex
 	GraphQL               graphql.GraphQL
@@ -65,7 +67,8 @@ type State struct {
 
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics
-	ServerMetrics      *monitoring.ServerMetrics
+	HTTPServerMetrics  *monitoring.HTTPServerMetrics
+	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager

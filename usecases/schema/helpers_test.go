@@ -45,7 +45,6 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	cfg := config.Config{
 		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
-		SchemaRetrievalStrategy:     config.LeaderOnly,
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
@@ -60,7 +59,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 }
 
 func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorization.Authorizer) (*Handler, *fakeSchemaManager) {
-	cfg := config.Config{SchemaRetrievalStrategy: config.LeaderOnly}
+	cfg := config.Config{}
 	metaHandler := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
