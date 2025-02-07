@@ -129,7 +129,7 @@ func TestUserPermissions(t *testing.T) {
 		Name: &roleNameReadRoles,
 		Permissions: []*models.Permission{{
 			Action: &readRolesAction,
-			Roles:  &models.PermissionRoles{Role: &all},
+			Roles:  &models.PermissionRoles{Role: &all, Scope: String(models.PermissionRolesScopeAll)},
 		}},
 	}
 	otherRole := &models.Role{

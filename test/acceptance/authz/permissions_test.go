@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -73,7 +74,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.CreateRoles), Roles: &models.PermissionRoles{Role: String("*")}},
+				{Action: String(authorization.CreateRoles), Roles: &models.PermissionRoles{Role: String("*"), Scope: String(models.PermissionRolesScopeAll)}},
 			},
 		})
 		role := helper.GetRoleByName(t, adminKey, name)
@@ -89,7 +90,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.CreateRoles), Roles: &models.PermissionRoles{Role: String("foo")}},
+				{Action: String(authorization.CreateRoles), Roles: &models.PermissionRoles{Role: String("foo"), Scope: String(models.PermissionRolesScopeAll)}},
 			},
 		})
 		role := helper.GetRoleByName(t, adminKey, name)
@@ -105,8 +106,8 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.ReadRoles), Roles: &models.PermissionRoles{Role: String("foo")}},
-				{Action: String(authorization.ReadRoles), Roles: &models.PermissionRoles{Role: String("bar")}},
+				{Action: String(authorization.ReadRoles), Roles: &models.PermissionRoles{Role: String("foo"), Scope: String(models.PermissionRolesScopeAll)}},
+				{Action: String(authorization.ReadRoles), Roles: &models.PermissionRoles{Role: String("bar"), Scope: String(models.PermissionRolesScopeAll)}},
 			},
 		})
 		role := helper.GetRoleByName(t, adminKey, name)
