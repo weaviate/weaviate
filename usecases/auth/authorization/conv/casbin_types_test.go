@@ -45,7 +45,7 @@ var (
 	manageVerb = CRUD
 
 	rolesTestsR = []innerTest{
-		{permissionAction: authorization.ReadRoles, testDescription: readDesc, policyVerb: authorization.VerbWithScope(readVerb, authorization.ROLE_SCOPE_MATCH)},
+		{permissionAction: authorization.ReadRoles, testDescription: readDesc, policyVerb: authorization.VerbWithScope(readVerb, authorization.ROLE_SCOPE_ALL)},
 	}
 	rolesTestsCUD = []innerTest{
 		{permissionAction: authorization.CreateRoles, testDescription: createVerb, policyVerb: authorization.VerbWithScope(createVerb, authorization.ROLE_SCOPE_ALL)},
@@ -94,23 +94,24 @@ func Test_policy(t *testing.T) {
 		{
 			name: "all roles",
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Role: authorization.All},
+				Roles: &models.PermissionRoles{Role: authorization.All, Scope: authorization.String(models.PermissionRolesScopeAll)},
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinRoles("*"),
 				Domain:   authorization.RolesDomain,
+				Verb:     authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL),
 			},
 			tests: rolesTestsR,
 		},
 		{
 			name: "a role",
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Role: authorization.String("admin")},
+				Roles: &models.PermissionRoles{Role: authorization.String("admin"), Scope: authorization.String(models.PermissionRolesScopeAll)},
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinRoles("admin"),
 				Domain:   authorization.RolesDomain,
-				Verb:     authorization.READ,
+				Verb:     authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL),
 			},
 			tests: rolesTestsR,
 		},
