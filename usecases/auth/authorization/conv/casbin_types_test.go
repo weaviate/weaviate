@@ -45,12 +45,13 @@ var (
 	manageVerb = CRUD
 
 	rolesTestsR = []innerTest{
-		{permissionAction: authorization.ReadRoles, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.ReadRoles, testDescription: readDesc,
+			policyVerb: authorization.VerbWithScope(readVerb, authorization.ROLE_SCOPE_MATCH)},
 	}
 	rolesTestsCUD = []innerTest{
-		{permissionAction: authorization.CreateRoles, testDescription: createVerb, policyVerb: createVerb},
-		{permissionAction: authorization.UpdateRoles, testDescription: updateDesc, policyVerb: updateVerb},
-		{permissionAction: authorization.DeleteRoles, testDescription: deleteDesc, policyVerb: deleteVerb},
+		{permissionAction: authorization.CreateRoles, testDescription: createVerb, policyVerb: authorization.VerbWithScope(createVerb, authorization.ROLE_SCOPE_ALL)},
+		{permissionAction: authorization.UpdateRoles, testDescription: updateDesc, policyVerb: authorization.VerbWithScope(updateVerb, authorization.ROLE_SCOPE_ALL)},
+		{permissionAction: authorization.DeleteRoles, testDescription: deleteDesc, policyVerb: authorization.VerbWithScope(deleteVerb, authorization.ROLE_SCOPE_ALL)},
 	}
 	clusterTests = []innerTest{
 		{permissionAction: authorization.ReadCluster, testDescription: readDesc, policyVerb: readVerb},
@@ -500,13 +501,13 @@ func Test_permission(t *testing.T) {
 			name:   "all roles",
 			policy: []string{"p", "/*", "", authorization.RolesDomain},
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Role: authorization.String("*"), Scope: nil},
+				Roles: &models.PermissionRoles{Role: authorization.String("*"), Scope: authorization.String(models.PermissionRolesScopeMatch)},
 			},
 			tests: rolesTestsR,
 		},
 		{
 			name:   "all roles",
-			policy: []string{"p", "/*", authorization.ROLE_SCOPE_ALL, authorization.RolesDomain},
+			policy: []string{"p", "/*", authorization.ROLE_SCOPE_MATCH, authorization.RolesDomain},
 			permission: &models.Permission{
 				Roles: authorization.AllRoles,
 			},
@@ -514,9 +515,9 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a role",
-			policy: []string{"p", "/custom", "", authorization.RolesDomain},
+			policy: []string{"p", "/custom", authorization.ROLE_SCOPE_MATCH, authorization.RolesDomain},
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Role: authorization.String("custom"), Scope: nil},
+				Roles: &models.PermissionRoles{Role: authorization.String("custom"), Scope: authorization.String(models.PermissionRolesScopeMatch)},
 			},
 			tests: rolesTestsR,
 		},
@@ -524,7 +525,7 @@ func Test_permission(t *testing.T) {
 			name:   "a role",
 			policy: []string{"p", "/custom", authorization.ROLE_SCOPE_MATCH, authorization.RolesDomain},
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Role: authorization.String("custom"), Scope: authorization.String(models.PermissionRolesScopeMatch)},
+				Roles: &models.PermissionRoles{Role: authorization.String("custom"), Scope: authorization.String(models.PermissionRolesScopeAll)},
 			},
 			tests: rolesTestsCUD,
 		},
