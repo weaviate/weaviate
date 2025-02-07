@@ -197,12 +197,12 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 
 type aggregate func(float32, float32) float32
 
-func (b *BM25Searcher) combineResultsForMultiProp(allObjects []uint64, allScores []float32, allExplanation [][]*terms.DocPointerWithScore, aggregateFn aggregate, singleProp bool) ([]uint64, []float32, [][]*terms.DocPointerWithScore) {
+func (b *BM25Searcher) combineResultsForMultiProp(allIds []uint64, allScores []float32, allExplanation [][]*terms.DocPointerWithScore, aggregateFn aggregate, singleProp bool) ([]uint64, []float32, [][]*terms.DocPointerWithScore) {
 	// if ids are the same, sum the scores
 	combinedScores := make(map[uint64]float32)
 	combinedExplanations := make(map[uint64][]*terms.DocPointerWithScore)
 
-	for i, obj := range allObjects {
+	for i, obj := range allIds {
 		id := obj
 		if _, ok := combinedScores[id]; !ok {
 			combinedScores[id] = allScores[i]
@@ -222,27 +222,27 @@ func (b *BM25Searcher) combineResultsForMultiProp(allObjects []uint64, allScores
 		}
 	}
 
-	objects := make([]uint64, 0, len(combinedScores))
+	ids := make([]uint64, 0, len(combinedScores))
 	scores := make([]float32, 0, len(combinedScores))
 	exp := make([][]*terms.DocPointerWithScore, 0, len(combinedScores))
 	for id, score := range combinedScores {
-		objects = append(objects, id)
+		ids = append(ids, id)
 		scores = append(scores, score)
 		if allExplanation != nil {
 			exp = append(exp, combinedExplanations[id])
 		}
 	}
-	return objects, scores, exp
+	return ids, scores, exp
 }
 
-func (b *BM25Searcher) sortResultsByScore(objects []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore) ([]uint64, []float32, [][]*terms.DocPointerWithScore) {
+func (b *BM25Searcher) sortResultsByScore(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore) ([]uint64, []float32, [][]*terms.DocPointerWithScore) {
 	sorter := &scoreSorter{
-		objects:      objects,
+		ids:          ids,
 		scores:       scores,
 		explanations: explanations,
 	}
 	sort.Sort(sorter)
-	return sorter.objects, sorter.scores, sorter.explanations
+	return sorter.ids, sorter.scores, sorter.explanations
 }
 
 func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties) ([]*storobj.Object, []float32, error) {
@@ -298,24 +298,24 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 }
 
 type scoreSorter struct {
-	objects      []uint64
+	ids          []uint64
 	scores       []float32
 	explanations [][]*terms.DocPointerWithScore
 }
 
 func (s *scoreSorter) Len() int {
-	return len(s.objects)
+	return len(s.ids)
 }
 
 func (s *scoreSorter) Less(i, j int) bool {
 	if s.scores[i] == s.scores[j] {
-		return s.objects[i] < s.objects[j]
+		return s.ids[i] < s.ids[j]
 	}
 	return s.scores[i] < s.scores[j]
 }
 
 func (s *scoreSorter) Swap(i, j int) {
-	s.objects[i], s.objects[j] = s.objects[j], s.objects[i]
+	s.ids[i], s.ids[j] = s.ids[j], s.ids[i]
 	s.scores[i], s.scores[j] = s.scores[j], s.scores[i]
 	if s.explanations != nil {
 		s.explanations[i], s.explanations[j] = s.explanations[j], s.explanations[i]
