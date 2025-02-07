@@ -255,6 +255,8 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 
 	startAt := 0
 	endAt := limit
+	// try to get docs up to the limit
+	// if there are not enough docs, get limit more docs until we've exhausted the list of ids
 	for len(objs) < limit && startAt < len(ids) {
 		objsBatch, err := storobj.ObjectsByDocID(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
 		if err != nil {
