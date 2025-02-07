@@ -20,18 +20,15 @@ import (
 
 const (
 	baseURLProperty     = "baseURL"
-	headerURLProperty   = "X-Nvidia-Baseurl"
 	modelProperty       = "model"
 	temperatureProperty = "temperature"
+	topPProperty        = "topP"
 	maxTokensProperty   = "maxTokens"
 )
 
-// note it might not like this -- might want int values for e.g. MaxTokens
 var (
-	DefaultBaseURL                   = "https://integrate.api.nvidia.com/v1"
-	DefaultNvidiaModel               = "meta/llama-3.2-3b-instruct"
-	DefaultNvidiaTemperature float64 = 0
-	DefaultNvidiaMaxTokens           = 2048
+	DefaultBaseURL     = "https://integrate.api.nvidia.com"
+	DefaultNvidiaModel = "meta/llama-3.2-3b-instruct"
 )
 
 type classSettings struct {
@@ -51,41 +48,22 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	return nil
 }
 
-func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
-	asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
-	return &asString
-}
-
-func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
-	var wrongVal int = -1
-	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
-}
-
-func (ic *classSettings) getFloat64Property(name string, defaultValue *float64) *float64 {
-	var wrongVal float64 = -1
-	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
-}
-
-func (ic *classSettings) GetMaxTokensForModel(model string) int {
-	return DefaultNvidiaMaxTokens
-}
-
 func (ic *classSettings) BaseURL() string {
-	baseURL := *ic.getStringProperty(baseURLProperty, DefaultBaseURL)
-	if headerURL := *ic.getStringProperty(headerURLProperty, ""); headerURL != "" {
-		baseURL = headerURL
-	}
-	return baseURL
+	return ic.propertyValuesHelper.GetPropertyAsString(ic.cfg, baseURLProperty, DefaultBaseURL)
 }
 
 func (ic *classSettings) Model() string {
-	return *ic.getStringProperty(modelProperty, DefaultNvidiaModel)
+	return ic.propertyValuesHelper.GetPropertyAsString(ic.cfg, modelProperty, DefaultNvidiaModel)
 }
 
-func (ic *classSettings) MaxTokens() int {
-	return *ic.getIntProperty(maxTokensProperty, &DefaultNvidiaMaxTokens)
+func (ic *classSettings) Temperature() *float64 {
+	return ic.propertyValuesHelper.GetPropertyAsFloat64(ic.cfg, temperatureProperty, nil)
 }
 
-func (ic *classSettings) Temperature() float64 {
-	return *ic.getFloat64Property(temperatureProperty, &DefaultNvidiaTemperature)
+func (ic *classSettings) TopP() *float64 {
+	return ic.propertyValuesHelper.GetPropertyAsFloat64(ic.cfg, topPProperty, nil)
+}
+
+func (ic *classSettings) MaxTokens() *int {
+	return ic.propertyValuesHelper.GetPropertyAsInt(ic.cfg, maxTokensProperty, nil)
 }

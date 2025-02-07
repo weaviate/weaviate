@@ -31,21 +31,17 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 					Description: "model",
 					Type:        graphql.String,
 				},
-				"maxTokens": &graphql.InputObjectFieldConfig{
-					Description: "maxTokens",
-					Type:        graphql.Int,
-				},
 				"temperature": &graphql.InputObjectFieldConfig{
 					Description: "temperature",
 					Type:        graphql.Float,
 				},
-				"n": &graphql.InputObjectFieldConfig{
-					Description: "n",
-					Type:        graphql.Int,
-				},
 				"topP": &graphql.InputObjectFieldConfig{
 					Description: "topP",
 					Type:        graphql.Float,
+				},
+				"maxTokens": &graphql.InputObjectFieldConfig{
+					Description: "maxTokens",
+					Type:        graphql.Int,
 				},
 			},
 		}),

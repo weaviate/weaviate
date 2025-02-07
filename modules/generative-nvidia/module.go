@@ -62,7 +62,7 @@ func (m *GenerativeNvidiaModule) Init(ctx context.Context,
 func (m *GenerativeNvidiaModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("NVIDIA_TOKEN")
+	apiKey := os.Getenv("NVIDIA_APIKEY")
 
 	client := clients.New(apiKey, timeout, logger)
 	m.generative = client

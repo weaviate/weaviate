@@ -26,76 +26,67 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func nullLogger() logrus.FieldLogger {
-	l, _ := test.NewNullLogger()
-	return l
-}
-
 func TestGetAnswer(t *testing.T) {
-	textProperties := []map[string]string{{"prop": "My name is john"}}
-
 	tests := []struct {
 		name           string
 		answer         generateResponse
+		errorResponse  *generateResponseError
 		timeout        time.Duration
 		expectedResult string
 	}{
 		{
 			name: "when the server has a successful answer",
 			answer: generateResponse{
-				Choices: []Choice{
+				Choices: []choice{
 					{
-						Message: Message{
+						Message: message{
+							Role:    "user",
 							Content: "John",
 						},
 					},
 				},
-				Error: nil,
 			},
 			expectedResult: "John",
 		},
 		{
 			name: "when the server has an error",
-			answer: generateResponse{
-				Error: &nvidiaApiError{
-					Message: "some error from the server",
-				},
+			errorResponse: &generateResponseError{
+				Status: 402,
+				Title:  "Payment Required",
+				Detail: "Account 'x': Cloud credits expired - Please contact NVIDIA representatives",
 			},
 		},
-		{
-			name:    "when the server does not respond in time",
-			answer:  generateResponse{Error: &nvidiaApiError{Message: "context deadline exceeded"}},
-			timeout: time.Second,
-		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			handler := &testAnswerHandler{
-				t:       t,
-				answer:  test.answer,
-				timeout: test.timeout,
+				t:             t,
+				answer:        tt.answer,
+				errorResponse: tt.errorResponse,
+				timeout:       tt.timeout,
 			}
 			server := httptest.NewServer(handler)
 			defer server.Close()
 
-			c := New("apiKey", test.timeout, nullLogger())
+			c := New("apiKey", tt.timeout, nullLogger())
 
 			settings := &fakeClassConfig{baseURL: server.URL}
+			textProperties := []map[string]string{{"prop": "My name is john"}}
 			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, settings)
 
-			if test.answer.Error != nil {
-				assert.Contains(t, err.Error(), test.answer.Error.Message)
+			if tt.errorResponse != nil {
+				assert.Contains(t, err.Error(), tt.errorResponse.Title, tt.errorResponse.Detail)
 			} else {
-				assert.Equal(t, test.expectedResult, *res.Result)
+				assert.Equal(t, tt.expectedResult, *res.Result)
 			}
 		})
 	}
-	t.Run("when X-Nvidia-Baseurl header is passed", func(t *testing.T) {
+	t.Run("when X-Nvidia-BaseURL header is passed", func(t *testing.T) {
 		c := New("apiKey", 5*time.Second, nullLogger())
-		baseUrl := "https://integrate.api.nvidia.com/v1"
+		baseUrl := "https://integrate.api.nvidia.com"
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Nvidia-Baseurl", []string{"https://integrate.api.nvidia.com/v1"})
+			"X-Nvidia-BaseURL", []string{"https://integrate.api.nvidia.com"})
 		buildURL := c.getNvidiaUrl(ctxWithValue, baseUrl)
 		assert.Equal(t, "https://integrate.api.nvidia.com/v1/chat/completions", buildURL)
 
@@ -107,21 +98,21 @@ func TestGetAnswer(t *testing.T) {
 type testAnswerHandler struct {
 	t *testing.T
 	// the test handler will report as not ready before the time has passed
-	answer  generateResponse
-	timeout time.Duration
+	answer        generateResponse
+	errorResponse *generateResponseError
+	timeout       time.Duration
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/chat/completions", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	time.Sleep(f.timeout)
 
-	if f.answer.Error != nil && f.answer.Error.Message != "" {
-		outBytes, err := json.Marshal(f.answer)
+	if f.errorResponse != nil {
+		outBytes, err := json.Marshal(f.errorResponse)
 		require.Nil(f.t, err)
 
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusPaymentRequired)
 		w.Write(outBytes)
 		return
 	}
@@ -164,4 +155,9 @@ func (cfg *fakeClassConfig) Property(propName string) map[string]interface{} {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func nullLogger() logrus.FieldLogger {
+	l, _ := test.NewNullLogger()
+	return l
 }

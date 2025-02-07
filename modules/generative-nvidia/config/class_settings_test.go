@@ -22,10 +22,11 @@ func Test_classSettings_Validate(t *testing.T) {
 	tests := []struct {
 		name            string
 		cfg             moduletools.ClassConfig
-		wantModel       string
-		wantMaxTokens   int
-		wantTemperature float64
 		wantBaseURL     string
+		wantModel       string
+		wantTemperature *float64
+		wantTopP        *float64
+		wantMaxTokens   *int
 		wantErr         error
 	}{
 		{
@@ -33,52 +34,26 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:       "meta/llama-3.2-3b-instruct",
-			wantMaxTokens:   2048,
-			wantTemperature: 0,
-			wantBaseURL:     "https://integrate.api.nvidia.com/v1",
-			wantErr:         nil,
+			wantBaseURL: "https://integrate.api.nvidia.com",
+			wantModel:   "meta/llama-3.2-3b-instruct",
+			wantErr:     nil,
 		},
 		{
 			name: "everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model":       "meta/llama-3.2-3b-instruct",
+					"baseURL":     "http://url.com",
+					"model":       "nvidia/llama-3.1-nemoguard-8b-topic-control",
+					"temperature": 0.5,
+					"topP":        1,
 					"maxTokens":   1024,
-					"temperature": 1,
 				},
 			},
-			wantModel:       "meta/llama-3.2-3b-instruct",
-			wantMaxTokens:   1024,
-			wantTemperature: 1,
-			wantBaseURL:     "https://integrate.api.nvidia.com/v1",
-			wantErr:         nil,
-		},
-		{
-			name: "newly supported serverless model",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "new-serverless-model",
-				},
-			},
-			wantModel:       "new-serverless-model",
-			wantMaxTokens:   2048,
-			wantTemperature: 0,
-			wantBaseURL:     "https://integrate.api.nvidia.com/v1",
-			wantErr:         nil,
-		},
-		{
-			name: "custom dedicated model",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":            "my-dedicated-model",
-					"X-Nvidia-Baseurl": "https://integrate.api.nvidia.com/v1",
-				},
-			},
-			wantModel:       "my-dedicated-model",
-			wantMaxTokens:   2048,
-			wantTemperature: 0,
-			wantBaseURL:     "https://integrate.api.nvidia.com/v1",
+			wantBaseURL:     "http://url.com",
+			wantModel:       "nvidia/llama-3.1-nemoguard-8b-topic-control",
+			wantTemperature: ptFloat64(0.5),
+			wantTopP:        ptFloat64(1),
+			wantMaxTokens:   ptInt(1024),
 			wantErr:         nil,
 		},
 	}
@@ -120,4 +95,12 @@ func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func ptInt(in int) *int {
+	return &in
+}
+
+func ptFloat64(in float64) *float64 {
+	return &in
 }
