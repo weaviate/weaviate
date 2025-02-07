@@ -299,7 +299,7 @@ func TestCreateRoleForbidden(t *testing.T) {
 
 			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
 			if tt.authorizeErr != nil {
-				authorizer.On("Authorize", tt.principal, authorization.ROLE_SCOPE_MATCH, authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{

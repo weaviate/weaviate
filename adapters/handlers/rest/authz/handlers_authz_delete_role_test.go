@@ -117,7 +117,7 @@ func TestDeleteRoleForbidden(t *testing.T) {
 
 			controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{tt.params.ID: {}}, nil)
 			authorizer.On("Authorize", tt.principal, authorization.DELETE, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
-			authorizer.On("Authorize", tt.principal, authorization.ROLE_SCOPE_MATCH, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
