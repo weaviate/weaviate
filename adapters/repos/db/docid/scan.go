@@ -80,10 +80,10 @@ func (os *objectScannerLSM) scan() error {
 	// each object is scanned one after the other, so we can reuse the same memory allocations for all objects
 	docIDBytes := make([]byte, 8)
 
-	// Preallocate strings needed for json unmarshalling
-	propStrings := make([][]string, len(os.properties))
+	// Preallocate property paths needed for json unmarshalling
+	propertyPaths := make([][]string, len(os.properties))
 	for i := range os.properties {
-		propStrings[i] = []string{os.properties[i]}
+		propertyPaths[i] = []string{os.properties[i]}
 	}
 
 	var (
@@ -103,8 +103,8 @@ func (os *objectScannerLSM) scan() error {
 			continue
 		}
 
-		if len(os.properties) > 0 {
-			err = storobj.UnmarshalPropertiesFromObject(res, propertiesTyped, os.properties, propStrings)
+		if len(propertyPaths) > 0 {
+			err = storobj.UnmarshalPropertiesFromObject(res, propertiesTyped, propertyPaths)
 			if err != nil {
 				return errors.Wrapf(err, "unmarshal data object")
 			}
