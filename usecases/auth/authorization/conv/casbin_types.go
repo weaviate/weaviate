@@ -212,20 +212,17 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinUsers(user)
 	case authorization.RolesDomain:
 		role := "*"
+		// Default verb for role management
+		verb = authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_MATCH)
 		if permission.Roles != nil && permission.Roles.Role != nil {
 			role = *permission.Roles.Role
-			if verb != authorization.READ {
-				// Default verb for role management
-				verbWithScope := authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_MATCH)
-				if permission.Roles.Scope != nil {
-					// Determine verb based on scope
-					switch *permission.Roles.Scope {
-					case models.PermissionRolesScopeAll:
-						verbWithScope = verb
-					default:
-					}
+			if permission.Roles.Scope != nil {
+				// Determine verb based on scope
+				switch *permission.Roles.Scope {
+				case models.PermissionRolesScopeAll:
+					verb = authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_ALL)
+				default:
 				}
-				verb = verbWithScope
 			}
 		}
 		resource = CasbinRoles(role)
@@ -368,19 +365,11 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			Role: &splits[1],
 		}
 
-		if mapped.Verb != authorization.READ {
-			verbSplits := strings.Split(mapped.Verb, "_")
-			scope := models.PermissionRolesScopeAll
-			if len(verbSplits) == 2 {
-				mapped.Verb = verbSplits[0]
-				scope = verbSplits[1]
-				if scope == authorization.ROLE_SCOPE_MATCH {
-					scope = models.PermissionRolesScopeMatch
-				}
-			}
+		verbSplits := strings.Split(mapped.Verb, "_")
+		mapped.Verb = verbSplits[0]
+		scope := strings.ToLower(verbSplits[1])
+		permission.Roles.Scope = &scope
 
-			permission.Roles.Scope = &scope
-		}
 	case authorization.NodesDomain:
 		verbosity := splits[2]
 		var collection *string

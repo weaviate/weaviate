@@ -32,7 +32,7 @@ const (
 	// DELETE Represents the action to delete a resource.
 	DELETE = "D"
 
-	ROLE_SCOPE_ALL   = "(C)|(R)|(U)|(D)"
+	ROLE_SCOPE_ALL   = "ALL"
 	ROLE_SCOPE_MATCH = "MATCH"
 )
 
