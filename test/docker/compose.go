@@ -51,6 +51,7 @@ import (
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
@@ -337,6 +338,12 @@ func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 func (d *Compose) WithRerankerNvidia(apiKey string) *Compose {
 	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modrerankernvidia.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modnvidia.Name)
 	return d
 }
 
