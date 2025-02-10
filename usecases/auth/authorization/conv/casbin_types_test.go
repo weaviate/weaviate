@@ -116,6 +116,18 @@ func Test_policy(t *testing.T) {
 			tests: rolesTestsR,
 		},
 		{
+			name: "a role with scope all",
+			permission: &models.Permission{
+				Roles: &models.PermissionRoles{Role: authorization.String("admin"), Scope: authorization.String(models.PermissionRolesScopeAll)},
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinRoles("admin"),
+				Domain:   authorization.RolesDomain,
+				Verb:     authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL),
+			},
+			tests: rolesTestsCUD,
+		},
+		{
 			name:       "cluster",
 			permission: &models.Permission{},
 			policy: &authorization.Policy{
