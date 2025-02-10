@@ -53,9 +53,10 @@ UPDATE_LOOP:
 			}
 		case cmd.RBACCommandPolicyVersionV2:
 			req.Roles = migrateUpsertRolesPermissionsV2(req.Roles)
-
 		default:
-			break UPDATE_LOOP
+			if req.Version == cmd.RBACLatestCommandPolicyVersion {
+				break UPDATE_LOOP
+			}
 		}
 		req.Version += 1
 	}
@@ -107,4 +108,77 @@ func migrateUpsertRolesPermissionsV2(roles map[string][]authorization.Policy) ma
 		}
 	}
 	return roles
+}
+
+func migrateRemovePermissions(req *cmd.RemovePermissionsRequest) (*cmd.RemovePermissionsRequest, error) {
+	// loop through updates until current version is reached
+UPDATE_LOOP:
+	for {
+		switch req.Version {
+		case cmd.RBACCommandPolicyVersionV0:
+			for idx := range req.Permissions {
+				if req.Permissions[idx].Domain != authorization.SchemaDomain {
+					continue
+				}
+				parts := strings.Split(req.Permissions[idx].Resource, "/")
+				if len(parts) < 3 {
+					// shall never happens
+					return nil, fmt.Errorf("invalid schema path")
+				}
+				req.Permissions[idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
+			}
+		case cmd.RBACCommandPolicyVersionV2:
+			req.Permissions = migrateRemoveRolesPermissionsV2(req.Permissions)
+
+		default:
+			if req.Version == cmd.RBACLatestCommandPolicyVersion {
+				break UPDATE_LOOP
+			}
+		}
+		req.Version += 1
+	}
+
+	return req, nil
+}
+
+func migrateRemoveRolesPermissionsV2(permissions []*authorization.Policy) []*authorization.Policy {
+	initialPerms := len(permissions)
+	for idx := 0; idx < initialPerms; idx++ {
+		if permissions[idx].Domain != authorization.RolesDomain {
+			continue
+		}
+
+		switch permissions[idx].Verb {
+		default:
+			continue
+		case conv.CRUD:
+			// also remove individual CUD permissions for manage_roles with ALL
+			for _, verb := range []string{authorization.CREATE, authorization.UPDATE, authorization.DELETE} {
+				newPolicy := &authorization.Policy{
+					Resource: permissions[idx].Resource,
+					Verb:     authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_ALL),
+					Domain:   permissions[idx].Domain,
+				}
+				permissions = append(permissions, newPolicy)
+			}
+		case authorization.ROLE_SCOPE_MATCH:
+			// also remove individual CUD permissions for manage_roles with MATCH
+			for _, verb := range []string{authorization.CREATE, authorization.UPDATE, authorization.DELETE} {
+				newPolicy := &authorization.Policy{
+					Resource: permissions[idx].Resource,
+					Verb:     authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_MATCH),
+					Domain:   permissions[idx].Domain,
+				}
+				permissions = append(permissions, newPolicy)
+			}
+		case authorization.READ:
+			newPolicy := &authorization.Policy{
+				Resource: permissions[idx].Resource,
+				Verb:     authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH),
+				Domain:   permissions[idx].Domain,
+			}
+			permissions = append(permissions, newPolicy)
+		}
+	}
+	return permissions
 }
