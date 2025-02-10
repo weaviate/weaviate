@@ -14,6 +14,6 @@ updates:
       - "/test/benchmark_bm25"
     labels: ["security-update", "dependencies"]
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     commit-message:
       prefix: "dependencies(update)"
