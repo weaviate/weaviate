@@ -518,7 +518,7 @@ func (s *schema) Restore(r io.Reader, parser Parser) error {
 // and call sink.Close() when finished or call sink.Cancel() on error.
 func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
 	s.mu.RLock()
-	defer s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	defer sink.Close()
 	snap := snapshot{
