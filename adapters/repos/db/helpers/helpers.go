@@ -25,10 +25,7 @@ var (
 	DimensionsBucketLSM        = "dimensions"
 )
 
-const (
-	ObjectsBucketLSMDocIDSecondaryIndex int = iota
-	ObjectsBucketLSMTokenRangeSecondaryIndex
-)
+const ObjectsBucketLSMDocIDSecondaryIndex int = 0
 
 // MetaCountProp helps create an internally used propName for meta props that
 // don't explicitly exist in the user schema, but are required for proper

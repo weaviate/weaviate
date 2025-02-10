@@ -20,6 +20,7 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
@@ -66,22 +67,30 @@ func TestUpsertRolesPermissions(t *testing.T) {
 				SubCommand: mustMarshal(cmd.CreateRolesRequest{
 					Version: cmd.RBACCommandPolicyVersionV1,
 					Roles: map[string][]authorization.Policy{
-						"admin": {
+						"custom": {
 							{
 								Domain: authorization.RolesDomain,
-								Verb:   authorization.ROLE_SCOPE_ALL, // old
+								Verb:   conv.CRUD, // old
 							},
 						},
 					},
 				}),
 			},
 			setup: func(m *mocks.Controller) {
-				m.On("RemovePermissions", "admin", mock.Anything).Return(nil)
+				m.On("RemovePermissions", "custom", mock.Anything).Return(nil)
 				m.On("UpsertRolesPermissions", map[string][]authorization.Policy{
-					"admin": {
+					"custom": {
 						{
 							Domain: authorization.RolesDomain,
-							Verb:   authorization.ROLE_SCOPE_MATCH, // new
+							Verb:   authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH), // new
+						},
+						{
+							Domain: authorization.RolesDomain,
+							Verb:   authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH), // new
+						},
+						{
+							Domain: authorization.RolesDomain,
+							Verb:   authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH), // new
 						},
 					},
 				}).Return(nil)
