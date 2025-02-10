@@ -16,7 +16,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
-func migrateV2(roles map[string][]authorization.Policy) map[string][]authorization.Policy {
+func migrateUpsertRolesPermissionsV2(roles map[string][]authorization.Policy) map[string][]authorization.Policy {
 	for roleName, policies := range roles {
 		// create new permissions
 		for idx := range policies {
