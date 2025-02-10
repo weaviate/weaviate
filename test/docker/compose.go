@@ -34,15 +34,18 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
+	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
+	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2colbert-jinaai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
@@ -50,6 +53,7 @@ import (
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
@@ -239,6 +243,12 @@ func (d *Compose) WithMulti2VecCohere(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2VecNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecnvidia.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecVoyageAI(apiKey string) *Compose {
 	d.weaviateEnvs["VOYAGEAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecvoyageai.Name)
@@ -321,6 +331,12 @@ func (d *Compose) WithGenerativeOpenAI(openAIApiKey, openAIOrganization, azureAp
 	return d
 }
 
+func (d *Compose) WithGenerativeNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativenvidia.Name)
+	return d
+}
+
 func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modjinaai.Name)
@@ -330,6 +346,18 @@ func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 func (d *Compose) WithText2ColBERTJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modtext2colbertjinaai.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankernvidia.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modnvidia.Name)
 	return d
 }
 
