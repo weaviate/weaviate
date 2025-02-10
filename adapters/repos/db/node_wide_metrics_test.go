@@ -29,7 +29,7 @@ func TestShardActivity(t *testing.T) {
 			"Col1": {
 				Config: IndexConfig{
 					ClassName:         "Col1",
-					ReplicationFactor: NewAtomicInt64(1),
+					ReplicationFactor: 1,
 				},
 				partitioningEnabled: true,
 				shards:              shardMap{},
@@ -37,7 +37,7 @@ func TestShardActivity(t *testing.T) {
 			"NonMT": {
 				Config: IndexConfig{
 					ClassName:         "NonMT",
-					ReplicationFactor: NewAtomicInt64(1),
+					ReplicationFactor: 1,
 				},
 				partitioningEnabled: false,
 				shards:              shardMap{},

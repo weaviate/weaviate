@@ -728,8 +728,16 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 				Permissions: []*models.Permission{
 					// Add role management permissions with scope matching
 					{
-						Action: String(authorization.ManageRoles),
-						Roles:  &models.PermissionRoles{Role: String("*"), Scope: String(models.PermissionRolesScopeMatch)}, // Allow managing all roles with scope matching
+						Action: String(authorization.CreateRoles),
+						Roles:  &models.PermissionRoles{Role: String("*"), Scope: String(models.PermissionRolesScopeMatch)},
+					},
+					{
+						Action: String(authorization.UpdateRoles),
+						Roles:  &models.PermissionRoles{Role: String("*"), Scope: String(models.PermissionRolesScopeMatch)},
+					},
+					{
+						Action: String(authorization.DeleteRoles),
+						Roles:  &models.PermissionRoles{Role: String("*"), Scope: String(models.PermissionRolesScopeMatch)},
 					},
 					// Add collection-specific permissions
 					{

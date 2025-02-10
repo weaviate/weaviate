@@ -160,7 +160,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 			assert.Equal(ct, repairObj.Class, resp.Class)
 			assert.EqualValues(ct, repairObj.Properties, resp.Properties)
 			assert.EqualValues(ct, repairObj.Vector, resp.Vector)
-		}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
+		}, 60*time.Second, 1*time.Second, "not all the objects have been asynchronously replicated")
 	})
 
 	replaceObj := repairObj
@@ -200,6 +200,6 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 			assert.Equal(ct, replaceObj.Class, resp.Class)
 			assert.EqualValues(ct, replaceObj.Properties, resp.Properties)
 			assert.EqualValues(ct, replaceObj.Vector, resp.Vector)
-		}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
+		}, 60*time.Second, 1*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }

@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes manage_roles read_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_tenants read_tenants update_tenants delete_tenants]
+	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_tenants read_tenants update_tenants delete_tenants]
 	Action *string `json:"action"`
 
 	// backups
@@ -104,7 +104,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","manage_roles","read_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_tenants","read_tenants","update_tenants","delete_tenants"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_tenants","read_tenants","update_tenants","delete_tenants"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -135,11 +135,17 @@ const (
 	// PermissionActionReadNodes captures enum value "read_nodes"
 	PermissionActionReadNodes string = "read_nodes"
 
-	// PermissionActionManageRoles captures enum value "manage_roles"
-	PermissionActionManageRoles string = "manage_roles"
+	// PermissionActionCreateRoles captures enum value "create_roles"
+	PermissionActionCreateRoles string = "create_roles"
 
 	// PermissionActionReadRoles captures enum value "read_roles"
 	PermissionActionReadRoles string = "read_roles"
+
+	// PermissionActionUpdateRoles captures enum value "update_roles"
+	PermissionActionUpdateRoles string = "update_roles"
+
+	// PermissionActionDeleteRoles captures enum value "delete_roles"
+	PermissionActionDeleteRoles string = "delete_roles"
 
 	// PermissionActionCreateCollections captures enum value "create_collections"
 	PermissionActionCreateCollections string = "create_collections"
