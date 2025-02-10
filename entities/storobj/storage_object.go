@@ -955,7 +955,6 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 	// get the length of the vector, each element is a float32 (4 bytes)
 	vectorLength := uint64(rw.ReadUint16())
 	rw.MoveBufferPositionForward(vectorLength * 4)
-	// unnecessary
 	classnameLength := uint64(rw.ReadUint16())
 	rw.MoveBufferPositionForward(classnameLength)
 	propertyLength := uint64(rw.ReadUint32())
