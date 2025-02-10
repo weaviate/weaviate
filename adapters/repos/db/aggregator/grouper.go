@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
@@ -65,6 +66,8 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
 	err := ScanAllLSM(g.store, func(prop *models.PropertySchema, docID uint64) (bool, error) {
 		return true, g.addElementById(prop, docID)
+	}, &storobj.PropertyExtraction{
+		PropertyPaths: [][]string{{g.params.GroupBy.Property.String()}},
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "group all (unfiltered)")
@@ -272,8 +275,10 @@ func (g *grouper) insertOrdered(elem group) {
 	}
 }
 
-// ScanAllLSM iterates over every row in the object buckets
-func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
+// ScanAllLSM iterates over every row in the object buckets.
+// Caller can specify which properties are it is interested in to make the scanning more performant, or pass nil to
+// decode everything.
+func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn, properties *storobj.PropertyExtraction) error {
 	b := store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return fmt.Errorf("objects bucket not found")
@@ -283,7 +288,7 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		elem, err := storobj.FromBinary(v)
+		elem, err := storobj.FromBinaryOptional(v, additional.Properties{}, properties)
 		if err != nil {
 			return errors.Wrapf(err, "unmarshal data object")
 		}
