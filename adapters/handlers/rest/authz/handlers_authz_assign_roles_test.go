@@ -62,7 +62,7 @@ func TestAssignRoleToGroupSuccess(t *testing.T) {
 	controller := mocks.NewController(t)
 	logger, _ := test.NewNullLogger()
 
-	principal := &models.Principal{Username: "user1"}
+	principal := &models.Principal{Username: "root-user"}
 	params := authz.AssignRoleToGroupParams{
 		ID: "group1",
 		Body: authz.AssignRoleToGroupBody{
@@ -79,6 +79,9 @@ func TestAssignRoleToGroupSuccess(t *testing.T) {
 		controller:     controller,
 		apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
 		logger:         logger,
+		rbacconfig: rbacconf.Config{
+			RootUsers: []string{"root-user"},
+		},
 	}
 	res := h.assignRoleToGroup(params, principal)
 	parsed, ok := res.(*authz.AssignRoleToGroupOK)
@@ -168,7 +171,7 @@ func TestAssignRoleToGroupOrUserNotFound(t *testing.T) {
 					Roles: []string{"role1"},
 				},
 			},
-			principal:     &models.Principal{Username: "user1"},
+			principal:     &models.Principal{Username: "root-user"},
 			existedRoles:  map[string][]authorization.Policy{},
 			callToGetRole: true,
 		},
@@ -190,6 +193,9 @@ func TestAssignRoleToGroupOrUserNotFound(t *testing.T) {
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
+				rbacconfig: rbacconf.Config{
+					RootUsers: []string{"root-user"},
+				},
 			}
 			res := h.assignRoleToGroup(tt.params, tt.principal)
 			_, ok := res.(*authz.AssignRoleToGroupNotFound)
@@ -401,7 +407,7 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 				ID:   "root-group",
 				Body: authz.AssignRoleToGroupBody{Roles: []string{"some-role"}},
 			},
-			principal:     &models.Principal{Username: "user1"},
+			principal:     &models.Principal{Username: "root-user"},
 			expectedError: "assigning: cannot assign or revoke from root group root-group",
 		},
 		{
@@ -411,7 +417,7 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 				Body: authz.AssignRoleToGroupBody{Roles: []string{"some-role"}},
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "assigning: cannot assign or revoke from root group viewer-root-group",
+			expectedError: "assigning: only root users can assign roles to groups",
 		},
 	}
 
@@ -528,7 +534,7 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 					Roles: []string{"testRole"},
 				},
 			},
-			principal:     &models.Principal{Username: "user1"},
+			principal:     &models.Principal{Username: "root-user"},
 			assignErr:     fmt.Errorf("internal server error"),
 			expectedError: "internal server error",
 		},
@@ -540,7 +546,7 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 					Roles: []string{"testRole"},
 				},
 			},
-			principal:     &models.Principal{Username: "user1"},
+			principal:     &models.Principal{Username: "root-user"},
 			getRolesErr:   fmt.Errorf("internal server error"),
 			expectedError: "internal server error",
 		},
@@ -562,6 +568,9 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
+				rbacconfig: rbacconf.Config{
+					RootUsers: []string{"root-user"},
+				},
 			}
 			res := h.assignRoleToGroup(tt.params, tt.principal)
 			parsed, ok := res.(*authz.AssignRoleToGroupInternalServerError)
