@@ -28,6 +28,10 @@ const (
 	// old verb was (C)|(R)|(U)|(D)
 	// new verb was MATCH
 	RBACCommandPolicyVersionV1
+
+	// this version was needed because we did flatten manage_roles to C+U+D_roles
+	RBACCommandPolicyVersionV2
+
 	// RBACLatestCommandPolicyVersion represents the latest version of RBAC commands policies
 	// It's used to migrate policy changes. if we end up with a cluster having different version
 	// that won't be a problem because the version here is not about the message change but more about
