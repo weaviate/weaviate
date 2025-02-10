@@ -135,60 +135,81 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	switch req.Version {
-	case cmd.RBACCommandPolicyVersionV0:
-		for roleName, policies := range req.Roles {
-			permissions := []*authorization.Policy{}
-			for _, p := range policies {
-				permissions = append(permissions, &p)
-			}
-			// remove old permissions
-			if err := m.authZ.RemovePermissions(roleName, permissions); err != nil {
-				return err
-			}
 
-			// create new permissions
-			for idx := range policies {
-				if req.Roles[roleName][idx].Domain == authorization.SchemaDomain {
-					parts := strings.Split(req.Roles[roleName][idx].Resource, "/")
-					if len(parts) < 3 {
-						// shall never happens
-						return fmt.Errorf("invalid schema path")
+	// loop through updates until current version is reached
+UPDATE_LOOP:
+	for {
+		switch req.Version {
+		case cmd.RBACCommandPolicyVersionV0:
+			for roleName, policies := range req.Roles {
+				permissions := []*authorization.Policy{}
+				for _, p := range policies {
+					permissions = append(permissions, &p)
+				}
+				// remove old permissions
+				if err := m.authZ.RemovePermissions(roleName, permissions); err != nil {
+					return err
+				}
+
+				// create new permissions
+				for idx := range policies {
+					if req.Roles[roleName][idx].Domain == authorization.SchemaDomain {
+						parts := strings.Split(req.Roles[roleName][idx].Resource, "/")
+						if len(parts) < 3 {
+							// shall never happens
+							return fmt.Errorf("invalid schema path")
+						}
+						req.Roles[roleName][idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
 					}
-					req.Roles[roleName][idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
+
+					if req.Roles[roleName][idx].Domain == authorization.RolesDomain &&
+						req.Roles[roleName][idx].Verb == conv.CRUD {
+						// this will override any role was created before 1.28
+						// to reset default to
+						req.Roles[roleName][idx].Verb = authorization.ROLE_SCOPE_MATCH
+					}
+				}
+			}
+		case cmd.RBACCommandPolicyVersionV1:
+			for roleName, policies := range req.Roles {
+				permissions := []*authorization.Policy{}
+				for _, p := range policies {
+					permissions = append(permissions, &p)
+				}
+				// remove old permissions
+				if err := m.authZ.RemovePermissions(roleName, permissions); err != nil {
+					return err
 				}
 
-				if req.Roles[roleName][idx].Domain == authorization.RolesDomain &&
-					req.Roles[roleName][idx].Verb == conv.CRUD {
-					// this will override any role was created before 1.28
-					// to reset default to
-					req.Roles[roleName][idx].Verb = authorization.ROLE_SCOPE_MATCH
+				// create new permissions
+				for idx := range policies {
+					if req.Roles[roleName][idx].Domain == authorization.RolesDomain &&
+						req.Roles[roleName][idx].Verb == conv.CRUD {
+						// this will override any role was created before 1.28
+						// to reset default to
+						req.Roles[roleName][idx].Verb = authorization.ROLE_SCOPE_MATCH
+					}
 				}
 			}
-		}
-	case cmd.RBACCommandPolicyVersionV1:
-		for roleName, policies := range req.Roles {
-			permissions := []*authorization.Policy{}
-			for _, p := range policies {
-				permissions = append(permissions, &p)
-			}
-			// remove old permissions
-			if err := m.authZ.RemovePermissions(roleName, permissions); err != nil {
-				return err
+		case cmd.RBACCommandPolicyVersionV2:
+			for roleName, policies := range req.Roles {
+				permissions := []*authorization.Policy{}
+				for _, p := range policies {
+					permissions = append(permissions, &p)
+				}
+				// remove old permissions
+				if err := m.authZ.RemovePermissions(roleName, permissions); err != nil {
+					return err
+				}
 			}
 
-			// create new permissions
-			for idx := range policies {
-				if req.Roles[roleName][idx].Domain == authorization.RolesDomain &&
-					req.Roles[roleName][idx].Verb == conv.CRUD {
-					// this will override any role was created before 1.28
-					// to reset default to
-					req.Roles[roleName][idx].Verb = authorization.ROLE_SCOPE_MATCH
-				}
-			}
+			req.Roles = migrateV2(req.Roles)
+
+		default:
+			break UPDATE_LOOP
 		}
-	default:
-		// do nothing
+		req.Version += 1
+
 	}
 
 	return m.authZ.UpsertRolesPermissions(req.Roles)
