@@ -39,8 +39,11 @@ func (m *manager) authorize(principal *models.Principal, verb string, skipAudit 
 		"request_action": verb,
 	})
 	if len(principal.Groups) > 0 {
-		logger.Data["groups"] = principal.Groups
+		logger = logger.WithField("groups", principal.Groups)
 	}
+
+	// Create a slice to store all permission results
+	var permResults []logrus.Fields
 
 	for _, resource := range resources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
@@ -56,19 +59,24 @@ func (m *manager) authorize(principal *models.Principal, verb string, skipAudit 
 			return err
 		}
 
-		logger.WithFields(logrus.Fields{
-			"resources": prettyPermissionsResources(perm),
-			"results":   prettyStatus(allowed),
+		// Store the results for this iteration
+		permResults = append(permResults, logrus.Fields{
+			"resource": prettyPermissionsResources(perm),
+			"results":  prettyStatus(allowed),
 		})
 
-		if !skipAudit {
-			logger.Info()
-		}
-
 		if !allowed {
+			// Log all results before returning error
+			logger.WithField("permissions", permResults).Error("authorization denied")
 			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm)))
 		}
 	}
+
+	// Log all results at once if audit is enabled
+	if !skipAudit {
+		logger.WithField("permissions", permResults).Info()
+	}
+
 	return nil
 }
 
@@ -98,49 +106,48 @@ func (m *manager) FilterAuthorizedResources(principal *models.Principal, verb st
 		"component":      authorization.ComponentName,
 		"request_action": verb,
 	})
-
 	if len(principal.Groups) > 0 {
-		logger.Data["groups"] = principal.Groups
+		logger = logger.WithField("groups", principal.Groups)
 	}
 
+	var permResults []logrus.Fields
+	var allowedResources []string
+
+	// First try with wildcard
 	parts := strings.Split(resources[0], "/")
 	parts[len(parts)-1] = "*"
-	reconstructed := strings.Join(parts, "/")
-	allowed, err := m.checkPermissions(principal, reconstructed, verb)
+	wildcardPath := strings.Join(parts, "/")
+
+	allowed, err := m.checkPermissions(principal, wildcardPath, verb)
 	if err != nil {
-		logger.WithFields(logrus.Fields{
-			"resources": resources,
-		}).WithError(err).Error("failed to enforce policy")
+		logger.WithError(err).WithField("resource", wildcardPath).Error("failed to enforce policy")
 		return nil, err
 	}
-
-	perm, err := conv.PathToPermission(verb, reconstructed)
-	if err != nil {
-		return nil, err
-	}
-
-	logger.WithFields(logrus.Fields{
-		"resources": prettyPermissionsResources(perm),
-		"results":   prettyStatus(allowed),
-	})
 
 	if allowed {
-		logger.Info()
+		// If wildcard is allowed, log permissions for all requested resources
+		for _, resource := range resources {
+			perm, err := conv.PathToPermission(verb, resource)
+			if err != nil {
+				return nil, err
+			}
+
+			permResults = append(permResults, logrus.Fields{
+				"resource": prettyPermissionsResources(perm),
+				"results":  prettyStatus(true),
+			})
+		}
+
+		logger.WithField("permissions", permResults).Info()
 		return resources, nil
 	}
 
-	var allowedResources []string
+	// If wildcard check failed, check individual resources
 	for _, resource := range resources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"resource": resource,
-			}).WithError(err).Error("failed to enforce policy")
+			logger.WithError(err).WithField("resource", resource).Error("failed to enforce policy")
 			return nil, err
-		}
-
-		if allowed {
-			allowedResources = append(allowedResources, resource)
 		}
 
 		perm, err := conv.PathToPermission(verb, resource)
@@ -148,13 +155,16 @@ func (m *manager) FilterAuthorizedResources(principal *models.Principal, verb st
 			return nil, err
 		}
 
-		logger.WithFields(logrus.Fields{
+		permResults = append(permResults, logrus.Fields{
 			"resource": prettyPermissionsResources(perm),
 			"results":  prettyStatus(allowed),
 		})
+
+		if allowed {
+			allowedResources = append(allowedResources, resource)
+		}
 	}
 
-	logger.Info()
-
+	logger.WithField("permissions", permResults).Info()
 	return allowedResources, nil
 }

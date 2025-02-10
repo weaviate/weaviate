@@ -114,7 +114,8 @@ func (_m *Authorizer) FilterAuthorizedResources(principal *models.Principal, ver
 func NewAuthorizer(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *Authorizer {
+},
+) *Authorizer {
 	mock := &Authorizer{}
 	mock.Mock.Test(t)
 

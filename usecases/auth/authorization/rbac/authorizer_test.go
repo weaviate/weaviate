@@ -398,7 +398,6 @@ func TestFilterAuthorizedResources(t *testing.T) {
 	}
 }
 
-// Additional test for logging behavior
 func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	logger, hook := test.NewNullLogger()
 	m, err := setupTestManager(t, logger)
@@ -409,27 +408,55 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 		Groups:   []string{"group1"},
 	}
 
+	testResources := authorization.CollectionsMetadata("Test1", "Test2")
+
 	// Setup a policy
 	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", "*", authorization.RolesDomain)
 	require.NoError(t, err)
 	_, err = m.casbin.AddRoleForUser(conv.PrefixUserName("test-user"), conv.PrefixRoleName("admin"))
 	require.NoError(t, err)
 
-	_, err = m.FilterAuthorizedResources(principal, authorization.READ, authorization.CollectionsMetadata("Test")...)
+	// Call the function
+	allowedResources, err := m.FilterAuthorizedResources(principal, authorization.READ, testResources...)
 	require.NoError(t, err)
 
 	// Verify logging
 	require.NotEmpty(t, hook.AllEntries())
-	lastEntry := hook.LastEntry()
-	require.NotNil(t, lastEntry)
+	entry := hook.LastEntry()
+	require.NotNil(t, entry)
 
-	// Verify log fields
-	assert.Equal(t, "authorize", lastEntry.Data["action"])
-	assert.Equal(t, principal.Username, lastEntry.Data["user"])
-	assert.Equal(t, principal.Groups, lastEntry.Data["groups"])
-	assert.Equal(t, authorization.ComponentName, lastEntry.Data["component"])
-	assert.Equal(t, authorization.READ, lastEntry.Data["request_action"])
+	// Check the permissions array exists and has the correct structure
+	permissions, ok := entry.Data["permissions"].([]logrus.Fields)
+	require.True(t, ok, "permissions should be []logrus.Fields")
+	require.NotEmpty(t, permissions, "permissions should not be empty")
 
+	// Check that we have entries for both resources
+	require.Len(t, permissions, 2, "Should have permissions entries for both resources")
+
+	// Check the first permission entry
+	firstPerm := permissions[0]
+	assert.Contains(t, firstPerm, "resource", "First permission entry should contain resource field")
+	assert.Contains(t, firstPerm, "results", "First permission entry should contain results field")
+	assert.Equal(t, "Collection: Test1", firstPerm["resource"])
+	assert.Equal(t, "success", firstPerm["results"])
+
+	// Check the second permission entry
+	secondPerm := permissions[1]
+	assert.Contains(t, secondPerm, "resource", "Second permission entry should contain resource field")
+	assert.Contains(t, secondPerm, "results", "Second permission entry should contain results field")
+	assert.Equal(t, "Collection: Test2", secondPerm["resource"])
+	assert.Equal(t, "success", secondPerm["results"])
+
+	// Check other required fields
+	assert.Equal(t, "authorize", entry.Data["action"])
+	assert.Equal(t, principal.Username, entry.Data["user"])
+	assert.Equal(t, principal.Groups, entry.Data["groups"])
+	assert.Equal(t, authorization.ComponentName, entry.Data["component"])
+	assert.Equal(t, authorization.READ, entry.Data["request_action"])
+
+	// Verify the final result matches the logged permissions
+	assert.ElementsMatch(t, testResources, allowedResources,
+		"Allowed resources should match input resources")
 }
 
 func setupTestManager(t *testing.T, logger *logrus.Logger) (*manager, error) {
