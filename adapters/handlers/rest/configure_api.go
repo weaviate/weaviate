@@ -72,6 +72,7 @@ import (
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
+	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
@@ -81,6 +82,7 @@ import (
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
+	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
@@ -90,6 +92,7 @@ import (
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
+	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
@@ -105,6 +108,7 @@ import (
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
+	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -944,6 +948,8 @@ func registerModules(appState *state.State) error {
 		modmulti2vecvoyageai.Name,
 		modweaviateembed.Name,
 		modtext2colbertjinaai.Name,
+		modnvidia.Name,
+		modmulti2vecnvidia.Name,
 	}
 	defaultGenerative := []string{
 		modgenerativeanthropic.Name,
@@ -954,6 +960,7 @@ func registerModules(appState *state.State) error {
 		modgenerativefriendliai.Name,
 		modgenerativegoogle.Name,
 		modgenerativemistral.Name,
+		modgenerativenvidia.Name,
 		modgenerativeoctoai.Name,
 		modgenerativeopenai.Name,
 	}
@@ -961,6 +968,7 @@ func registerModules(appState *state.State) error {
 		modrerankercohere.Name,
 		modrerankervoyageai.Name,
 		modrerankerjinaai.Name,
+		modrerankernvidia.Name,
 	}
 
 	defaultModules := append(defaultVectorizers, defaultGenerative...)
@@ -1054,6 +1062,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modrerankernvidia.Name]; ok {
+		appState.Modules.Register(modrerankernvidia.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankernvidia.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modqna.Name]; ok {
 		appState.Modules.Register(modqna.New())
 		appState.Logger.
@@ -1128,6 +1144,22 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modmulti2vecnvidia.Name]; ok {
+		appState.Modules.Register(modmulti2vecnvidia.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vecnvidia.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modnvidia.Name]; ok {
+		appState.Modules.Register(modnvidia.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modnvidia.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modmulti2vecvoyageai.Name]; ok {
 		appState.Modules.Register(modmulti2vecvoyageai.New())
 		appState.Logger.
@@ -1173,6 +1205,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativefriendliai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativenvidia.Name]; ok {
+		appState.Modules.Register(modgenerativenvidia.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativenvidia.Name).
 			Debug("enabled module")
 	}
 
