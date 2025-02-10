@@ -339,7 +339,7 @@ func (s *schema) deleteClass(name string) bool {
 	return true
 }
 
-// replaceClasses replaces the exising `schema.Classes` with given `classes`
+// replaceClasses replaces the existing `schema.Classes` with given `classes`
 // mainly used in cases like restoring the whole schema from backup or something.
 func (s *schema) replaceClasses(classes map[string]*metaClass) {
 	s.mu.Lock()
