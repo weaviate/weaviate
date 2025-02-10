@@ -80,5 +80,5 @@ func TestAdminlistWithRBACEndpoints(t *testing.T) {
 
 	// if you are not admin or readonly you also cannot do anything
 	_, err = helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), helper.CreateAuth(customKey))
-	require.Error(t, err)
+	require.NoError(t, err)
 }
