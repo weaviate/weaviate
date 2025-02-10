@@ -37,13 +37,6 @@ UPDATE_LOOP:
 						}
 						req.Roles[roleName][idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
 					}
-
-					if req.Roles[roleName][idx].Domain == authorization.RolesDomain &&
-						req.Roles[roleName][idx].Verb == conv.CRUD {
-						// this will override any role was created before 1.28
-						// to reset default to
-						req.Roles[roleName][idx].Verb = authorization.ROLE_SCOPE_MATCH
-					}
 				}
 			}
 		case cmd.RBACCommandPolicyVersionV1:
@@ -74,8 +67,16 @@ func migrateUpsertRolesPermissionsV2(roles map[string][]authorization.Policy) ma
 	for roleName, policies := range roles {
 		// create new permissions
 		for idx := range policies {
-			// replace manage ALL (verb CRUD) with individual CUD permissions
-			if roles[roleName][idx].Domain == authorization.RolesDomain && roles[roleName][idx].Verb == conv.CRUD {
+			if roles[roleName][idx].Domain != authorization.RolesDomain {
+				continue
+			}
+
+			switch roles[roleName][idx].Verb {
+			default:
+				continue
+
+			case conv.CRUD:
+				// replace manage ALL (verb CRUD) with individual CUD permissions
 				roles[roleName][idx].Verb = authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL)
 				// new permissions for U+D needed
 				for _, verb := range []string{authorization.UPDATE, authorization.DELETE} {
@@ -86,10 +87,8 @@ func migrateUpsertRolesPermissionsV2(roles map[string][]authorization.Policy) ma
 					}
 					roles[roleName] = append(roles[roleName], newPolicy)
 				}
-			}
-
-			// replace manage MATCH (verb MATCH) with individual CUD permissions
-			if roles[roleName][idx].Domain == authorization.RolesDomain && roles[roleName][idx].Verb == authorization.ROLE_SCOPE_MATCH {
+			case authorization.ROLE_SCOPE_MATCH:
+				// replace manage MATCH (verb MATCH) with individual CUD permissions
 				roles[roleName][idx].Verb = authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH)
 				// new permissions for U+D needed
 				for _, verb := range []string{authorization.UPDATE, authorization.DELETE} {
@@ -100,27 +99,10 @@ func migrateUpsertRolesPermissionsV2(roles map[string][]authorization.Policy) ma
 					}
 					roles[roleName] = append(roles[roleName], newPolicy)
 				}
-			}
-
-			// replace manage ALL (verb CRUD) with individual CUD permissions
-			if roles[roleName][idx].Domain == authorization.RolesDomain && roles[roleName][idx].Verb == conv.CRUD {
-				if roles[roleName][idx].Verb == authorization.ROLE_SCOPE_MATCH {
-					roles[roleName][idx].Verb = authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH)
-					// new permissions for U+D needed
-					for _, verb := range []string{authorization.UPDATE, authorization.DELETE} {
-						newPolicy := authorization.Policy{
-							Resource: roles[roleName][idx].Resource,
-							Verb:     authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_MATCH),
-							Domain:   roles[roleName][idx].Domain,
-						}
-						roles[roleName] = append(roles[roleName], newPolicy)
-					}
-				}
-			}
-
-			// add scope to read
-			if roles[roleName][idx].Domain == authorization.RolesDomain && roles[roleName][idx].Verb == authorization.READ {
+			case authorization.READ:
+				// add scope to read
 				roles[roleName][idx].Verb = authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH)
+
 			}
 		}
 	}
