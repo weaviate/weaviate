@@ -13,6 +13,7 @@ package authz
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -70,14 +71,18 @@ func TestAdminlistWithRBACEndpoints(t *testing.T) {
 	roles := helper.GetRoles(t, adminKey)
 	require.Len(t, roles, 0)
 
-	// as read only user you can query (without any returns) but nothing else
-	roles = helper.GetRoles(t, readonlyKey)
-	require.Len(t, roles, 0)
+	// as read only user you can cannot do anything
+	_, err = helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), helper.CreateAuth(readonlyKey))
+	require.Error(t, err)
+	var parsed *authz.GetRolesForbidden
+	if !errors.As(err, &parsed) {
+		helper.AssertRequestOk(t, nil, err, nil)
+	}
 
 	_, err = helper.Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(testRole), helper.CreateAuth(readonlyKey))
 	require.Error(t, err)
 
-	// if you are not admin or readonly you cannot do anything
+	// if you are not admin or readonly you also cannot do anything
 	_, err = helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), helper.CreateAuth(customKey))
 	require.Error(t, err)
 }
