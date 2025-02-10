@@ -198,3 +198,32 @@ func TestMigrationRemoveV2(t *testing.T) {
 		})
 	}
 }
+
+func TestMigrationRemoveV1(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  []*authorization.Policy
+		output []*authorization.Policy
+	}{
+		{
+			name: "empty policy list",
+		},
+		{
+			name: "single policy - CRUD",
+			input: []*authorization.Policy{
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD},
+			},
+			output: []*authorization.Policy{
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD},
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.ROLE_SCOPE_MATCH},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := migrateRemoveRolesPermissionsV1(test.input)
+			require.Equal(t, test.output, output)
+		})
+	}
+}
