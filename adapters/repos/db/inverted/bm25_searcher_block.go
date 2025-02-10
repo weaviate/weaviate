@@ -315,7 +315,7 @@ func (s *scoreSorter) Len() int {
 
 func (s *scoreSorter) Less(i, j int) bool {
 	if s.scores[i] == s.scores[j] {
-		return s.ids[i] < s.ids[j]
+		return s.ids[i] > s.ids[j]
 	}
 	return s.scores[i] < s.scores[j]
 }
