@@ -35,11 +35,7 @@ type AggregatedHashTreeRangeReader interface {
 }
 
 func LevelDiff(l int, discriminant *Bitset, digests1, digests2 []Digest) (levelDiffCount int) {
-	var offset int
-
-	if l > 0 {
-		offset = NodesCount(l)
-	}
+	offset := InnerNodesCount(l)
 
 	n := 0
 

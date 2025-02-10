@@ -170,15 +170,14 @@ func fromReplicas(xs []objects.Replica) []*storobj.Object {
 	return rs
 }
 
-type DigestObjectsInTokenRangeReq struct {
-	InitialToken uint64 `json:"initialToken,omitempty"`
-	FinalToken   uint64 `json:"finalToken,omitempty"`
-	Limit        int    `json:"limit,omitempty"`
+type DigestObjectsInRangeReq struct {
+	InitialUUID strfmt.UUID `json:"initialUUID,omitempty"`
+	FinalUUID   strfmt.UUID `json:"finalUUID,omitempty"`
+	Limit       int         `json:"limit,omitempty"`
 }
 
-type DigestObjectsInTokenRangeResp struct {
-	Digests       []RepairResponse `json:"digests,omitempty"`
-	LastTokenRead uint64           `json:"lastTokenRead,omitempty"`
+type DigestObjectsInRangeResp struct {
+	Digests []RepairResponse `json:"digests,omitempty"`
 }
 
 // wClient is the client used to write to replicas
@@ -224,8 +223,8 @@ type rClient interface {
 	FindUUIDs(ctx context.Context, host, index, shard string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 
-	DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
-		initialToken, finalToken uint64, limit int) ([]RepairResponse, uint64, error)
+	DigestObjectsInRange(ctx context.Context, host, index, shard string,
+		initialUUID, finalUUID strfmt.UUID, limit int) ([]RepairResponse, error)
 
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
@@ -266,11 +265,11 @@ func (fc finderClient) DigestReads(ctx context.Context,
 	return rs, err
 }
 
-func (fc finderClient) DigestObjectsInTokenRange(ctx context.Context,
+func (fc finderClient) DigestObjectsInRange(ctx context.Context,
 	host, index, shard string,
-	initialToken, finalToken uint64, limit int,
-) ([]RepairResponse, uint64, error) {
-	return fc.cl.DigestObjectsInTokenRange(ctx, host, index, shard, initialToken, finalToken, limit)
+	initialUUID, finalUUID strfmt.UUID, limit int,
+) ([]RepairResponse, error) {
+	return fc.cl.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
 }
 
 // FullReads read full objects

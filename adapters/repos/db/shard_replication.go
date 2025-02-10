@@ -200,5 +200,5 @@ func parseBytesUUID(id strfmt.UUID) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse uuid %q: %w", id, err)
 	}
-	return uuid[:], nil
+	return uuid.MarshalBinary()
 }
