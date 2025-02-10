@@ -53,10 +53,10 @@ UPDATE_LOOP:
 			}
 		case cmd.RBACCommandPolicyVersionV2:
 			req.Roles = migrateUpsertRolesPermissionsV2(req.Roles)
+		case cmd.RBACLatestCommandPolicyVersion:
+			break UPDATE_LOOP
 		default:
-			if req.Version == cmd.RBACLatestCommandPolicyVersion {
-				break UPDATE_LOOP
-			}
+			continue
 		}
 		req.Version += 1
 	}
@@ -129,11 +129,10 @@ UPDATE_LOOP:
 			}
 		case cmd.RBACCommandPolicyVersionV2:
 			req.Permissions = migrateRemoveRolesPermissionsV2(req.Permissions)
-
+		case cmd.RBACLatestCommandPolicyVersion:
+			break UPDATE_LOOP
 		default:
-			if req.Version == cmd.RBACLatestCommandPolicyVersion {
-				break UPDATE_LOOP
-			}
+			continue
 		}
 		req.Version += 1
 	}
