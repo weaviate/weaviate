@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -189,29 +188,18 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	switch req.Version {
-	case cmd.RBACCommandPolicyVersionV0:
-		// keep to remove old formats
+	if req.Version < cmd.RBACLatestCommandPolicyVersion {
 		if err := m.authZ.RemovePermissions(req.Role, req.Permissions); err != nil {
 			return err
 		}
-		// remove any added with new format after migration
-		for idx := range req.Permissions {
-			if req.Permissions[idx].Domain != authorization.SchemaDomain {
-				continue
-			}
-			parts := strings.Split(req.Permissions[idx].Resource, "/")
-			if len(parts) < 3 {
-				// shall never happens
-				return fmt.Errorf("invalid schema path")
-			}
-			req.Permissions[idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
-		}
-	default:
-		// do nothing
 	}
 
-	return m.authZ.RemovePermissions(req.Role, req.Permissions)
+	reqMigrated, err := migrateRemovePermissions(req)
+	if err != nil {
+		return err
+	}
+
+	return m.authZ.RemovePermissions(reqMigrated.Role, reqMigrated.Permissions)
 }
 
 func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {

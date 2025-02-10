@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
-func TestMigrations(t *testing.T) {
+func TestMigrationsUpsert(t *testing.T) {
 	tests := []struct {
 		name   string
 		input  *cmd.CreateRolesRequest
@@ -57,7 +57,7 @@ func TestMigrations(t *testing.T) {
 	}
 }
 
-func TestMigrationV2(t *testing.T) {
+func TestMigrationUpsertV2(t *testing.T) {
 	tests := []struct {
 		name   string
 		input  map[string][]authorization.Policy
@@ -106,6 +106,94 @@ func TestMigrationV2(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			output := migrateUpsertRolesPermissionsV2(test.input)
+			require.Equal(t, test.output, output)
+		})
+	}
+}
+
+func TestMigrationsRemove(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  *cmd.RemovePermissionsRequest
+		output *cmd.RemovePermissionsRequest
+	}{
+		{
+			name:   "Only increase version",
+			input:  &cmd.RemovePermissionsRequest{Version: 0, Permissions: []*authorization.Policy{}},
+			output: &cmd.RemovePermissionsRequest{Version: cmd.RBACLatestCommandPolicyVersion, Permissions: []*authorization.Policy{}},
+		},
+		{
+			name: "Migrate roles from V0 to latest",
+			input: &cmd.RemovePermissionsRequest{Version: 0, Permissions: []*authorization.Policy{
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD},
+			}},
+			output: &cmd.RemovePermissionsRequest{
+				Version: cmd.RBACLatestCommandPolicyVersion, Permissions: []*authorization.Policy{
+					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD}, // original
+					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL)},
+					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL)},
+					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL)},
+				},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output, err := migrateRemovePermissions(test.input)
+			require.NoError(t, err)
+			require.Equal(t, test.output, output)
+		})
+	}
+}
+
+func TestMigrationRemoveV2(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  []*authorization.Policy
+		output []*authorization.Policy
+	}{
+		{
+			name: "empty policy list",
+		},
+		{
+			name: "single policy - read without scope",
+			input: []*authorization.Policy{
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.READ},
+			},
+			output: []*authorization.Policy{
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.READ},
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH)},
+			},
+		},
+		{
+			name: "single policy - manage with match",
+			input: []*authorization.Policy{
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.ROLE_SCOPE_MATCH},
+			},
+			output: []*authorization.Policy{
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.ROLE_SCOPE_MATCH},
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH)},
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH)},
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH)},
+			},
+		},
+		{
+			name: "single policy - manage with all",
+			input: []*authorization.Policy{
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD},
+			},
+			output: []*authorization.Policy{
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD},
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL)},
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL)},
+				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL)},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := migrateRemoveRolesPermissionsV2(test.input)
 			require.Equal(t, test.output, output)
 		})
 	}
