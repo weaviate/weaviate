@@ -453,7 +453,7 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 	}
 
 	if !h.isRootUser(principal.Username) {
-		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("only root users can assign roles to groups")))
+		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: only root users can assign roles to groups")))
 	}
 
 	if err := h.validateRootGroup(params.ID); err != nil {
@@ -625,7 +625,7 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 	}
 
 	if !h.isRootUser(principal.Username) {
-		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("only root users can revoke roles from groups")))
+		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: only root users can revoke roles from groups")))
 	}
 
 	if err := h.validateRootGroup(params.ID); err != nil {

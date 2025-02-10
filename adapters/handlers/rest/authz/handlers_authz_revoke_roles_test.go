@@ -104,7 +104,7 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 	}{
 		{
 			name:      "successful revocation",
-			principal: &models.Principal{Username: "user1"},
+			principal: &models.Principal{Username: "root-user"},
 			params: authz.RevokeRoleFromGroupParams{
 				ID: "user1",
 				Body: authz.RevokeRoleFromGroupBody{
@@ -121,7 +121,7 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 				},
 			},
 			configuredAdmins: []string{"testUser"},
-			principal:        &models.Principal{Username: "user1"},
+			principal:        &models.Principal{Username: "root-user"},
 		},
 		{
 			name: "revoke another user user not configured viewer role",
@@ -132,7 +132,7 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 				},
 			},
 			configuredViewers: []string{"testUser"},
-			principal:         &models.Principal{Username: "user1"},
+			principal:         &models.Principal{Username: "root-user"},
 		},
 	}
 
@@ -151,6 +151,9 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 				controller:     controller,
 				apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
 				logger:         logger,
+				rbacconfig: rbacconf.Config{
+					RootUsers: []string{"root-user"},
+				},
 			}
 			res := h.revokeRoleFromGroup(tt.params, tt.principal)
 			parsed, ok := res.(*authz.RevokeRoleFromGroupOK)
@@ -345,7 +348,7 @@ func TestRevokeRoleFromGroupOrUserNotFound(t *testing.T) {
 					Roles: []string{"role1"},
 				},
 			},
-			principal:     &models.Principal{Username: "user1"},
+			principal:     &models.Principal{Username: "root-user"},
 			existedRoles:  map[string][]authorization.Policy{},
 			existedUsers:  []string{"user1"},
 			callToGetRole: true,
@@ -369,6 +372,9 @@ func TestRevokeRoleFromGroupOrUserNotFound(t *testing.T) {
 				controller:     controller,
 				apiKeysConfigs: config.APIKey{Enabled: true, Users: tt.existedUsers},
 				logger:         logger,
+				rbacconfig: rbacconf.Config{
+					RootUsers: []string{"root-user"},
+				},
 			}
 			res := h.revokeRoleFromGroup(tt.params, tt.principal)
 			_, ok := res.(*authz.RevokeRoleFromGroupNotFound)
@@ -467,18 +473,18 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 			expectedError: "authorization error",
 		},
 		{
-			name: "revoke role from root group",
+			name: "revoke role from root group as root user",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "root-group",
+				ID: "viewer-root-group",
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"something"},
 				},
 			},
-			principal:     &models.Principal{Username: "user1"},
+			principal:     &models.Principal{Username: "root-user"},
 			expectedError: "revoking: cannot assign or revoke from root group",
 		},
 		{
-			name: "revoke role from root group",
+			name: "revoke role from root group as non-root user",
 			params: authz.RevokeRoleFromGroupParams{
 				ID: "viewer-root-group",
 				Body: authz.RevokeRoleFromGroupBody{
@@ -486,7 +492,7 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "revoking: cannot assign or revoke from root group",
+			expectedError: "revoking: only root users can revoke roles from groups",
 		},
 		{
 			name: "revoke configured root role",
@@ -517,6 +523,7 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 				rbacconfig: rbacconf.Config{
+					RootUsers:        []string{"root-user"},
 					RootGroups:       []string{"root-group"},
 					ViewerRootGroups: []string{"viewer-root-group"},
 				},
@@ -616,7 +623,7 @@ func TestRevokeRoleFromGroupInternalServerError(t *testing.T) {
 					Roles: []string{"testRole"},
 				},
 			},
-			principal:     &models.Principal{Username: "user1"},
+			principal:     &models.Principal{Username: "root-user"},
 			revokeErr:     fmt.Errorf("internal server error"),
 			expectedError: "internal server error",
 		},
@@ -628,7 +635,7 @@ func TestRevokeRoleFromGroupInternalServerError(t *testing.T) {
 					Roles: []string{"testRole"},
 				},
 			},
-			principal:     &models.Principal{Username: "user1"},
+			principal:     &models.Principal{Username: "root-user"},
 			getRolesErr:   fmt.Errorf("internal server error"),
 			expectedError: "internal server error",
 		},
@@ -650,6 +657,9 @@ func TestRevokeRoleFromGroupInternalServerError(t *testing.T) {
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
+				rbacconfig: rbacconf.Config{
+					RootUsers: []string{"root-user"},
+				},
 			}
 			res := h.revokeRoleFromGroup(tt.params, tt.principal)
 			parsed, ok := res.(*authz.RevokeRoleFromGroupInternalServerError)
