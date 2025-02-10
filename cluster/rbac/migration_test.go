@@ -14,10 +14,48 @@ package rbac
 import (
 	"testing"
 
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
+
+func TestMigrations(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  *cmd.CreateRolesRequest
+		output *cmd.CreateRolesRequest
+	}{
+		{
+			name:   "Only increase version",
+			input:  &cmd.CreateRolesRequest{Version: 0, Roles: map[string][]authorization.Policy{}},
+			output: &cmd.CreateRolesRequest{Version: cmd.RBACLatestCommandPolicyVersion, Roles: map[string][]authorization.Policy{}},
+		},
+		{
+			name: "Migrate roles from V0 to latest",
+			input: &cmd.CreateRolesRequest{Version: 0, Roles: map[string][]authorization.Policy{
+				"manage": {{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD}},
+			}},
+			output: &cmd.CreateRolesRequest{
+				Version: cmd.RBACLatestCommandPolicyVersion, Roles: map[string][]authorization.Policy{
+					"manage": {
+						{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH)},
+						{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH)},
+						{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH)},
+					},
+				},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output, err := migrateUpsertRolesPermissions(test.input)
+			require.NoError(t, err)
+			require.Equal(t, test.output, output)
+		})
+	}
+}
 
 func TestMigrationV2(t *testing.T) {
 	tests := []struct {
