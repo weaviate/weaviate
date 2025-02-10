@@ -127,6 +127,8 @@ UPDATE_LOOP:
 				}
 				req.Permissions[idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
 			}
+		case cmd.RBACCommandPolicyVersionV1:
+			req.Permissions = migrateRemoveRolesPermissionsV1(req.Permissions)
 		case cmd.RBACCommandPolicyVersionV2:
 			req.Permissions = migrateRemoveRolesPermissionsV2(req.Permissions)
 		case cmd.RBACLatestCommandPolicyVersion:
@@ -138,6 +140,23 @@ UPDATE_LOOP:
 	}
 
 	return req, nil
+}
+
+func migrateRemoveRolesPermissionsV1(permissions []*authorization.Policy) []*authorization.Policy {
+	initialPerms := len(permissions)
+	for idx := 0; idx < initialPerms; idx++ {
+		if permissions[idx].Domain == authorization.RolesDomain &&
+			permissions[idx].Verb == conv.CRUD {
+
+			newPolicy := &authorization.Policy{
+				Resource: permissions[idx].Resource,
+				Verb:     authorization.ROLE_SCOPE_MATCH,
+				Domain:   permissions[idx].Domain,
+			}
+			permissions = append(permissions, newPolicy)
+		}
+	}
+	return permissions
 }
 
 func migrateRemoveRolesPermissionsV2(permissions []*authorization.Policy) []*authorization.Policy {
