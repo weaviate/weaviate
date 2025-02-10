@@ -67,7 +67,7 @@ func TestMigrationV2(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			output := migrateV2(test.input)
+			output := migrateUpsertRolesPermissionsV2(test.input)
 			require.Equal(t, test.output, output)
 		})
 	}
