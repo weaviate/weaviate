@@ -145,15 +145,8 @@ UPDATE_LOOP:
 func migrateRemoveRolesPermissionsV1(permissions []*authorization.Policy) []*authorization.Policy {
 	initialPerms := len(permissions)
 	for idx := 0; idx < initialPerms; idx++ {
-		if permissions[idx].Domain == authorization.RolesDomain &&
-			permissions[idx].Verb == conv.CRUD {
-
-			newPolicy := &authorization.Policy{
-				Resource: permissions[idx].Resource,
-				Verb:     authorization.ROLE_SCOPE_MATCH,
-				Domain:   permissions[idx].Domain,
-			}
-			permissions = append(permissions, newPolicy)
+		if permissions[idx].Domain == authorization.RolesDomain && permissions[idx].Verb == conv.CRUD {
+			permissions[idx].Verb = authorization.ROLE_SCOPE_MATCH
 		}
 	}
 	return permissions
@@ -171,7 +164,9 @@ func migrateRemoveRolesPermissionsV2(permissions []*authorization.Policy) []*aut
 			continue
 		case conv.CRUD:
 			// also remove individual CUD permissions for manage_roles with ALL
-			for _, verb := range []string{authorization.CREATE, authorization.UPDATE, authorization.DELETE} {
+			permissions[idx].Verb = authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL)
+			// new permissions for U+D needed
+			for _, verb := range []string{authorization.UPDATE, authorization.DELETE} {
 				newPolicy := &authorization.Policy{
 					Resource: permissions[idx].Resource,
 					Verb:     authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_ALL),
@@ -179,9 +174,12 @@ func migrateRemoveRolesPermissionsV2(permissions []*authorization.Policy) []*aut
 				}
 				permissions = append(permissions, newPolicy)
 			}
+
 		case authorization.ROLE_SCOPE_MATCH:
 			// also remove individual CUD permissions for manage_roles with MATCH
-			for _, verb := range []string{authorization.CREATE, authorization.UPDATE, authorization.DELETE} {
+			permissions[idx].Verb = authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH)
+			// new permissions for U+D needed
+			for _, verb := range []string{authorization.UPDATE, authorization.DELETE} {
 				newPolicy := &authorization.Policy{
 					Resource: permissions[idx].Resource,
 					Verb:     authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_MATCH),
@@ -190,12 +188,7 @@ func migrateRemoveRolesPermissionsV2(permissions []*authorization.Policy) []*aut
 				permissions = append(permissions, newPolicy)
 			}
 		case authorization.READ:
-			newPolicy := &authorization.Policy{
-				Resource: permissions[idx].Resource,
-				Verb:     authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH),
-				Domain:   permissions[idx].Domain,
-			}
-			permissions = append(permissions, newPolicy)
+			permissions[idx].Verb = authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH)
 		}
 	}
 	return permissions
