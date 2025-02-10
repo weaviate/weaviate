@@ -171,7 +171,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 		h.pools.visitedListsLock.RUnlock()
 	}()
 
-	if h.acornParams(allowList) {
+	if h.acornEnabled(allowList) {
 		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, ACORN, visited, visitedExp)
 	}
 	return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, SWEEPING, visited, visitedExp)
@@ -762,7 +762,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			visitedRes.Visit(elem.ID)
 		}
 
-		for i := 0; i < 32; i++ {
+		for i := 0; i < 2; i++ {
 			//search next seed
 			currentNode := unfilteredEntryPointNode
 			currentDist := unfilteredEntryPointDist
