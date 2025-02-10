@@ -157,7 +157,7 @@ type SegmentBlockMax struct {
 }
 
 func generateSingleFilter(tombstones *sroar.Bitmap, filterDocIds helpers.AllowList) (*sroar.Bitmap, *sroar.Bitmap) {
-	if tombstones != nil && tombstones.GetCardinality() == 0 {
+	if tombstones != nil && tombstones.IsEmpty() {
 		tombstones = nil
 	}
 
