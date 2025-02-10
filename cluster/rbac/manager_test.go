@@ -82,7 +82,15 @@ func TestUpsertRolesPermissions(t *testing.T) {
 					"custom": {
 						{
 							Domain: authorization.RolesDomain,
-							Verb:   authorization.ROLE_SCOPE_MATCH, // new
+							Verb:   authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH), // new
+						},
+						{
+							Domain: authorization.RolesDomain,
+							Verb:   authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH), // new
+						},
+						{
+							Domain: authorization.RolesDomain,
+							Verb:   authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH), // new
 						},
 					},
 				}).Return(nil)
