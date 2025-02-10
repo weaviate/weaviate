@@ -26,7 +26,6 @@ import (
 )
 
 func TestGetRolesSuccess(t *testing.T) {
-
 	type testCase struct {
 		name            string
 		principal       *models.Principal
