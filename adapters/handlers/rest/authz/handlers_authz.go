@@ -309,8 +309,8 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 		principal,
 		response,
 		authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL),
-		func(role *models.Role) []string {
-			return authorization.Roles(*role.Name)
+		func(role *models.Role) string {
+			return authorization.Roles(*role.Name)[0]
 		},
 	)
 	if len(filteredRoles) == 0 {
@@ -319,8 +319,8 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 			principal,
 			response,
 			authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH),
-			func(role *models.Role) []string {
-				return authorization.Roles(*role.Name)
+			func(role *models.Role) string {
+				return authorization.Roles(*role.Name)[0]
 			},
 		)
 	}

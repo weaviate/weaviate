@@ -190,8 +190,8 @@ func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency b
 		principal,
 		fullSchema.Objects.Classes,
 		authorization.READ,
-		func(class *models.Class) []string {
-			return authorization.CollectionsMetadata(class.Class)
+		func(class *models.Class) string {
+			return authorization.CollectionsMetadata(class.Class)[0]
 		},
 	)
 

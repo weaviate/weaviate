@@ -84,8 +84,8 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 		principal,
 		objects,
 		authorization.READ,
-		func(obj *models.Object) []string {
-			return []string{authorization.Objects(obj.Class, tenant, obj.ID)}
+		func(obj *models.Object) string {
+			return authorization.Objects(obj.Class, tenant, obj.ID)
 		},
 	)
 
@@ -113,8 +113,8 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 		principal,
 		[]*models.Object{res.Object()},
 		authorization.READ,
-		func(obj *models.Object) []string {
-			return []string{authorization.Objects(obj.Class, obj.Tenant, obj.ID)}
+		func(obj *models.Object) string {
+			return authorization.Objects(obj.Class, obj.Tenant, obj.ID)
 		},
 	)
 

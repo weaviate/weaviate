@@ -86,8 +86,8 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		principal,
 		[]*QueryInput{q},
 		authorization.READ,
-		func(qi *QueryInput) []string {
-			return authorization.CollectionsData(qi.Class)
+		func(qi *QueryInput) string {
+			return authorization.CollectionsData(qi.Class)[0]
 		},
 	)
 	if len(filteredQuery) == 0 {

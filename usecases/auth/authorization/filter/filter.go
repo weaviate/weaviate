@@ -31,7 +31,7 @@ func New[T any](authorizer authorization.Authorizer, config config.Config) *Reso
 }
 
 // FilterFn defines a function that generates authorization resources for an item
-type FilterFn[T any] func(item T) []string
+type FilterFn[T any] func(item T) string
 
 // Filter filters a slice of items based on authorization
 func (f *ResourceFilter[T]) Filter(
@@ -45,7 +45,7 @@ func (f *ResourceFilter[T]) Filter(
 			return items
 		}
 		// here it's either you have the permissions or not so 1 check is enough
-		if err := f.authorizer.Authorize(principal, verb, resourceFn(items[0])...); err != nil {
+		if err := f.authorizer.Authorize(principal, verb, resourceFn(items[0])); err != nil {
 			return nil
 		}
 		return items
@@ -55,7 +55,7 @@ func (f *ResourceFilter[T]) Filter(
 	filtered := make([]T, 0, len(items))
 	for _, item := range items {
 		// TODO-RBAC: we need non silent authorizer with best effort enforcer
-		if err := f.authorizer.Authorize(principal, verb, resourceFn(item)...); err == nil {
+		if err := f.authorizer.Authorize(principal, verb, resourceFn(item)); err == nil {
 			filtered = append(filtered, item)
 		}
 	}
