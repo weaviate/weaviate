@@ -850,9 +850,9 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 		for _, obj := range localObjs {
 			var vectors models.Vectors
 
-			if obj.Object.Vectors != nil {
-				vectors = make(models.Vectors, len(obj.Object.Vectors))
-				for i, v := range obj.Object.Vectors {
+			if obj.Vectors != nil {
+				vectors = make(models.Vectors, len(obj.Vectors))
+				for i, v := range obj.Vectors {
 					vectors[i] = v
 				}
 			}
@@ -861,7 +861,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 				ID:                      obj.ID(),
 				LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
 				LatestObject:            &obj.Object,
-				Vector:                  obj.Object.Vector,
+				Vector:                  obj.Vector,
 				Vectors:                 vectors,
 				StaleUpdateTime:         remoteStaleUpdateTime[obj.ID().String()],
 			}
