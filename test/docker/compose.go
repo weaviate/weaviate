@@ -103,31 +103,31 @@ type Compose struct {
 	withWeaviateCluster        bool
 	withWeaviateClusterSize    int
 
-	withWeaviateAuth              bool
-	withWeaviateBasicAuth         bool
-	withWeaviateBasicAuthUsername string
-	withWeaviateBasicAuthPassword string
-	withWeaviateApiKey            bool
-	weaviateApiKeyUsers           []ApiKeyUser
-	weaviateAdminlistAdmins       []string
-	weaviateAdminlistUsers        []string
-	withWeaviateRbac              bool
-	weaviateRbacAdmins            []string
-	weaviateRbacRootGroups        []string
-	weaviateRbacViewers           []string
-	withSUMTransformers           bool
-	withCentroid                  bool
-	withCLIP                      bool
-	withGoogleApiKey              string
-	withBind                      bool
-	withImg2Vec                   bool
-	withRerankerTransformers      bool
-	withOllamaVectorizer          bool
-	withOllamaGenerative          bool
-	withAutoschema                bool
-	withMockOIDC                  bool
-	weaviateEnvs                  map[string]string
-	removeEnvs                    map[string]struct{}
+	withWeaviateAuth               bool
+	withWeaviateBasicAuth          bool
+	withWeaviateBasicAuthUsername  string
+	withWeaviateBasicAuthPassword  string
+	withWeaviateApiKey             bool
+	weaviateApiKeyUsers            []ApiKeyUser
+	weaviateAdminlistAdminUsers    []string
+	weaviateAdminlistReadOnlyUsers []string
+	withWeaviateRbac               bool
+	weaviateRbacAdmins             []string
+	weaviateRbacRootGroups         []string
+	weaviateRbacViewers            []string
+	withSUMTransformers            bool
+	withCentroid                   bool
+	withCLIP                       bool
+	withGoogleApiKey               string
+	withBind                       bool
+	withImg2Vec                    bool
+	withRerankerTransformers       bool
+	withOllamaVectorizer           bool
+	withOllamaGenerative           bool
+	withAutoschema                 bool
+	withMockOIDC                   bool
+	weaviateEnvs                   map[string]string
+	removeEnvs                     map[string]struct{}
 }
 
 func New() *Compose {
@@ -438,12 +438,12 @@ func (d *Compose) WithWeaviateAuth() *Compose {
 }
 
 func (d *Compose) WithAdminListAdmins(users ...string) *Compose {
-	d.weaviateAdminlistAdmins = users
+	d.weaviateAdminlistAdminUsers = users
 	return d
 }
 
 func (d *Compose) WithAdminListUsers(users ...string) *Compose {
-	d.weaviateAdminlistUsers = users
+	d.weaviateAdminlistReadOnlyUsers = users
 	return d
 }
 
@@ -789,11 +789,11 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
 	}
-	if len(d.weaviateAdminlistAdmins) > 0 {
+	if len(d.weaviateAdminlistAdminUsers) > 0 {
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
-		settings["AUTHORIZATION_ADMINLIST_USERS"] = strings.Join(d.weaviateAdminlistAdmins, ",")
-		if len(d.weaviateAdminlistUsers) > 0 {
-			settings["AUTHORIZATION_ADMINLIST_READONLY_USERS"] = strings.Join(d.weaviateAdminlistUsers, ",")
+		settings["AUTHORIZATION_ADMINLIST_USERS"] = strings.Join(d.weaviateAdminlistAdminUsers, ",")
+		if len(d.weaviateAdminlistReadOnlyUsers) > 0 {
+			settings["AUTHORIZATION_ADMINLIST_READONLY_USERS"] = strings.Join(d.weaviateAdminlistReadOnlyUsers, ",")
 		}
 	}
 
