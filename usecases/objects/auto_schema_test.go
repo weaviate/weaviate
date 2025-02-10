@@ -1700,3 +1700,7 @@ func (f fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) er
 func (f fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
+
+func (f fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	return resources, nil
+}

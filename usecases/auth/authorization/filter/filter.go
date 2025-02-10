@@ -12,6 +12,8 @@
 package filter
 
 import (
+	"slices"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -52,12 +54,24 @@ func (f *ResourceFilter[T]) Filter(
 	}
 
 	// For RBAC, filter based on per-item authorization
+	resources := []string{}
 	filtered := make([]T, 0, len(items))
 	for _, item := range items {
-		// TODO-RBAC: we need non silent authorizer with best effort enforcer
-		if err := f.authorizer.Authorize(principal, verb, resourceFn(item)); err == nil {
+		resources = append(resources, resourceFn(item))
+	}
+
+	allowedList, _ := f.authorizer.FilterAuthorizedResources(principal, verb, resources...)
+
+	if len(allowedList) == len(resources) {
+		// has permissions to all
+		return items
+	}
+
+	for _, item := range items {
+		if slices.Contains(allowedList, resourceFn(item)) {
 			filtered = append(filtered, item)
 		}
 	}
+
 	return filtered
 }

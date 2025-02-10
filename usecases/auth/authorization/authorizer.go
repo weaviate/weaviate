@@ -22,6 +22,9 @@ type Authorizer interface {
 	Authorize(principal *models.Principal, verb string, resources ...string) error
 	// AuthorizeSilent Silent authorization without audit logs
 	AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error
+	// FilterAuthorizedResources authorize the passed resources with best effort approach, it will return
+	// list of allowed resources, in case non it will empty slice
+	FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error)
 }
 
 // DummyAuthorizer is a pluggable Authorizer which can be used if no specific
@@ -37,4 +40,8 @@ func (d *DummyAuthorizer) Authorize(principal *models.Principal, verb string, re
 
 func (d *DummyAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
 	return nil
+}
+
+func (d *DummyAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	return resources, nil
 }

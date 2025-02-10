@@ -13,6 +13,7 @@ package rbac
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -27,6 +28,10 @@ func (m *manager) authorize(principal *models.Principal, verb string, skipAudit 
 		return errors.NewUnauthenticated()
 	}
 
+	if len(resources) == 0 {
+		return fmt.Errorf("at least 1 resource is required")
+	}
+
 	logger := m.logger.WithFields(logrus.Fields{
 		"action":         "authorize",
 		"user":           principal.Username,
@@ -34,7 +39,7 @@ func (m *manager) authorize(principal *models.Principal, verb string, skipAudit 
 		"request_action": verb,
 	})
 	if len(principal.Groups) > 0 {
-		logger.WithFields(logrus.Fields{"groups": principal.Groups})
+		logger.Data["groups"] = principal.Groups
 	}
 
 	for _, resource := range resources {
@@ -76,4 +81,80 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 // to be used internally
 func (m *manager) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
 	return m.authorize(principal, verb, true, resources...)
+}
+
+func (m *manager) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	if principal == nil {
+		return nil, errors.NewUnauthenticated()
+	}
+
+	if len(resources) == 0 {
+		return nil, fmt.Errorf("at least 1 resource is required")
+	}
+
+	logger := m.logger.WithFields(logrus.Fields{
+		"action":         "authorize",
+		"user":           principal.Username,
+		"component":      authorization.ComponentName,
+		"request_action": verb,
+	})
+
+	if len(principal.Groups) > 0 {
+		logger.Data["groups"] = principal.Groups
+	}
+
+	parts := strings.Split(resources[0], "/")
+	parts[len(parts)-1] = "*"
+	reconstructed := strings.Join(parts, "/")
+	allowed, err := m.checkPermissions(principal, reconstructed, verb)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"resources": resources,
+		}).WithError(err).Error("failed to enforce policy")
+		return nil, err
+	}
+
+	perm, err := conv.PathToPermission(verb, reconstructed)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.WithFields(logrus.Fields{
+		"resources": prettyPermissionsResources(perm),
+		"results":   prettyStatus(allowed),
+	})
+
+	if allowed {
+		logger.Info()
+		return resources, nil
+	}
+
+	var allowedResources []string
+	for _, resource := range resources {
+		allowed, err := m.checkPermissions(principal, resource, verb)
+		if err != nil {
+			logger.WithFields(logrus.Fields{
+				"resource": resource,
+			}).WithError(err).Error("failed to enforce policy")
+			return nil, err
+		}
+
+		if allowed {
+			allowedResources = append(allowedResources, resource)
+		}
+
+		perm, err := conv.PathToPermission(verb, resource)
+		if err != nil {
+			return nil, err
+		}
+
+		logger.WithFields(logrus.Fields{
+			"resource": prettyPermissionsResources(perm),
+			"results":  prettyStatus(allowed),
+		})
+	}
+
+	logger.Info()
+
+	return allowedResources, nil
 }
