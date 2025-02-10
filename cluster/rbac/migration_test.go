@@ -129,10 +129,9 @@ func TestMigrationsRemove(t *testing.T) {
 			}},
 			output: &cmd.RemovePermissionsRequest{
 				Version: cmd.RBACLatestCommandPolicyVersion, Permissions: []*authorization.Policy{
-					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD}, // original
-					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL)},
-					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL)},
-					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL)},
+					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH)},
+					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH)},
+					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH)},
 				},
 			},
 		},
@@ -161,7 +160,6 @@ func TestMigrationRemoveV2(t *testing.T) {
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.READ},
 			},
 			output: []*authorization.Policy{
-				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.READ},
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH)},
 			},
 		},
@@ -171,7 +169,6 @@ func TestMigrationRemoveV2(t *testing.T) {
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.ROLE_SCOPE_MATCH},
 			},
 			output: []*authorization.Policy{
-				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.ROLE_SCOPE_MATCH},
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH)},
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH)},
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH)},
@@ -183,7 +180,6 @@ func TestMigrationRemoveV2(t *testing.T) {
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD},
 			},
 			output: []*authorization.Policy{
-				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD},
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL)},
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL)},
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL)},
@@ -214,7 +210,6 @@ func TestMigrationRemoveV1(t *testing.T) {
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD},
 			},
 			output: []*authorization.Policy{
-				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD},
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.ROLE_SCOPE_MATCH},
 			},
 		},
