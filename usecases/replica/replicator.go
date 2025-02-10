@@ -70,7 +70,7 @@ type Replicator struct {
 func NewReplicator(className string,
 	stateGetter shardingState,
 	nodeResolver nodeResolver,
-	deletionStrategy string,
+	getDeletionStrategy func() string,
 	client Client,
 	l logrus.FieldLogger,
 ) *Replicator {
@@ -87,7 +87,7 @@ func NewReplicator(className string,
 		resolver:    resolver,
 		log:         l,
 		Finder: NewFinder(className, resolver, client, l,
-			defaultPullBackOffInitialInterval, defaultPullBackOffMaxElapsedTime, deletionStrategy),
+			defaultPullBackOffInitialInterval, defaultPullBackOffMaxElapsedTime, getDeletionStrategy),
 	}
 }
 

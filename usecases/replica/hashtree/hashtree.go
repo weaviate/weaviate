@@ -48,17 +48,12 @@ type HashTree struct {
 }
 
 func NewHashTree(height int) (*HashTree, error) {
-	if height < 1 {
+	if height < 0 {
 		return nil, fmt.Errorf("%w: illegal height", ErrIllegalArguments)
 	}
 
 	nodesCount := NodesCount(height)
-
-	var innerNodesCount int
-
-	if height > 1 {
-		innerNodesCount = NodesCount(height - 1)
-	}
+	innerNodesCount := InnerNodesCount(height)
 
 	return &HashTree{
 		height:          height,
@@ -70,11 +65,15 @@ func NewHashTree(height int) (*HashTree, error) {
 }
 
 func NodesCount(height int) int {
+	return (1 << (height + 1)) - 1
+}
+
+func InnerNodesCount(height int) int {
 	return 1<<height - 1
 }
 
 func LeavesCount(height int) int {
-	return 1 << (height - 1)
+	return 1 << height
 }
 
 func nodesAtLevel(l int) int {
@@ -146,8 +145,8 @@ func (ht *HashTree) sync() {
 
 	// calculate the hash tree up to the root
 
-	for l := ht.height - 2; l >= 0; l-- {
-		firstNode := NodesCount(l)
+	for l := ht.height - 1; l >= 0; l-- {
+		firstNode := InnerNodesCount(l)
 
 		// iterate over the nodes at level l
 		for i := 0; i < nodesAtLevel(l); i++ {
@@ -198,7 +197,7 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 		return 0, fmt.Errorf("%w: invalid level(%d)", ErrIllegalArguments, level)
 	}
 
-	if level >= ht.Height() {
+	if level > ht.Height() {
 		return 0, fmt.Errorf("%w: level(%d) is too high for current height(%d)", ErrIllegalState, level, ht.height)
 	}
 
@@ -212,11 +211,7 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 
 	ht.sync()
 
-	var offset int
-
-	if level > 0 {
-		offset = NodesCount(level)
-	}
+	offset := InnerNodesCount(level)
 
 	// TODO(jeroiraz): it may be more performant to iterate over the set positions in the discriminant
 	for i := 0; i < nodesAtLevel(level); i++ {

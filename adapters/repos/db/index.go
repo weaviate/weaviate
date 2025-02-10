@@ -210,7 +210,7 @@ type Index struct {
 	allocChecker     memwatch.AllocChecker
 	shardCreateLocks *esync.KeyLocker
 
-	asyncReplicationLock sync.RWMutex
+	replicationConfigLock sync.RWMutex
 
 	closeLock sync.RWMutex
 	closed    bool
@@ -249,9 +249,6 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
 
-	repl := replica.NewReplicator(cfg.ClassName.String(),
-		sg, nodeResolver, string(cfg.DeletionStrategy), replicaClient, logger)
-
 	if cfg.QueryNestedRefLimit == 0 {
 		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit
 	}
@@ -265,7 +262,6 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		invertedIndexConfig:    invertedIndexConfig,
 		vectorIndexUserConfigs: vectorIndexUserConfigs,
 		stopwords:              sd,
-		replicator:             repl,
 		partitioningEnabled:    shardState.PartitioningEnabled,
 		remote:                 sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
@@ -276,6 +272,14 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		allocChecker:           allocChecker,
 		shardCreateLocks:       esync.NewKeyLocker(),
 	}
+
+	getDeletionStrategy := func() string {
+		return index.DeletionStrategy()
+	}
+
+	index.replicator = replica.NewReplicator(cfg.ClassName.String(),
+		sg, nodeResolver, getDeletionStrategy, replicaClient, logger)
+
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
 	index.initCycleCallbacks()
@@ -567,11 +571,13 @@ func asyncReplicationGloballyDisabled() bool {
 	return entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED"))
 }
 
-func (i *Index) updateAsyncReplicationConfig(ctx context.Context, enabled bool) error {
-	i.asyncReplicationLock.Lock()
-	defer i.asyncReplicationLock.Unlock()
+func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.ReplicationConfig) error {
+	i.replicationConfigLock.Lock()
+	defer i.replicationConfigLock.Unlock()
 
-	i.Config.AsyncReplicationEnabled = enabled && i.replicationEnabled() && !asyncReplicationGloballyDisabled()
+	i.Config.ReplicationFactor = cfg.Factor
+	i.Config.DeletionStrategy = cfg.DeletionStrategy
+	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.updateAsyncReplicationConfig(ctx, i.Config.AsyncReplicationEnabled); err != nil {
@@ -584,6 +590,20 @@ func (i *Index) updateAsyncReplicationConfig(ctx context.Context, enabled bool) 
 	}
 
 	return nil
+}
+
+func (i *Index) ReplicationFactor() int64 {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.Config.ReplicationFactor
+}
+
+func (i *Index) DeletionStrategy() string {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.Config.DeletionStrategy
 }
 
 type IndexConfig struct {
@@ -604,7 +624,7 @@ type IndexConfig struct {
 	HNSWWaitForCachePrefill             bool
 	HNSWFlatSearchConcurrency           int
 	VisitedListPoolMaxSize              int
-	ReplicationFactor                   *atomic.Int64
+	ReplicationFactor                   int64
 	DeletionStrategy                    string
 	AsyncReplicationEnabled             bool
 	AvoidMMap                           bool
@@ -746,14 +766,17 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) replicationEnabled() bool {
-	return i.Config.ReplicationFactor.Load() > 1
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.Config.ReplicationFactor > 1
 }
 
 func (i *Index) asyncReplicationEnabled() bool {
-	i.asyncReplicationLock.RLock()
-	defer i.asyncReplicationLock.RUnlock()
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
 
-	return i.replicationEnabled() && i.Config.AsyncReplicationEnabled && !asyncReplicationGloballyDisabled()
+	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !asyncReplicationGloballyDisabled()
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
