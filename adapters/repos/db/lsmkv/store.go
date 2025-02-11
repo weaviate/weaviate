@@ -544,10 +544,11 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 	}
 	bucket.flushLock.Unlock()
 
-	bucket.disk.maintenanceLock.Lock()
+	segments, release := bucket.disk.getAndLockSegments()
+	defer release()
+
 	bucket.disk.dir = newBucketDir
-	for _, segment := range bucket.disk.segments {
+	for _, segment := range segments {
 		segment.path = updatePath(segment.path)
 	}
-	bucket.disk.maintenanceLock.Unlock()
 }

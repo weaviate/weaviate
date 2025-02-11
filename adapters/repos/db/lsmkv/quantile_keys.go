@@ -46,16 +46,16 @@ func (b *Bucket) QuantileKeys(q int) [][]byte {
 }
 
 func (sg *SegmentGroup) quantileKeys(q int) [][]byte {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
+	segments, release := sg.getAndLockSegments()
+	defer release()
 
 	var keys [][]byte
 
-	if len(sg.segments) == 0 {
+	if len(segments) == 0 {
 		return keys
 	}
 
-	for _, s := range sg.segments {
+	for _, s := range segments {
 		keys = append(keys, s.quantileKeys(q)...)
 	}
 

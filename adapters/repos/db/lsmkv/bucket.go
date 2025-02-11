@@ -779,69 +779,6 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 	return false, time.Time{}, nil
 }
 
-// TODO: this method may be removed once secondary keys are included when objects are deleted
-func (b *Bucket) UnsafeWasDeleted(key []byte) (bool, time.Time, error) {
-	if !b.keepTombstones {
-		return false, time.Time{}, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
-	}
-
-	_, err := b.active.get(key)
-	if err == nil {
-		return false, time.Time{}, nil
-	}
-	if errors.Is(err, lsmkv.Deleted) {
-		var errDeleted lsmkv.ErrDeleted
-		if errors.As(err, &errDeleted) {
-			return true, errDeleted.DeletionTime(), nil
-		} else {
-			return true, time.Time{}, nil
-		}
-	}
-	if !errors.Is(err, lsmkv.NotFound) {
-		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
-	}
-
-	// can still check flushing and disk
-
-	if b.flushing != nil {
-		_, err := b.flushing.get(key)
-		if err == nil {
-			return false, time.Time{}, nil
-		}
-		if errors.Is(err, lsmkv.Deleted) {
-			var errDeleted lsmkv.ErrDeleted
-			if errors.As(err, &errDeleted) {
-				return true, errDeleted.DeletionTime(), nil
-			} else {
-				return true, time.Time{}, nil
-			}
-		}
-		if !errors.Is(err, lsmkv.NotFound) {
-			return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
-		}
-
-		// can still check disk
-	}
-
-	_, err = b.disk.unsafeGetErrDeleted(key)
-	if err == nil {
-		return false, time.Time{}, nil
-	}
-	if errors.Is(err, lsmkv.Deleted) {
-		var errDeleted lsmkv.ErrDeleted
-		if errors.As(err, &errDeleted) {
-			return true, errDeleted.DeletionTime(), nil
-		} else {
-			return true, time.Time{}, nil
-		}
-	}
-	if !errors.Is(err, lsmkv.NotFound) {
-		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
-	}
-
-	return false, time.Time{}, nil
-}
-
 type MapListOptionConfig struct {
 	acceptDuplicates           bool
 	legacyRequireManualSorting bool
@@ -879,10 +816,12 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 	segments := [][]MapPair{}
 	// before := time.Now()
-	disk, segmentsDisk, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
+
+	defer release()
 
 	allTombstones, err := b.loadAllTombstones(segmentsDisk)
 	if err != nil {
@@ -1447,10 +1386,12 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	segments := [][]terms.DocPointerWithScore{}
-	disk, segmentsDisk, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
+
+	defer release()
 
 	allTombstones, err := b.loadAllTombstones(segmentsDisk)
 	if err != nil {
@@ -1531,25 +1472,23 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }
 
-func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, *sync.RWMutex, error) {
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, func(), error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	lock := &b.disk.maintenanceLock
 	// The lock is necessary, as data is being read from the disk during blockmax wand search.
 	// BlockMax is ran outside this function, so, the lock is returned to the caller.
 	// Panics at this level are caught and the lock is released in the defer function.
 	// The lock is released after the blockmax search is done, and panics are also handled.
-	lock.RLock()
+	segmentsDisk, release := b.disk.getAndLockSegments()
 
 	defer func() {
 		if r := recover(); r != nil {
 			b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
-			lock.RUnlock()
+			release()
 		}
 	}()
 
-	segmentsDisk := b.disk.segments
 	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))
 
@@ -1580,7 +1519,8 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			n += n2
 			tombstones, err := b.active.GetTombstones()
 			if err != nil {
-				return nil, lock, err
+				release()
+				return nil, func() {}, err
 			}
 			allTombstones[len(segmentsDisk)+1] = tombstones
 
@@ -1599,7 +1539,8 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 			tombstones, err := b.flushing.GetTombstones()
 			if err != nil {
-				return nil, lock, err
+				release()
+				return nil, func() {}, err
 			}
 
 			allTombstones[len(segmentsDisk)] = sroar.Or(allTombstones[len(segmentsDisk)+1], tombstones)
@@ -1631,7 +1572,8 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
 		tombstones, err := segment.GetTombstones()
 		if err != nil {
-			return nil, lock, err
+			release()
+			return nil, func() {}, err
 		}
 		allTombstones[j] = sroar.Or(allTombstones[j+1], tombstones)
 		for i, key := range query {
@@ -1643,7 +1585,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 
 	}
-	return output, lock, nil
+	return output, release, nil
 }
 
 func fillTerm(memtable *Memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {
