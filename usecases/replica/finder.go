@@ -74,17 +74,17 @@ func NewFinder(className string,
 	l logrus.FieldLogger,
 	coordinatorPullBackoffInitialInterval time.Duration,
 	coordinatorPullBackoffMaxElapsedTime time.Duration,
-	deletionStrategy string,
+	getDeletionStrategy func() string,
 ) *Finder {
 	cl := finderClient{client}
 	return &Finder{
 		resolver: resolver,
 		finderStream: finderStream{
 			repairer: repairer{
-				class:            className,
-				deletionStrategy: deletionStrategy,
-				client:           cl,
-				logger:           l,
+				class:               className,
+				getDeletionStrategy: getDeletionStrategy,
+				client:              cl,
+				logger:              l,
 			},
 			log: l,
 		},
@@ -101,7 +101,7 @@ func (f *Finder) GetOne(ctx context.Context,
 	adds additional.Properties,
 ) (*storobj.Object, error) {
 	c := newReadCoordinator[findOneReply](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
 			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
@@ -144,7 +144,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 	className, shard string, filters *filters.LocalFilter, l ConsistencyLevel,
 ) (uuids []strfmt.UUID, err error) {
 	c := newReadCoordinator[[]strfmt.UUID](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 
 	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
@@ -230,7 +230,7 @@ func (f *Finder) Exists(ctx context.Context,
 	id strfmt.UUID,
 ) (bool, error) {
 	c := newReadCoordinator[existReply](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
 		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 		var x RepairResponse
@@ -278,7 +278,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 ) ([]*storobj.Object, error) {
 	var (
 		c = newReadCoordinator[batchReply](f, batch.Shard,
-			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
+			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 		shard     = batch.Shard
 		data, ids = batch.Extract() // extract from current content
 	)
@@ -336,7 +336,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 		diff.Set(0) // init comparison at root level
 
-		for l := 0; l < ht.Height(); l++ {
+		for l := 0; l <= ht.Height(); l++ {
 			_, err := ht.Level(l, diff, digests)
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", host, err)
@@ -399,10 +399,10 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	return nil, ErrNoDiffFound
 }
 
-func (f *Finder) DigestObjectsInTokenRange(ctx context.Context,
-	shardName string, host string, initialToken, finalToken uint64, limit int,
-) (ds []RepairResponse, lastTokenRead uint64, err error) {
-	return f.client.DigestObjectsInTokenRange(ctx, host, f.class, shardName, initialToken, finalToken, limit)
+func (f *Finder) DigestObjectsInRange(ctx context.Context,
+	shardName string, host string, initialUUID, finalUUID strfmt.UUID, limit int,
+) (ds []RepairResponse, err error) {
+	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
 }
 
 // Overwrite specified object with most recent contents

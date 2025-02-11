@@ -13,11 +13,14 @@ package inverted
 
 import (
 	"context"
+	"math"
 	"slices"
 	"sort"
 	"sync"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -109,11 +112,14 @@ func (b *BM25Searcher) wandBlock(
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
-	allObjects := make([][][]*storobj.Object, len(allResults))
+	allIds := make([][][]uint64, len(allResults))
 	allScores := make([][][]float32, len(allResults))
+	allExplanation := make([][][][]*terms.DocPointerWithScore, len(allResults))
 	for i, perProperty := range allResults {
-		allObjects[i] = make([][]*storobj.Object, len(perProperty))
+		allIds[i] = make([][]uint64, len(perProperty))
 		allScores[i] = make([][]float32, len(perProperty))
+		allExplanation[i] = make([][][]*terms.DocPointerWithScore, len(perProperty))
+
 		// per segment
 		for j := range perProperty {
 
@@ -125,13 +131,17 @@ func (b *BM25Searcher) wandBlock(
 			}
 			eg.Go(func() (err error) {
 				topKHeap := lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]))
-				objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, termCounts[i], additional)
-
-				allObjects[i][j] = objects
-				allScores[i][j] = scores
+				ids, scores, explanations, err := b.getTopKIds(topKHeap)
 				if err != nil {
 					return err
 				}
+
+				allIds[i][j] = ids
+				allScores[i][j] = scores
+				if len(explanations) > 0 {
+					allExplanation[i][j] = explanations
+				}
+
 				return nil
 			})
 		}
@@ -141,101 +151,179 @@ func (b *BM25Searcher) wandBlock(
 		return nil, nil, err
 	}
 
-	objects, scores := b.combineResults(allObjects, allScores, limit)
-
+	objects, scores := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
 	return objects, scores, nil
 }
 
-func (b *BM25Searcher) combineResults(allObjects [][][]*storobj.Object, allScores [][][]float32, limit int) ([]*storobj.Object, []float32) {
+func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32) {
 	// combine all results
-	combinedObjects := make([]*storobj.Object, 0, limit*len(allObjects))
-	combinedScores := make([]float32, 0, limit*len(allObjects))
+	combinedIds := make([]uint64, 0, limit*len(allIds))
+	combinedScores := make([]float32, 0, limit*len(allIds))
+	combinedExplanations := make([][]*terms.DocPointerWithScore, 0, limit*len(allIds))
+	combinedTerms := make([]string, 0, limit*len(allIds))
 
 	// combine all results
-	for i := range allObjects {
-		singlePropObjects := slices.Concat(allObjects[i]...)
+	for i := range allIds {
+		singlePropIds := slices.Concat(allIds[i]...)
 		singlePropScores := slices.Concat(allScores[i]...)
+		singlePropExplanation := slices.Concat(allExplanation[i]...)
 		// Choose the highest score for each object if it appears in multiple segments
-		combinedObjectsProp, combinedScoresProp := b.combineResultsForMultiProp(singlePropObjects, singlePropScores, func(a, b float32) float32 { return b })
-		combinedObjects = append(combinedObjects, combinedObjectsProp...)
+		combinedIdsProp, combinedScoresProp, combinedExplanationProp := b.combineResultsForMultiProp(singlePropIds, singlePropScores, singlePropExplanation, func(a, b float32) float32 { return b }, true)
+		combinedIds = append(combinedIds, combinedIdsProp...)
 		combinedScores = append(combinedScores, combinedScoresProp...)
+		combinedExplanations = append(combinedExplanations, combinedExplanationProp...)
+		combinedTerms = append(combinedTerms, queryTerms[i]...)
 	}
 
 	// Choose the sum of the scores for each object if it appears in multiple properties
-	combinedObjects, combinedScores = b.combineResultsForMultiProp(combinedObjects, combinedScores, func(a, b float32) float32 { return a + b })
+	combinedIds, combinedScores, combinedExplanations = b.combineResultsForMultiProp(combinedIds, combinedScores, combinedExplanations, func(a, b float32) float32 { return a + b }, false)
 
-	combinedObjects, combinedScores = b.sortResultsByScore(combinedObjects, combinedScores)
+	combinedIds, combinedScores, combinedExplanations = b.sortResultsByScore(combinedIds, combinedScores, combinedExplanations)
 
-	if len(combinedObjects) <= limit {
-		return combinedObjects, combinedScores
+	limit = int(math.Min(float64(limit), float64(len(combinedIds))))
+
+	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit)
+	if err != nil {
+		return nil, nil
 	}
-
-	return combinedObjects[len(combinedObjects)-limit:], combinedScores[len(combinedObjects)-limit:]
+	return combinedObjects, combinedScores
 }
 
 type aggregate func(float32, float32) float32
 
-func (b *BM25Searcher) combineResultsForMultiProp(allObjects []*storobj.Object, allScores []float32, aggregateFn aggregate) ([]*storobj.Object, []float32) {
+func (b *BM25Searcher) combineResultsForMultiProp(allIds []uint64, allScores []float32, allExplanation [][]*terms.DocPointerWithScore, aggregateFn aggregate, singleProp bool) ([]uint64, []float32, [][]*terms.DocPointerWithScore) {
 	// if ids are the same, sum the scores
-	combinedObjects := make(map[string]*storobj.Object)
-	combinedScores := make(map[string]float32)
+	combinedScores := make(map[uint64]float32)
+	combinedExplanations := make(map[uint64][]*terms.DocPointerWithScore)
 
-	for i, obj := range allObjects {
-		id := string(obj.ID())
-		if _, ok := combinedObjects[id]; !ok {
-			combinedObjects[id] = obj
+	for i, obj := range allIds {
+		id := obj
+		if _, ok := combinedScores[id]; !ok {
 			combinedScores[id] = allScores[i]
+			if len(allExplanation) > 0 {
+				combinedExplanations[id] = allExplanation[i]
+			}
 		} else {
-			combinedObjects[id] = combineObjects(combinedObjects[id], obj)
 			combinedScores[id] = aggregateFn(combinedScores[id], allScores[i])
+			if len(allExplanation) > 0 {
+				if singleProp {
+					combinedExplanations[id] = allExplanation[i]
+				} else {
+					combinedExplanations[id] = append(combinedExplanations[id], allExplanation[i]...)
+				}
+			}
+
 		}
 	}
 
-	// sort the combined results
-	combinedObjectsSlice := make([]*storobj.Object, 0, len(combinedObjects))
-	combinedScoresSlice := make([]float32, 0, len(combinedObjects))
-
-	for id, obj := range combinedObjects {
-		combinedObjectsSlice = append(combinedObjectsSlice, obj)
-		combinedScoresSlice = append(combinedScoresSlice, combinedScores[id])
+	ids := make([]uint64, 0, len(combinedScores))
+	scores := make([]float32, 0, len(combinedScores))
+	exp := make([][]*terms.DocPointerWithScore, 0, len(combinedScores))
+	for id, score := range combinedScores {
+		ids = append(ids, id)
+		scores = append(scores, score)
+		if allExplanation != nil {
+			exp = append(exp, combinedExplanations[id])
+		}
 	}
-
-	return combinedObjectsSlice, combinedScoresSlice
+	return ids, scores, exp
 }
 
-func (b *BM25Searcher) sortResultsByScore(objects []*storobj.Object, scores []float32) ([]*storobj.Object, []float32) {
+func (b *BM25Searcher) sortResultsByScore(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore) ([]uint64, []float32, [][]*terms.DocPointerWithScore) {
 	sorter := &scoreSorter{
-		objects: objects,
-		scores:  scores,
+		ids:          ids,
+		scores:       scores,
+		explanations: explanations,
 	}
 	sort.Sort(sorter)
-	return sorter.objects, sorter.scores
+	return sorter.ids, sorter.scores, sorter.explanations
+}
+
+func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
+	// reverse arrays to start with the highest score
+	slices.Reverse(ids)
+	slices.Reverse(scores)
+	if explanations != nil {
+		slices.Reverse(explanations)
+	}
+
+	objs := make([]*storobj.Object, 0, limit)
+	scoresResult := make([]float32, 0, limit)
+	explanationsResults := make([][]*terms.DocPointerWithScore, 0, limit)
+
+	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
+
+	startAt := 0
+	endAt := limit
+	// try to get docs up to the limit
+	// if there are not enough docs, get limit more docs until we've exhausted the list of ids
+	for len(objs) < limit && startAt < len(ids) {
+		objsBatch, err := storobj.ObjectsByDocID(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
+		if err != nil {
+			return objs, nil, errors.Errorf("objects loading")
+		}
+		for i, obj := range objsBatch {
+			if obj == nil {
+				continue
+			}
+			if obj.DocID != ids[startAt+i] {
+				continue
+			}
+			objs = append(objs, obj)
+			scoresResult = append(scoresResult, scores[startAt+i])
+			if explanations != nil {
+				explanationsResults = append(explanationsResults, explanations[startAt+i])
+			}
+		}
+		startAt = endAt
+		endAt = int(math.Min(float64(endAt+limit), float64(len(ids))))
+	}
+
+	if explanationsResults != nil && len(explanationsResults) == len(scoresResult) {
+		for k := range objs {
+			// add score explanation
+			if objs[k].AdditionalProperties() == nil {
+				objs[k].Object.Additional = make(map[string]interface{})
+			}
+			for j, result := range explanationsResults[k] {
+				if result == nil {
+					continue
+				}
+				queryTerm := queryTerms[j]
+				objs[k].Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.Frequency
+				objs[k].Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.PropLength
+			}
+		}
+	}
+
+	// reverse back the arrays to the expected order
+	slices.Reverse(objs)
+	slices.Reverse(scoresResult)
+
+	return objs, scoresResult, nil
 }
 
 type scoreSorter struct {
-	objects []*storobj.Object
-	scores  []float32
+	ids          []uint64
+	scores       []float32
+	explanations [][]*terms.DocPointerWithScore
 }
 
 func (s *scoreSorter) Len() int {
-	return len(s.objects)
+	return len(s.ids)
 }
 
 func (s *scoreSorter) Less(i, j int) bool {
 	if s.scores[i] == s.scores[j] {
-		return s.objects[i].ID() > s.objects[j].ID()
+		return s.ids[i] > s.ids[j]
 	}
 	return s.scores[i] < s.scores[j]
 }
 
 func (s *scoreSorter) Swap(i, j int) {
-	s.objects[i], s.objects[j] = s.objects[j], s.objects[i]
+	s.ids[i], s.ids[j] = s.ids[j], s.ids[i]
 	s.scores[i], s.scores[j] = s.scores[j], s.scores[i]
-}
-
-func combineObjects(a, b *storobj.Object) *storobj.Object {
-	for k, v := range b.Object.Additional {
-		a.Object.Additional[k] = v
+	if s.explanations != nil {
+		s.explanations[i], s.explanations[j] = s.explanations[j], s.explanations[i]
 	}
-	return a
 }

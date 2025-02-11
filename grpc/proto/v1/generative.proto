@@ -44,6 +44,7 @@ message GenerativeProvider {
     GenerativeGoogle google = 10;
     GenerativeDatabricks databricks = 11;
     GenerativeFriendliAI friendliai = 12;
+    GenerativeNvidia nvidia = 13;
   }
 }
 
@@ -161,6 +162,14 @@ message GenerativeFriendliAI{
   optional double top_p = 6;
 }
 
+message GenerativeNvidia{
+  optional string base_url = 1;
+  optional string model = 2;
+  optional double temperature = 3;
+  optional double top_p = 4;
+  optional int64 max_tokens = 5;
+}
+
 message GenerativeAnthropicMetadata {
   message Usage {
     int64 input_tokens = 1;
@@ -260,6 +269,15 @@ message GenerativeFriendliAIMetadata {
   optional Usage usage = 1;
 }
 
+message GenerativeNvidiaMetadata {
+  message Usage {
+    optional int64 prompt_tokens = 1;
+    optional int64 completion_tokens = 2;
+    optional int64 total_tokens = 3;
+  }
+  optional Usage usage = 1;
+}
+
 message GenerativeMetadata {
   oneof kind {
     GenerativeAnthropicMetadata anthropic = 1;
@@ -273,6 +291,7 @@ message GenerativeMetadata {
     GenerativeGoogleMetadata google = 9;
     GenerativeDatabricksMetadata databricks = 10;
     GenerativeFriendliAIMetadata friendliai = 11;
+    GenerativeNvidiaMetadata nvidia = 12;
   }
 }
 

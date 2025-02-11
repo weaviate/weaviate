@@ -19,7 +19,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -241,9 +240,7 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 		return fmt.Errorf("invalid object update time")
 	}
 
-	h := murmur3.New64()
-	h.Write(uuidBytes)
-	token := h.Sum64()
+	leaf := s.hashtreeLeafFor(uuidBytes)
 
 	var objectDigest [16 + 8]byte
 
@@ -253,7 +250,7 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 	// object deletion is treated as non-existent,
 	// that because deletion time or tombstone may not be available
 
-	s.hashtree.AggregateLeafWith(token, objectDigest[:])
+	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
 	return nil
 }

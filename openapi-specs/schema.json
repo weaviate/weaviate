@@ -176,9 +176,11 @@
             "delete_data",
 
             "read_nodes",
-
-            "manage_roles",
+          
+            "create_roles",
             "read_roles",
+            "update_roles",
+            "delete_roles",
 
             "create_collections",
             "read_collections",

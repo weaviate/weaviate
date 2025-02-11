@@ -25,7 +25,7 @@ import (
 func TestCompactHashTree(t *testing.T) {
 	capacity := uint64(1)
 	maxHeight := 2
-	expectedHeight := 1
+	expectedHeight := 0
 
 	ht, err := NewCompactHashTree(capacity, maxHeight)
 	require.NoError(t, err)
@@ -39,7 +39,7 @@ func TestCompactHashTree(t *testing.T) {
 
 	var rootLevel [1]Digest
 
-	n, err := ht.Level(0, NewBitset(ht.Height()).Set(0), rootLevel[:])
+	n, err := ht.Level(0, NewBitset(NodesCount(ht.Height())).Set(0), rootLevel[:])
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 

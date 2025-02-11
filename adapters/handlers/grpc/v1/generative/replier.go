@@ -32,6 +32,8 @@ import (
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistralClients "github.com/weaviate/weaviate/modules/generative-mistral/clients"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
+	nvidiaClients "github.com/weaviate/weaviate/modules/generative-nvidia/clients"
+	nvidiaParams "github.com/weaviate/weaviate/modules/generative-nvidia/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiClients "github.com/weaviate/weaviate/modules/generative-openai/clients"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
@@ -276,6 +278,20 @@ func (r *Replier) extractGenerativeMetadata(results map[string]any) (*pb.Generat
 			}
 		}
 		metadata.Kind = &pb.GenerativeMetadata_Friendliai{Friendliai: friendliai}
+	case nvidiaParams.Name:
+		params := nvidiaClients.GetResponseParams(results)
+		if params == nil {
+			return nil, fmt.Errorf("could not get request metadata for provider: %s", providerName)
+		}
+		nvidia := &pb.GenerativeNvidiaMetadata{}
+		if params.Usage != nil {
+			nvidia.Usage = &pb.GenerativeNvidiaMetadata_Usage{
+				PromptTokens:     convertIntPtrToInt64Ptr(params.Usage.PromptTokens),
+				CompletionTokens: convertIntPtrToInt64Ptr(params.Usage.CompletionTokens),
+				TotalTokens:      convertIntPtrToInt64Ptr(params.Usage.TotalTokens),
+			}
+		}
+		metadata.Kind = &pb.GenerativeMetadata_Nvidia{Nvidia: nvidia}
 	default:
 		return nil, fmt.Errorf("provider: %s, not supported", providerName)
 	}

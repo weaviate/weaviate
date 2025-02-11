@@ -28,7 +28,7 @@ func TestIllegalHashTree(t *testing.T) {
 }
 
 func TestSmallestHashTree(t *testing.T) {
-	height := 1
+	height := 0
 
 	ht, err := NewHashTree(height)
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestSmallestHashTree(t *testing.T) {
 }
 
 func TestHashTree(t *testing.T) {
-	height := 2
+	height := 1
 
 	ht, err := NewHashTree(height)
 	require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestBigHashTree(t *testing.T) {
 }
 
 func TestHashTreeComparisonOneLeafAtATime(t *testing.T) {
-	height := 9
+	height := 0
 
 	ht1, err := NewHashTree(height)
 	require.NoError(t, err)

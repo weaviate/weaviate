@@ -23,6 +23,7 @@ import (
 	friendliaiParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
+	nvidiaParams "github.com/weaviate/weaviate/modules/generative-nvidia/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
@@ -120,6 +121,9 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 			case *pb.GenerativeProvider_Friendliai:
 				options = p.friendliai(query.GetFriendliai())
 				providerName = friendliaiParams.Name
+			case *pb.GenerativeProvider_Nvidia:
+				options = p.nvidia(query.GetNvidia())
+				providerName = nvidiaParams.Name
 			default:
 				// do nothing
 			}
@@ -318,6 +322,21 @@ func (p *Parser) friendliai(in *pb.GenerativeFriendliAI) map[string]any {
 			Temperature: in.Temperature,
 			N:           p.int64ToInt(in.N),
 			TopP:        in.TopP,
+		},
+	}
+}
+
+func (p *Parser) nvidia(in *pb.GenerativeNvidia) map[string]any {
+	if in == nil {
+		return nil
+	}
+	return map[string]any{
+		nvidiaParams.Name: nvidiaParams.Params{
+			BaseURL:     in.GetBaseUrl(),
+			Model:       in.GetModel(),
+			Temperature: in.Temperature,
+			TopP:        in.TopP,
+			MaxTokens:   p.int64ToInt(in.MaxTokens),
 		},
 	}
 }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -69,7 +70,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.expectAuthz {
-				authorizer.On("Authorize", principal, authorization.READ, authorization.Roles("testRole")[0]).Return(nil)
+				authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(nil)
 			}
 			controller.On("GetRolesForUser", tt.params.ID).Return(returnedPolices, nil)
 
@@ -135,7 +136,10 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 				},
 			}
 
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
+			if tt.authorizeErr != nil {
+				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
+			}
 			controller.On("GetRolesForUser", tt.params.ID).Return(returnedPolices, nil)
 
 			h := &authZHandlers{
