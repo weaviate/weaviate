@@ -339,7 +339,6 @@ func New(cfg Config, uc ent.UserConfig,
 		}
 	}
 
-	cfg.MakeCommitLoggerThunk()
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
 	}

@@ -81,8 +81,8 @@ type RemoteIndexIncomingRepo interface {
 		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
 	IncomingDigestObjects(ctx context.Context, shardName string,
 		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
-	IncomingDigestObjectsInTokenRange(ctx context.Context, shardName string,
-		initialToken, finalToken uint64, limit int) (result []replica.RepairResponse, lastTokenRead uint64, err error)
+	IncomingDigestObjectsInRange(ctx context.Context, shardName string,
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []replica.RepairResponse, err error)
 	IncomingHashTreeLevel(ctx context.Context, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 
@@ -347,15 +347,15 @@ func (rii *RemoteIndexIncoming) indexForIncomingWrite(ctx context.Context, index
 	return index, nil
 }
 
-func (rii *RemoteIndexIncoming) DigestObjectsInTokenRange(ctx context.Context,
-	indexName, shardName string, initialToken, finalToken uint64, limit int,
-) ([]replica.RepairResponse, uint64, error) {
+func (rii *RemoteIndexIncoming) DigestObjectsInRange(ctx context.Context,
+	indexName, shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
+) ([]replica.RepairResponse, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
-		return nil, 0, fmt.Errorf("local index %q not found", indexName)
+		return nil, fmt.Errorf("local index %q not found", indexName)
 	}
 
-	return index.IncomingDigestObjectsInTokenRange(ctx, shardName, initialToken, finalToken, limit)
+	return index.IncomingDigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
 func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,

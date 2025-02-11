@@ -15,13 +15,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
 var ErrBadRequest = errors.New("bad request")
@@ -135,8 +133,8 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	switch req.Version {
-	case cmd.RBACCommandPolicyVersionV0:
+
+	if req.Version < cmd.RBACLatestCommandPolicyVersion {
 		for roleName, policies := range req.Roles {
 			permissions := []*authorization.Policy{}
 			for _, p := range policies {
@@ -146,52 +144,15 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 			if err := m.authZ.RemovePermissions(roleName, permissions); err != nil {
 				return err
 			}
-
-			// create new permissions
-			for idx := range policies {
-				if req.Roles[roleName][idx].Domain == authorization.SchemaDomain {
-					parts := strings.Split(req.Roles[roleName][idx].Resource, "/")
-					if len(parts) < 3 {
-						// shall never happens
-						return fmt.Errorf("invalid schema path")
-					}
-					req.Roles[roleName][idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
-				}
-
-				if req.Roles[roleName][idx].Domain == authorization.RolesDomain &&
-					req.Roles[roleName][idx].Verb == conv.CRUD {
-					// this will override any role was created before 1.28
-					// to reset default to
-					req.Roles[roleName][idx].Verb = authorization.ROLE_SCOPE_MATCH
-				}
-			}
 		}
-	case cmd.RBACCommandPolicyVersionV1:
-		for roleName, policies := range req.Roles {
-			permissions := []*authorization.Policy{}
-			for _, p := range policies {
-				permissions = append(permissions, &p)
-			}
-			// remove old permissions
-			if err := m.authZ.RemovePermissions(roleName, permissions); err != nil {
-				return err
-			}
-
-			// create new permissions
-			for idx := range policies {
-				if req.Roles[roleName][idx].Domain == authorization.RolesDomain &&
-					req.Roles[roleName][idx].Verb == conv.CRUD {
-					// this will override any role was created before 1.28
-					// to reset default to
-					req.Roles[roleName][idx].Verb = authorization.ROLE_SCOPE_MATCH
-				}
-			}
-		}
-	default:
-		// do nothing
 	}
 
-	return m.authZ.UpsertRolesPermissions(req.Roles)
+	reqMigrated, err := migrateUpsertRolesPermissions(req)
+	if err != nil {
+		return err
+	}
+
+	return m.authZ.UpsertRolesPermissions(reqMigrated.Roles)
 }
 
 func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {
@@ -227,29 +188,18 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	switch req.Version {
-	case cmd.RBACCommandPolicyVersionV0:
-		// keep to remove old formats
+	if req.Version < cmd.RBACLatestCommandPolicyVersion {
 		if err := m.authZ.RemovePermissions(req.Role, req.Permissions); err != nil {
 			return err
 		}
-		// remove any added with new format after migration
-		for idx := range req.Permissions {
-			if req.Permissions[idx].Domain != authorization.SchemaDomain {
-				continue
-			}
-			parts := strings.Split(req.Permissions[idx].Resource, "/")
-			if len(parts) < 3 {
-				// shall never happens
-				return fmt.Errorf("invalid schema path")
-			}
-			req.Permissions[idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
-		}
-	default:
-		// do nothing
 	}
 
-	return m.authZ.RemovePermissions(req.Role, req.Permissions)
+	reqMigrated, err := migrateRemovePermissions(req)
+	if err != nil {
+		return err
+	}
+
+	return m.authZ.RemovePermissions(reqMigrated.Role, reqMigrated.Permissions)
 }
 
 func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {

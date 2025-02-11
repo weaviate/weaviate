@@ -25,6 +25,7 @@ import (
 	"github.com/oauth2-proxy/mockoidc"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/authz"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
@@ -219,4 +220,63 @@ func TestRbacWithOIDCManual(t *testing.T) {
 		fmt.Println(m.TokenEndpoint())
 		time.Sleep(time.Second)
 	}
+}
+
+func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
+	var err error
+	ctx := context.Background()
+
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
+
+	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+	// description for details
+	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+	tokenCustom, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+
+	role := models.Role{Name: String("test-role"), Permissions: []*models.Permission{helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).Permission()}}
+	helper.CreateRole(t, tokenAdmin, &role)
+
+	assign := func(key string) error {
+		_, err = helper.Client(t).Authz.AssignRoleToGroup(authz.NewAssignRoleToGroupParams().WithBody(authz.AssignRoleToGroupBody{Roles: []string{*role.Name}}).WithID("custom-group"), helper.CreateAuth(key))
+		return err
+	}
+	revoke := func(key string) error {
+		_, err = helper.Client(t).Authz.RevokeRoleFromGroup(authz.NewRevokeRoleFromGroupParams().WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{*role.Name}}).WithID("custom-group"), helper.CreateAuth(key))
+		return err
+	}
+
+	// non-root users cannot assign roles to groups
+	err = assign(tokenCustom)
+	require.Error(t, err)
+	var forbiddenAssign *authz.AssignRoleToGroupForbidden
+	require.True(t, errors.As(err, &forbiddenAssign))
+
+	// root users can assign roles to groups
+	err = assign(tokenAdmin)
+	if errors.As(err, &forbiddenAssign) {
+		t.Log(forbiddenAssign.Payload.Error[0].Message)
+	}
+	require.NoError(t, err)
+
+	// non-root users cannot revoke roles from groups
+	err = revoke(tokenCustom)
+	require.Error(t, err)
+	var forbiddenRevoke *authz.RevokeRoleFromGroupForbidden
+	require.True(t, errors.As(err, &forbiddenRevoke))
+
+	// root users can revoke roles from groups
+	err = revoke(tokenAdmin)
+	require.NoError(t, err)
+
+	// check that revoking the final group is a no-op
+	err = revoke(tokenAdmin)
+	require.NoError(t, err)
 }

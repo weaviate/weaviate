@@ -302,14 +302,14 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 	return l.shard.MultiObjectByID(ctx, query)
 }
 
-func (l *LazyLoadShard) ObjectDigestsByTokenRange(ctx context.Context,
-	initialToken, finalToken uint64, limit int,
-) (objs []replica.RepairResponse, lastTokenRead uint64, err error) {
+func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
+	initialUUID, finalUUID strfmt.UUID, limit int,
+) (objs []replica.RepairResponse, err error) {
 	if !l.isLoaded() {
-		return nil, 0, err
+		return nil, err
 	}
 
-	return l.shard.ObjectDigestsByTokenRange(ctx, initialToken, finalToken, limit)
+	return l.shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
 }
 
 func (l *LazyLoadShard) ID() string {

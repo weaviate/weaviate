@@ -44,8 +44,13 @@ var (
 	deleteVerb = authorization.DELETE
 	manageVerb = CRUD
 
-	rolesTests = []innerTest{
-		{permissionAction: authorization.ManageRoles, testDescription: manageDesc, policyVerb: manageVerb},
+	rolesTestsR = []innerTest{
+		{permissionAction: authorization.ReadRoles, testDescription: readDesc, policyVerb: authorization.VerbWithScope(readVerb, authorization.ROLE_SCOPE_MATCH)},
+	}
+	rolesTestsCUD = []innerTest{
+		{permissionAction: authorization.CreateRoles, testDescription: createVerb, policyVerb: authorization.VerbWithScope(createVerb, authorization.ROLE_SCOPE_ALL)},
+		{permissionAction: authorization.UpdateRoles, testDescription: updateDesc, policyVerb: authorization.VerbWithScope(updateVerb, authorization.ROLE_SCOPE_ALL)},
+		{permissionAction: authorization.DeleteRoles, testDescription: deleteDesc, policyVerb: authorization.VerbWithScope(deleteVerb, authorization.ROLE_SCOPE_ALL)},
 	}
 	clusterTests = []innerTest{
 		{permissionAction: authorization.ReadCluster, testDescription: readDesc, policyVerb: readVerb},
@@ -89,24 +94,38 @@ func Test_policy(t *testing.T) {
 		{
 			name: "all roles",
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Scope: authorization.String(authorization.ROLE_SCOPE_ALL)},
+				Roles: &models.PermissionRoles{Role: authorization.All, Scope: authorization.String(models.PermissionRolesScopeMatch)},
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinRoles("*"),
 				Domain:   authorization.RolesDomain,
+				Verb:     authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH),
 			},
-			tests: rolesTests,
+			tests: rolesTestsR,
 		},
 		{
 			name: "a role",
 			permission: &models.Permission{
-				Roles: &models.PermissionRoles{Role: authorization.String("admin")},
+				Roles: &models.PermissionRoles{Role: authorization.String("admin"), Scope: authorization.String(models.PermissionRolesScopeMatch)},
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinRoles("admin"),
 				Domain:   authorization.RolesDomain,
+				Verb:     authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH),
 			},
-			tests: rolesTests,
+			tests: rolesTestsR,
+		},
+		{
+			name: "a role with scope all",
+			permission: &models.Permission{
+				Roles: &models.PermissionRoles{Role: authorization.String("admin"), Scope: authorization.String(models.PermissionRolesScopeAll)},
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinRoles("admin"),
+				Domain:   authorization.RolesDomain,
+				Verb:     authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL),
+			},
+			tests: rolesTestsCUD,
 		},
 		{
 			name:       "cluster",
@@ -477,13 +496,6 @@ func Test_policy(t *testing.T) {
 
 				policy, err := policy(tt.permission)
 				require.Nil(t, err)
-				if tt.permission.Roles != nil {
-					// handle scopes
-					tt.policy.Verb = authorization.ROLE_SCOPE_MATCH
-					if tt.permission.Roles.Scope != nil {
-						tt.policy.Verb = authorization.ROLE_SCOPE_ALL
-					}
-				}
 				require.Equal(t, tt.policy, policy)
 			})
 		}
@@ -499,11 +511,19 @@ func Test_permission(t *testing.T) {
 	}{
 		{
 			name:   "all roles",
-			policy: []string{"p", "/*", authorization.ROLE_SCOPE_ALL, authorization.RolesDomain},
+			policy: []string{"p", "/*", "", authorization.RolesDomain},
+			permission: &models.Permission{
+				Roles: &models.PermissionRoles{Role: authorization.String("*"), Scope: authorization.String(models.PermissionRolesScopeMatch)},
+			},
+			tests: rolesTestsR,
+		},
+		{
+			name:   "all roles",
+			policy: []string{"p", "/*", authorization.ROLE_SCOPE_MATCH, authorization.RolesDomain},
 			permission: &models.Permission{
 				Roles: authorization.AllRoles,
 			},
-			tests: rolesTests,
+			tests: rolesTestsCUD,
 		},
 		{
 			name:   "a role",
@@ -511,7 +531,15 @@ func Test_permission(t *testing.T) {
 			permission: &models.Permission{
 				Roles: &models.PermissionRoles{Role: authorization.String("custom"), Scope: authorization.String(models.PermissionRolesScopeMatch)},
 			},
-			tests: rolesTests,
+			tests: rolesTestsR,
+		},
+		{
+			name:   "a role",
+			policy: []string{"p", "/custom", authorization.ROLE_SCOPE_MATCH, authorization.RolesDomain},
+			permission: &models.Permission{
+				Roles: &models.PermissionRoles{Role: authorization.String("custom"), Scope: authorization.String(models.PermissionRolesScopeAll)},
+			},
+			tests: rolesTestsCUD,
 		},
 		{
 			name:   "all users",
@@ -819,12 +847,16 @@ func Test_permission(t *testing.T) {
 		tt.policy[1] = fmt.Sprintf("%s%s", tt.policy[3], tt.policy[1])
 		for _, ttt := range tt.tests {
 			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
+				policyForTest := make([]string, len(tt.policy))
+				copy(policyForTest, tt.policy)
 				tt.permission.Action = authorization.String(ttt.permissionAction)
 				// TODO-RBAC : this test has to be rewritten and consider scopes
-				if tt.policy[2] != authorization.ROLE_SCOPE_MATCH {
-					tt.policy[2] = ttt.policyVerb
+				if policyForTest[2] == authorization.ROLE_SCOPE_MATCH {
+					policyForTest[2] = ttt.policyVerb + "_" + authorization.ROLE_SCOPE_MATCH
+				} else {
+					policyForTest[2] = ttt.policyVerb
 				}
-				permission, err := permission(tt.policy, true)
+				permission, err := permission(policyForTest, true)
 				require.Nil(t, err)
 				require.Equal(t, tt.permission, permission)
 			})

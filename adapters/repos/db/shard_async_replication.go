@@ -13,15 +13,14 @@ package db
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -50,7 +49,7 @@ const (
 	defaultLoggingFrequency            = 3 * time.Second
 	defaultDiffPerNodeTimeout          = 10 * time.Second
 	defaultPropagationTimeout          = 30 * time.Second
-	defaultPropagationLimit            = 100_000
+	defaultPropagationLimit            = 10_000
 	defaultBatchSize                   = 100
 )
 
@@ -66,14 +65,14 @@ type asyncReplicationConfig struct {
 	batchSize                   int
 }
 
-func (s *Shard) asyncReplicationConfig() (config asyncReplicationConfig, err error) {
+func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
 	config.hashtreeHeight, err = optParseInt(
 		os.Getenv("ASYNC_REPLICATION_HASHTREE_HEIGHT"), defaultHashtreeHeight)
 	if err != nil {
 		return
 	}
-	if config.hashtreeHeight < 1 || config.hashtreeHeight > maxHashtreeHeight {
-		return asyncReplicationConfig{}, fmt.Errorf("hashtree height out of range: min height 1, max height %d", maxHashtreeHeight)
+	if config.hashtreeHeight < 0 || config.hashtreeHeight > maxHashtreeHeight {
+		return asyncReplicationConfig{}, fmt.Errorf("hashtree height out of range: min height 0, max height %d", maxHashtreeHeight)
 	}
 
 	config.frequency, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY"), defaultFrequency)
@@ -154,10 +153,11 @@ func (s *Shard) initAsyncReplication() error {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	s.asyncReplicationCancelFunc = cancelFunc
 
-	config, err := s.asyncReplicationConfig()
+	config, err := s.getAsyncReplicationConfig()
 	if err != nil {
 		return err
 	}
+	s.asyncReplicationConfig = config
 
 	start := time.Now()
 
@@ -201,7 +201,7 @@ func (s *Shard) initAsyncReplication() error {
 		}
 
 		// attempt to load hashtree from file
-		s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
+		s.hashtree, err = hashtree.DeserializeHashTree(bufio.NewReader(f))
 		if err != nil {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -243,7 +243,7 @@ func (s *Shard) initAsyncReplication() error {
 		return nil
 	}
 
-	s.hashtree, err = s.buildCompactHashTree(config.hashtreeHeight)
+	s.hashtree, err = hashtree.NewHashTree(config.hashtreeHeight)
 	if err != nil {
 		return err
 	}
@@ -254,9 +254,11 @@ func (s *Shard) initAsyncReplication() error {
 		objCount := 0
 		prevProgressLogging := time.Now()
 
-		// data inserted before v1.26 does not contain the required secondary index
-		// to support async replication thus such data is not inserted into the hashtree
-		err := bucket.IterateObjectDigests(ctx, 2, func(object *storobj.Object) error {
+		err := bucket.ApplyToObjectDigests(ctx, func(object *storobj.Object) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
 			if time.Since(prevProgressLogging) > time.Second {
 				s.index.logger.
 					WithField("action", "async_replication").
@@ -264,20 +266,16 @@ func (s *Shard) initAsyncReplication() error {
 					WithField("shard_name", s.name).
 					WithField("object_count", objCount).
 					WithField("took", fmt.Sprintf("%v", time.Since(start))).
-					Infof("hashtree initialization is progress...")
+					Infof("hashtree initialization in progress...")
 				prevProgressLogging = time.Now()
 			}
 
-			uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+			uuidBytes, err := parseBytesUUID(object.ID())
 			if err != nil {
 				return err
 			}
 
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-
-			err = s.mayUpsertObjectHashTree(object, uuid, objectInsertStatus{})
+			err = s.mayUpsertObjectHashTree(object, uuidBytes, objectInsertStatus{})
 			if err != nil {
 				return err
 			}
@@ -305,6 +303,17 @@ func (s *Shard) initAsyncReplication() error {
 		}
 
 		s.asyncReplicationRWMux.Lock()
+
+		if s.hashtree == nil {
+			s.asyncReplicationRWMux.Unlock()
+
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Info("hashtree initialization stopped")
+			return
+		}
 
 		s.hashtreeFullyInitialized = true
 
@@ -372,10 +381,6 @@ func (s *Shard) updateAsyncReplicationConfig(_ context.Context, enabled bool) er
 	s.hashtreeFullyInitialized = false
 
 	return nil
-}
-
-func (s *Shard) buildCompactHashTree(height int) (hashtree.AggregatedHashTree, error) {
-	return hashtree.NewCompactHashTree(math.MaxUint64, height)
 }
 
 func (s *Shard) dumpHashTree() error {
@@ -461,7 +466,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 
 		var lastLog time.Time
 
-		backoffTimer := interval.NewBackoffTimer()
+		backoffTimer := interval.NewBackoffTimer(1*time.Second, 3*time.Second, 5*time.Second)
 
 		for {
 			select {
@@ -635,7 +640,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 	defer cancel()
 
 	for objectsPropagated < config.propagationLimit {
-		initialToken, finalToken, err := rangeReader.Next()
+		initialLeaf, finalLeaf, err := rangeReader.Next()
 		if err != nil {
 			if errors.Is(err, hashtree.ErrNoMoreRanges) {
 				break
@@ -648,12 +653,12 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 			config,
 			s.name,
 			shardDiffReader.Host,
-			initialToken,
-			finalToken,
+			initialLeaf,
+			finalLeaf,
 			config.propagationLimit-objectsPropagated,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("propagating local objects: %w", err)
+			return nil, fmt.Errorf("achieving shard consistency : %w", err)
 		}
 
 		localObjects += localObjs
@@ -671,23 +676,80 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 	}, nil
 }
 
+func uuidFromBytes(uuidBytes []byte) (id strfmt.UUID, err error) {
+	uuidParsed, err := uuid.FromBytes(uuidBytes)
+	if err != nil {
+		return id, err
+	}
+	return strfmt.UUID(uuidParsed.String()), nil
+}
+
+func bytesFromUUID(id strfmt.UUID) (uuidBytes []byte, err error) {
+	uuidParsed, err := uuid.Parse(id.String())
+	if err != nil {
+		return nil, err
+	}
+	return uuidParsed.MarshalBinary()
+}
+
+func incToNextLexValue(b []byte) bool {
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] < 0xFF {
+			b[i]++
+			return false
+		}
+		b[i] = 0x00
+	}
+	return true
+}
+
 func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncReplicationConfig,
-	shardName string, host string, initialToken, finalToken uint64, limit int,
+	shardName string, host string, initialLeaf, finalLeaf uint64, limit int,
 ) (localObjects, remoteObjects, propagations int, err error) {
-	for localLastReadToken := initialToken; localLastReadToken < finalToken; {
+	hashtreeHeight := config.hashtreeHeight
+
+	finalUUIDBytes := make([]byte, 16)
+	binary.BigEndian.PutUint64(finalUUIDBytes, finalLeaf<<(64-hashtreeHeight)|((1<<(64-hashtreeHeight))-1))
+	copy(finalUUIDBytes[8:], []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
+
+	finalUUID, err := uuidFromBytes(finalUUIDBytes)
+	if err != nil {
+		return localObjects, remoteObjects, propagations, err
+	}
+
+	currLocalUUIDBytes := make([]byte, 16)
+	binary.BigEndian.PutUint64(currLocalUUIDBytes, initialLeaf<<(64-hashtreeHeight))
+
+	shouldContinueFetchingLocalData := true
+
+	for shouldContinueFetchingLocalData && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
 		if ctx.Err() != nil {
 			return localObjects, remoteObjects, propagations, ctx.Err()
 		}
 
-		localDigests, newLocalLastReadToken, err := s.index.DigestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, config.batchSize)
-		if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
+		currLocalUUID, err := uuidFromBytes(currLocalUUIDBytes)
+		if err != nil {
+			return localObjects, remoteObjects, propagations, err
+		}
+
+		localDigests, err := s.index.DigestObjectsInRange(ctx, shardName, currLocalUUID, finalUUID, config.batchSize)
+		if err != nil {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
 		}
 
 		if len(localDigests) == 0 {
 			// no more local objects need to be propagated in this iteration
-			localLastReadToken = newLocalLastReadToken
-			continue
+			break
+		}
+
+		// iteration should stop when all local digests within the range has been read
+		shouldContinueFetchingLocalData = len(localDigests) == config.batchSize
+
+		lastLocalUUID := strfmt.UUID(localDigests[len(localDigests)-1].ID)
+
+		lastLocalUUIDBytes, err := bytesFromUUID(lastLocalUUID)
+		if err != nil {
+			return localObjects, remoteObjects, propagations, err
 		}
 
 		localDigestsByUUID := make(map[string]replica.RepairResponse, len(localDigests))
@@ -698,15 +760,22 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 
 		localObjects += len(localDigestsByUUID)
 
-		remoteLastTokenRead := localLastReadToken
-
 		remoteStaleUpdateTime := make(map[string]int64, len(localDigestsByUUID))
 
 		// fetch digests from remote host in order to avoid sending unnecessary objects
-		for remoteLastTokenRead < newLocalLastReadToken {
-			remoteDigests, newRemoteLastTokenRead, err := s.index.replicator.DigestObjectsInTokenRange(ctx,
-				shardName, host, remoteLastTokenRead, newLocalLastReadToken, config.batchSize)
-			if err != nil && !strings.Contains(err.Error(), storobj.ErrLimitReached.Error()) {
+		for currRemoteUUIDBytes := currLocalUUIDBytes; bytes.Compare(currRemoteUUIDBytes, lastLocalUUIDBytes) < 1; {
+			if ctx.Err() != nil {
+				return localObjects, remoteObjects, propagations, ctx.Err()
+			}
+
+			currRemoteUUID, err := uuidFromBytes(currRemoteUUIDBytes)
+			if err != nil {
+				return localObjects, remoteObjects, propagations, err
+			}
+
+			remoteDigests, err := s.index.replicator.DigestObjectsInRange(ctx,
+				shardName, host, currRemoteUUID, lastLocalUUID, config.batchSize)
+			if err != nil {
 				return localObjects, remoteObjects, propagations, fmt.Errorf("fetching remote object digests: %w", err)
 			}
 
@@ -735,17 +804,34 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 				}
 			}
 
-			remoteLastTokenRead = newRemoteLastTokenRead
-
 			if len(localDigestsByUUID) == 0 {
 				// no more local objects need to be propagated in this iteration
 				break
 			}
+
+			lastRemoteUUID := strfmt.UUID(remoteDigests[len(remoteDigests)-1].ID)
+
+			currRemoteUUIDBytes, err = bytesFromUUID(lastRemoteUUID)
+			if err != nil {
+				return localObjects, remoteObjects, propagations, err
+			}
+
+			if len(remoteDigests) < config.batchSize {
+				break
+			}
 		}
+
+		// to avoid reading the last uuid in the next iteration
+		overflow := incToNextLexValue(lastLocalUUIDBytes)
+		if overflow {
+			// no more local objects need to be propagated
+			break
+		}
+
+		currLocalUUIDBytes = lastLocalUUIDBytes
 
 		if len(localDigestsByUUID) == 0 {
 			// no more local objects need to be propagated in this iteration
-			localLastReadToken = newLocalLastReadToken
 			continue
 		}
 
@@ -754,34 +840,30 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 			uuids = append(uuids, strfmt.UUID(uuid))
 		}
 
-		replicaObjs, err := s.index.FetchObjects(ctx, shardName, uuids)
+		localObjs, err := s.MultiObjectByID(ctx, wrapIDsInMulti(uuids))
 		if err != nil {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local objects: %w", err)
 		}
 
-		mergeObjs := make([]*objects.VObject, 0, len(replicaObjs))
+		mergeObjs := make([]*objects.VObject, 0, len(localObjs))
 
-		for _, replicaObj := range replicaObjs {
-			if replicaObj.Deleted {
-				continue
-			}
-
+		for _, obj := range localObjs {
 			var vectors models.Vectors
 
-			if replicaObj.Object.Vectors != nil {
-				vectors = make(models.Vectors, len(replicaObj.Object.Vectors))
-				for i, v := range replicaObj.Object.Vectors {
+			if obj.Vectors != nil {
+				vectors = make(models.Vectors, len(obj.Vectors))
+				for i, v := range obj.Vectors {
 					vectors[i] = v
 				}
 			}
 
 			obj := &objects.VObject{
-				ID:                      replicaObj.ID,
-				LastUpdateTimeUnixMilli: replicaObj.LastUpdateTimeUnixMilli,
-				LatestObject:            &replicaObj.Object.Object,
-				Vector:                  replicaObj.Object.Vector,
+				ID:                      obj.ID(),
+				LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
+				LatestObject:            &obj.Object,
+				Vector:                  obj.Vector,
 				Vectors:                 vectors,
-				StaleUpdateTime:         remoteStaleUpdateTime[replicaObj.ID.String()],
+				StaleUpdateTime:         remoteStaleUpdateTime[obj.ID().String()],
 			}
 
 			mergeObjs = append(mergeObjs, obj)
@@ -789,7 +871,6 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 
 		if len(mergeObjs) == 0 {
 			// no more local objects need to be propagated in this iteration
-			localLastReadToken = newLocalLastReadToken
 			continue
 		}
 
@@ -801,13 +882,15 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 		for _, r := range resp {
 			// NOTE: deleted objects are not propagated but locally deleted when conflict is detected
 
+			deletionStrategy := s.index.DeletionStrategy()
+
 			if !r.Deleted ||
-				s.index.Config.DeletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
+				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
 				continue
 			}
 
-			if s.index.Config.DeletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
-				(s.index.Config.DeletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
+			if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
+				(deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
 					r.UpdateTime > localDigestsByUUID[r.ID].UpdateTime) {
 
 				err := s.DeleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime))
@@ -818,7 +901,6 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 		}
 
 		propagations += len(mergeObjs)
-		localLastReadToken = newLocalLastReadToken
 
 		if propagations >= limit {
 			break

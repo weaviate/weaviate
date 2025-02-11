@@ -397,6 +397,21 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 	return objs, scores, nil
 }
 
+func (b *BM25Searcher) getTopKIds(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]) ([]uint64, []float32, [][]*terms.DocPointerWithScore, error) {
+	scores := make([]float32, 0, topKHeap.Len())
+	ids := make([]uint64, 0, topKHeap.Len())
+	explanations := make([][]*terms.DocPointerWithScore, 0, topKHeap.Len())
+	for topKHeap.Len() > 0 {
+		res := topKHeap.Pop()
+		ids = append(ids, res.ID)
+		scores = append(scores, res.Dist)
+		if res.Value != nil {
+			explanations = append(explanations, res.Value)
+		}
+	}
+	return ids, scores, explanations, nil
+}
+
 func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, ctx context.Context) (*terms.Term, error) {
 	termResult := terms.NewTerm(query, queryTermIndex, float32(1.0), b.config)
 
