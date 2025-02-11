@@ -102,6 +102,8 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	// Ensure raft starts and a leader is elected
 	m.indexer.On("Open", Anything).Return(nil)
+	// shall be called because of restoring from snapshot
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return().Once()
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
