@@ -446,6 +446,7 @@ func WildcardPath(resource string) string {
 	parts[len(parts)-1] = "*"
 	return strings.Join(parts, "/")
 }
+
 func String(s string) *string {
 	return &s
 }
