@@ -6,14 +6,14 @@
 # Base build image
 FROM golang:1.22-alpine3.20 AS build_base
 
-# Install specific gcc version from Alpine 3.21 repository
+# Install specific gcc version from Alpine 3.20 repository
 RUN apk add --no-cache \
     bash \ 
     libc-dev \
     git \
     ca-certificates \
-    gcc=12.2.1-r0 \
-    g++=12.2.1-r0 \
+    gcc=13.2.1_git20240309-r0 \
+    g++=13.2.1_git20240309-r0 \
     musl-dev=1.2.4-r0 \
     build-base=0.5-r3
 
