@@ -12,8 +12,10 @@ RUN apk add --no-cache \
     libc-dev \
     git \
     ca-certificates \
-    gcc=13.2.1_git20240309-r0 \
-    g++=13.2.1_git20240309-r0
+    gcc=12.2.1-r0 \
+    g++=12.2.1-r0 \
+    musl-dev=1.2.4-r0 \
+    build-base=0.5-r3
 
 WORKDIR /go/src/github.com/weaviate/weaviate
 ENV GO111MODULE=on
