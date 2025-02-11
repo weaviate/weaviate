@@ -41,6 +41,10 @@ type SegmentGroup struct {
 	maintenanceLock sync.RWMutex
 	dir             string
 
+	cursorsLock      sync.Mutex
+	activeCursors    int
+	enqueuedSegments []*segment
+
 	// flushVsCompactLock is a simple synchronization mechanism between the
 	// compaction and flush cycle. In general, those are independent, however,
 	// there are parts of it that are not. See the comments of the routines
@@ -420,6 +424,14 @@ func (sg *SegmentGroup) add(path string) error {
 }
 
 func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
+	sg.cursorsLock.Lock()
+	defer sg.cursorsLock.Unlock()
+
+	if sg.activeCursors > 0 {
+		sg.enqueuedSegments = append(sg.enqueuedSegments, segment)
+		return nil
+	}
+
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 

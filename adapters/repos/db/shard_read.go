@@ -25,7 +25,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -40,8 +39,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
-
-var maxUUID [16]byte = [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 
 func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
@@ -125,55 +122,35 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	return objects, nil
 }
 
-func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
-	initialToken, finalToken uint64, limit int) (
-	res []replica.RepairResponse, lastTokenRead uint64, err error,
+func (s *Shard) ObjectDigestsInRange(ctx context.Context,
+	initialUUID, finalUUID strfmt.UUID, limit int) (
+	objs []replica.RepairResponse, err error,
 ) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-
-	if int(bucket.GetSecondaryIndices()) < helpers.ObjectsBucketLSMTokenRangeSecondaryIndex {
-		return nil, 0, fmt.Errorf("secondary index for token ranges not available")
+	initialUUIDBytes, err := uuid.MustParse(initialUUID.String()).MarshalBinary()
+	if err != nil {
+		return nil, err
 	}
 
-	cursor := bucket.CursorWithSecondaryIndex(helpers.ObjectsBucketLSMTokenRangeSecondaryIndex)
+	finalUUIDBytes, err := uuid.MustParse(finalUUID.String()).MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	cursor := bucket.Cursor()
 	defer cursor.Close()
 
 	n := 0
 
-	var objs []replica.RepairResponse
-
-	var initialTokenBytes, finalTokenBytes [8 + 16]byte
-
-	binary.BigEndian.PutUint64(initialTokenBytes[:], initialToken)
-
-	binary.BigEndian.PutUint64(finalTokenBytes[:], finalToken)
-	copy(finalTokenBytes[8:], maxUUID[:])
-
-	lastTokenRead = initialToken
-
-	for k, v := cursor.Seek(initialTokenBytes[:]); n < limit && k != nil && bytes.Compare(k, finalTokenBytes[:]) < 1; k, v = cursor.Next() {
+	for k, v := cursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = cursor.Next() {
 		if ctx.Err() != nil {
-			return objs, lastTokenRead, ctx.Err()
+			return objs, ctx.Err()
 		}
 
 		obj, err := storobj.FromBinaryUUIDOnly(v)
 		if err != nil {
-			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %w", err)
-		}
-
-		uuidBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
-		if err != nil {
-			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %w", err)
-		}
-
-		// TODO: this validation may be removed once secondary keys are included when objects are deleted
-		deleted, _, err := bucket.UnsafeWasDeleted(uuidBytes)
-		if err != nil {
-			return objs, lastTokenRead, fmt.Errorf("cannot check object status: %w", err)
-		}
-
-		if deleted {
-			continue
+			return objs, fmt.Errorf("cannot unmarshal object: %w", err)
 		}
 
 		replicaObj := replica.RepairResponse{
@@ -185,20 +162,10 @@ func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
 
 		objs = append(objs, replicaObj)
 
-		h := murmur3.New64()
-		h.Write(uuidBytes)
-		lastTokenRead = h.Sum64()
-
 		n++
 	}
 
-	if n < limit {
-		return objs, finalToken, nil
-	} else if n == limit {
-		return objs, lastTokenRead, storobj.ErrLimitReached
-	}
-
-	return objs, lastTokenRead, nil
+	return objs, nil
 }
 
 // TODO: This does an actual read which is not really needed, if we see this
@@ -458,10 +425,6 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 			dists []float32
 		)
 		eg.Go(func() error {
-			if allowList != nil {
-				defer allowList.Close()
-			}
-
 			vidx, err := s.getVectorIndex(targetVector)
 			if err != nil {
 				return err
@@ -503,6 +466,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
+	}
+	if allowList != nil {
+		defer allowList.Close()
 	}
 
 	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, targetCombination, limit, targetDist)

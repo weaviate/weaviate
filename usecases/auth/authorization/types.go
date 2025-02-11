@@ -32,7 +32,7 @@ const (
 	// DELETE Represents the action to delete a resource.
 	DELETE = "D"
 
-	ROLE_SCOPE_ALL   = "(C)|(R)|(U)|(D)"
+	ROLE_SCOPE_ALL   = "ALL"
 	ROLE_SCOPE_MATCH = "MATCH"
 )
 
@@ -83,8 +83,11 @@ var (
 	// Note:  if a new action added, don't forget to add it to availableWeaviateActions
 	// to be added to built in roles
 	// any action has to contain of `{verb}_{domain}` verb: CREATE, READ, UPDATE, DELETE domain: roles, users, cluster, collections, data
-	ManageRoles = "manage_roles"
 	ReadRoles   = "read_roles"
+	CreateRoles = "create_roles"
+	UpdateRoles = "update_roles"
+	DeleteRoles = "delete_roles"
+
 	ReadCluster = "read_cluster"
 	ReadNodes   = "read_nodes"
 
@@ -109,8 +112,10 @@ var (
 
 	availableWeaviateActions = []string{
 		// Roles domain
-		ManageRoles,
+		CreateRoles,
 		ReadRoles,
+		UpdateRoles,
+		DeleteRoles,
 
 		// Backups domain
 		ManageBackups,
@@ -447,4 +452,12 @@ func adminPermissions() []*models.Permission {
 	}
 
 	return perms
+}
+
+func VerbWithScope(verb, scope string) string {
+	if strings.Contains(verb, "_") {
+		return verb
+	}
+
+	return fmt.Sprintf("%s_%s", verb, scope)
 }

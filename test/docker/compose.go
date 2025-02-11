@@ -34,21 +34,25 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
+	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
+	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
@@ -103,29 +107,31 @@ type Compose struct {
 	withWeaviateCluster        bool
 	withWeaviateClusterSize    int
 
-	withWeaviateAuth              bool
-	withWeaviateBasicAuth         bool
-	withWeaviateBasicAuthUsername string
-	withWeaviateBasicAuthPassword string
-	withWeaviateApiKey            bool
-	weaviateApiKeyUsers           []ApiKeyUser
-	withWeaviateRbac              bool
-	weaviateRbacAdmins            []string
-	weaviateRbacRootGroups        []string
-	weaviateRbacViewers           []string
-	withSUMTransformers           bool
-	withCentroid                  bool
-	withCLIP                      bool
-	withGoogleApiKey              string
-	withBind                      bool
-	withImg2Vec                   bool
-	withRerankerTransformers      bool
-	withOllamaVectorizer          bool
-	withOllamaGenerative          bool
-	withAutoschema                bool
-	withMockOIDC                  bool
-	weaviateEnvs                  map[string]string
-	removeEnvs                    map[string]struct{}
+	withWeaviateAuth               bool
+	withWeaviateBasicAuth          bool
+	withWeaviateBasicAuthUsername  string
+	withWeaviateBasicAuthPassword  string
+	withWeaviateApiKey             bool
+	weaviateApiKeyUsers            []ApiKeyUser
+	weaviateAdminlistAdminUsers    []string
+	weaviateAdminlistReadOnlyUsers []string
+	withWeaviateRbac               bool
+	weaviateRbacAdmins             []string
+	weaviateRbacRootGroups         []string
+	weaviateRbacViewers            []string
+	withSUMTransformers            bool
+	withCentroid                   bool
+	withCLIP                       bool
+	withGoogleApiKey               string
+	withBind                       bool
+	withImg2Vec                    bool
+	withRerankerTransformers       bool
+	withOllamaVectorizer           bool
+	withOllamaGenerative           bool
+	withAutoschema                 bool
+	withMockOIDC                   bool
+	weaviateEnvs                   map[string]string
+	removeEnvs                     map[string]struct{}
 }
 
 func New() *Compose {
@@ -236,6 +242,12 @@ func (d *Compose) WithMulti2VecCohere(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2VecNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecnvidia.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecVoyageAI(apiKey string) *Compose {
 	d.weaviateEnvs["VOYAGEAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecvoyageai.Name)
@@ -318,9 +330,27 @@ func (d *Compose) WithGenerativeOpenAI(openAIApiKey, openAIOrganization, azureAp
 	return d
 }
 
+func (d *Compose) WithGenerativeNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativenvidia.Name)
+	return d
+}
+
 func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modjinaai.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankernvidia.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modnvidia.Name)
 	return d
 }
 
@@ -433,6 +463,16 @@ func (d *Compose) WithWeaviateBasicAuth(username, password string) *Compose {
 func (d *Compose) WithWeaviateAuth() *Compose {
 	d.withWeaviateAuth = true
 	return d.With1NodeCluster()
+}
+
+func (d *Compose) WithAdminListAdmins(users ...string) *Compose {
+	d.weaviateAdminlistAdminUsers = users
+	return d
+}
+
+func (d *Compose) WithAdminListUsers(users ...string) *Compose {
+	d.weaviateAdminlistReadOnlyUsers = users
+	return d
 }
 
 func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
@@ -776,6 +816,13 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
+	}
+	if len(d.weaviateAdminlistAdminUsers) > 0 {
+		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
+		settings["AUTHORIZATION_ADMINLIST_USERS"] = strings.Join(d.weaviateAdminlistAdminUsers, ",")
+		if len(d.weaviateAdminlistReadOnlyUsers) > 0 {
+			settings["AUTHORIZATION_ADMINLIST_READONLY_USERS"] = strings.Join(d.weaviateAdminlistReadOnlyUsers, ",")
+		}
 	}
 
 	if d.withWeaviateApiKey {

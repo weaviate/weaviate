@@ -400,7 +400,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 			// than the deletion, the object update can be proccessed despite
 			// the fact `currUpdateTime == u.StaleUpdateTime` does not hold.
 			if !locallyDeleted ||
-				idx.Config.DeletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
+				idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
 				currUpdateTime > u.LastUpdateTimeUnixMilli {
 				// object changed and its state differs from recent known state
 				r := replica.RepairResponse{
@@ -423,7 +423,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		// so to avoid creating/updating the locally deleted object
 		// time-based strategy and a more recent creation/update is required
 		if !u.Deleted && locallyDeleted &&
-			(idx.Config.DeletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
+			(idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
 				currUpdateTime > u.LastUpdateTimeUnixMilli) {
 			r := replica.RepairResponse{
 				ID:         id.String(),
@@ -534,26 +534,26 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 	return i.DigestObjects(ctx, shardName, ids)
 }
 
-func (i *Index) DigestObjectsInTokenRange(ctx context.Context,
-	shardName string, initialToken, finalToken uint64, limit int,
-) (result []replica.RepairResponse, lastTokenRead uint64, err error) {
+func (i *Index) DigestObjectsInRange(ctx context.Context,
+	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
+) (result []replica.RepairResponse, err error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, 0, fmt.Errorf("shard %q does not exist locally", shardName)
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 	if shard == nil {
-		return nil, 0, nil
+		return nil, nil
 	}
 
 	defer release()
 
-	return shard.ObjectDigestsByTokenRange(ctx, initialToken, finalToken, limit)
+	return shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
 }
 
-func (i *Index) IncomingDigestObjectsInTokenRange(ctx context.Context,
-	shardName string, initialToken, finalToken uint64, limit int,
-) (result []replica.RepairResponse, lastTokenRead uint64, err error) {
-	return i.DigestObjectsInTokenRange(ctx, shardName, initialToken, finalToken, limit)
+func (i *Index) IncomingDigestObjectsInRange(ctx context.Context,
+	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
+) (result []replica.RepairResponse, err error) {
+	return i.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
 func (i *Index) HashTreeLevel(ctx context.Context,

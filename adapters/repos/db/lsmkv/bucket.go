@@ -338,22 +338,40 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
-func (b *Bucket) IterateObjectDigests(ctx context.Context, desiredSecondaryIndexCount int, f func(object *storobj.Object) error) error {
-	cursor := b.CursorWith(desiredSecondaryIndexCount)
-	defer cursor.Close()
+func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storobj.Object) error) error {
+	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
+	onDiskCursor := b.CursorOnDisk()
+	defer onDiskCursor.Close()
 
-	i := 0
+	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
+	err := func() error {
+		inMemCursor := b.CursorInMem()
+		defer inMemCursor.Close()
 
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		for k, v := inMemCursor.First(); k != nil; k, v = inMemCursor.Next() {
+			obj, err := storobj.FromBinaryUUIDOnly(v)
+			if err != nil {
+				return fmt.Errorf("cannot unmarshal object: %w", err)
+			}
+			if err := f(obj); err != nil {
+				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+			}
+		}
+
+		return nil
+	}()
+	if err != nil {
+		return err
+	}
+
+	for k, v := onDiskCursor.First(); k != nil; k, v = onDiskCursor.Next() {
 		obj, err := storobj.FromBinaryUUIDOnly(v)
 		if err != nil {
-			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
+			return fmt.Errorf("cannot unmarshal object: %w", err)
 		}
 		if err := f(obj); err != nil {
 			return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 		}
-
-		i++
 	}
 
 	return nil
