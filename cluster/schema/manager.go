@@ -23,7 +23,6 @@ import (
 	"github.com/sirupsen/logrus"
 	gproto "google.golang.org/protobuf/proto"
 
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -84,17 +83,17 @@ func (s *SchemaManager) Restore(rc io.ReadCloser, parser Parser) error {
 	return s.schema.Restore(rc, parser)
 }
 
-func (s *SchemaManager) PreApplyFilter(req *api.ApplyRequest) error {
+func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 	classInfo := s.schema.ClassInfo(req.Class)
 
 	// Discard restoring a class if it already exists
-	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
+	if req.Type == command.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
 		s.log.WithField("class", req.Class).Info("class already restored")
 		return fmt.Errorf("class name %s already exists", req.Class)
 	}
 
 	// Discard adding class if the name already exists or a similar one exists
-	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS {
+	if req.Type == command.ApplyRequest_TYPE_ADD_CLASS {
 		if other := s.schema.ClassEqual(req.Class); other == req.Class {
 			return fmt.Errorf("class name %s already exists", req.Class)
 		} else if other != "" {
