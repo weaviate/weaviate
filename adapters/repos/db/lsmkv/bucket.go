@@ -1337,10 +1337,19 @@ func (b *Bucket) FlushAndSwitch() error {
 		if err != nil {
 			return fmt.Errorf("get tombstones: %w", err)
 		}
-		tbArray := tombstones.ToArray()
-		// add flushing memtable tombstones to all segments
-		for _, seg := range b.disk.segments {
-			seg.invertedData.tombstones.SetMany(tbArray)
+		if tombstones != nil {
+			// add flushing memtable tombstones to all segments
+			for _, seg := range b.disk.segments {
+				segTombstones, err := seg.GetTombstones()
+				if err != nil {
+					return fmt.Errorf("get tombstones: %w", err)
+				}
+				// if there are no tombstones in the segment, init a new Bitmap
+				if segTombstones == nil {
+					segTombstones = sroar.NewBitmap()
+				}
+				segTombstones.Or(tombstones)
+			}
 		}
 	}
 
@@ -1553,7 +1562,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	// active memtable
 	output[len(segmentsDisk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
-	allTombstones := make([][]uint64, 2)
+	allTombstones := make([]*sroar.Bitmap, 2)
 
 	for i, queryTerm := range query {
 		key := []byte(queryTerm)
@@ -1573,7 +1582,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			if err != nil {
 				return nil, lock, err
 			}
-			allTombstones[1] = tombstones.ToArray()
+			allTombstones[1] = tombstones
 
 			if n2 > 0 {
 				active.advanceOnTombstoneOrFilter()
@@ -1593,7 +1602,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 				return nil, lock, err
 			}
 
-			allTombstones[0] = tombstones.ToArray()
+			allTombstones[0] = tombstones
 			if n2 > 0 {
 				tombstones, _ = b.active.GetTombstones()
 				flushing.tombstones = tombstones
@@ -1627,10 +1636,10 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 
 		if b.flushing != nil {
-			tombstones.SetMany(allTombstones[0])
+			tombstones.Or(allTombstones[0])
 		}
 		if b.active != nil {
-			tombstones.SetMany(allTombstones[1])
+			tombstones.Or(allTombstones[1])
 		}
 		for i, key := range query {
 

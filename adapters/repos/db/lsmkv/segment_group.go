@@ -352,19 +352,27 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		// start at  len(sg.segments) - 2 as the last segment doesn't need any tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
 			// avoid crashing if segment has no tombstones
-			if sg.segments[i+1].invertedData.tombstones == nil {
+			tombstonesNext, err := sg.segments[i+1].GetTombstones()
+			if err != nil {
+				return nil, fmt.Errorf("init segment %s: load tombstones %w", sg.segments[i+1].path, err)
+			}
+
+			tombstonesCurrent, err := sg.segments[i].GetTombstones()
+			if err != nil {
+				return nil, fmt.Errorf("init segment %s: load tombstones %w", sg.segments[i].path, err)
+			}
+
+			if tombstonesNext == nil {
 				continue
 			}
 			// init new sroar bitmap if segment had no tombstones
-			if sg.segments[i].invertedData.tombstones == nil {
-				sg.segments[i].invertedData.tombstones = sroar.NewBitmap()
+			if tombstonesCurrent == nil {
+				tombstonesCurrent = sroar.NewBitmap()
 			}
-			// TODO amourao: check if this is more efficient vs. ORing, I had some crashes doing a Or here when testing
-			data := sg.segments[i+1].invertedData.tombstones.ToArray()
-			if len(data) == 0 {
+			if tombstonesNext.IsEmpty() {
 				continue
 			}
-			sg.segments[i].invertedData.tombstones.SetMany(sg.segments[i+1].invertedData.tombstones.ToArray())
+			tombstonesCurrent.Or(tombstonesNext)
 		}
 	}
 
