@@ -16,7 +16,6 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -49,7 +48,7 @@ func (m *MockSchemaExecutor) UpdateIndex(req cmd.UpdateClassRequest) error {
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
+func (m *MockSchemaExecutor) ReloadLocalDB(ctx context.Context, all []cmd.UpdateClassRequest) error {
 	return nil
 }
 
