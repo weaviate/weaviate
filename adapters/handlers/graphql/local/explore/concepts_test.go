@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/search"
@@ -627,9 +628,13 @@ func Test_ResolveExplore(t *testing.T) {
 		},
 	}
 
-	tests.AssertExtraction(t, newMockResolver(t))
-	testsNearText.AssertExtraction(t, newMockResolver(t))
-	tests.AssertExtraction(t, newMockResolverNoModules(t))
+	mockResolver, mockAuthz := newMockResolver(t)
+	mockAuthz.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mockResolverNoModules, mockAuthzNoModules := newMockResolverNoModules(t)
+	mockAuthzNoModules.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	tests.AssertExtraction(t, mockResolver)
+	testsNearText.AssertExtraction(t, mockResolver)
+	tests.AssertExtraction(t, mockResolverNoModules)
 }
 
 func Test_ExploreWithNoText2VecClasses(t *testing.T) {
@@ -666,7 +671,7 @@ func Test_ExploreWithNoText2VecClasses(t *testing.T) {
 
 func Test_ExploreWithNoModules(t *testing.T) {
 	t.Run("with distance", func(t *testing.T) {
-		resolver := newMockResolverNoModules(t)
+		resolver, _ := newMockResolverNoModules(t)
 		query := `
 	{
 			Explore(
@@ -681,7 +686,7 @@ func Test_ExploreWithNoModules(t *testing.T) {
 	})
 
 	t.Run("with certainty", func(t *testing.T) {
-		resolver := newMockResolverNoModules(t)
+		resolver, _ := newMockResolverNoModules(t)
 		query := `
 	{
 			Explore(

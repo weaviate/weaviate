@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/mock"
 	"github.com/tailor-inc/graphql"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
@@ -78,9 +77,8 @@ func getFakeModulesProvider() ModulesProvider {
 	return &fakeModulesProvider{}
 }
 
-func newMockResolver(t *testing.T) *mockResolver {
+func newMockResolver(t *testing.T) (*mockResolver, *mocks.Authorizer) {
 	authzMock := mocks.NewAuthorizer(t)
-	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	field := Build(testhelper.SimpleSchema.Objects, getFakeModulesProvider(), authzMock)
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
@@ -90,12 +88,11 @@ func newMockResolver(t *testing.T) *mockResolver {
 		"Resolver":    Resolver(mocker),
 		"RequestsLog": mockLog,
 	}
-	return mocker
+	return mocker, authzMock
 }
 
-func newMockResolverNoModules(t *testing.T) *mockResolver {
+func newMockResolverNoModules(t *testing.T) (*mockResolver, *mocks.Authorizer) {
 	authzMock := mocks.NewAuthorizer(t)
-	authzMock.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	field := Build(testhelper.SimpleSchema.Objects, nil, authzMock)
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
@@ -105,7 +102,7 @@ func newMockResolverNoModules(t *testing.T) *mockResolver {
 		"Resolver":    Resolver(mocker),
 		"RequestsLog": mockLog,
 	}
-	return mocker
+	return mocker, authzMock
 }
 
 func newMockResolverEmptySchema(t *testing.T) (*mockResolver, *mocks.Authorizer) {
