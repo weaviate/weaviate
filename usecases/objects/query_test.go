@@ -17,6 +17,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -27,7 +29,7 @@ func TestQuery(t *testing.T) {
 	t.Parallel()
 	var (
 		cls    = "MyClass"
-		m      = newFakeGetManager(schema.Schema{})
+		m      = newFakeGetManager(t, schema.Schema{})
 		errAny = errors.New("any")
 	)
 	params := QueryParams{
@@ -139,7 +141,7 @@ func TestQuery(t *testing.T) {
 	}
 	for i, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m.authorizer.SetErr(tc.authErr)
+			m.authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(tc.authErr)
 			m.locks.Err = tc.lockErr
 			if tc.authErr == nil && tc.lockErr == nil {
 				m.repo.On("Query", &tc.wantQueryInput).Return(tc.mockedDBResponse, tc.mockedErr).Once()

@@ -22,7 +22,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -178,8 +177,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
 				locks := &fakeLocks{}
 				cfg := &config.WeaviateConfig{}
-				authorizer := mocks.NewMockAuthorizer()
-				authorizer.SetErr(errors.New("just a test fake"))
+				authorizer := mocks.NewAuthorizer(t)
+				authorizer.On("Authorize", principal, test.expectedVerb, test.expectedResources).Return(errors.New("just a test fake")).Once()
 				vectorRepo := &fakeVectorRepo{}
 				manager := NewManager(locks, schemaManager,
 					cfg, logger, authorizer,
@@ -188,16 +187,12 @@ func Test_Kinds_Authorization(t *testing.T) {
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, _ := callFuncByName(manager, test.methodName, args...)
 
-				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 				aerr := out[len(out)-1].Interface().(error)
 				var customErr *Error
 				if !errors.As(aerr, &customErr) || !customErr.Forbidden() {
 					assert.Equal(t, errors.New("just a test fake"), aerr,
 						"execution must abort with authorizer error")
 				}
-
-				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources},
-					authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 			})
 		}
 	})
@@ -267,20 +262,16 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			schemaManager := &fakeSchemaManager{}
 			locks := &fakeLocks{}
 			cfg := &config.WeaviateConfig{}
-			authorizer := mocks.NewMockAuthorizer()
-			authorizer.SetErr(errors.New("just a test fake"))
+			authorizer := mocks.NewAuthorizer(t)
+			authorizer.On("Authorize", principal, test.expectedVerb, test.expectedResources).Return(errors.New("just a test fake")).Once()
 			vectorRepo := &fakeVectorRepo{}
 			modulesProvider := getFakeModulesProvider()
 			manager := NewBatchManager(vectorRepo, modulesProvider, locks, schemaManager, cfg, logger, authorizer, nil)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
-
-			require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 			assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 				"execution must abort with authorizer error")
-			assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources},
-				authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 		}
 	})
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -302,7 +303,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolver := newMockResolver()
+			resolver := newMockResolver(t)
 
 			resolver.On("GetClass", test.expectedParams).
 				Return(test.resolverReturn, nil).Once()
@@ -315,7 +316,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 func TestNearTextRanker(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(t)
 
 	t.Run("for actions", func(t *testing.T) {
 		query := `{ Get { SomeAction(nearText: {
@@ -944,7 +945,7 @@ func Test_ResolveExplore(t *testing.T) {
 		},
 	}
 
-	testsNearText.AssertExtraction(t, newExploreMockResolver())
+	testsNearText.AssertExtraction(t, newExploreMockResolver(t))
 }
 
 func (tests testCases) AssertExtraction(t *testing.T, resolver *mockResolver) {

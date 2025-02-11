@@ -23,11 +23,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	cmocks "github.com/weaviate/weaviate/entities/modulecapabilities/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authZMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	authzmocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	bmocks "github.com/weaviate/weaviate/usecases/backup/mocks"
 )
 
@@ -107,7 +108,7 @@ func Test_Authorization(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
-				authorizer := authZMocks.NewAuthorizer(t)
+				authorizer := authzmocks.NewAuthorizer(t)
 				selector := bmocks.NewSelector(t)
 				backupProvider := bmocks.NewBackupBackendProvider(t)
 				nodeResolver := bmocks.NewNodeResolver(t)

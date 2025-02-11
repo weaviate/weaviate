@@ -22,13 +22,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
-
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_UpdateAction(t *testing.T) {
@@ -67,7 +67,7 @@ func Test_UpdateAction(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		cfg.Config.QueryDefaults.Limit = 20
 		cfg.Config.QueryMaximumResults = 200
-		authorizer := mocks.NewMockAuthorizer()
+		authorizer := mocks.NewAuthorizer(t)
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
@@ -148,7 +148,7 @@ func Test_UpdateObject(t *testing.T) {
 		},
 	}
 
-	m := newFakeGetManager(schema)
+	m := newFakeGetManager(t, schema)
 	payload := &models.Object{
 		Class:      cls,
 		ID:         id,

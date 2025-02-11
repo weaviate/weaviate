@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"testing"
 
 	"github.com/tailor-inc/graphql"
 
@@ -25,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -39,20 +40,6 @@ type mockResolver struct {
 }
 
 type fakeModulesProvider struct{}
-
-type fakeAuthorizer struct{}
-
-func (a *fakeAuthorizer) Authorize(principal *models.Principal, verb string, resource ...string) error {
-	return nil
-}
-
-func (a *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resource ...string) error {
-	return nil
-}
-
-func getFakeAuthorizer() authorization.Authorizer {
-	return &fakeAuthorizer{}
-}
 
 func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
 	panic("not implemented")
@@ -90,8 +77,9 @@ func getFakeModulesProvider() ModulesProvider {
 	return &fakeModulesProvider{}
 }
 
-func newMockResolver() *mockResolver {
-	field := Build(testhelper.SimpleSchema.Objects, getFakeModulesProvider(), getFakeAuthorizer())
+func newMockResolver(t *testing.T) (*mockResolver, *mocks.Authorizer) {
+	authzMock := mocks.NewAuthorizer(t)
+	field := Build(testhelper.SimpleSchema.Objects, getFakeModulesProvider(), authzMock)
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Explore"
@@ -100,11 +88,12 @@ func newMockResolver() *mockResolver {
 		"Resolver":    Resolver(mocker),
 		"RequestsLog": mockLog,
 	}
-	return mocker
+	return mocker, authzMock
 }
 
-func newMockResolverNoModules() *mockResolver {
-	field := Build(testhelper.SimpleSchema.Objects, nil, getFakeAuthorizer())
+func newMockResolverNoModules(t *testing.T) (*mockResolver, *mocks.Authorizer) {
+	authzMock := mocks.NewAuthorizer(t)
+	field := Build(testhelper.SimpleSchema.Objects, nil, authzMock)
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Explore"
@@ -113,11 +102,12 @@ func newMockResolverNoModules() *mockResolver {
 		"Resolver":    Resolver(mocker),
 		"RequestsLog": mockLog,
 	}
-	return mocker
+	return mocker, authzMock
 }
 
-func newMockResolverEmptySchema() *mockResolver {
-	field := Build(&models.Schema{}, getFakeModulesProvider(), getFakeAuthorizer())
+func newMockResolverEmptySchema(t *testing.T) (*mockResolver, *mocks.Authorizer) {
+	authzMock := mocks.NewAuthorizer(t)
+	field := Build(&models.Schema{}, getFakeModulesProvider(), authzMock)
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Explore"
@@ -126,7 +116,7 @@ func newMockResolverEmptySchema() *mockResolver {
 		"Resolver":    Resolver(mocker),
 		"RequestsLog": mockLog,
 	}
-	return mocker
+	return mocker, authzMock
 }
 
 func (m *mockResolver) Explore(ctx context.Context,
