@@ -408,6 +408,44 @@ func Backups(classes ...string) []string {
 	return resources
 }
 
+// WildcardPath returns the appropriate wildcard path based on the domain and original resource path.
+// The domain is expected to be the first part of the resource path.
+func WildcardPath(resource string) string {
+	parts := strings.Split(resource, "/")
+	if len(parts) < 2 {
+		return resource
+	}
+
+	domain := parts[0]
+	switch domain {
+	case DataDomain:
+		// Keep collection and tenant, wildcard the object ID
+		// data/collections/Class/shards/Tenant/objects/ID -> data/collections/Class/shards/Tenant/objects/*
+		if len(parts) >= 7 {
+			return strings.Join(parts[:6], "/") + "/*"
+		}
+	case SchemaDomain:
+		// Keep collection, wildcard the tenant
+		// schema/collections/Class/shards/Tenant -> schema/collections/Class/shards/*
+		if len(parts) >= 5 {
+			return strings.Join(parts[:4], "/") + "/*"
+		}
+	case BackupsDomain:
+		// Keep collection
+		// backups/collections/Class -> backups/collections/*
+		if len(parts) >= 3 {
+			return strings.Join(parts[:2], "/") + "/*"
+		}
+	case UsersDomain, RolesDomain:
+		// users/Username -> users/*
+		// roles/RoleName -> roles/*
+		return domain + "/*"
+	}
+
+	// If no specific rule matches or path is incomplete, return original with last part wildcarded
+	parts[len(parts)-1] = "*"
+	return strings.Join(parts, "/")
+}
 func String(s string) *string {
 	return &s
 }

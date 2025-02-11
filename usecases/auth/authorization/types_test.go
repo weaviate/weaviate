@@ -193,3 +193,101 @@ func TestTenants(t *testing.T) {
 		})
 	}
 }
+
+func TestGetWildcardPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		resource string
+		expected string
+	}{
+		// Data domain tests
+		{
+			name:     "data domain full path",
+			resource: "data/collections/Class1/shards/Tenant1/objects/123",
+			expected: "data/collections/Class1/shards/Tenant1/objects/*",
+		},
+		{
+			name:     "data domain incomplete path",
+			resource: "data/collections/Class1/shards/Tenant1",
+			expected: "data/collections/Class1/shards/*",
+		},
+
+		// Schema domain tests
+		{
+			name:     "schema domain full path",
+			resource: "schema/collections/Class1/shards/Tenant1",
+			expected: "schema/collections/Class1/shards/*",
+		},
+		{
+			name:     "schema domain full path",
+			resource: "schema/collections/Class1/shards/Tenant1",
+			expected: "schema/collections/Class1/shards/*",
+		},
+		{
+			name:     "schema domain incomplete path",
+			resource: "schema/collections/Class1",
+			expected: "schema/collections/*",
+		},
+
+		// Backups domain tests
+		{
+			name:     "backups domain full path",
+			resource: "backups/collections/Class1",
+			expected: "backups/collections/*",
+		},
+		{
+			name:     "backups domain incomplete path",
+			resource: "backups/collections",
+			expected: "backups/*",
+		},
+
+		// Users domain tests
+		{
+			name:     "users domain",
+			resource: "users/user1",
+			expected: "users/*",
+		},
+		{
+			name:     "users domain with extra segments",
+			resource: "users/user1/extra/path",
+			expected: "users/*",
+		},
+
+		// Roles domain tests
+		{
+			name:     "roles domain",
+			resource: "roles/role1",
+			expected: "roles/*",
+		},
+		{
+			name:     "roles domain with extra segments",
+			resource: "roles/role1/extra/path",
+			expected: "roles/*",
+		},
+
+		// Edge cases
+		{
+			name:     "single segment path",
+			resource: "standalone",
+			expected: "standalone",
+		},
+		{
+			name:     "empty path",
+			resource: "",
+			expected: "",
+		},
+		{
+			name:     "unknown domain",
+			resource: "unknown/path/segments",
+			expected: "unknown/path/*",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := WildcardPath(tt.resource)
+			assert.Equal(t, tt.expected, result, "WildcardPath(%q) = %q, want %q",
+				tt.resource, result, tt.expected)
+		})
+	}
+}

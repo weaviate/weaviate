@@ -13,7 +13,6 @@ package rbac
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -115,10 +114,8 @@ func (m *manager) FilterAuthorizedResources(principal *models.Principal, verb st
 	var allowedResources []string
 
 	// First try with wildcard
-	parts := strings.Split(resources[0], "/")
-	parts[len(parts)-1] = "*"
-	wildcardPath := strings.Join(parts, "/")
-
+	wildcardPath := authorization.WildcardPath(resources[0])
+	authorization.Collections()
 	allowed, err := m.checkPermissions(principal, wildcardPath, verb)
 	if err != nil {
 		logger.WithError(err).WithField("resource", wildcardPath).Error("failed to enforce policy")
