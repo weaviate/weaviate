@@ -4,9 +4,9 @@
 
 ###############################################################################
 # Base build image
-FROM golang:1.22-alpine3.20 AS build_base
+FROM golang:1.22-alpine AS build_base
 
-# Install specific gcc version from Alpine 3.20 repository
+# Install specific gcc version from Alpine repository
 RUN apk add --no-cache \
     bash \ 
     libc-dev \
