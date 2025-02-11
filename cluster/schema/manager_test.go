@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/models"
@@ -275,10 +276,12 @@ func TestSchemaSnapshot(t *testing.T) {
 	sink := &MockSnapshotSink{}
 	assert.Nil(t, sc.Persist(sink))
 
-	// restore snapshot
+	// restore snapshot. Restore should also set the metrics correctly.
 	sc2 := NewSchema("N1", fakes.NewMockSchemaExecutor(), prometheus.NewPedanticRegistry())
 	assert.Nil(t, sc2.Restore(sink, parser))
-	assert.Equal(t, sc.Classes, sc2.Classes)
+	assert.Equal(t, sc.classes, sc2.classes)
+	assert.Equal(t, float64(1), testutil.ToFloat64(sc2.collectionsCount))
+	assert.Equal(t, float64(2), testutil.ToFloat64(sc2.shardsCount.WithLabelValues("A")))
 
 	// Encoding error
 	sink2 := &MockSnapshotSink{wErr: errAny, rErr: errAny}
