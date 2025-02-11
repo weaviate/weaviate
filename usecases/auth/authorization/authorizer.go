@@ -23,7 +23,7 @@ type Authorizer interface {
 	// AuthorizeSilent Silent authorization without audit logs
 	AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error
 	// FilterAuthorizedResources authorize the passed resources with best effort approach, it will return
-	// list of allowed resources, in case non it will empty slice
+	// list of allowed resources, if none, it will return an empty slice
 	FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error)
 }
 

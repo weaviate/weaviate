@@ -229,6 +229,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 
 	resourceFilter := filter.New[*models.TenantResponse](h.Authorizer, h.config)
 	filteredTenants := resourceFilter.Filter(
+		h.logger,
 		principal,
 		allTenants,
 		authorization.READ,
