@@ -43,7 +43,7 @@ func (m *manager) authorize(principal *models.Principal, verb string, skipAudit 
 	}
 
 	// Create a slice to store all permission results
-	var permResults []logrus.Fields
+	permResults := make([]logrus.Fields, 0, len(resources))
 
 	for _, resource := range resources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
@@ -66,8 +66,9 @@ func (m *manager) authorize(principal *models.Principal, verb string, skipAudit 
 		})
 
 		if !allowed {
-			// Log all results before returning error
-			logger.WithField("permissions", permResults).Error("authorization denied")
+			if !skipAudit {
+				logger.WithField("permissions", permResults).Error("authorization denied")
+			}
 			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm)))
 		}
 	}

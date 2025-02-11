@@ -62,7 +62,7 @@ func (f *ResourceFilter[T]) Filter(
 	}
 
 	// For RBAC, filter based on per-item authorization
-	resources := []string{}
+	resources := make([]string, 0, len(items))
 	filtered := make([]T, 0, len(items))
 	for _, item := range items {
 		resources = append(resources, resourceFn(item))
