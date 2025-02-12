@@ -108,20 +108,6 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 		return nil, err
 	}
 
-	resourceFilter := filter.New[*models.Object](m.authorizer, m.config.Config)
-	filteredObjects := resourceFilter.Filter(
-		principal,
-		[]*models.Object{res.Object()},
-		authorization.READ,
-		func(obj *models.Object) string {
-			return authorization.Objects(obj.Class, obj.Tenant, obj.ID)
-		},
-	)
-
-	if len(filteredObjects) == 0 {
-		return nil, NewErrNotFound("no object with id '%s' or unauthorized", id)
-	}
-
 	class, err := m.schemaManager.GetClass(ctx, principal, res.ClassName)
 	return class, err
 }
