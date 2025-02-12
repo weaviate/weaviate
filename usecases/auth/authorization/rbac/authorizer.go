@@ -58,11 +58,12 @@ func (m *manager) authorize(principal *models.Principal, verb string, skipAudit 
 			return err
 		}
 
-		// Store the results for this iteration
-		permResults = append(permResults, logrus.Fields{
-			"resource": prettyPermissionsResources(perm),
-			"results":  prettyStatus(allowed),
-		})
+		if allowed {
+			permResults = append(permResults, logrus.Fields{
+				"resource": prettyPermissionsResources(perm),
+				"results":  prettyStatus(allowed),
+			})
+		}
 
 		if !allowed {
 			if !skipAudit {
@@ -91,6 +92,8 @@ func (m *manager) AuthorizeSilent(principal *models.Principal, verb string, reso
 	return m.authorize(principal, verb, true, resources...)
 }
 
+// FilterAuthorizedResources authorize the passed resources with best effort approach, it will return
+// list of allowed resources, if none, it will return an empty slice
 func (m *manager) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
 	if principal == nil {
 		return nil, errors.NewUnauthenticated()
@@ -121,17 +124,16 @@ func (m *manager) FilterAuthorizedResources(principal *models.Principal, verb st
 			return nil, err
 		}
 
-		perm, err := conv.PathToPermission(verb, resource)
-		if err != nil {
-			return nil, err
-		}
-
-		permResults = append(permResults, logrus.Fields{
-			"resource": prettyPermissionsResources(perm),
-			"results":  prettyStatus(allowed),
-		})
-
 		if allowed {
+			perm, err := conv.PathToPermission(verb, resource)
+			if err != nil {
+				return nil, err
+			}
+
+			permResults = append(permResults, logrus.Fields{
+				"resource": prettyPermissionsResources(perm),
+				"results":  prettyStatus(allowed),
+			})
 			allowedResources = append(allowedResources, resource)
 		}
 	}
