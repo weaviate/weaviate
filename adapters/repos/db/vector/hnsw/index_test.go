@@ -178,22 +178,44 @@ func TestHnswIndexGrowSafely(t *testing.T) {
 }
 
 func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[float32]) *hnsw {
-	// mock out commit logger before adding data so we don't leave a disk
-	// footprint. Commit logging and deserializing from a (condensed) commit log
-	// is tested in a separate integration test that takes care of providing and
-	// cleaning up the correct place on disk to write test files
-	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "unittest",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk:      vecForIDFn,
-	}, ent.UserConfig{
+	cfg := createVectorHnswIndexTestConfig()
+	cfg.VectorForIDThunk = vecForIDFn
+
+	index, err := New(cfg, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 	return index
+}
+
+func createEmptyMultiVectorHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[[]float32]) *hnsw {
+	cfg := createVectorHnswIndexTestConfig()
+	cfg.MultiVectorForIDThunk = vecForIDFn
+
+	index, err := New(cfg, ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
+		Multivector: ent.MultivectorConfig{
+			Enabled: true,
+		},
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+	return index
+}
+
+func createVectorHnswIndexTestConfig() Config {
+	// mock out commit logger before adding data so we don't leave a disk
+	// footprint. Commit logging and deserializing from a (condensed) commit log
+	// is tested in a separate integration test that takes care of providing and
+	// cleaning up the correct place on disk to write test files
+	return Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "unittest",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:      testVectorForID,
+	}
 }
 
 func TestHnswIndexContainsDoc(t *testing.T) {
@@ -208,10 +230,7 @@ func TestHnswIndexContainsDoc(t *testing.T) {
 	})
 
 	t.Run("should return true if node is in the index", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
-			return testVectors[id], nil
-		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		index := createEmptyHnswIndexForTests(t, testVectorForID)
 		for i, vec := range testVectors {
 			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
@@ -220,10 +239,7 @@ func TestHnswIndexContainsDoc(t *testing.T) {
 	})
 
 	t.Run("should return false if node is not in the index", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
-			return testVectors[id], nil
-		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		index := createEmptyHnswIndexForTests(t, testVectorForID)
 		for i, vec := range testVectors {
 			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
@@ -232,10 +248,7 @@ func TestHnswIndexContainsDoc(t *testing.T) {
 	})
 
 	t.Run("should return false if node is deleted", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
-			return testVectors[id], nil
-		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		index := createEmptyHnswIndexForTests(t, testVectorForID)
 		for i, vec := range testVectors {
 			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
@@ -246,7 +259,46 @@ func TestHnswIndexContainsDoc(t *testing.T) {
 	})
 }
 
-// TODO: add for multi-vector
+func TestHnswIndexContainsDoc_MultiVector(t *testing.T) {
+	ctx := context.Background()
+	t.Run("should return false if index is empty", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([][]float32, error) {
+			t.Fatalf("vecForID should not be called on empty index")
+			return nil, nil
+		}
+		index := createEmptyMultiVectorHnswIndexForTests(t, vecForIDFn)
+		require.False(t, index.ContainsDoc(1))
+	})
+
+	t.Run("should return true if node is in the index", func(t *testing.T) {
+		index := createEmptyMultiVectorHnswIndexForTests(t, testMultiVectorForID)
+		for i, vec := range testMultiVectors {
+			err := index.AddMulti(ctx, uint64(i), vec)
+			require.Nil(t, err)
+		}
+		require.True(t, index.ContainsDoc(5))
+	})
+
+	t.Run("should return false if node is not in the index", func(t *testing.T) {
+		index := createEmptyMultiVectorHnswIndexForTests(t, testMultiVectorForID)
+		for i, vec := range testMultiVectors {
+			err := index.AddMulti(ctx, uint64(i), vec)
+			require.Nil(t, err)
+		}
+		require.False(t, index.ContainsDoc(100))
+	})
+
+	t.Run("should return false if node is deleted", func(t *testing.T) {
+		index := createEmptyMultiVectorHnswIndexForTests(t, testMultiVectorForID)
+		for i, vec := range testMultiVectors {
+			err := index.AddMulti(ctx, uint64(i), vec)
+			require.Nil(t, err)
+		}
+		err := index.DeleteMulti(5)
+		require.Nil(t, err)
+		require.False(t, index.ContainsDoc(5))
+	})
+}
 
 func TestHnswIndexIterate(t *testing.T) {
 	ctx := context.Background()
