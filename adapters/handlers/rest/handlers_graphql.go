@@ -60,7 +60,6 @@ func setupGraphQLHandlers(
 	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
 		// authorization requirements.
-
 		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
 		if err != nil {
 			metricRequestsTotal.logUserError()
