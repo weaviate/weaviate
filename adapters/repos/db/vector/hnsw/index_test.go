@@ -196,7 +196,7 @@ func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[fl
 	return index
 }
 
-func TestHnswIndexContainsNode(t *testing.T) {
+func TestHnswIndexContainsDoc(t *testing.T) {
 	ctx := context.Background()
 	t.Run("should return false if index is empty", func(t *testing.T) {
 		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
@@ -204,7 +204,7 @@ func TestHnswIndexContainsNode(t *testing.T) {
 			return nil, nil
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
-		require.False(t, index.ContainsNode(1))
+		require.False(t, index.ContainsDoc(1))
 	})
 
 	t.Run("should return true if node is in the index", func(t *testing.T) {
@@ -216,7 +216,7 @@ func TestHnswIndexContainsNode(t *testing.T) {
 			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
-		require.True(t, index.ContainsNode(5))
+		require.True(t, index.ContainsDoc(5))
 	})
 
 	t.Run("should return false if node is not in the index", func(t *testing.T) {
@@ -228,7 +228,7 @@ func TestHnswIndexContainsNode(t *testing.T) {
 			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
-		require.False(t, index.ContainsNode(100))
+		require.False(t, index.ContainsDoc(100))
 	})
 
 	t.Run("should return false if node is deleted", func(t *testing.T) {
@@ -242,9 +242,11 @@ func TestHnswIndexContainsNode(t *testing.T) {
 		}
 		err := index.Delete(5)
 		require.Nil(t, err)
-		require.False(t, index.ContainsNode(5))
+		require.False(t, index.ContainsDoc(5))
 	})
 }
+
+// TODO: add for multi-vector
 
 func TestHnswIndexIterate(t *testing.T) {
 	ctx := context.Background()

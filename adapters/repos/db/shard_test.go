@@ -281,7 +281,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 	// make sure the new index does not contain any of the objects
 	for _, obj := range objs {
-		if newIdx.ContainsNode(obj.DocID) {
+		if newIdx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should not be in the vector index", obj.DocID)
 		}
 	}
@@ -357,7 +357,7 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 
 	// make sure the new index does not contain any of the objects
 	for _, obj := range objs {
-		if newIdx.ContainsNode(obj.DocID) {
+		if newIdx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should not be in the vector index", obj.DocID)
 		}
 	}

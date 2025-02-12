@@ -49,9 +49,6 @@ type VectorIndex interface {
 	ValidateBeforeInsert(vector []float32) error
 	ValidateMultiBeforeInsert(vector [][]float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, error)
-	// ContainsNode returns true if the index contains the node with the given id.
-	// It must return false if the node does not exist, or has a tombstone.
-	ContainsNode(id uint64) bool
 	// ContainsDoc returns true if the index has indexed document with a given id.
 	// It must return false if the document does not exist, or has a tombstone.
 	ContainsDoc(docID uint64) bool

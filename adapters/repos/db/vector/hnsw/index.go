@@ -683,16 +683,6 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return h.distancerProvider.SingleDist(x, y)
 }
 
-func (h *hnsw) ContainsNode(id uint64) bool {
-	h.RLock()
-	h.shardedNodeLocks.RLock(id)
-	exists := len(h.nodes) > int(id) && h.nodes[id] != nil
-	h.shardedNodeLocks.RUnlock(id)
-	h.RUnlock()
-
-	return exists && !h.hasTombstone(id)
-}
-
 func (h *hnsw) ContainsDoc(docID uint64) bool {
 	if h.Multivector() {
 		h.RLock()
@@ -701,7 +691,13 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 		return exists && !h.hasMultiTombstone(vecIds)
 	}
 
-	return h.ContainsNode(docID)
+	h.RLock()
+	h.shardedNodeLocks.RLock(docID)
+	exists := len(h.nodes) > int(docID) && h.nodes[docID] != nil
+	h.shardedNodeLocks.RUnlock(docID)
+	h.RUnlock()
+
+	return exists && !h.hasTombstone(docID)
 }
 
 func (h *hnsw) Iterate(fn func(id uint64) bool) {
