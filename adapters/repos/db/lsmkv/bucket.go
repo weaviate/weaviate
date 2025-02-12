@@ -1024,6 +1024,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
+// flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	b.flushLock.RLock()
 	commitLogSize := b.active.commitlog.Size()
