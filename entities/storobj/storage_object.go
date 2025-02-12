@@ -945,16 +945,14 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 // UnmarshalPropertiesFromObject only unmarshals and returns the properties part of the object
 //
 // Check MarshalBinary for the order of elements in the input array
-func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
+func UnmarshalPropertiesFromObject(data []byte, properties map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
 	if data[0] != uint8(1) {
 		return errors.Errorf("unsupported binary marshaller version %d", data[0])
 	}
 
 	// clear out old values in case an object misses values. This should NOT shrink the capacity of the map, eg there
 	// are no allocations when adding the properties of the next object again
-	for k := range *properties {
-		delete(*properties, k)
-	}
+	clear(properties)
 
 	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
 	rw := byteops.NewReadWriter(data, byteops.WithPosition(startPos))
@@ -969,7 +967,7 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 	return UnmarshalProperties(rw.Buffer[rw.Position:rw.Position+propertyLength], properties, aggregationProperties, propStrings)
 }
 
-func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
+func UnmarshalProperties(data []byte, properties map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
 	var returnError error
 	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
 		switch dataType {
@@ -978,7 +976,7 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 			if err != nil {
 				returnError = err
 			}
-			(*properties)[aggregationProperties[idx]] = val
+			properties[aggregationProperties[idx]] = val
 		case jsonparser.Array: // can be a beacon or an actual array
 			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
 			// this checks if refs are present - the return points to the underlying memory, dont use without copying
@@ -992,7 +990,7 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 					beacons = append(beacons, map[string]interface{}{"beacon": beaconVal})
 				}
 				_, returnError = jsonparser.ArrayEach(value, handler)
-				(*properties)[aggregationProperties[idx]] = beacons
+				properties[aggregationProperties[idx]] = beacons
 			} else {
 				// check how many entries there are in the array by counting the ",". This allows us to allocate an
 				// array with the right size without extending it with every append.
@@ -1032,7 +1030,7 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 				if err != nil {
 					returnError = err
 				}
-				(*properties)[aggregationProperties[idx]] = array
+				properties[aggregationProperties[idx]] = array
 
 			}
 		case jsonparser.Object:
@@ -1049,7 +1047,7 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 			if err != nil {
 				returnError = err
 			}
-			(*properties)[aggregationProperties[idx]] = nestedProps
+			properties[aggregationProperties[idx]] = nestedProps
 		default:
 			returnError = fmt.Errorf("unknown data type %v", dataType)
 		}
@@ -1384,7 +1382,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	} else if len(propsB) >= int(propLength) {
 		// the properties are not read in all cases, skip if not needed
 		returnProps = make(map[string]interface{}, len(properties.PropStrings))
-		if err := UnmarshalProperties(propsB[:propLength], &returnProps, properties.PropStrings, properties.PropStringsList); err != nil {
+		if err := UnmarshalProperties(propsB[:propLength], returnProps, properties.PropStrings, properties.PropStringsList); err != nil {
 			return err
 		}
 	}

@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
-	bolt "go.etcd.io/bbolt"
 )
 
 // grouper is the component which identifies the top-n groups for a specific
@@ -271,29 +270,6 @@ func (g *grouper) insertOrdered(elem group) {
 	if !added && len(g.topGroups) < g.limit {
 		g.topGroups = append(g.topGroups, elem)
 	}
-}
-
-// ScanAll iterates over every row in the object buckets
-// TODO: where should this live?
-func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
-	b := tx.Bucket(helpers.ObjectsBucket)
-	if b == nil {
-		return fmt.Errorf("objects bucket not found")
-	}
-
-	b.ForEach(func(_, v []byte) error {
-		elem, err := storobj.FromBinary(v)
-		if err != nil {
-			return errors.Wrapf(err, "unmarshal data object")
-		}
-
-		// scanAll has no abort, so we can ignore the first arg
-		properties := elem.Properties()
-		_, err = scan(&properties, elem.DocID)
-		return err
-	})
-
-	return nil
 }
 
 // ScanAllLSM iterates over every row in the object buckets

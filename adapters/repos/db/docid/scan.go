@@ -86,14 +86,12 @@ func (os *objectScannerLSM) scan() error {
 		propStrings[i] = []string{os.properties[i]}
 	}
 
-	// The typed properties are needed for extraction from json
-	var properties models.PropertySchema
-	propertiesTyped := map[string]interface{}{}
+	var (
+		properties models.PropertySchema
 
-	for _, prop := range os.properties {
-		propertiesTyped[prop] = nil
-	}
-
+		// used for extraction from json
+		propertiesTyped = make(map[string]interface{}, len(os.properties))
+	)
 	for _, id := range os.pointers {
 		binary.LittleEndian.PutUint64(docIDBytes, id)
 		res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
@@ -106,7 +104,7 @@ func (os *objectScannerLSM) scan() error {
 		}
 
 		if len(os.properties) > 0 {
-			err = storobj.UnmarshalPropertiesFromObject(res, &propertiesTyped, os.properties, propStrings)
+			err = storobj.UnmarshalPropertiesFromObject(res, propertiesTyped, os.properties, propStrings)
 			if err != nil {
 				return errors.Wrapf(err, "unmarshal data object")
 			}
