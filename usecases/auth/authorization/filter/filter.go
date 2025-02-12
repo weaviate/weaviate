@@ -78,7 +78,7 @@ func (f *ResourceFilter[T]) Filter(
 			logger.WithFields(logrus.Fields{
 				"username": principal.Username,
 				"verb":     verb,
-				"resource": firstResource,
+				"resource": authorization.WildcardPath(firstResource),
 			}).Error(err)
 		}
 
