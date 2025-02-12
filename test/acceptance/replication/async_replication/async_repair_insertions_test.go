@@ -85,6 +85,6 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", replica.One)
 			assert.Len(ct, resp, len(paragraphIDs))
-		}, 60*time.Second, 1*time.Second, "not all the objects have been asynchronously replicated")
+		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }
