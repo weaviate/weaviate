@@ -236,6 +236,18 @@ func Test_DynamicUserConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "dynamic index is set with multivector",
+			input: map[string]interface{}{
+				"hnsw": map[string]interface{}{
+					"multivector": map[string]interface{}{
+						"enabled": true,
+					},
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "multi vector index is not supported for dynamic index",
+		},
+		{
 			name: "flat is properly set",
 			input: map[string]interface{}{
 				"flat": map[string]interface{}{
