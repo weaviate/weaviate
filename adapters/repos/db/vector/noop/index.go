@@ -141,6 +141,10 @@ func (i *Index) ContainsNode(id uint64) bool {
 	return false
 }
 
+func (i *Index) ContainsDoc(docID uint64) bool {
+	return false
+}
+
 func (i *Index) Iterate(fn func(id uint64) bool) {}
 
 func (i *Index) DistancerProvider() distancer.Provider {

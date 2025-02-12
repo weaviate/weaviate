@@ -883,6 +883,10 @@ func (index *flat) ContainsNode(id uint64) bool {
 	return true
 }
 
+func (index *flat) ContainsDoc(docID uint64) bool {
+	return index.ContainsNode(docID)
+}
+
 func (index *flat) Iterate(fn func(id uint64) bool) {
 	var bucketName string
 

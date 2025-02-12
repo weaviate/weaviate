@@ -90,7 +90,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 
 	if vectorIndex.Multivector() {
 		err = s.iterateOnLSMMultiVectors(ctx, from, targetVector, func(id uint64, vector [][]float32) error {
-			if vectorIndex.ContainsNode(id) {
+			if vectorIndex.ContainsDoc(id) {
 				return nil
 			}
 			if len(vector) == 0 {
@@ -122,7 +122,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 		}
 	} else {
 		err = s.iterateOnLSMVectors(ctx, from, targetVector, func(id uint64, vector []float32) error {
-			if vectorIndex.ContainsNode(id) {
+			if vectorIndex.ContainsDoc(id) {
 				return nil
 			}
 			if len(vector) == 0 {
@@ -277,10 +277,10 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 	if vectorIndex.Multivector() {
 		// add non-indexed multi vectors to the queue
-		err = s.iterateOnLSMMultiVectors(ctx, 0, targetVector, func(id uint64, vector [][]float32) error {
-			visited.Visit(id)
+		err = s.iterateOnLSMMultiVectors(ctx, 0, targetVector, func(docID uint64, vector [][]float32) error {
+			visited.Visit(docID)
 
-			if vectorIndex.ContainsNode(id) {
+			if vectorIndex.ContainsDoc(docID) {
 				return nil
 			}
 			if len(vector) == 0 {
@@ -288,7 +288,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 			}
 
 			rec := &common.Vector[[][]float32]{
-				ID:     id,
+				ID:     docID,
 				Vector: vector,
 			}
 			added++
@@ -312,10 +312,10 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		}
 	} else {
 		// add non-indexed vectors to the queue
-		err = s.iterateOnLSMVectors(ctx, 0, targetVector, func(id uint64, vector []float32) error {
-			visited.Visit(id)
+		err = s.iterateOnLSMVectors(ctx, 0, targetVector, func(docID uint64, vector []float32) error {
+			visited.Visit(docID)
 
-			if vectorIndex.ContainsNode(id) {
+			if vectorIndex.ContainsDoc(docID) {
 				return nil
 			}
 			if len(vector) == 0 {
@@ -323,7 +323,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 			}
 
 			rec := &common.Vector[[]float32]{
-				ID:     id,
+				ID:     docID,
 				Vector: vector,
 			}
 			added++
@@ -369,9 +369,14 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		}
 
 		deleted++
-		err := vectorIndex.Delete(id)
-		if err != nil {
-			s.index.logger.WithError(err).WithField("id", id).Warn("delete vector from queue")
+		if vectorIndex.Multivector() {
+			if err := vectorIndex.DeleteMulti(id); err != nil {
+				s.index.logger.WithError(err).WithField("id", id).Warn("delete multi-vector from queue")
+			}
+		} else {
+			if err := vectorIndex.Delete(id); err != nil {
+				s.index.logger.WithError(err).WithField("id", id).Warn("delete vector from queue")
+			}
 		}
 
 		return true

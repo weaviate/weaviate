@@ -693,6 +693,17 @@ func (h *hnsw) ContainsNode(id uint64) bool {
 	return exists && !h.hasTombstone(id)
 }
 
+func (h *hnsw) ContainsDoc(docID uint64) bool {
+	if h.Multivector() {
+		h.RLock()
+		vecIds, exists := h.docIDVectors[docID]
+		h.RUnlock()
+		return exists && !h.hasMultiTombstone(vecIds)
+	}
+
+	return h.ContainsNode(docID)
+}
+
 func (h *hnsw) Iterate(fn func(id uint64) bool) {
 	var id uint64
 
