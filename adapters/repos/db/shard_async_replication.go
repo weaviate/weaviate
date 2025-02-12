@@ -43,13 +43,14 @@ const maxHashtreeHeight = 20
 
 const (
 	defaultHashtreeHeight              = 16
-	defaultFrequency                   = 5 * time.Second
+	defaultFrequency                   = 30 * time.Second
 	defaultFrequencyWhilePropagating   = 10 * time.Millisecond
 	defaultAliveNodesCheckingFrequency = 1 * time.Second
-	defaultLoggingFrequency            = 3 * time.Second
+	defaultLoggingFrequency            = 5 * time.Second
 	defaultDiffPerNodeTimeout          = 10 * time.Second
 	defaultPropagationTimeout          = 30 * time.Second
 	defaultPropagationLimit            = 10_000
+	defaultPropagationDelay            = 30 * time.Second
 	defaultBatchSize                   = 100
 )
 
@@ -62,6 +63,7 @@ type asyncReplicationConfig struct {
 	diffPerNodeTimeout          time.Duration
 	propagationTimeout          time.Duration
 	propagationLimit            int
+	propagationDelay            time.Duration
 	batchSize                   int
 }
 
@@ -111,6 +113,12 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 
 	config.propagationLimit, err = optParseInt(
 		os.Getenv("ASYNC_REPLICATION_PROPAGATION_LIMIT"), defaultPropagationLimit)
+	if err != nil {
+		return
+	}
+
+	config.propagationDelay, err = optParseDuration(
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_DELAY"), defaultPropagationDelay)
 	if err != nil {
 		return
 	}
@@ -732,9 +740,20 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 			return localObjects, remoteObjects, propagations, err
 		}
 
-		localDigests, err := s.index.DigestObjectsInRange(ctx, shardName, currLocalUUID, finalUUID, config.batchSize)
+		allLocalDigests, err := s.index.DigestObjectsInRange(ctx, shardName, currLocalUUID, finalUUID, config.batchSize)
 		if err != nil {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
+		}
+
+		// filter out too recent local digests to avoid object propagation when all the nodes may be alive
+		localDigests := make([]replica.RepairResponse, 0, len(allLocalDigests))
+
+		maxUpdateTime := time.Now().Add(-config.propagationDelay).UnixMilli()
+
+		for _, d := range allLocalDigests {
+			if d.UpdateTime <= maxUpdateTime {
+				localDigests = append(localDigests, d)
+			}
 		}
 
 		if len(localDigests) == 0 {

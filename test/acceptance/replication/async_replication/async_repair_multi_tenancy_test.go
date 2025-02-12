@@ -134,6 +134,6 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp := common.GQLTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
 			assert.Len(ct, resp, objectCount)
-		}, 60*time.Second, 1*time.Second, "not all the objects have been asynchronously replicated")
+		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }
