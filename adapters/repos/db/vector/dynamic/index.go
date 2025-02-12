@@ -79,6 +79,7 @@ type VectorIndex interface {
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsNode(id uint64) bool
+	ContainsDoc(docID uint64) bool
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
@@ -404,6 +405,12 @@ func (dynamic *dynamic) ContainsNode(id uint64) bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.ContainsNode(id)
+}
+
+func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ContainsDoc(docID)
 }
 
 func (dynamic *dynamic) AlreadyIndexed() uint64 {
