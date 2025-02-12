@@ -799,7 +799,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 			}
 
 			if len(remoteDigests) == 0 {
-				// no more objects in remote host
+				// no more digests in remote host
 				break
 			}
 
@@ -828,16 +828,24 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 				break
 			}
 
+			if len(remoteDigests) < config.batchSize {
+				break
+			}
+
 			lastRemoteUUID := strfmt.UUID(remoteDigests[len(remoteDigests)-1].ID)
 
-			currRemoteUUIDBytes, err = bytesFromUUID(lastRemoteUUID)
+			lastRemoteUUIDBytes, err := bytesFromUUID(lastRemoteUUID)
 			if err != nil {
 				return localObjects, remoteObjects, propagations, err
 			}
 
-			if len(remoteDigests) < config.batchSize {
+			overflow := incToNextLexValue(lastRemoteUUIDBytes)
+			if overflow {
+				// no more remote digests need to be fetched
 				break
 			}
+
+			currRemoteUUIDBytes = lastRemoteUUIDBytes
 		}
 
 		// to avoid reading the last uuid in the next iteration
