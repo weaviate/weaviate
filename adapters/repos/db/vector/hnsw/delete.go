@@ -791,10 +791,8 @@ func (h *hnsw) hasTombstone(id uint64) bool {
 	return ok
 }
 
-// hasMultiTombstone checks whether at least one node of multi-vector has a tombstone attached.
-// Since the nodes of multi-vector are deleted in a non-atomic fashion, sometimes you might find some
-// nodes still lingering, however, they should be cleaned up soon.
-func (h *hnsw) hasMultiTombstone(ids []uint64) bool {
+// hasTombstones checks whether at least one node of the provided ids has a tombstone attached.
+func (h *hnsw) hasTombstones(ids []uint64) bool {
 	h.tombstoneLock.RLock()
 	defer h.tombstoneLock.RUnlock()
 
