@@ -688,7 +688,7 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 		h.RLock()
 		vecIds, exists := h.docIDVectors[docID]
 		h.RUnlock()
-		return exists && !h.hasMultiTombstone(vecIds)
+		return exists && !h.hasTombstones(vecIds)
 	}
 
 	h.RLock()
