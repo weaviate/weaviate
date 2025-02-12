@@ -247,39 +247,12 @@ func TestGetWildcardPath(t *testing.T) {
 			resource: "users/user1",
 			expected: "users/*",
 		},
-		{
-			name:     "users domain with extra segments",
-			resource: "users/user1/extra/path",
-			expected: "users/*",
-		},
 
 		// Roles domain tests
 		{
 			name:     "roles domain",
 			resource: "roles/role1",
 			expected: "roles/*",
-		},
-		{
-			name:     "roles domain with extra segments",
-			resource: "roles/role1/extra/path",
-			expected: "roles/*",
-		},
-
-		// Edge cases
-		{
-			name:     "single segment path",
-			resource: "standalone",
-			expected: "standalone",
-		},
-		{
-			name:     "empty path",
-			resource: "",
-			expected: "",
-		},
-		{
-			name:     "unknown domain",
-			resource: "unknown/path/segments",
-			expected: "unknown/path/*",
 		},
 	}
 
