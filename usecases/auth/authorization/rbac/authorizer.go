@@ -106,39 +106,13 @@ func (m *manager) FilterAuthorizedResources(principal *models.Principal, verb st
 		"component":      authorization.ComponentName,
 		"request_action": verb,
 	})
+
 	if len(principal.Groups) > 0 {
 		logger = logger.WithField("groups", principal.Groups)
 	}
 
 	var permResults []logrus.Fields
 	var allowedResources []string
-
-	// First try with wildcard
-	wildcardPath := authorization.WildcardPath(resources[0])
-	authorization.Collections()
-	allowed, err := m.checkPermissions(principal, wildcardPath, verb)
-	if err != nil {
-		logger.WithError(err).WithField("resource", wildcardPath).Error("failed to enforce policy")
-		return nil, err
-	}
-
-	if allowed {
-		// If wildcard is allowed, log permissions for all requested resources
-		for _, resource := range resources {
-			perm, err := conv.PathToPermission(verb, resource)
-			if err != nil {
-				return nil, err
-			}
-
-			permResults = append(permResults, logrus.Fields{
-				"resource": prettyPermissionsResources(perm),
-				"results":  prettyStatus(true),
-			})
-		}
-
-		logger.WithField("permissions", permResults).Info()
-		return resources, nil
-	}
 
 	// If wildcard check failed, check individual resources
 	for _, resource := range resources {

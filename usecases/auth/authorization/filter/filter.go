@@ -61,9 +61,32 @@ func (f *ResourceFilter[T]) Filter(
 		return items
 	}
 
+	// For RBAC, first check if all items have the same parent resource
+	firstResource := resourceFn(items[0])
+	allSameParent := true
+
+	for i := 1; i < len(items); i++ {
+		resource := resourceFn(items[i])
+		if authorization.WildcardPath(resource) != authorization.WildcardPath(firstResource) {
+			allSameParent = false
+		}
+	}
+
+	// If all items have the same parent, we can do a single authorization check
+	if allSameParent {
+		if err := f.authorizer.Authorize(principal, verb, firstResource); err != nil {
+			logger.WithFields(logrus.Fields{
+				"username": principal.Username,
+				"verb":     verb,
+				"resource": firstResource,
+			}).Error(err)
+		}
+		return items
+	}
+
 	// For RBAC, filter based on per-item authorization
-	resources := make([]string, 0, len(items))
 	filtered := make([]T, 0, len(items))
+	resources := make([]string, 0, len(items))
 	for _, item := range items {
 		resources = append(resources, resourceFn(item))
 	}
