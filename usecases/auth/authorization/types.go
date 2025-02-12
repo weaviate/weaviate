@@ -408,6 +408,14 @@ func Backups(classes ...string) []string {
 	return resources
 }
 
+// WildcardPath returns the appropriate wildcard path based on the domain and original resource path.
+// The domain is expected to be the first part of the resource path.
+func WildcardPath(resource string) string {
+	parts := strings.Split(resource, "/")
+	parts[len(parts)-1] = "*"
+	return strings.Join(parts, "/")
+}
+
 func String(s string) *string {
 	return &s
 }

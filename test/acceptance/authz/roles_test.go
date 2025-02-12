@@ -927,6 +927,7 @@ func TestAuthzRoleFilteredTenantPermissions(t *testing.T) {
 
 	filteredRole := "filtered-role"
 	className := "FilteredTenantTestClass"
+	className2 := "FilteredTenantTestClass2"
 	allowedTenant := "tenant1"
 	restrictedTenant := "tenant2"
 
@@ -944,12 +945,19 @@ func TestAuthzRoleFilteredTenantPermissions(t *testing.T) {
 				Enabled: true,
 			},
 		}, "admin-key")
+		helper.CreateClassAuth(t, &models.Class{
+			Class: className2,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}, "admin-key")
 
 		tenants := []*models.Tenant{
 			{Name: allowedTenant, ActivityStatus: models.TenantActivityStatusHOT},
 			{Name: restrictedTenant, ActivityStatus: models.TenantActivityStatusHOT},
 		}
 		helper.CreateTenantsAuth(t, className, tenants, "admin-key")
+		helper.CreateTenantsAuth(t, className2, tenants, "admin-key")
 	})
 
 	defer func() {

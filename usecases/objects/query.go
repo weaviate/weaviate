@@ -83,6 +83,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	}
 
 	filteredQuery := filter.New[*QueryInput](m.authorizer, m.config.Config).Filter(
+		m.logger,
 		principal,
 		[]*QueryInput{q},
 		authorization.READ,
