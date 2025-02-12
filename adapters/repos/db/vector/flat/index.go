@@ -858,7 +858,7 @@ func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return index.distancerProvider.SingleDist(x, y)
 }
 
-func (index *flat) ContainsNode(id uint64) bool {
+func (index *flat) ContainsDoc(id uint64) bool {
 	var bucketName string
 
 	// logic modeled after SearchByVector which indicates that the PQ bucket is
@@ -881,10 +881,6 @@ func (index *flat) ContainsNode(id uint64) bool {
 	}
 
 	return true
-}
-
-func (index *flat) ContainsDoc(docID uint64) bool {
-	return index.ContainsNode(docID)
 }
 
 func (index *flat) Iterate(fn func(id uint64) bool) {

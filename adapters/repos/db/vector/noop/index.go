@@ -137,10 +137,6 @@ func (i *Index) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return 0, nil
 }
 
-func (i *Index) ContainsNode(id uint64) bool {
-	return false
-}
-
 func (i *Index) ContainsDoc(docID uint64) bool {
 	return false
 }
