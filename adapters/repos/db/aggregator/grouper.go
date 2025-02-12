@@ -276,7 +276,7 @@ func (g *grouper) insertOrdered(elem group) {
 }
 
 // ScanAllLSM iterates over every row in the object buckets.
-// Caller can specify which properties are it is interested in to make the scanning more performant, or pass nil to
+// Caller can specify which properties it is interested in to make the scanning more performant, or pass nil to
 // decode everything.
 func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn, properties *storobj.PropertyExtraction) error {
 	b := store.Bucket(helpers.ObjectsBucketLSM)
