@@ -111,10 +111,9 @@ func (m *manager) FilterAuthorizedResources(principal *models.Principal, verb st
 		logger = logger.WithField("groups", principal.Groups)
 	}
 
-	var permResults []logrus.Fields
-	var allowedResources []string
+	permResults := make([]logrus.Fields, 0, len(resources))
+	allowedResources := make([]string, 0, len(resources))
 
-	// If wildcard check failed, check individual resources
 	for _, resource := range resources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
