@@ -848,12 +848,19 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 		mergeObjs := make([]*objects.VObject, 0, len(localObjs))
 
 		for _, obj := range localObjs {
-			var vectors models.Vectors
+			var vectors map[string][]float32
+			var multiVectors map[string][][]float32
 
 			if obj.Vectors != nil {
-				vectors = make(models.Vectors, len(obj.Vectors))
-				for i, v := range obj.Vectors {
-					vectors[i] = v
+				vectors = make(map[string][]float32, len(obj.Vectors))
+				for targetVector, v := range obj.Vectors {
+					vectors[targetVector] = v
+				}
+			}
+			if obj.MultiVectors != nil {
+				multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
+				for targetVector, v := range obj.MultiVectors {
+					multiVectors[targetVector] = v
 				}
 			}
 
@@ -863,6 +870,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 				LatestObject:            &obj.Object,
 				Vector:                  obj.Vector,
 				Vectors:                 vectors,
+				MultiVectors:            multiVectors,
 				StaleUpdateTime:         remoteStaleUpdateTime[obj.ID().String()],
 			}
 
