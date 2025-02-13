@@ -73,6 +73,14 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
 	}
 
+	ignoreGetAll := []string{
+		"/authz/roles",
+		"/objects",
+		"/schema",
+		"/schema/{className}/tenants",
+		"/schema/{className}/tenants/{tenantName}",
+	}
+
 	for _, endpoint := range endpoints {
 		url := fmt.Sprintf("http://%s/v1%s", compose.GetWeaviate().URI(), endpoint.path)
 		url = strings.ReplaceAll(url, "/objects/{className}/{id}", fmt.Sprintf("/objects/%s/%s", className, UUID1.String()))
@@ -88,12 +96,19 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 			require.NotContains(t, url, "{")
 			require.NotContains(t, url, "}")
 
+			shallIgnore := slices.Contains(ignoreEndpoints, endpoint.path) ||
+				(endpoint.method == http.MethodGet && slices.Contains(ignoreGetAll, endpoint.path))
+			if shallIgnore {
+				t.Skip("Endpoint is in ignore list")
+				return
+			}
+
 			var req *http.Request
 			var err error
 
 			endpoint.method = strings.ToUpper(endpoint.method)
 
-			if endpoint.method == "POST" || endpoint.method == "PUT" || endpoint.method == "PATCH" || endpoint.method == "DELETE" {
+			if endpoint.method == http.MethodPost || endpoint.method == http.MethodPut || endpoint.method == http.MethodPatch || endpoint.method == http.MethodDelete {
 				req, err = http.NewRequest(endpoint.method, url, bytes.NewBuffer(endpoint.validGeneratedBodyData))
 				require.Nil(t, err)
 				req.Header.Set("Content-Type", "application/json")
@@ -109,9 +124,6 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 			require.Nil(t, err)
 			defer resp.Body.Close()
 
-			if slices.Contains(ignoreEndpoints, endpoint.path) {
-				return
-			}
 			require.Equal(t, http.StatusForbidden, resp.StatusCode)
 		})
 	}

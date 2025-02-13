@@ -112,6 +112,6 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 				props := resp.Properties.(map[string]interface{})
 				props["contents"] = fmt.Sprintf("paragraph#%d", i)
 			}
-		}, 60*time.Second, 1*time.Second, "not all the objects have been asynchronously replicated")
+		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }

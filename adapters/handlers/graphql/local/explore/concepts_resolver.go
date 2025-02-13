@@ -17,6 +17,7 @@ import (
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"

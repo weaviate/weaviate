@@ -392,6 +392,12 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		}
 
 		if currUpdateTime != u.StaleUpdateTime {
+
+			if currUpdateTime == u.LastUpdateTimeUnixMilli {
+				// local object was updated in the mean time, no need to do anything
+				continue
+			}
+
 			// a conflict is returned except for a particular situation
 			// that can be locally solved at this point:
 			// the node propagating the object change may have no information about

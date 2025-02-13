@@ -17,6 +17,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -25,26 +26,29 @@ import (
 )
 
 func TestGetRolesSuccess(t *testing.T) {
-	returnedPolices := map[string][]authorization.Policy{
-		"testRole": {}, "root": {},
-	}
-
 	type testCase struct {
-		name          string
-		principal     *models.Principal
-		expectedRoles int
+		name            string
+		principal       *models.Principal
+		authorizedRoles []string
+		expectedRoles   map[string][]authorization.Policy
 	}
 
 	tests := []testCase{
 		{
-			name:          "success non root user",
-			principal:     &models.Principal{Username: "user1"},
-			expectedRoles: 1,
+			name:            "success non root user",
+			principal:       &models.Principal{Username: "user1"},
+			authorizedRoles: []string{"testRole"},
+			expectedRoles: map[string][]authorization.Policy{
+				"testRole": {},
+			},
 		},
 		{
-			name:          "success as root user",
-			principal:     &models.Principal{Username: "root"},
-			expectedRoles: 2,
+			name:            "success as root user",
+			principal:       &models.Principal{Username: "root"},
+			authorizedRoles: []string{"testRole", "root"},
+			expectedRoles: map[string][]authorization.Policy{
+				"testRole": {}, "root": {},
+			},
 		},
 	}
 
@@ -53,9 +57,8 @@ func TestGetRolesSuccess(t *testing.T) {
 			authorizer := mocks.NewAuthorizer(t)
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
-
-			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			controller.On("GetRoles").Return(returnedPolices, nil)
+			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			controller.On("GetRoles").Return(tt.expectedRoles, nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -66,7 +69,7 @@ func TestGetRolesSuccess(t *testing.T) {
 			res := h.getRoles(authz.GetRolesParams{}, tt.principal)
 			parsed, ok := res.(*authz.GetRolesOK)
 			assert.True(t, ok)
-			assert.Len(t, parsed.Payload, tt.expectedRoles)
+			assert.Len(t, parsed.Payload, len(tt.expectedRoles))
 		})
 	}
 }
