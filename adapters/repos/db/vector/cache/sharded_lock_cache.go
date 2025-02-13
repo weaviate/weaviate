@@ -553,7 +553,7 @@ func (s *shardedMultipleLockCache[T]) Get(ctx context.Context, id uint64) ([]T, 
 
 	if len(docVecs) <= int(relativeID) || docVecs[relativeID] == nil || len(docVecs[relativeID]) == 0 {
 		s.shardedLocks.RUnlock(docID)
-		return s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
+		return s.handleMultipleCacheMiss(ctx, docID, relativeID)
 	}
 
 	s.shardedLocks.RUnlock(docID)
@@ -572,7 +572,7 @@ func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64
 		var vec []T
 		if len(docVecs) <= int(relativeID) || docVecs[relativeID] == nil || len(docVecs[relativeID]) == 0 {
 			s.shardedLocks.RUnlock(docID)
-			vecFromDisk, err := s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
+			vecFromDisk, err := s.handleMultipleCacheMiss(ctx, docID, relativeID)
 			errs[i] = err
 			vec = vecFromDisk
 		} else {
@@ -587,12 +587,13 @@ func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64
 }
 
 func (s *shardedMultipleLockCache[T]) Delete(ctx context.Context, id uint64) {
-	docID, relativeID := s.GetKeys(id)
-	s.shardedLocks.RLock(docID)
-	defer s.shardedLocks.RUnlock(docID)
 	if int(id) >= len(s.vectorDocID) {
 		return
 	}
+
+	docID, relativeID := s.GetKeys(id)
+	s.shardedLocks.RLock(docID)
+	defer s.shardedLocks.RUnlock(docID)
 
 	if s.cache[docID][relativeID] == nil {
 		return
@@ -602,7 +603,7 @@ func (s *shardedMultipleLockCache[T]) Delete(ctx context.Context, id uint64) {
 	atomic.AddInt64(&s.count, -1)
 }
 
-func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Context, id uint64, docID uint64, relativeID uint64) ([]T, error) {
+func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Context, docID uint64, relativeID uint64) ([]T, error) {
 	if s.allocChecker != nil {
 		// we don't really know the exact size here, but we don't have to be
 		// accurate. If mem pressure is this high, we basically want to prevent any
