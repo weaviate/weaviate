@@ -135,10 +135,6 @@ type PrometheusMetrics struct {
 	T2VTokensInRequest    *prometheus.HistogramVec
 	T2VRateLimitStats     *prometheus.GaugeVec
 	T2VRequestsPerBatch   *prometheus.HistogramVec
-
-	FullReplicaSearchStart *prometheus.GaugeVec
-	FullReplicaSearchSend  *prometheus.GaugeVec
-	FullReplicaSearchRecv  *prometheus.GaugeVec
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
