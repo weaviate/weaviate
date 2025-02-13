@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/go-openapi/runtime"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 
@@ -71,6 +70,14 @@ func GetClass(t *testing.T, class string) *models.Class {
 	resp, err := Client(t).Schema.SchemaObjectsGet(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
+}
+
+func GetSchemaAuth(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) []*models.Class {
+	t.Helper()
+	params := schema.NewSchemaDumpParams()
+	resp, err := Client(t).Schema.SchemaDump(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+	return resp.Payload.Classes
 }
 
 func GetClassWithoutAssert(t *testing.T, class string) (*models.Class, error) {
@@ -365,6 +372,13 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	t.Helper()
 	params := schema.NewTenantsGetParams().WithClassName(class)
 	resp, err := Client(t).Schema.TenantsGet(params, nil)
+	return resp, err
+}
+
+func GetTenantsWithAuthz(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) (*schema.TenantsGetOK, error) {
+	t.Helper()
+	params := schema.NewTenantsGetParams().WithClassName(class)
+	resp, err := Client(t).Schema.TenantsGet(params, authInfo)
 	return resp, err
 }
 

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -281,17 +282,12 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 }
 
 func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizeRoleScopes(principal, authorization.READ, nil, ""); err != nil {
-		return authz.NewGetRolesForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	}
-
 	roles, err := h.controller.GetRoles()
 	if err != nil {
 		return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	var response []*models.Role
-
 	for roleName, policies := range roles {
 		if roleName == authorization.Root && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
 			continue
@@ -306,7 +302,32 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 			Permissions: perms,
 		})
 	}
-	sortByName(response)
+
+	// Filter roles based on authorization
+	resourceFilter := filter.New[*models.Role](h.authorizer, config.Config{Authorization: config.Authorization{Rbac: h.rbacconfig}})
+	filteredRoles := resourceFilter.Filter(
+		h.logger,
+		principal,
+		response,
+		authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL),
+		func(role *models.Role) string {
+			return authorization.Roles(*role.Name)[0]
+		},
+	)
+	if len(filteredRoles) == 0 {
+		// try match if all was none
+		filteredRoles = resourceFilter.Filter(
+			h.logger,
+			principal,
+			response,
+			authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH),
+			func(role *models.Role) string {
+				return authorization.Roles(*role.Name)[0]
+			},
+		)
+	}
+
+	sortByName(filteredRoles)
 
 	h.logger.WithFields(logrus.Fields{
 		"action":    "read_all_roles",
@@ -314,7 +335,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 		"user":      principal.Username,
 	}).Info("roles requested")
 
-	return authz.NewGetRolesOK().WithPayload(response)
+	return authz.NewGetRolesOK().WithPayload(filteredRoles)
 }
 
 func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
