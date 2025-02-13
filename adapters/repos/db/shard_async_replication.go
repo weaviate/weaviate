@@ -44,7 +44,7 @@ const (
 	defaultHashtreeHeight              = 16
 	defaultFrequency                   = 30 * time.Second
 	defaultFrequencyWhilePropagating   = 10 * time.Millisecond
-	defaultAliveNodesCheckingFrequency = 1 * time.Second
+	defaultAliveNodesCheckingFrequency = 5 * time.Second
 	defaultLoggingFrequency            = 5 * time.Second
 	defaultDiffBatchSize               = 1_000
 	defaultDiffPerNodeTimeout          = 10 * time.Second
@@ -304,7 +304,7 @@ func (s *Shard) initAsyncReplication() error {
 				return ctx.Err()
 			}
 
-			if time.Since(prevProgressLogging) > time.Second {
+			if time.Since(prevProgressLogging) >= config.loggingFrequency {
 				s.index.logger.
 					WithField("action", "async_replication").
 					WithField("class_name", s.class.Class).

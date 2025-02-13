@@ -139,6 +139,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "RLock", "RUnlock", "Lock", "Unlock",
 				"TryLock", "RLocker", "TryRLock", "CopyShardingState", "TxManager", "RestoreClass",
 				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas",
+				"GetCachedClassNoAuth",
 				// internal methods to indicate readiness state
 				"StartServing", "Shutdown", "Statistics",
 				// Cluster/nodes related endpoint
