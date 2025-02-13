@@ -57,7 +57,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	updates.Class = className
 
 	ctx = classcache.ContextWithClassCache(ctx)
-	fetchedClass, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+
+	// we don't reveal any info that the end users cannot get through the structure of the data anyway
+	fetchedClass, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
 	if err != nil {
 		if errors.As(err, &authzerrs.Forbidden{}) {
 			return &Error{err.Error(), StatusForbidden, err}
