@@ -576,11 +576,11 @@ func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64
 			errs[i] = err
 			vec = vecFromDisk
 		} else {
+			s.shardedLocks.RUnlock(docID)
 			vec = docVecs[relativeID]
 		}
 
 		out[i] = vec
-		s.shardedLocks.RUnlock(docID)
 	}
 
 	return out, errs
