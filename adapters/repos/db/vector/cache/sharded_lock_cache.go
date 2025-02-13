@@ -569,19 +569,19 @@ func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64
 	errs := make([]error, len(ids))
 
 	for i, id := range ids {
+		var vec []T
+
 		docID, relativeID := s.GetKeys(id)
+
 		s.shardedLocks.RLock(docID)
 		docVecs := s.cache[docID]
-
-		var vec []T
-		if len(docVecs) <= int(relativeID) || docVecs[relativeID] == nil || len(docVecs[relativeID]) == 0 {
-			s.shardedLocks.RUnlock(docID)
-			vecFromDisk, err := s.handleMultipleCacheMiss(ctx, docID, relativeID)
-			errs[i] = err
-			vec = vecFromDisk
-		} else {
+		if int(relativeID) < len(docVecs) {
 			vec = docVecs[relativeID]
-			s.shardedLocks.RUnlock(docID)
+		}
+		s.shardedLocks.RUnlock(docID)
+
+		if len(vec) == 0 {
+			vec, errs[i] = s.handleMultipleCacheMiss(ctx, docID, relativeID)
 		}
 
 		out[i] = vec
