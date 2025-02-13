@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/versioned"
+
 	"github.com/weaviate/weaviate/entities/classcache"
 
 	"github.com/go-openapi/strfmt"
@@ -123,18 +125,20 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant, maxSchemaVersion)
+	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant, fetchedClass)
 }
 
 // patchObject patches an existing object obj with updates
 func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 	prevObj, updates *models.Object, repl *additional.ReplicationProperties,
-	propertiesToDelete []string, tenant string, schemaVersion uint64,
+	propertiesToDelete []string, tenant string, fetchedClass map[string]versioned.Class,
 ) *Error {
 	cls, id := updates.Class, updates.ID
+	schemaVersion := fetchedClass[cls].Version
+	class := fetchedClass[cls].Class
 	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
-	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, cls, prevObj.Properties,
-		primitive, principal, prevObj.Vector, updates.Vector, prevObj.Vectors, updates.Vectors, updates.ID)
+	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, prevObj.Properties,
+		primitive, prevObj.Vector, updates.Vector, prevObj.Vectors, updates.Vectors, updates.ID, class)
 	if err != nil {
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
@@ -186,18 +190,10 @@ func (m *Manager) validateInputs(updates *models.Object) error {
 	return nil
 }
 
-func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className string,
-	prevPropsSch models.PropertySchema, nextProps map[string]interface{},
-	principal *models.Principal, prevVec, nextVec []float32,
-	prevVecs models.Vectors, nextVecs models.Vectors, id strfmt.UUID,
+func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, prevPropsSch models.PropertySchema,
+	nextProps map[string]interface{}, prevVec, nextVec []float32, prevVecs models.Vectors, nextVecs models.Vectors,
+	id strfmt.UUID, class *models.Class,
 ) (*models.Object, error) {
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
-	if err != nil {
-		return nil, err
-	}
-	vclass := vclasses[className]
-	class := vclass.Class
-
 	var mergedProps map[string]interface{}
 
 	vector := nextVec
@@ -221,7 +217,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 
 	// Note: vector could be a nil vector in case a vectorizer is configured,
 	// then the vectorizer will set it
-	obj := &models.Object{Class: className, Properties: mergedProps, Vector: vector, Vectors: vectors, ID: id}
+	obj := &models.Object{Class: class.Class, Properties: mergedProps, Vector: vector, Vectors: vectors, ID: id}
 	if err := m.modulesProvider.UpdateVector(ctx, obj, class, m.findObject, m.logger); err != nil {
 		return nil, err
 	}
