@@ -22,14 +22,15 @@ func (s *segment) newRoaringSetCursor() *roaringset.SegmentCursor {
 }
 
 func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()) {
-	sg.maintenanceLock.RLock()
-	out := make([]roaringset.InnerCursor, len(sg.segments))
+	segments, release := sg.getAndLockSegments()
 
-	for i, segment := range sg.segments {
+	out := make([]roaringset.InnerCursor, len(segments))
+
+	for i, segment := range segments {
 		out[i] = segment.newRoaringSetCursor()
 	}
 
-	return out, sg.maintenanceLock.RUnlock
+	return out, release
 }
 
 // diskIndex returns node's Start and End offsets
