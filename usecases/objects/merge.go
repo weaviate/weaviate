@@ -98,13 +98,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"not found", StatusNotFound, err}
 	}
 
-	maxSchemaVersion := fetchedClass[className].Version
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
+	maxSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
 	if err != nil {
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
-	}
-	if schemaVersion > maxSchemaVersion {
-		maxSchemaVersion = schemaVersion
 	}
 
 	var propertiesToDelete []string
@@ -125,16 +121,14 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant, fetchedClass)
+	return m.patchObject(ctx, prevObj, updates, repl, propertiesToDelete, updates.Tenant, fetchedClass, maxSchemaVersion)
 }
 
 // patchObject patches an existing object obj with updates
-func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
-	prevObj, updates *models.Object, repl *additional.ReplicationProperties,
-	propertiesToDelete []string, tenant string, fetchedClass map[string]versioned.Class,
+func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Object, repl *additional.ReplicationProperties,
+	propertiesToDelete []string, tenant string, fetchedClass map[string]versioned.Class, maxSchemaVersion uint64,
 ) *Error {
 	cls, id := updates.Class, updates.ID
-	schemaVersion := fetchedClass[cls].Version
 	class := fetchedClass[cls].Class
 	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
 	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, prevObj.Properties,
@@ -158,15 +152,15 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
-	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
 		return &Error{
-			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", schemaVersion),
+			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", maxSchemaVersion),
 			Code: StatusInternalServerError,
 			Err:  err,
 		}
 	}
 
-	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant, schemaVersion); err != nil {
+	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant, maxSchemaVersion); err != nil {
 		if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
 			m.logger.WithError(err).Debugf("object %s/%s not found, possibly due to replication consistency races", cls, id)
 			return &Error{"not found", StatusNotFound, err}
