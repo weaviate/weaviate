@@ -575,7 +575,19 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	slices.Sort(users)
+	filteredUsers := make([]string, 0, len(users))
+	for _, userName := range users {
+		if userName == principal.Username {
+			// own username
+			filteredUsers = append(filteredUsers, userName)
+			continue
+		}
+		if err := h.authorizer.AuthorizeSilent(principal, authorization.READ, authorization.Users(userName)...); err == nil {
+			filteredUsers = append(filteredUsers, userName)
+		}
+	}
+
+	slices.Sort(filteredUsers)
 
 	h.logger.WithFields(logrus.Fields{
 		"action":                "get_users_for_role",
@@ -584,7 +596,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		"role_to_get_users_for": params.ID,
 	}).Info("users requested")
 
-	return authz.NewGetUsersForRoleOK().WithPayload(users)
+	return authz.NewGetUsersForRoleOK().WithPayload(filteredUsers)
 }
 
 func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams, principal *models.Principal) middleware.Responder {
