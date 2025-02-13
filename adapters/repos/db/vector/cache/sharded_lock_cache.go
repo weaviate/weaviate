@@ -547,10 +547,10 @@ func (s *shardedMultipleLockCache[T]) GetKeysNoLock(id uint64) (uint64, uint64) 
 }
 
 func (s *shardedMultipleLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
-	s.shardedLocks.RLock(id)
-	docID, relativeID := s.GetKeysNoLock(id)
+	docID, relativeID := s.GetKeys(id)
+	s.shardedLocks.RLock(docID)
 	docVecs := s.cache[docID]
-	s.shardedLocks.RUnlock(id)
+	s.shardedLocks.RUnlock(docID)
 
 	if len(docVecs) <= int(relativeID) || docVecs[relativeID] == nil || len(docVecs[relativeID]) == 0 {
 		return s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
@@ -564,10 +564,10 @@ func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64
 	errs := make([]error, len(ids))
 
 	for i, id := range ids {
-		s.shardedLocks.RLock(id)
-		docID, relativeID := s.GetKeysNoLock(id)
+		docID, relativeID := s.GetKeys(id)
+		s.shardedLocks.RLock(docID)
 		docVecs := s.cache[docID]
-		s.shardedLocks.RUnlock(id)
+		s.shardedLocks.RUnlock(docID)
 
 		var vec []T
 		if len(docVecs) <= int(relativeID) || docVecs[relativeID] == nil || len(docVecs[relativeID]) == 0 {
@@ -585,14 +585,12 @@ func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64
 }
 
 func (s *shardedMultipleLockCache[T]) Delete(ctx context.Context, id uint64) {
-	s.shardedLocks.Lock(id)
-	defer s.shardedLocks.Unlock(id)
-
+	docID, relativeID := s.GetKeys(id)
+	s.shardedLocks.RLock(docID)
+	defer s.shardedLocks.RUnlock(docID)
 	if int(id) >= len(s.vectorDocID) {
 		return
 	}
-
-	docID, relativeID := s.GetKeysNoLock(id)
 
 	if s.cache[docID][relativeID] == nil {
 		return
@@ -630,14 +628,14 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 	}
 
 	atomic.AddInt64(&s.count, 1)
-	s.shardedLocks.Lock(id)
+	s.shardedLocks.Lock(docID)
 	if len(s.cache[docID]) <= int(relativeID) {
 		newCacheLine := make([][]T, relativeID+MinimumIndexGrowthDelta)
 		copy(newCacheLine, s.cache[docID])
 		s.cache[docID] = newCacheLine
 	}
 	s.cache[docID][relativeID] = vec
-	s.shardedLocks.Unlock(id)
+	s.shardedLocks.Unlock(docID)
 
 	return vec, nil
 }
