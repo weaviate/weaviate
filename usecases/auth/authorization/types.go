@@ -123,6 +123,7 @@ var (
 
 		// Users domain
 		AssignAndRevokeUsers,
+		ReadUsers,
 
 		// Cluster domain
 		ReadCluster,

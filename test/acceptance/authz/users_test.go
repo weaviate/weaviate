@@ -252,15 +252,15 @@ func TestReadUserPermissions(t *testing.T) {
 	helper.AssignRoleToUser(t, adminKey, otherRoleName, secondUser)
 
 	t.Run("admin can return roles", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, adminKey, secondUser)
+		roles := helper.GetRolesForUser(t, secondUser, adminKey)
 		require.NotNil(t, roles)
-		require.Len(t, roles, 0)
+		require.Len(t, roles, 1)
 	})
 
 	t.Run("user can return roles for themselves", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, secondKey, secondUser)
+		roles := helper.GetRolesForUser(t, secondUser, secondKey)
 		require.NotNil(t, roles)
-		require.Len(t, roles, 0)
+		require.Len(t, roles, 1)
 	})
 
 	t.Run("user cannot return roles for other user", func(t *testing.T) {
