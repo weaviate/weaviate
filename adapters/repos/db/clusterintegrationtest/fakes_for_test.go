@@ -457,3 +457,7 @@ func (f *fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) e
 func (f *fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
+
+func (f *fakeAuthorizer) FilterAuthorizedResources(_ *models.Principal, _ string, resources ...string) ([]string, error) {
+	return resources, nil
+}

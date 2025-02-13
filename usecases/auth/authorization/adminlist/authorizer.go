@@ -73,6 +73,14 @@ func (a *Authorizer) AuthorizeSilent(principal *models.Principal, verb string, r
 	return a.Authorize(principal, verb, resources...)
 }
 
+func (a *Authorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	if err := a.Authorize(principal, verb, resources...); err != nil {
+		return nil, err
+	}
+
+	return resources, nil
+}
+
 func (a *Authorizer) addAdminUserList(users []string) {
 	// build a map for more efficient lookup on long lists
 	if a.adminUsers == nil {

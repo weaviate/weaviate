@@ -50,6 +50,10 @@ func (a *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, verb strin
 	return nil
 }
 
+func (a *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	return resources, nil
+}
+
 func getFakeAuthorizer() authorization.Authorizer {
 	return &fakeAuthorizer{}
 }
