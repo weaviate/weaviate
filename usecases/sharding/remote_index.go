@@ -474,8 +474,8 @@ func (ri *RemoteIndex) queryAllReplicas(
 		if len(resp) == 0 {
 			return nil, errList
 		}
-		if len(resp) != len(replicas)-1 {
-			log.Warnf("full replicas search has less results than the count of replicas: have=%d want=%d", len(resp), len(replicas)-1)
+		if len(resp) != len(replicas)-1  && len(resp) != len(replicas) {
+			log.Warnf("full replicas search response does not match replica count: response=%d replicas=%d", len(resp), len(replicas))
 		}
 		return resp, nil
 	}
