@@ -352,6 +352,14 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	id := "segmentgroup/compaction/" + sg.dir
 	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
+	// if a segment exists of the map collection strategy, we need to
+	// convert the inverted strategy to a map collection strategy
+	// as it is done on the bucket level
+	if sg.strategy == StrategyInverted && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+		sg.strategy = StrategyMapCollection
+	}
+
 	if sg.strategy == StrategyInverted {
 		// start at  len(sg.segments) - 2 as the last segment doesn't need any tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
