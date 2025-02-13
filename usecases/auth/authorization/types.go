@@ -92,6 +92,7 @@ var (
 	ReadNodes   = "read_nodes"
 
 	AssignAndRevokeUsers = "assign_and_revoke_users"
+	ReadUsers            = "read_users"
 
 	ManageBackups = "manage_backups"
 

@@ -506,6 +506,14 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 }
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
+	ownUser := params.ID == principal.Username
+
+	if !ownUser {
+		if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.ID)...); err != nil {
+			return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+	}
+
 	if !h.userExists(params.ID) {
 		return authz.NewGetRolesForUserNotFound()
 	}
@@ -524,7 +532,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 
-		if params.ID != principal.Username {
+		if !ownUser {
 			if err := h.authorizeRoleScopes(principal, authorization.READ, nil, roleName); err != nil {
 				authErr = err
 				continue

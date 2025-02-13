@@ -197,3 +197,101 @@ func TestUserPermissions(t *testing.T) {
 		helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
 	})
 }
+
+func TestReadUserPermissions(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	secondUser := "viewer-user"
+	secondKey := "viewer-key"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey, secondUser: secondKey}, nil)
+	defer down()
+
+	// create roles for later
+	readUserAction := authorization.ReadUsers
+	readRolesAction := authorization.ReadRoles
+
+	all := "*"
+	roleNameReadUsers := "userRead"
+	otherRoleName := "otherName"
+	roleNameReadRoles := "rolesRead"
+
+	userReadRole := &models.Role{
+		Name: &roleNameReadUsers,
+		Permissions: []*models.Permission{{
+			Action: &readUserAction,
+			Users:  &models.PermissionUsers{Users: &secondUser},
+		}},
+	}
+	roleReadRole := &models.Role{
+		Name: &roleNameReadRoles,
+		Permissions: []*models.Permission{{
+			Action: &readRolesAction,
+			Roles:  &models.PermissionRoles{Role: &all, Scope: String(models.PermissionRolesScopeAll)},
+		}},
+	}
+
+	otherRole := &models.Role{
+		Name: &otherRoleName,
+		Permissions: []*models.Permission{{
+			Action: &readUserAction,
+			Users:  &models.PermissionUsers{Users: &all},
+		}},
+	}
+
+	helper.DeleteRole(t, adminKey, roleNameReadUsers)
+	helper.CreateRole(t, adminKey, userReadRole)
+	helper.DeleteRole(t, adminKey, roleNameReadRoles)
+	helper.CreateRole(t, adminKey, roleReadRole)
+	helper.DeleteRole(t, adminKey, otherRoleName)
+	helper.CreateRole(t, adminKey, otherRole)
+	helper.AssignRoleToUser(t, adminKey, otherRoleName, secondUser)
+
+	t.Run("admin can return roles", func(t *testing.T) {
+		roles := helper.GetRolesForUser(t, adminKey, secondUser)
+		require.NotNil(t, roles)
+		require.Len(t, roles, 0)
+	})
+
+	t.Run("user can return roles for themselves", func(t *testing.T) {
+		roles := helper.GetRolesForUser(t, secondKey, secondUser)
+		require.NotNil(t, roles)
+		require.Len(t, roles, 0)
+	})
+
+	t.Run("user cannot return roles for other user", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(secondUser), helper.CreateAuth(customKey))
+		require.Error(t, err)
+		var errType *authz.GetRolesForUserForbidden
+		require.True(t, errors.As(err, &errType))
+	})
+
+	t.Run("add permission", func(t *testing.T) {
+		helper.AssignRoleToUser(t, adminKey, roleNameReadUsers, customUser)
+		helper.AssignRoleToUser(t, adminKey, roleNameReadRoles, customUser)
+		roles := helper.GetRolesForUser(t, secondUser, customKey)
+		require.NotNil(t, roles)
+		require.Len(t, roles, 1)
+
+		helper.RevokeRoleFromUser(t, adminKey, roleNameReadUsers, customUser)
+		helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
+	})
+
+	t.Run("check returns", func(t *testing.T) {
+		helper.RevokeRoleFromUser(t, adminKey, roleNameReadUsers, customUser)
+		helper.AssignRoleToUser(t, adminKey, roleNameReadUsers, customUser)
+		roles := helper.GetRolesForUser(t, customUser, customKey)
+		require.NotNil(t, roles)
+		require.Len(t, roles, 1)
+		require.Len(t, roles[0].Permissions, 1)
+
+		require.Equal(t, secondUser, *roles[0].Permissions[0].Users.Users)
+		require.Equal(t, readUserAction, *roles[0].Permissions[0].Action)
+
+		helper.RevokeRoleFromUser(t, adminKey, roleNameReadUsers, customUser)
+	})
+}
