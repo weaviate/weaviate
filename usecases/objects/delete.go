@@ -60,7 +60,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return m.deleteObjectFromRepo(ctx, id, time.UnixMilli(m.timeSource.Now()))
 	}
 
-	// we don't reveal any info that the end users and only use the version in this endpoint
+	// we only use the schemaVersion in this endpoint
 	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
 	if err != nil {
 		return fmt.Errorf("could not get class %s: %w", className, err)
