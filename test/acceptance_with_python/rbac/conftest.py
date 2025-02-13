@@ -63,7 +63,7 @@ def role_wrapper() -> RoleWrapperProtocol:
         yield
 
         if not isinstance(permissions, list) or len(permissions) > 0:
-            admin_client.roles.revoke_roles(user_id=user, role_names=name)
+            admin_client.users.revoke_roles(user_id=user, role_names=name)
             admin_client.roles.delete(name)
 
     return contextmanager(wrapper)
