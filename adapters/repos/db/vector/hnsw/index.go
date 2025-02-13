@@ -700,7 +700,15 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 	return exists && !h.hasTombstone(docID)
 }
 
-func (h *hnsw) Iterate(fn func(id uint64) bool) {
+func (h *hnsw) Iterate(fn func(docID uint64) bool) {
+	if h.Multivector() {
+		h.iterateMulti(fn)
+		return
+	}
+	h.iterate(fn)
+}
+
+func (h *hnsw) iterate(fn func(docID uint64) bool) {
 	var id uint64
 
 	for {
@@ -729,6 +737,31 @@ func (h *hnsw) Iterate(fn func(id uint64) bool) {
 		}
 
 		id++
+	}
+}
+
+func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
+	h.RLock()
+	indexedDocIDs := make([]uint64, 0, len(h.docIDVectors))
+	for docID := range h.docIDVectors {
+		indexedDocIDs = append(indexedDocIDs, docID)
+	}
+	h.RUnlock()
+
+	for _, docID := range indexedDocIDs {
+		if h.shutdownCtx.Err() != nil || h.resetCtx.Err() != nil {
+			return
+		}
+
+		h.RLock()
+		nodes, ok := h.docIDVectors[docID]
+		h.RUnlock()
+
+		if ok && !h.hasTombstones(nodes) {
+			if !fn(docID) {
+				return
+			}
+		}
 	}
 }
 
