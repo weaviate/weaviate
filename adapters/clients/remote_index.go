@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -35,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/scaler"
@@ -48,7 +50,7 @@ func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
 	return &RemoteIndex{retryClient: retryClient{
 		client:  httpClient,
 		retryer: newRetryer(),
-	}}
+	},}
 }
 
 func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
@@ -410,6 +412,8 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	targetCombination *dto.TargetCombination,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	monitoring.GetMetrics().FullReplicaSearchSend.WithLabelValues(shard, index, host).Inc()
+	log.Printf("SearchShard: sending remote search shard %s index %s host %s keywordranking %v, vector %v", shard, index, host, keywordRanking, vector)
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
 		Marshal(vector, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)

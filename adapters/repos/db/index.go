@@ -191,6 +191,7 @@ type Index struct {
 	dropIndex sync.RWMutex
 
 	metrics          *Metrics
+	otherMetrics    *monitoring.PrometheusMetrics
 	centralJobQueue  chan job
 	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
@@ -1646,6 +1647,8 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 	}
 
 	if i.Config.ForceFullReplicasSearch {
+		i.logger.Errorf("remoteShardSearch: ForceFullReplicasSearch searching class %s shard %s for %v", i.getClass().Class, shardName, searchVectors)
+		i.otherMetrics.FullReplicaSearchStart.WithLabelValues(i.getClass().Class, shardName).Inc()
 		// Force a search on all the replicas for the shard
 		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
 			i.logger, shardName, searchVectors, targetVectors, limit, localFilters,
@@ -1816,6 +1819,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	i.logger.Errorf("IncomingSearch: searching  %s for %v", i.getClass().Class, keywordRanking)
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
