@@ -23,7 +23,6 @@ def test_obj_insert(
 
     required_permissions = [
         Permissions.data(collection=col.name, create=True),
-        Permissions.collections(collection=col.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -69,7 +68,6 @@ def test_obj_insert_ref(
 
     required_permissions = [
         Permissions.data(collection=source.name, create=True),
-        Permissions.collections(collection=source.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -110,7 +108,6 @@ def test_obj_replace(
 
     required_permissions = [
         Permissions.data(collection=col.name, update=True),
-        Permissions.collections(collection=col.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -159,7 +156,6 @@ def test_obj_replace_ref(
 
     required_permissions = [
         Permissions.data(collection=source.name, update=True),
-        Permissions.collections(collection=source.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -204,7 +200,6 @@ def test_obj_update(
 
     required_permissions = [
         Permissions.data(collection=col.name, update=True),
-        Permissions.collections(collection=col.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -252,7 +247,6 @@ def test_obj_update_ref(
 
     required_permissions = [
         Permissions.data(collection=source.name, update=True),
-        Permissions.collections(collection=source.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -297,7 +291,6 @@ def test_obj_delete(
 
     required_permissions = [
         Permissions.data(collection=col.name, delete=True),
-        Permissions.collections(collection=col.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check

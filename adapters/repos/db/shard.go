@@ -258,7 +258,7 @@ func (s *Shard) pathLSM() string {
 }
 
 func (s *Shard) pathHashTree() string {
-	return path.Join(s.path(), "hashtree")
+	return path.Join(s.path(), "hashtree_uuid")
 }
 
 func (s *Shard) vectorIndexID(targetVector string) string {
