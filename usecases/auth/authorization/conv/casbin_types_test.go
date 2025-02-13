@@ -81,6 +81,7 @@ var (
 	}
 	userTests = []innerTest{
 		{permissionAction: authorization.AssignAndRevokeUsers, testDescription: manageDesc, policyVerb: updateVerb},
+		{permissionAction: authorization.ReadUsers, testDescription: readDesc, policyVerb: readVerb},
 	}
 )
 

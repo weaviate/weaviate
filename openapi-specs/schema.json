@@ -188,6 +188,7 @@
             "delete_collections",
 
             "assign_and_revoke_users",
+            "read_users",
 
             "create_tenants",
             "read_tenants",
