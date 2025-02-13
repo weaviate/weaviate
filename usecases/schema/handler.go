@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -26,6 +27,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -170,32 +172,35 @@ func NewHandler(
 }
 
 // GetSchema retrieves a locally cached copy of the schema
-func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
-	if err != nil {
-		return schema.Schema{}, err
-	}
-
-	return h.getSchema(), nil
-}
-
-// GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
-		return schema.Schema{}, err
-	}
-
+	var fullSchema schema.Schema
 	if !consistency {
-		return h.getSchema(), nil
+		fullSchema = h.getSchema()
+	} else {
+		consistentSchema, err := h.schemaManager.QuerySchema()
+		if err != nil {
+			return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
+		}
+		fullSchema = schema.Schema{
+			Objects: &consistentSchema,
+		}
 	}
 
-	if consistentSchema, err := h.schemaManager.QuerySchema(); err != nil {
-		return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
-	} else {
-		return schema.Schema{
-			Objects: &consistentSchema,
-		}, nil
-	}
+	filteredClasses := filter.New[*models.Class](h.Authorizer, h.config).Filter(
+		h.logger,
+		principal,
+		fullSchema.Objects.Classes,
+		authorization.READ,
+		func(class *models.Class) string {
+			return authorization.CollectionsMetadata(class.Class)[0]
+		},
+	)
+
+	return schema.Schema{
+		Objects: &models.Schema{
+			Classes: filteredClasses,
+		},
+	}, nil
 }
 
 // GetSchemaSkipAuth can never be used as a response to a user request as it

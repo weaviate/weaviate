@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 )
 
 // GetObject Class from the connected DB
@@ -63,11 +64,6 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
-	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", tenant, ""))
-	if err != nil {
-		return nil, err
-	}
-
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return nil, NewErrInternal("could not acquire lock: %v", err)
@@ -76,17 +72,30 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
-	return m.getObjectsFromRepo(ctx, offset, limit, sort, order, after, addl, tenant)
+
+	objects, err := m.getObjectsFromRepo(ctx, offset, limit, sort, order, after, addl, tenant)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter objects based on authorization
+	resourceFilter := filter.New[*models.Object](m.authorizer, m.config.Config)
+	filteredObjects := resourceFilter.Filter(
+		m.logger,
+		principal,
+		objects,
+		authorization.READ,
+		func(obj *models.Object) string {
+			return authorization.Objects(obj.Class, tenant, obj.ID)
+		},
+	)
+
+	return filteredObjects, nil
 }
 
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID,
 ) (*models.Class, error) {
-	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", "", id))
-	if err != nil {
-		return nil, err
-	}
-
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return nil, NewErrInternal("could not acquire lock: %v", err)

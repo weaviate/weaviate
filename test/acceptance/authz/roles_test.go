@@ -915,3 +915,80 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 		)
 	})
 }
+
+func TestAuthzRoleFilteredTenantPermissions(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	adminAuth := helper.CreateAuth(adminKey)
+
+	limitedUser := "custom-user"
+	limitedKey := "custom-key"
+	limitedAuth := helper.CreateAuth(limitedKey)
+
+	filteredRole := "filtered-role"
+	className := "FilteredTenantTestClass"
+	className2 := "FilteredTenantTestClass2"
+	allowedTenant := "tenant1"
+	restrictedTenant := "tenant2"
+
+	_, down := composeUp(t,
+		map[string]string{adminUser: adminKey},
+		map[string]string{limitedUser: limitedKey},
+		nil,
+	)
+	defer down()
+
+	t.Run("setup collection with tenants", func(t *testing.T) {
+		helper.CreateClassAuth(t, &models.Class{
+			Class: className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}, "admin-key")
+		helper.CreateClassAuth(t, &models.Class{
+			Class: className2,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}, "admin-key")
+
+		tenants := []*models.Tenant{
+			{Name: allowedTenant, ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: restrictedTenant, ActivityStatus: models.TenantActivityStatusHOT},
+		}
+		helper.CreateTenantsAuth(t, className, tenants, "admin-key")
+		helper.CreateTenantsAuth(t, className2, tenants, "admin-key")
+	})
+
+	defer func() {
+		helper.DeleteClassWithAuthz(t, className, adminAuth)
+	}()
+
+	t.Run("create filtered role", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &filteredRole,
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.ReadTenants),
+						Tenants: &models.PermissionTenants{
+							Collection: String(className),
+							Tenant:     String(allowedTenant),
+						},
+					},
+				},
+			}),
+			adminAuth,
+		)
+		require.NoError(t, err)
+
+		helper.AssignRoleToUser(t, adminKey, filteredRole, limitedUser)
+	})
+
+	t.Run("verify filtered tenant permissions", func(t *testing.T) {
+		tenants, err := helper.GetTenantsWithAuthz(t, className, limitedAuth)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(tenants.Payload))
+		require.Equal(t, allowedTenant, tenants.Payload[0].Name)
+	})
+}

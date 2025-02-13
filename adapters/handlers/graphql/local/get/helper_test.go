@@ -639,6 +639,10 @@ func (f *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, action str
 	return nil
 }
 
+func (f *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, action string, resources ...string) ([]string, error) {
+	return resources, nil
+}
+
 func getFakeAuthorizer() authorization.Authorizer {
 	return &fakeAuthorizer{}
 }
