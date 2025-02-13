@@ -587,7 +587,6 @@ func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64
 }
 
 func (s *shardedMultipleLockCache[T]) Delete(ctx context.Context, id uint64) {
-
 	if int(id) >= len(s.vectorDocID) {
 		return
 	}
