@@ -883,7 +883,7 @@ func (index *flat) ContainsDoc(id uint64) bool {
 	return true
 }
 
-func (index *flat) Iterate(fn func(id uint64) bool) {
+func (index *flat) Iterate(fn func(docID uint64) bool) {
 	var bucketName string
 
 	// logic modeled after SearchByVector which indicates that the PQ bucket is

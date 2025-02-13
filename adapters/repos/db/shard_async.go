@@ -363,19 +363,19 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 	}
 
 	// remove any indexed vector that is not in the LSM store
-	vectorIndex.Iterate(func(id uint64) bool {
-		if visited.Visited(id) {
+	vectorIndex.Iterate(func(docID uint64) bool {
+		if visited.Visited(docID) {
 			return true
 		}
 
 		deleted++
 		if vectorIndex.Multivector() {
-			if err := vectorIndex.DeleteMulti(id); err != nil {
-				s.index.logger.WithError(err).WithField("id", id).Warn("delete multi-vector from queue")
+			if err := vectorIndex.DeleteMulti(docID); err != nil {
+				s.index.logger.WithError(err).WithField("id", docID).Warn("delete multi-vector from queue")
 			}
 		} else {
-			if err := vectorIndex.Delete(id); err != nil {
-				s.index.logger.WithError(err).WithField("id", id).Warn("delete vector from queue")
+			if err := vectorIndex.Delete(docID); err != nil {
+				s.index.logger.WithError(err).WithField("id", docID).Warn("delete vector from queue")
 			}
 		}
 
