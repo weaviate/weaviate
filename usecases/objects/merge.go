@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/versioned"
+
 	"github.com/weaviate/weaviate/entities/classcache"
 
 	"github.com/go-openapi/strfmt"
@@ -57,7 +59,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	updates.Class = className
 
 	ctx = classcache.ContextWithClassCache(ctx)
-	fetchedClass, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+
+	// we don't reveal any info that the end users cannot get through the structure of the data anyway
+	fetchedClass, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
 	if err != nil {
 		if errors.As(err, &authzerrs.Forbidden{}) {
 			return &Error{err.Error(), StatusForbidden, err}
@@ -94,13 +98,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"not found", StatusNotFound, err}
 	}
 
-	maxSchemaVersion := fetchedClass[className].Version
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
+	maxSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
 	if err != nil {
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
-	}
-	if schemaVersion > maxSchemaVersion {
-		maxSchemaVersion = schemaVersion
 	}
 
 	var propertiesToDelete []string
@@ -121,18 +121,18 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant, maxSchemaVersion)
+	return m.patchObject(ctx, prevObj, updates, repl, propertiesToDelete, updates.Tenant, fetchedClass, maxSchemaVersion)
 }
 
 // patchObject patches an existing object obj with updates
-func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
-	prevObj, updates *models.Object, repl *additional.ReplicationProperties,
-	propertiesToDelete []string, tenant string, schemaVersion uint64,
+func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Object, repl *additional.ReplicationProperties,
+	propertiesToDelete []string, tenant string, fetchedClass map[string]versioned.Class, maxSchemaVersion uint64,
 ) *Error {
 	cls, id := updates.Class, updates.ID
+	class := fetchedClass[cls].Class
 	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
-	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, cls, prevObj.Properties,
-		primitive, principal, prevObj.Vector, updates.Vector, prevObj.Vectors, updates.Vectors, updates.ID)
+	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, prevObj.Properties,
+		primitive, prevObj.Vector, updates.Vector, prevObj.Vectors, updates.Vectors, updates.ID, class)
 	if err != nil {
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
@@ -152,15 +152,15 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
-	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
 		return &Error{
-			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", schemaVersion),
+			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", maxSchemaVersion),
 			Code: StatusInternalServerError,
 			Err:  err,
 		}
 	}
 
-	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant, schemaVersion); err != nil {
+	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant, maxSchemaVersion); err != nil {
 		if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
 			m.logger.WithError(err).Debugf("object %s/%s not found, possibly due to replication consistency races", cls, id)
 			return &Error{"not found", StatusNotFound, err}
@@ -184,18 +184,10 @@ func (m *Manager) validateInputs(updates *models.Object) error {
 	return nil
 }
 
-func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className string,
-	prevPropsSch models.PropertySchema, nextProps map[string]interface{},
-	principal *models.Principal, prevVec, nextVec []float32,
-	prevVecs models.Vectors, nextVecs models.Vectors, id strfmt.UUID,
+func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, prevPropsSch models.PropertySchema,
+	nextProps map[string]interface{}, prevVec, nextVec []float32, prevVecs models.Vectors, nextVecs models.Vectors,
+	id strfmt.UUID, class *models.Class,
 ) (*models.Object, error) {
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
-	if err != nil {
-		return nil, err
-	}
-	vclass := vclasses[className]
-	class := vclass.Class
-
 	var mergedProps map[string]interface{}
 
 	vector := nextVec
@@ -219,7 +211,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 
 	// Note: vector could be a nil vector in case a vectorizer is configured,
 	// then the vectorizer will set it
-	obj := &models.Object{Class: className, Properties: mergedProps, Vector: vector, Vectors: vectors, ID: id}
+	obj := &models.Object{Class: class.Class, Properties: mergedProps, Vector: vector, Vectors: vectors, ID: id}
 	if err := m.modulesProvider.UpdateVector(ctx, obj, class, m.findObject, m.logger); err != nil {
 		return nil, err
 	}
