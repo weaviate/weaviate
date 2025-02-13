@@ -269,7 +269,7 @@ func (s *Shard) initAsyncReplication() error {
 			return fmt.Errorf("fsync hashtree directory %q: %w", s.pathHashTree(), err)
 		}
 
-		if s.hashtree.Height() != config.hashtreeHeight {
+		if s.hashtree != nil && s.hashtree.Height() != config.hashtreeHeight {
 			// existing hashtree is erased if a different height was specified
 			s.hashtree = nil
 		}
