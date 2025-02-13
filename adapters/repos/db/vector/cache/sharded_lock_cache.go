@@ -550,12 +550,13 @@ func (s *shardedMultipleLockCache[T]) Get(ctx context.Context, id uint64) ([]T, 
 	docID, relativeID := s.GetKeys(id)
 	s.shardedLocks.RLock(docID)
 	docVecs := s.cache[docID]
-	s.shardedLocks.RUnlock(docID)
 
 	if len(docVecs) <= int(relativeID) || docVecs[relativeID] == nil || len(docVecs[relativeID]) == 0 {
+		s.shardedLocks.RUnlock(docID)
 		return s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 	}
 
+	s.shardedLocks.RUnlock(docID)
 	return docVecs[relativeID], nil
 }
 
@@ -567,10 +568,10 @@ func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64
 		docID, relativeID := s.GetKeys(id)
 		s.shardedLocks.RLock(docID)
 		docVecs := s.cache[docID]
-		s.shardedLocks.RUnlock(docID)
 
 		var vec []T
 		if len(docVecs) <= int(relativeID) || docVecs[relativeID] == nil || len(docVecs[relativeID]) == 0 {
+			s.shardedLocks.RUnlock(docID)
 			vecFromDisk, err := s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 			errs[i] = err
 			vec = vecFromDisk
@@ -579,6 +580,7 @@ func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64
 		}
 
 		out[i] = vec
+		s.shardedLocks.RUnlock(docID)
 	}
 
 	return out, errs
@@ -634,7 +636,7 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 		copy(newCacheLine, s.cache[docID])
 		s.cache[docID] = newCacheLine
 	}
-	s.cache[docID][relativeID] = vec
+	copy(s.cache[docID][relativeID], vec)
 	s.shardedLocks.Unlock(docID)
 
 	return vec, nil
