@@ -1677,9 +1677,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
-	var localSearches int
+	var localSearches int64
 	var localResponses atomic.Int64
-	var remoteSearches int
+	var remoteSearches int64
 	var remoteResponses atomic.Int64
 
 	for _, sn := range shardNames {
@@ -1735,10 +1735,17 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
-		if localSearches.Load() != localResponses.Load() ||
-		remoteSearches != remoteResponses.Load() ||
-		localSearches.Load() + remoteSearches.Load() != int(localResponses.Load() + remoteResponses.Load()) ||
-		localSearches.Load() + remoteSearches.Load() != len(shardNames) {
+		if localSearches != localResponses.Load() {
+			i.logger.Warnf("local searches do not match local responses: searches=%d responses=%d", localSearches, localResponses.Load())
+		}
+		if remoteSearches != remoteResponses.Load() {
+			i.logger.Warnf("remote searches do not match remote responses: searches=%d responses=%d", remoteSearches, remoteResponses.Load())
+		}
+
+		if localSearches + remoteSearches != int64(len(shardNames)) {
+			i.logger.Warnf("full replicas search response does not match replica count: response=%d replicas=%d", len(out), len(shardNames))
+
+		}
 		out, dists, err = searchResultDedup(out, dists)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not deduplicate result after full replicas search: %w", err)
