@@ -13,11 +13,11 @@ package authz
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
@@ -73,16 +73,12 @@ func TestAdminlistWithRBACEndpoints(t *testing.T) {
 
 	// as read only user you can cannot do anything
 	_, err = helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), helper.CreateAuth(readonlyKey))
-	require.Error(t, err)
-	var parsed *authz.GetRolesForbidden
-	if !errors.As(err, &parsed) {
-		helper.AssertRequestOk(t, nil, err, nil)
-	}
+	require.NoError(t, err)
 
 	_, err = helper.Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(testRole), helper.CreateAuth(readonlyKey))
 	require.Error(t, err)
 
 	// if you are not admin or readonly you also cannot do anything
 	_, err = helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), helper.CreateAuth(customKey))
-	require.Error(t, err)
+	require.NoError(t, err)
 }

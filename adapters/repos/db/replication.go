@@ -24,7 +24,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -393,6 +392,12 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		}
 
 		if currUpdateTime != u.StaleUpdateTime {
+
+			if currUpdateTime == u.LastUpdateTimeUnixMilli {
+				// local object was updated in the mean time, no need to do anything
+				continue
+			}
+
 			// a conflict is returned except for a particular situation
 			// that can be locally solved at this point:
 			// the node propagating the object change may have no information about
@@ -449,13 +454,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 			continue
 		}
 
-		// the stored object is not the most recent version. in
-		// this case, we overwrite it with the more recent one.
-		vectors, multiVectors, err := dto.GetVectors(u.Vectors)
-		if err != nil {
-			return nil, fmt.Errorf("overwrite stale object: cannot get vectors: %w", err)
-		}
-		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, vectors, multiVectors))
+		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
 		if err != nil {
 			r := replica.RepairResponse{
 				ID:  id.String(),

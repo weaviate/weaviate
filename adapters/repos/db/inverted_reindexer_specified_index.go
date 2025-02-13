@@ -122,16 +122,13 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) ObjectsIterator(shard ShardLik
 		return nil
 	}
 
-	propStrings := make([]string, 0, len(props))
-	propStringsList := make([][]string, 0, len(props))
+	propertyPaths := make([][]string, 0, len(props))
 	for prop := range props {
-		propStrings = append(propStrings, prop)
-		propStringsList = append(propStringsList, []string{prop})
+		propertyPaths = append(propertyPaths, []string{prop})
 	}
 
 	propsExtraction := &storobj.PropertyExtraction{
-		PropStrings:     propStrings,
-		PropStringsList: propStringsList,
+		PropertyPaths: propertyPaths,
 	}
 
 	objectsBucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)

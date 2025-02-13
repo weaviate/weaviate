@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -138,7 +139,9 @@ func TestQuery(t *testing.T) {
 				m.metrics.On("AddUsageDimensions", cls, "get_rest", "list_include_vector",
 					tc.mockedDBResponse[0].Dims)
 			}
-			res, err := m.Manager.Query(context.Background(), nil, &tc.param)
+			res, err := m.Manager.Query(context.Background(), &models.Principal{
+				Username: "testuser",
+			}, &tc.param)
 			code := 0
 			if err != nil {
 				code = err.Code
