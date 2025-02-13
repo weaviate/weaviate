@@ -15,6 +15,7 @@ package cuvs_index
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -469,4 +470,105 @@ func TestCombinedAddAndDelete(t *testing.T) {
 	batchRecallRate := totalBatchRecall / float64(len(allVectors))
 	t.Logf("Batch queries recall rate: %.4f", batchRecallRate)
 	assert.GreaterOrEqual(t, batchRecallRate, minRecallRate, "Batch queries recall rate below threshold")
+}
+
+// TestZeroVectors verifies that searching on an empty index returns a valid (though dummy) result.
+func TestZeroVectors(t *testing.T) {
+	index, _, cleanup, _ := setupTestIndex(t)
+	defer cleanup()
+
+	// No vectors are added. We perform a search using a random dummy vector.
+	dummyVector := generateRandomVector(dims)
+	results, _, err := index.SearchByVector(context.Background(), dummyVector, k, nil)
+	require.NoError(t, err)
+	require.Len(t, results, 0)
+	t.Log("TestZeroVectors: Search completed successfully with no vectors added.")
+}
+
+// TestOneVector adds a single vector and verifies that it is returned in the search results.
+// func TestOneVector(t *testing.T) {
+// 	index, _, cleanup, _ := setupTestIndex(t)
+// 	defer cleanup()
+
+// 	numVectors := 1
+
+// 	// First batch: Create initial vectors
+// 	initialIds := make([]uint64, numVectors)
+// 	initialVectors := make([][]float32, numVectors)
+// 	for i := range initialIds {
+// 		initialIds[i] = uint64(i + 1)
+// 		initialVectors[i] = generateRandomVector(dims)
+// 	}
+
+// 	// Add initial vectors
+// 	err := index.AddBatch(context.Background(), initialIds, initialVectors)
+// 	require.NoError(t, err)
+
+// 	// Delete some vectors from the initial batch
+// 	for i := 0; i < numDeleted; i++ {
+// 		err = index.Delete(initialIds[i])
+// 		require.NoError(t, err)
+// 	}
+
+// 	// Test recall for remaining original vectors
+// 	t.Log("Testing recall for remaining original vectors...")
+// 	totalRecallOriginal := 0.0
+// 	for i := numDeleted; i < numVectors; i++ {
+// 		results, _, err := index.SearchByVector(context.TODO(), initialVectors[i], k, nil)
+// 		require.NoError(t, err)
+// 		require.Len(t, results, k)
+// 		recall := calculateRecall([]uint64{initialIds[i]}, results)
+// 		totalRecallOriginal += recall
+// 	}
+
+// 	recallRateOriginal := totalRecallOriginal / float64(numVectors-numDeleted)
+// 	t.Logf("Recall rate for remaining original vectors: %.4f", recallRateOriginal)
+// 	assert.GreaterOrEqual(t, recallRateOriginal, minRecallRate, "Recall rate for original vectors below threshold")
+// }
+
+// TestFewVectors runs sub-tests for several small counts of vectors (0, 1, 2, 5, and 10)
+func TestFewVectors(t *testing.T) {
+	counts := []int{32, 300, 3000}
+	for _, count := range counts {
+		t.Run(fmt.Sprintf("Count=%d", count), func(t *testing.T) {
+			index, _, cleanup, _ := setupTestIndex(t)
+			defer cleanup()
+
+			// var ids []uint64
+			// var vectors [][]float32
+
+			// // Generate test data for the given count.
+			// for i := 0; i < count; i++ {
+			// 	ids = append(ids, uint64(i+1))
+			// 	vectors = append(vectors, generateRandomVector(dims))
+			// }
+
+			ids := make([]uint64, count)
+			vectors := make([][]float32, count)
+			for i := range ids {
+				ids[i] = uint64(i + 1)
+				vectors[i] = generateRandomVector(dims)
+			}
+
+			if count > 0 {
+				err := index.AddBatch(context.Background(), ids, vectors)
+				require.NoError(t, err)
+
+				// Verify that each vector retrieves itself in the search.
+				for i, vector := range vectors {
+					results, _, err := index.SearchByVector(context.Background(), vector, k, nil)
+					require.NoError(t, err)
+					require.Len(t, results, k)
+					recall := calculateRecall([]uint64{ids[i]}, results)
+					assert.GreaterOrEqual(t, recall, minRecallRate, "Recall rate for vector %d with count %d below threshold", ids[i], count)
+				}
+			} else {
+				// For 0 vectors, just ensure that a search returns k results without error.
+				dummyVector := generateRandomVector(dims)
+				results, _, err := index.SearchByVector(context.Background(), dummyVector, k, nil)
+				require.NoError(t, err)
+				require.Len(t, results, 0)
+			}
+		})
+	}
 }

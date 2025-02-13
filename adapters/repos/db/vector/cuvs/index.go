@@ -35,11 +35,17 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	commonEnt "github.com/weaviate/weaviate/entities/vectorindex/common"
 	cuvsEnt "github.com/weaviate/weaviate/entities/vectorindex/cuvs"
+	flatEnt "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	bolt "go.etcd.io/bbolt"
 )
+
+const MinCuvsObjects = 32
 
 type cuvs_internals struct {
 	cuvsIndex        *cagra.CagraIndex
@@ -48,11 +54,18 @@ type cuvs_internals struct {
 	dlpackTensor     *cuvs.Tensor[float32]
 	cuvsResource     *cuvs.Resource
 	cuvsMemory       *cuvs.CuvsPoolMemory
+	idCuvsIdMap      BiMap
+	cuvsExtendCount  uint64
+	cuvsNumExtends   uint64
+	cuvsNumFiltered  uint64
+	cuvsFilter       []uint32
+	maxFiltered      uint64
+	nextCuvsId       uint32
 }
 
 type cuvs_index struct {
 	sync.Mutex
-	cuvs_internals
+	*cuvs_internals
 	id                  string
 	targetVector        string
 	dims                int32
@@ -64,16 +77,12 @@ type cuvs_index struct {
 	metadata *bolt.DB
 	rootPath string
 
-	idCuvsIdMap    BiMap
 	cuvsPoolMemory int
 
-	cuvsExtendCount uint64
-	cuvsNumExtends  uint64
-	cuvsNumFiltered uint64
-	cuvsFilter      []uint32
-	maxFiltered     uint64
-	nextCuvsId      uint32
-	count           uint64
+	cfg        Config
+	basicIndex common.VectorIndex
+
+	count uint64
 }
 
 func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, error) {
@@ -138,10 +147,11 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		cuvsSearchParams: cfg.CuvsSearchParams,
 		cuvsResource:     &res,
 		dlpackTensor:     nil,
+		idCuvsIdMap:      *NewBiMap(),
 	}
 
 	index := &cuvs_index{
-		cuvs_internals: internals,
+		cuvs_internals: &internals,
 		id:             cfg.ID,
 		targetVector:   cfg.TargetVector,
 		logger:         logger,
@@ -149,8 +159,8 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		store:          store,
 		rootPath:       cfg.RootPath,
 
-		idCuvsIdMap:    *NewBiMap(),
 		cuvsPoolMemory: cfg.CuvsPoolMemory,
+		cfg:            cfg,
 	}
 
 	index.maxFiltered = 30
@@ -165,6 +175,119 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 	}
 
 	return index, nil
+}
+
+func (index *cuvs_index) upgrade() error {
+	if index.cfg.CuvsIndexParams == nil {
+		cuvsIndexParams, err := cagra.CreateIndexParams()
+
+		cuvsIndexParams.SetGraphDegree(32)
+		cuvsIndexParams.SetIntermediateGraphDegree(32)
+		cuvsIndexParams.SetBuildAlgo(cagra.NnDescent)
+
+		if err != nil {
+			return err
+		}
+
+		index.cfg.CuvsIndexParams = cuvsIndexParams
+
+	}
+
+	if index.cfg.CuvsSearchParams == nil {
+
+		cuvsSearchParams, err := cagra.CreateSearchParams()
+		if err != nil {
+			return err
+		}
+
+		cuvsSearchParams.SetAlgo(cagra.SearchAlgoMultiCta)
+		cuvsSearchParams.SetItopkSize(256)
+		cuvsSearchParams.SetSearchWidth(1)
+
+		index.cfg.CuvsSearchParams = cuvsSearchParams
+
+	}
+
+	cuvsIndex, err := cagra.CreateIndex()
+	if err != nil {
+		return fmt.Errorf("create cuvs index: %w", err)
+	}
+
+	res, err := cuvs.NewResource(nil)
+	if err != nil {
+		return err
+	}
+
+	internals := cuvs_internals{
+		cuvsIndex:        cuvsIndex,
+		cuvsIndexParams:  index.cfg.CuvsIndexParams,
+		cuvsSearchParams: index.cfg.CuvsSearchParams,
+		cuvsResource:     &res,
+		dlpackTensor:     nil,
+		idCuvsIdMap:      *NewBiMap(),
+	}
+
+	index.cuvs_internals = &internals
+	return nil
+}
+
+func (index *cuvs_index) downgrade() error {
+	if index.cuvs_internals != nil {
+		err := index.cuvs_internals.cuvsIndex.Close()
+		if err != nil {
+			return err
+		}
+
+		err = index.cuvs_internals.cuvsIndexParams.Close()
+		if err != nil {
+			return err
+		}
+
+		err = index.cuvs_internals.cuvsSearchParams.Close()
+		if err != nil {
+			return err
+		}
+
+		err = index.cuvs_internals.cuvsResource.Close()
+		if err != nil {
+			return err
+		}
+
+		err = index.cuvs_internals.dlpackTensor.Close()
+		if err != nil {
+			return err
+		}
+
+		if index.cuvsMemory != nil {
+			err = index.cuvsMemory.Close()
+			if err != nil {
+				return err
+			}
+		}
+
+		index.cuvs_internals.cuvsResource.Sync()
+
+	}
+	distancer := distancer.NewL2SquaredProvider()
+	flatConfig := flat.Config{
+		ID:               index.cfg.ID,
+		RootPath:         index.cfg.RootPath,
+		TargetVector:     index.cfg.TargetVector,
+		Logger:           index.cfg.Logger,
+		DistanceProvider: distancer,
+	}
+
+	flatUC := flatEnt.UserConfig{
+		Distance:              commonEnt.DistanceL2Squared,
+		VectorCacheMaxObjects: MinCuvsObjects,
+	}
+	flat, err := flat.New(flatConfig, flatUC, index.store)
+	if err != nil {
+		return err
+	}
+
+	index.basicIndex = flat
+	return nil
 }
 
 func byteSliceFromFloat32Slice(vector []float32, slice []byte) []byte {
@@ -252,6 +375,10 @@ func (index *cuvs_index) Add(ctx context.Context, id uint64, vector []float32) e
 func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vectors [][]float32) error {
 	index.Lock()
 	defer index.Unlock()
+
+	if index.count < MinCuvsObjects && (index.count+uint64(len(id)) > MinCuvsObjects) {
+		index.upgrade()
+	}
 
 	if len(id) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
@@ -527,6 +654,11 @@ func (index *cuvs_index) createAllowList() []uint32 {
 func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	index.Lock()
 	defer index.Unlock()
+
+	if k > int(index.count) {
+		k = int(index.count)
+	}
+
 	queries, err := cuvs.NewTensor([][]float32{vector})
 	if err != nil {
 		return nil, nil, err
@@ -557,6 +689,9 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 	}
 
 	neighborsSlice, err := neighbors.Slice()
+	// for i := range neighborsSlice {
+	// 	println("neighborsSlice[i]:", neighborsSlice[i][0])
+	// }
 	if err != nil {
 		return nil, nil, err
 	}
