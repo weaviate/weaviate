@@ -45,7 +45,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		{
 			methodName:        "GetConsistentSchema",
 			expectedVerb:      authorization.READ,
-			additionalArgs:    []interface{}{false},
+			additionalArgs:    []interface{}{false, false},
 			expectedResources: authorization.CollectionsMetadata(),
 		},
 		{
