@@ -174,21 +174,31 @@ func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) 
 }
 
 // GetSchema retrieves a locally cached copy of the schema
-func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool, includeWellknown bool) (schema.Schema, error) {
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return schema.Schema{}, err
 	}
 
 	if !consistency {
-		return h.getSchema(), nil
+		if !includeWellknown {
+			return h.stripWellknownCollections(h.getSchema()), nil
+		} else {
+			return h.getSchema(), nil
+		}
 	}
 
 	if consistentSchema, err := h.schemaManager.QuerySchema(); err != nil {
 		return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
 	} else {
-		return schema.Schema{
-			Objects: &consistentSchema,
-		}, nil
+		if !includeWellknown {
+			return h.stripWellknownCollections(schema.Schema{
+				Objects: &consistentSchema,
+			}), nil
+		} else {
+			return schema.Schema{
+				Objects: &consistentSchema,
+			}, nil
+		}
 	}
 }
 
@@ -202,6 +212,18 @@ func (h *Handler) getSchema() schema.Schema {
 	return schema.Schema{
 		Objects: &s,
 	}
+}
+
+func (h *Handler) stripWellknownCollections(s schema.Schema) schema.Schema {
+	stripped := s.Objects.Classes[:0]
+	for _, c := range s.Objects.Classes {
+		if !strings.HasPrefix(c.Class, "Wellknown") {
+			stripped = append(stripped, c)
+		}
+	}
+
+	s.Objects.Classes = stripped
+	return s
 }
 
 func (h *Handler) Nodes() []string {
