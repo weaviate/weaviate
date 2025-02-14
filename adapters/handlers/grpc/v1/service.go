@@ -254,8 +254,7 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
-	all := "ALL"
-	response, err := s.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, []*string{&all}, replicationProperties, knownClasses)
+	response, err := s.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, replicationProperties, knownClasses)
 	if err != nil {
 		return nil, err
 	}
