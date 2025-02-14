@@ -96,6 +96,7 @@ func (db *DB) init(ctx context.Context) error {
 				HNSWMaxLogSize:                      db.config.HNSWMaxLogSize,
 				HNSWWaitForCachePrefill:             db.config.HNSWWaitForCachePrefill,
 				HNSWFlatSearchConcurrency:           db.config.HNSWFlatSearchConcurrency,
+				HNSWAcornFilterRatio:                db.config.HNSWAcornFilterRatio,
 				VisitedListPoolMaxSize:              db.config.VisitedListPoolMaxSize,
 				TrackVectorDimensions:               db.config.TrackVectorDimensions,
 				AvoidMMap:                           db.config.AvoidMMap,

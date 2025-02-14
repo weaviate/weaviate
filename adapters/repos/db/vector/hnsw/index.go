@@ -158,9 +158,10 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed   atomic.Bool
-	doNotRescore bool
-	acornSearch  atomic.Bool
+	compressed       atomic.Bool
+	doNotRescore     bool
+	acornSearch      atomic.Bool
+	acornFilterRatio float64
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -265,6 +266,7 @@ func New(cfg Config, uc ent.UserConfig,
 		efConstruction:        uc.EFConstruction,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
+		acornFilterRatio:      cfg.AcornFilterRatio,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
