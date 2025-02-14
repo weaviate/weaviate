@@ -260,14 +260,11 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 	e.callbacksLock.RLock()
 	defer e.callbacksLock.RUnlock()
 
-	// execute callbacks asynchronously in a single goroutine
-	enterrors.GoWrapper(func() {
-		s := e.schemaReader.ReadOnlySchema()
-		schema := schema.Schema{Objects: &s}
-		for _, cb := range e.callbacks {
-			cb(schema)
-		}
-	}, e.logger)
+	s := e.schemaReader.ReadOnlySchema()
+	schema := schema.Schema{Objects: &s}
+	for _, cb := range e.callbacks {
+		cb(schema)
+	}
 }
 
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
