@@ -14,16 +14,14 @@ package rbac
 import (
 	"testing"
 
-	casbinutil "github.com/casbin/casbin/v2/util"
-
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
 func testKeyMatch5(t *testing.T, key1, key2 string, expected bool) {
 	t.Helper()
-	if result := casbinutil.KeyMatch5(key1, key2); result != expected {
-		t.Errorf("KeyMatch5(%q, %q) = %v; want %v", key1, key2, result, expected)
+	if result := WeaviateMatcher(key1, key2); result != expected {
+		t.Errorf("WeaviateMatcher(%q, %q) = %v; want %v", key1, key2, result, expected)
 	}
 }
 
