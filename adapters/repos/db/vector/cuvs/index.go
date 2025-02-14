@@ -253,6 +253,10 @@ func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vectors [][]
 	index.Lock()
 	defer index.Unlock()
 
+	if index.count+uint64(len(id)) < 32 {
+		return errors.Errorf("minimum number of vectors in the dataset must be 32")
+	}
+
 	if len(id) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
@@ -399,6 +403,11 @@ func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
 }
 
 func (index *cuvs_index) Delete(ids ...uint64) error {
+	index.Lock()
+	defer index.Unlock()
+	if index.count-uint64(len(ids)) < 32 {
+		return errors.Errorf("minimum number of vectors in the dataset must be 32")
+	}
 	for i := range ids {
 		idBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(idBytes, ids[i])
