@@ -1736,10 +1736,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
 		if localSearches != localResponses.Load() {
-			i.logger.Warnf("local searches do not match local responses: searches=%d responses=%d", localSearches, localResponses.Load())
+			i.logger.Warnf("local search count does not match local response count: searches=%d responses=%d", localSearches, localResponses.Load())
 		}
 		if remoteSearches != remoteResponses.Load() {
-			i.logger.Warnf("remote searches do not match remote responses: searches=%d responses=%d", remoteSearches, remoteResponses.Load())
+			i.logger.Warnf("remote search count does not match remote response count: searches=%d responses=%d", remoteSearches, remoteResponses.Load())
 		}
 
 		if localSearches+remoteSearches != int64(len(shardNames)) {
