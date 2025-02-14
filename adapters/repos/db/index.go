@@ -1310,7 +1310,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 			}
 		}
 
-		// WEAVIATE-471 - error if we can't find a property to search
+		// WEAVIATE-471 - error if we can't find a property to searchx
 		if len(keywordRanking.Properties) == 0 {
 			return nil, []float32{}, errors.New(
 				"No properties provided, and no indexed properties found in class")

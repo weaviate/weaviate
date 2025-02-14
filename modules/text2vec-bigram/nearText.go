@@ -18,6 +18,7 @@ import (
 
 func (m *BigramModule) initNearText() error {
 	m.GraphqlProvider = nearText.New(m.NearTextTransformer)
+
 	return nil
 }
 
@@ -30,9 +31,9 @@ func (m *BigramModule) VectorSearches() map[string]modulecapabilities.VectorForP
 
 	vectorSearches["nearText"] = &vectorForParams{m.VectorFromParams}
 	return vectorSearches
+
+
 }
 
-var (
-	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.Searcher[[]float32](New())
-)
+
+

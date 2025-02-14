@@ -14,6 +14,7 @@ package t2vbigram
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -26,14 +27,14 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
-	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 const Name = "text2vec-bigram"
 
 func New() *BigramModule {
-	m:= &BigramModule{}
+	m := &BigramModule{}
 	m.initNearText()
 	return m
 }
@@ -85,10 +86,6 @@ func (m *BigramModule) InitVectorizer(ctx context.Context, timeout time.Duration
 	return nil
 }
 
-func (m *BigramModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
-	return true, nil, nil
-}
-
 func (m *BigramModule) InitAdditionalPropertiesProvider() error {
 	return nil
 }
@@ -97,28 +94,12 @@ func (m *BigramModule) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *BigramModule) VectorizeObject(ctx context.Context, obj *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error) {
-	var text string
-	for _, prop := range obj.Properties.(map[string]interface{}) {
-		text += fmt.Sprintf("%v", prop)
-	}
-	vector, error := m.VectorizeInput(ctx, text, cfg)
-	return vector, nil, error
-}
-
-func (m *BigramModule) MetaInfo() (map[string]interface{}, error) {
-	return map[string]interface{}{
-		"name":              "Bigram Trigram Frequency Vectoriser",
-	}, nil
-}
-
 func (m *BigramModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return additional.NewText2VecProvider().AdditionalProperties()
 }
 
-
-
 func text2vec(input, activeVectoriser string) ([]float32, error) {
+	log.Printf("vectorising %s with %s", input, activeVectoriser)
 	switch activeVectoriser {
 	case "alphabet":
 		return alphabet2Vector(input)
@@ -129,6 +110,7 @@ func text2vec(input, activeVectoriser string) ([]float32, error) {
 	case "mod26":
 		return mod26Vector(input)
 	default:
+		log.Printf("unsupported vectoriser: %s", activeVectoriser)
 		return nil, fmt.Errorf("unsupported vectoriser: %s", activeVectoriser)
 	}
 }
@@ -155,8 +137,6 @@ func (m *BigramModule) VectorFromParams(ctx context.Context, params interface{},
 	}
 }
 
-
-
 func (m *BigramModule) Texts(ctx context.Context, inputs []string, cfg moduletools.ClassConfig) ([]float32, error) {
 	var vectors [][]float32
 	for _, input := range inputs {
@@ -169,29 +149,13 @@ func (m *BigramModule) Texts(ctx context.Context, inputs []string, cfg moduletoo
 	return libvectorizer.CombineVectors(vectors), nil
 }
 
-func (m *BigramModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	var (
-		vectors [][]float32
-		errors  = map[int]error{}
-	)
-	for i, obj := range objs {
-		if skipObject[i] {
-			continue
-		}
-		vector, _, err := m.VectorizeObject(ctx, obj, cfg)
-		if err != nil {
-			errors[i] = err
-		}
-		vectors = append(vectors, vector)
-	}
-	return vectors, nil, errors
-}
-
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer[[]float32](New())
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher[[]float32](New())
+	_ = modulecapabilities.GraphQLArguments(New())
+	_ = modulecapabilities.ClassConfigurator(New())
 )
 
 func (m *BigramModule) ClassConfigDefaults() map[string]interface{} {
@@ -211,7 +175,11 @@ func (m *BigramModule) ValidateClass(ctx context.Context, class *models.Class, c
 	return nil
 }
 
-var _ = modulecapabilities.ClassConfigurator(New())
+func (m *BigramModule) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name": "Bigram Trigram Frequency Vectoriser",
+	}, nil
+}
 
 type vectorForParams struct {
 	fn func(ctx context.Context,

@@ -1,8 +1,14 @@
 package t2vbigram
 
 import (
+	"context"
+	"fmt"
+	"log"
 	"regexp"
 	"strings"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 func alphabetOrdinal(letter rune) int {
@@ -58,7 +64,9 @@ func mod26Vector(input string) ([]float32, error) {
 		vector[index] = vector[index] + 1
 	}
 
-	return normaliseVector(vector), nil
+	vec := normaliseVector(vector)
+	log.Printf("mod26Vector: %+v", vec)
+	return vec, nil
 }
 
 func normaliseVector(vector []float32) []float32 {
@@ -98,3 +106,38 @@ func bytePairs2Vector(input string) ([]float32, error) {
 
 	return normaliseVector(vector[1:]), nil // Max length is 16k-1
 }
+
+
+func (m *BigramModule) VectorizeObject(ctx context.Context, obj *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error) {
+	var text string
+	for _, prop := range obj.Properties.(map[string]interface{}) {
+		text += fmt.Sprintf("%v", prop)
+	}
+	vector, error := m.VectorizeInput(ctx, text, cfg)
+	return vector, nil, error
+}
+
+
+
+func (m *BigramModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
+}
+
+func (m *BigramModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	var (
+		vectors [][]float32
+		errors  = map[int]error{}
+	)
+	for i, obj := range objs {
+		if skipObject[i] {
+			continue
+		}
+		vector, _, err := m.VectorizeObject(ctx, obj, cfg)
+		if err != nil {
+			errors[i] = err
+		}
+		vectors = append(vectors, vector)
+	}
+	return vectors, nil, errors
+}
+
