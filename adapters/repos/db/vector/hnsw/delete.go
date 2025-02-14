@@ -182,6 +182,7 @@ func (h *hnsw) resetUnlocked() error {
 	h.currentMaximumLayer = 0
 	h.initialInsertOnce = &sync.Once{}
 	h.nodes = make([]*vertex, cache.InitialSize)
+	h.tombstones = make(map[uint64]struct{})
 
 	return h.commitLog.Reset()
 }
