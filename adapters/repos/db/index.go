@@ -1741,10 +1741,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 		if remoteSearches != remoteResponses.Load() {
 			i.logger.Warnf("remote search count does not match remote response count: searches=%d responses=%d", remoteSearches, remoteResponses.Load())
 		}
-
-		if localSearches+remoteSearches != int64(len(shardNames)) {
-			i.logger.Warnf("full replicas search response does not match replica count: response=%d replicas=%d", len(out), len(shardNames))
-		}
 		out, dists, err = searchResultDedup(out, dists)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not deduplicate result after full replicas search: %w", err)
