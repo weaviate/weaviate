@@ -113,7 +113,7 @@ func TestRemovePermissionsBadRequest(t *testing.T) {
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not update built-in role",
+			expectedError: "you cannot update built-in role",
 		},
 	}
 

@@ -27,7 +27,7 @@ func RolesToPolicies(roles ...*models.Role) (map[string][]authorization.Policy, 
 		for _, permission := range roles[idx].Permissions {
 			policy, err := policy(permission)
 			if err != nil {
-				return rolesmap, err
+				return rolesmap, fmt.Errorf("policy: %w", err)
 			}
 			rolesmap[*roles[idx].Name] = append(rolesmap[*roles[idx].Name], *policy)
 		}
@@ -41,7 +41,7 @@ func PermissionToPolicies(permissions ...*models.Permission) ([]*authorization.P
 	for idx := range permissions {
 		policy, err := policy(permissions[idx])
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("policy: %w", err)
 		}
 		policies = append(policies, policy)
 	}
@@ -86,18 +86,18 @@ func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Po
 				for _, p := range perms {
 					perm, err := policy(p)
 					if err != nil {
-						return nil, err
+						return nil, fmt.Errorf("policy: %w", err)
 					}
 					rolesPermissions[name] = append(rolesPermissions[name], *perm)
 				}
 			} else {
 				perm, err := permission(policyParts, true)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("permission: %w", err)
 				}
 				weaviatePerm, err := policy(perm)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("policy: %w", err)
 				}
 				rolesPermissions[name] = append(rolesPermissions[name], *weaviatePerm)
 			}
