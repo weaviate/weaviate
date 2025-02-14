@@ -70,6 +70,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.expectAuthz {
+				authorizer.On("Authorize", principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
 				authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(nil)
 			}
 			controller.On("GetRolesForUser", tt.params.ID).Return(returnedPolices, nil)
@@ -135,6 +136,7 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 					},
 				},
 			}
+			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
 
 			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
 			if tt.authorizeErr != nil {
@@ -184,6 +186,8 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 			authorizer := mocks.NewAuthorizer(t)
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
+
+			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
 
 			controller.On("GetRolesForUser", tt.params.ID).Return(nil, tt.getRolesErr)
 

@@ -48,17 +48,23 @@ func (s *segment) loadTombstones() (*sroar.Bitmap, error) {
 		return s.invertedData.tombstones, nil
 	}
 
-	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.TombstoneOffset : s.invertedHeader.TombstoneOffset+8])
+	buffer := make([]byte, 8)
+	if err := s.copyNode(buffer, nodeOffset{s.invertedHeader.TombstoneOffset, s.invertedHeader.TombstoneOffset + 8}); err != nil {
+		return nil, fmt.Errorf("copy node: %w", err)
+	}
+	bitmapSize := binary.LittleEndian.Uint64(buffer)
 
 	if bitmapSize == 0 {
 		s.invertedData.tombstonesLoaded = true
 		return s.invertedData.tombstones, nil
 	}
 
-	bitmapStart := s.invertedHeader.TombstoneOffset + 8
-	bitmapEnd := bitmapStart + bitmapSize
+	buffer = make([]byte, bitmapSize)
+	if err := s.copyNode(buffer, nodeOffset{s.invertedHeader.TombstoneOffset + 8, s.invertedHeader.TombstoneOffset + 8 + bitmapSize}); err != nil {
+		return nil, fmt.Errorf("copy node: %w", err)
+	}
 
-	bitmap := sroar.FromBuffer(s.contents[bitmapStart:bitmapEnd])
+	bitmap := sroar.FromBuffer(buffer)
 
 	s.invertedData.tombstones = bitmap
 	s.invertedData.tombstonesLoaded = true
@@ -76,11 +82,15 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 		return s.invertedData.propertyLengths, nil
 	}
 
-	s.invertedData.avgPropertyLengthsAvg = math.Float64frombits(binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset : s.invertedHeader.PropertyLengthsOffset+8]))
-	s.invertedData.avgPropertyLengthsCount = binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset+8 : s.invertedHeader.PropertyLengthsOffset+16])
+	buffer := make([]byte, 8*3)
 
-	// read property lengths, the first 16 bytes are the propLengthCount and sum, the 8 bytes are the size of the gob encoded map
-	propertyLengthsSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset+16 : s.invertedHeader.PropertyLengthsOffset+16+8])
+	if err := s.copyNode(buffer, nodeOffset{s.invertedHeader.PropertyLengthsOffset, s.invertedHeader.PropertyLengthsOffset + 8*3}); err != nil {
+		return nil, fmt.Errorf("copy node: %w", err)
+	}
+
+	s.invertedData.avgPropertyLengthsAvg = math.Float64frombits(binary.LittleEndian.Uint64(buffer))
+	s.invertedData.avgPropertyLengthsCount = binary.LittleEndian.Uint64(buffer[8:16])
+	propertyLengthsSize := binary.LittleEndian.Uint64(buffer[16:24])
 
 	if propertyLengthsSize == 0 {
 		s.invertedData.propertyLengthsLoaded = true
@@ -90,7 +100,12 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 	propertyLengthsStart := s.invertedHeader.PropertyLengthsOffset + 16 + 8
 	propertyLengthsEnd := propertyLengthsStart + propertyLengthsSize
 
-	e := gob.NewDecoder(bytes.NewReader(s.contents[propertyLengthsStart:propertyLengthsEnd]))
+	buffer = make([]byte, propertyLengthsSize)
+
+	if err := s.copyNode(buffer, nodeOffset{propertyLengthsStart, propertyLengthsEnd}); err != nil {
+		return nil, fmt.Errorf("copy node: %w", err)
+	}
+	e := gob.NewDecoder(bytes.NewReader(buffer))
 
 	propLengths := map[uint64]uint32{}
 	err := e.Decode(&propLengths)

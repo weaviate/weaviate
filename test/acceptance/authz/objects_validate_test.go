@@ -12,11 +12,11 @@
 package authz
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/authz"
@@ -36,7 +36,6 @@ func TestAuthZObjectValidate(t *testing.T) {
 	customAuth := helper.CreateAuth(customKey)
 
 	readDataAction := authorization.ReadData
-	readCollectionsAction := authorization.ReadCollections
 
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
@@ -54,6 +53,21 @@ func TestAuthZObjectValidate(t *testing.T) {
 		},
 	}, adminAuth))
 
+	t.Run("No rights ", func(t *testing.T) {
+		paramsObj := objects.NewObjectsValidateParams().WithBody(
+			&models.Object{
+				ID:    strfmt.UUID(uuid.New().String()),
+				Class: className,
+				Properties: map[string]interface{}{
+					"prop": "test",
+				},
+			})
+		_, err := helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
+		require.NotNil(t, err)
+		var errNoAuth *objects.ObjectsValidateForbidden
+		require.True(t, errors.As(err, &errNoAuth))
+	})
+
 	t.Run("All rights", func(t *testing.T) {
 		deleteRole := &models.Role{
 			Name: &roleName,
@@ -61,10 +75,6 @@ func TestAuthZObjectValidate(t *testing.T) {
 				{
 					Action: &readDataAction,
 					Data:   &models.PermissionData{Collection: &className},
-				},
-				{
-					Action:      &readCollectionsAction,
-					Collections: &models.PermissionCollections{Collection: &className},
 				},
 			},
 		}
@@ -94,41 +104,4 @@ func TestAuthZObjectValidate(t *testing.T) {
 		require.Nil(t, err)
 		helper.DeleteRole(t, adminKey, roleName)
 	})
-
-	perms := []*models.Permission{{Action: &readDataAction, Data: &models.PermissionData{Collection: &className}}, {Action: &readCollectionsAction, Collections: &models.PermissionCollections{Collection: &className}}}
-	for _, perm := range perms {
-		t.Run("Only rights for "+*perm.Action, func(t *testing.T) {
-			deleteRole := &models.Role{
-				Name:        &roleName,
-				Permissions: []*models.Permission{perm},
-			}
-			helper.DeleteRole(t, adminKey, *deleteRole.Name)
-			helper.CreateRole(t, adminKey, deleteRole)
-			_, err := helper.Client(t).Authz.AssignRoleToUser(
-				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}}),
-				adminAuth,
-			)
-			require.Nil(t, err)
-
-			paramsObj := objects.NewObjectsValidateParams().WithBody(
-				&models.Object{
-					ID:    strfmt.UUID(uuid.New().String()),
-					Class: className,
-					Properties: map[string]interface{}{
-						"prop": "test",
-					},
-				})
-			_, err = helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
-			require.NotNil(t, err)
-			var errNoAuth *objects.ObjectsValidateForbidden
-			require.True(t, errors.As(err, &errNoAuth))
-
-			_, err = helper.Client(t).Authz.RevokeRoleFromUser(
-				authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}}),
-				adminAuth,
-			)
-			require.Nil(t, err)
-			helper.DeleteRole(t, adminKey, roleName)
-		})
-	}
 }

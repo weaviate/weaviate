@@ -55,7 +55,8 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	defer m.metrics.AddObjectDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
-	fetchedClasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	// we don't reveal any info that the end users cannot get through the structure of the data anyway
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
 	if err != nil {
 		return nil, err
 	}

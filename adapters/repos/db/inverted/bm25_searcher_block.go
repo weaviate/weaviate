@@ -16,7 +16,6 @@ import (
 	"math"
 	"slices"
 	"sort"
-	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -32,7 +31,7 @@ import (
 
 // var metrics = lsmkv.BlockMetrics{}
 
-func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, *sync.RWMutex, error) {
+func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, func(), error) {
 	bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 	return bucket.CreateDiskTerm(N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, averagePropLength, config, ctx)
 }
@@ -57,13 +56,11 @@ func (b *BM25Searcher) wandBlock(
 	// We don't do that anymore, as the goal of BlockMaxWAND is to avoid reading the full postings list into memory.
 	// The locks are needed here instead of at DoBlockMaxWand only, as we separate term creation from the actual search.
 	// TODO: We should consider if we can remove these locks and only lock at DoBlockMaxWand
-	locks := make(map[string]*sync.RWMutex, len(params.Properties))
+	releaseCallbacks := make(map[string]func(), len(params.Properties))
 
 	defer func() {
-		for _, lock := range locks {
-			if lock != nil {
-				lock.RUnlock()
-			}
+		for _, release := range releaseCallbacks {
+			release()
 		}
 	}()
 
@@ -72,16 +69,15 @@ func (b *BM25Searcher) wandBlock(
 		if len(propNames) > 0 {
 			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
 			for _, propName := range propNames {
-				results, lock, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, averagePropLength, b.config, ctx)
+				results, release, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, averagePropLength, b.config, ctx)
 				if err != nil {
-					if lock != nil {
-						lock.RUnlock()
-					}
 					return nil, nil, err
 				}
-				if lock != nil {
-					locks[propName] = lock
+
+				if release != nil {
+					releaseCallbacks[propName] = release
 				}
+
 				allResults = append(allResults, results)
 				termCounts = append(termCounts, queryTerms)
 			}
