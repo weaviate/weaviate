@@ -911,6 +911,11 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 		mergeObjs := make([]*objects.VObject, 0, len(localObjs))
 
 		for _, obj := range localObjs {
+			if obj == nil {
+				// local object was deleted meanwhile
+				continue
+			}
+
 			var vectors models.Vectors
 
 			if obj.Vectors != nil {
