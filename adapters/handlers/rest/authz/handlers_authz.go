@@ -506,6 +506,14 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 }
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
+	ownUser := params.ID == principal.Username
+
+	if !ownUser {
+		if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.ID)...); err != nil {
+			return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+	}
+
 	if !h.userExists(params.ID) {
 		return authz.NewGetRolesForUserNotFound()
 	}
@@ -524,7 +532,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 
-		if params.ID != principal.Username {
+		if !ownUser {
 			if err := h.authorizeRoleScopes(principal, authorization.READ, nil, roleName); err != nil {
 				authErr = err
 				continue
@@ -567,7 +575,19 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	slices.Sort(users)
+	filteredUsers := make([]string, 0, len(users))
+	for _, userName := range users {
+		if userName == principal.Username {
+			// own username
+			filteredUsers = append(filteredUsers, userName)
+			continue
+		}
+		if err := h.authorizer.AuthorizeSilent(principal, authorization.READ, authorization.Users(userName)...); err == nil {
+			filteredUsers = append(filteredUsers, userName)
+		}
+	}
+
+	slices.Sort(filteredUsers)
 
 	h.logger.WithFields(logrus.Fields{
 		"action":                "get_users_for_role",
@@ -576,7 +596,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		"role_to_get_users_for": params.ID,
 	}).Info("users requested")
 
-	return authz.NewGetUsersForRoleOK().WithPayload(users)
+	return authz.NewGetUsersForRoleOK().WithPayload(filteredUsers)
 }
 
 func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams, principal *models.Principal) middleware.Responder {

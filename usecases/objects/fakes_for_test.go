@@ -115,6 +115,19 @@ func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
 	return res, nil
 }
 
+func (f *fakeSchemaManager) GetCachedClassNoAuth(ctx context.Context, names ...string,
+) (map[string]versioned.Class, error) {
+	res := map[string]versioned.Class{}
+	for _, name := range names {
+		cls, err := f.GetClass(ctx, nil, name)
+		if err != nil {
+			return res, err
+		}
+		res[name] = versioned.Class{Class: cls}
+	}
+	return f.GetCachedClass(ctx, nil, names...)
+}
+
 func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
 	c, err := f.GetClass(context.TODO(), nil, name)
 	if err != nil {

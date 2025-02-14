@@ -194,16 +194,16 @@ func (c *segmentCleanerCommon) findCandidate() (int, int, int, onCompletedFunc, 
 }
 
 func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error) {
-	c.sg.maintenanceLock.RLock()
-	defer c.sg.maintenanceLock.RUnlock()
+	segments, release := c.sg.getAndLockSegments()
+	defer release()
 
 	var ids []int64
 	var sizes []int64
-	if count := len(c.sg.segments); count > 1 {
+	if count := len(segments); count > 1 {
 		ids = make([]int64, count)
 		sizes = make([]int64, count)
 
-		for i, seg := range c.sg.segments {
+		for i, seg := range segments {
 			idStr := segmentID(seg.path)
 			id, err := strconv.ParseInt(idStr, 10, 64)
 			if err != nil {
@@ -548,13 +548,13 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 		}
 
 		segAtPos := func() *segment {
-			sg.maintenanceLock.RLock()
-			defer sg.maintenanceLock.RUnlock()
+			segments, release := sg.getAndLockSegments()
+			defer release()
 
 			if i >= startIdx && i <= lastIdx {
 				j := i
 				updateI()
-				return sg.segments[j]
+				return segments[j]
 			}
 			return nil
 		}

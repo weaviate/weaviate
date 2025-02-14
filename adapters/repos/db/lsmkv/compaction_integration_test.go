@@ -406,7 +406,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionInvertedStrategy_KeepTombstones",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				compactionInvertedStrategy(ctx, t, opts, 8931, 8931)
+				compactionInvertedStrategy(ctx, t, opts, 9059, 9059)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyInverted),

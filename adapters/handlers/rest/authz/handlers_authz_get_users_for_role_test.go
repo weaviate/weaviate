@@ -37,6 +37,7 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 	expectedUsers := []string{"user1", "user2"}
 
 	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
+	authorizer.On("AuthorizeSilent", principal, authorization.READ, authorization.Users(expectedUsers...)[1]).Return(nil)
 	controller.On("GetUsersForRole", params.ID).Return(expectedUsers, nil)
 
 	h := &authZHandlers{

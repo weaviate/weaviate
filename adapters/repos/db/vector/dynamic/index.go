@@ -78,16 +78,15 @@ type VectorIndex interface {
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, error)
-	ContainsNode(id uint64) bool
+	ContainsDoc(docID uint64) bool
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
-	// Iterate over all nodes in the index.
-	// Consistency is not guaranteed, as the
-	// index may be concurrently modified.
+	// Iterate over all indexed document ids in the index.
+	// Consistency or order is not guaranteed, as the index may be concurrently modified.
 	// If the callback returns false, the iteration will stop.
-	Iterate(fn func(id uint64) bool)
+	Iterate(fn func(docID uint64) bool)
 	Stats() (common.IndexStats, error)
 }
 
@@ -400,10 +399,10 @@ func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) 
 	return dynamic.index.DistanceBetweenVectors(x, y)
 }
 
-func (dynamic *dynamic) ContainsNode(id uint64) bool {
+func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.ContainsNode(id)
+	return dynamic.index.ContainsDoc(docID)
 }
 
 func (dynamic *dynamic) AlreadyIndexed() uint64 {

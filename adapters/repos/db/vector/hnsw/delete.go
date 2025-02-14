@@ -791,6 +791,19 @@ func (h *hnsw) hasTombstone(id uint64) bool {
 	return ok
 }
 
+// hasTombstones checks whether at least one node of the provided ids has a tombstone attached.
+func (h *hnsw) hasTombstones(ids []uint64) bool {
+	h.tombstoneLock.RLock()
+	defer h.tombstoneLock.RUnlock()
+
+	var has bool
+	for _, id := range ids {
+		_, ok := h.tombstones[id]
+		has = has || ok
+	}
+	return has
+}
+
 func (h *hnsw) addTombstone(ids ...uint64) error {
 	h.tombstoneLock.Lock()
 	defer h.tombstoneLock.Unlock()
