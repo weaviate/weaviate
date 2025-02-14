@@ -43,6 +43,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 	// whole request fails if permissions for any collection are not present
 	for className, shards := range classesShards {
+		// we don't leak any info that someone who inserts data does not have anyway
 		vClass, err := b.schemaManager.GetCachedClassNoAuth(ctx, className)
 		if err != nil {
 			return nil, err

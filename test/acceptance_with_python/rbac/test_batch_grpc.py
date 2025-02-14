@@ -15,7 +15,7 @@ def test_batch_grpc(
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete([name + "1", name + "2"])
-    # create two collections with some objects to test refs
+
     col1 = admin_client.collections.create(
         name=name + "1", multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
     )
