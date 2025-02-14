@@ -80,20 +80,12 @@ func TestAuthZBatchObjREST(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &className1},
 		},
 		{
-			Action:      &authorization.ReadCollections,
-			Collections: &models.PermissionCollections{Collection: &className1},
-		},
-		{
 			Action: &createDataAction,
 			Data:   &models.PermissionData{Collection: &className2},
 		},
 		{
 			Action: &updateDataAction,
 			Data:   &models.PermissionData{Collection: &className2},
-		},
-		{
-			Action:      &authorization.ReadCollections,
-			Collections: &models.PermissionCollections{Collection: &className2},
 		},
 	}
 	t.Run("all rights for both classes", func(t *testing.T) {
