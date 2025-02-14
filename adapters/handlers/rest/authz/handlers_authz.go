@@ -120,11 +120,11 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	policies, err := conv.RolesToPolicies(params.Body)
 	if err != nil {
-		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid role %s", err.Error())))
+		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid role: %s", err.Error())))
 	}
 
 	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
-		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as built-in role %s", *params.Body.Name)))
+		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you cannot create role with the same name as built-in role %s", *params.Body.Name)))
 	}
 
 	if err := h.authorizeRoleScopes(principal, authorization.CREATE, policies[*params.Body.Name], *params.Body.Name); err != nil {
@@ -133,7 +133,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	roles, err := h.controller.GetRoles(*params.Body.Name)
 	if err != nil {
-		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
+		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %s", err.Error())))
 	}
 
 	if len(roles) > 0 {
@@ -141,7 +141,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	}
 
 	if err = h.controller.UpsertRolesPermissions(policies); err != nil {
-		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("UpsertRolesPermissions: %w", err)))
+		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("UpsertRolesPermissions: %s", err.Error())))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -178,7 +178,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 
 	roles, err := h.controller.GetRoles(params.ID)
 	if err != nil {
-		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
+		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %s", err.Error())))
 	}
 
 	if len(roles) == 0 { // i.e. new role
@@ -186,7 +186,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	}
 
 	if err := h.controller.UpsertRolesPermissions(policies); err != nil {
-		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("UpsertRolesPermissions: %w", err)))
+		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("UpsertRolesPermissions: %s", err.Error())))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -230,7 +230,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 
 	role, err := h.controller.GetRoles(params.ID)
 	if err != nil {
-		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
+		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %s", err.Error())))
 	}
 
 	if len(role) == 0 {
@@ -238,7 +238,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	}
 
 	if err := h.controller.RemovePermissions(params.ID, permissions); err != nil {
-		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("RemovePermissions: %w", err)))
+		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("RemovePermissions: %s", err.Error())))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -275,7 +275,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 
 	hasPermission, err := h.controller.HasPermission(params.ID, policy[0])
 	if err != nil {
-		return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("HasPermission: %w", err)))
+		return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("HasPermission: %s", err.Error())))
 	}
 
 	return authz.NewHasPermissionOK().WithPayload(hasPermission)
@@ -284,7 +284,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 	roles, err := h.controller.GetRoles()
 	if err != nil {
-		return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
+		return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %s", err.Error())))
 	}
 
 	var response []*models.Role
@@ -295,7 +295,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
-			return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %w", err)))
+			return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %s", err.Error())))
 		}
 		response = append(response, &models.Role{
 			Name:        &roleName,
@@ -345,19 +345,19 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 
 	roles, err := h.controller.GetRoles(params.ID)
 	if err != nil {
-		return authz.NewGetRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
+		return authz.NewGetRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %s", err.Error())))
 	}
 	if len(roles) == 0 {
 		return authz.NewGetRoleNotFound()
 	}
 	if len(roles) != 1 {
 		err := fmt.Errorf("expected one role but got %d", len(roles))
-		return authz.NewGetRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
+		return authz.NewGetRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %s", err.Error())))
 	}
 
 	perms, err := conv.PoliciesToPermission(roles[params.ID]...)
 	if err != nil {
-		return authz.NewGetRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %w", err)))
+		return authz.NewGetRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %s", err.Error())))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -394,7 +394,7 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 	}
 
 	if err := h.controller.DeleteRoles(params.ID); err != nil {
-		return authz.NewDeleteRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("DeleteRoles: %w", err)))
+		return authz.NewDeleteRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("DeleteRoles: %s", err.Error())))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -414,7 +414,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		}
 
 		if err := validateRootRole(role); err != nil {
-			return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: %w", err)))
+			return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: %s", err.Error())))
 		}
 	}
 
@@ -432,7 +432,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
-		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
+		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %s", err.Error())))
 	}
 
 	if len(existedRoles) != len(params.Body.Roles) {
@@ -440,7 +440,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	}
 
 	if err := h.controller.AddRolesForUser(conv.PrefixUserName(params.ID), params.Body.Roles); err != nil {
-		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
+		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %s", err.Error())))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -461,7 +461,7 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 		}
 
 		if err := validateRootRole(role); err != nil {
-			return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: %w", err)))
+			return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: %s", err.Error())))
 		}
 	}
 
@@ -478,12 +478,12 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 	}
 
 	if err := h.validateRootGroup(params.ID); err != nil {
-		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: %w", err)))
+		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: %s", err.Error())))
 	}
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
-		return authz.NewAssignRoleToGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
+		return authz.NewAssignRoleToGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %s", err.Error())))
 	}
 
 	if len(existedRoles) != len(params.Body.Roles) && len(params.Body.Roles) > 0 {
@@ -491,7 +491,7 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 	}
 
 	if err := h.controller.AddRolesForUser(conv.PrefixGroupName(params.ID), params.Body.Roles); err != nil {
-		return authz.NewAssignRoleToGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
+		return authz.NewAssignRoleToGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %s", err.Error())))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -512,7 +512,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 
 	existedRoles, err := h.controller.GetRolesForUser(params.ID)
 	if err != nil {
-		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
+		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %s", err.Error())))
 	}
 
 	response := []*models.Role{}
@@ -521,7 +521,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 	for roleName, policies := range existedRoles {
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
-			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %w", err)))
+			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %s", err.Error())))
 		}
 
 		if params.ID != principal.Username {
@@ -564,7 +564,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 
 	users, err := h.controller.GetUsersForRole(params.ID)
 	if err != nil {
-		return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersForRole: %w", err)))
+		return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersForRole: %s", err.Error())))
 	}
 
 	slices.Sort(users)
@@ -586,7 +586,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		}
 
 		if err := validateRootRole(role); err != nil {
-			return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %w", err)))
+			return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %s", err.Error())))
 		}
 	}
 
@@ -604,7 +604,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
-		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
+		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %s", err.Error())))
 	}
 
 	if len(existedRoles) != len(params.Body.Roles) {
@@ -612,7 +612,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 	}
 
 	if err := h.controller.RevokeRolesForUser(conv.PrefixUserName(params.ID), params.Body.Roles...); err != nil {
-		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("RevokeRolesForUser: %w", err)))
+		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("RevokeRolesForUser: %s", err.Error())))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -633,7 +633,7 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 		}
 
 		if err := validateRootRole(role); err != nil {
-			return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %w", err)))
+			return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %s", err.Error())))
 		}
 	}
 
@@ -650,12 +650,12 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 	}
 
 	if err := h.validateRootGroup(params.ID); err != nil {
-		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %w", err)))
+		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %s", err.Error())))
 	}
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
-		return authz.NewRevokeRoleFromGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
+		return authz.NewRevokeRoleFromGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %s", err.Error())))
 	}
 
 	if len(existedRoles) != len(params.Body.Roles) {
@@ -663,7 +663,7 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 	}
 
 	if err := h.controller.RevokeRolesForUser(conv.PrefixGroupName(params.ID), params.Body.Roles...); err != nil {
-		return authz.NewRevokeRoleFromGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("RevokeRolesForUser: %w", err)))
+		return authz.NewRevokeRoleFromGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("RevokeRolesForUser: %s", err.Error())))
 	}
 
 	h.logger.WithFields(logrus.Fields{
