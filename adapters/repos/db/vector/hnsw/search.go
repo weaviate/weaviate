@@ -162,8 +162,6 @@ func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
 		return false
 	}
 
-	h.logger.Debugf("acorn enabled: cache size: %d, allow list size: %d, ratio: %f", h.cacheSize(), allowList.Len(), h.acornFilterRatio)
-
 	cacheSize := h.cacheSize()
 	allowListSize := allowList.Len()
 	if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > float32(h.acornFilterRatio) {
