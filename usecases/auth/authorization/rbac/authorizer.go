@@ -24,7 +24,7 @@ import (
 
 func (m *manager) authorize(principal *models.Principal, verb string, skipAudit bool, resources ...string) error {
 	if principal == nil {
-		return errors.NewUnauthenticated()
+		return fmt.Errorf("rbac: %w", errors.NewUnauthenticated())
 	}
 
 	if len(resources) == 0 {
@@ -55,7 +55,7 @@ func (m *manager) authorize(principal *models.Principal, verb string, skipAudit 
 
 		perm, err := conv.PathToPermission(verb, resource)
 		if err != nil {
-			return err
+			return fmt.Errorf("rbac: %w", err)
 		}
 
 		if allowed {
