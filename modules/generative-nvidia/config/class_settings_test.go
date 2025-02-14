@@ -35,7 +35,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{},
 			},
 			wantBaseURL: "https://integrate.api.nvidia.com",
-			wantModel:   "meta/llama-3.2-3b-instruct",
+			wantModel:   "nvidia/llama-3.1-nemotron-51b-instruct",
 			wantErr:     nil,
 		},
 		{

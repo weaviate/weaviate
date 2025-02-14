@@ -81,6 +81,15 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	}, names...)
 }
 
+// GetCachedClassNoAuth will return the class from the cache if it exists. Note that the context cache
+// will likely be at the "request" or "operation" level and not be shared between requests.
+// Uses the Handler's getClassMethod to determine how to get the class data.
+func (h *Handler) GetCachedClassNoAuth(ctxWithClassCache context.Context, names ...string) (map[string]versioned.Class, error) {
+	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
+		return h.classGetter.getClasses(names)
+	}, names...)
+}
+
 // AddClass to the schema
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,

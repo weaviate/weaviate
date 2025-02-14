@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.29.0-rc.1"
+    "version": "1.29.0-rc.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -5626,6 +5626,7 @@ func init() {
             "update_collections",
             "delete_collections",
             "assign_and_revoke_users",
+            "read_users",
             "create_tenants",
             "read_tenants",
             "update_tenants",
@@ -6679,7 +6680,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.29.0-rc.1"
+    "version": "1.29.0-rc.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -12557,6 +12558,7 @@ func init() {
             "update_collections",
             "delete_collections",
             "assign_and_revoke_users",
+            "read_users",
             "create_tenants",
             "read_tenants",
             "update_tenants",
