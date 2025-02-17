@@ -342,10 +342,12 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 
 func (s *Service) classGetterWithAuthzFunc(principal *models.Principal) func(string) (*models.Class, error) {
 	authorizedCollections := map[string]*models.Class{}
+
 	return func(name string) (*models.Class, error) {
 		class, ok := authorizedCollections[name]
 		if !ok {
-			if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+			// having data access is enough for querying as we dont leak any info from the collection config that you cannot get via data access anyways
+			if err := s.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(name)...); err != nil {
 				return nil, err
 			}
 			class = s.schemaManager.ReadOnlyClass(name)
