@@ -14,6 +14,21 @@ message BatchObjectsRequest {
   optional ConsistencyLevel consistency_level = 2;
 }
 
+message BatchStart {
+  optional ConsistencyLevel  consistency_level = 1;
+  optional int32 concurrency = 2;
+}
+
+message BatchStop {}
+
+message BatchMessage {
+  oneof message {
+    BatchStart init = 1;
+    BatchObject object = 2;
+    BatchStop sentinel = 3;
+  }
+}
+
 message BatchObject {
   message Properties {
     google.protobuf.Struct non_ref_properties = 1;

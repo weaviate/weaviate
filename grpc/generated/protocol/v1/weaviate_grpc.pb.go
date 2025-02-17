@@ -24,6 +24,7 @@ type WeaviateClient interface {
 	BatchDelete(ctx context.Context, in *BatchDeleteRequest, opts ...grpc.CallOption) (*BatchDeleteReply, error)
 	TenantsGet(ctx context.Context, in *TenantsGetRequest, opts ...grpc.CallOption) (*TenantsGetReply, error)
 	Aggregate(ctx context.Context, in *AggregateRequest, opts ...grpc.CallOption) (*AggregateReply, error)
+	Batch(ctx context.Context, opts ...grpc.CallOption) (Weaviate_BatchClient, error)
 }
 
 type weaviateClient struct {
@@ -79,6 +80,37 @@ func (c *weaviateClient) Aggregate(ctx context.Context, in *AggregateRequest, op
 	return out, nil
 }
 
+func (c *weaviateClient) Batch(ctx context.Context, opts ...grpc.CallOption) (Weaviate_BatchClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Weaviate_ServiceDesc.Streams[0], "/weaviate.v1.Weaviate/Batch", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &weaviateBatchClient{stream}
+	return x, nil
+}
+
+type Weaviate_BatchClient interface {
+	Send(*BatchMessage) error
+	Recv() (*BatchObjectsReply, error)
+	grpc.ClientStream
+}
+
+type weaviateBatchClient struct {
+	grpc.ClientStream
+}
+
+func (x *weaviateBatchClient) Send(m *BatchMessage) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *weaviateBatchClient) Recv() (*BatchObjectsReply, error) {
+	m := new(BatchObjectsReply)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // WeaviateServer is the server API for Weaviate service.
 // All implementations must embed UnimplementedWeaviateServer
 // for forward compatibility
@@ -88,6 +120,7 @@ type WeaviateServer interface {
 	BatchDelete(context.Context, *BatchDeleteRequest) (*BatchDeleteReply, error)
 	TenantsGet(context.Context, *TenantsGetRequest) (*TenantsGetReply, error)
 	Aggregate(context.Context, *AggregateRequest) (*AggregateReply, error)
+	Batch(Weaviate_BatchServer) error
 	mustEmbedUnimplementedWeaviateServer()
 }
 
@@ -109,6 +142,9 @@ func (UnimplementedWeaviateServer) TenantsGet(context.Context, *TenantsGetReques
 }
 func (UnimplementedWeaviateServer) Aggregate(context.Context, *AggregateRequest) (*AggregateReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Aggregate not implemented")
+}
+func (UnimplementedWeaviateServer) Batch(Weaviate_BatchServer) error {
+	return status.Errorf(codes.Unimplemented, "method Batch not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
 
@@ -213,6 +249,32 @@ func _Weaviate_Aggregate_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Weaviate_Batch_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(WeaviateServer).Batch(&weaviateBatchServer{stream})
+}
+
+type Weaviate_BatchServer interface {
+	Send(*BatchObjectsReply) error
+	Recv() (*BatchMessage, error)
+	grpc.ServerStream
+}
+
+type weaviateBatchServer struct {
+	grpc.ServerStream
+}
+
+func (x *weaviateBatchServer) Send(m *BatchObjectsReply) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *weaviateBatchServer) Recv() (*BatchMessage, error) {
+	m := new(BatchMessage)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // Weaviate_ServiceDesc is the grpc.ServiceDesc for Weaviate service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -241,6 +303,13 @@ var Weaviate_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Weaviate_Aggregate_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Batch",
+			Handler:       _Weaviate_Batch_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "v1/weaviate.proto",
 }

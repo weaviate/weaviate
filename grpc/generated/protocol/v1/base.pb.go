@@ -206,7 +206,7 @@ type NumberArrayProperties struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/base.proto.
 	Values      []float64 `protobuf:"fixed64,1,rep,packed,name=values,proto3" json:"values,omitempty"` // will be removed in the future, use vector_bytes
 	PropName    string    `protobuf:"bytes,2,opt,name=prop_name,json=propName,proto3" json:"prop_name,omitempty"`
 	ValuesBytes []byte    `protobuf:"bytes,3,opt,name=values_bytes,json=valuesBytes,proto3" json:"values_bytes,omitempty"`
@@ -244,7 +244,7 @@ func (*NumberArrayProperties) Descriptor() ([]byte, []int) {
 	return file_v1_base_proto_rawDescGZIP(), []int{0}
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/base.proto.
 func (x *NumberArrayProperties) GetValues() []float64 {
 	if x != nil {
 		return x.Values
@@ -840,10 +840,11 @@ type Filters struct {
 	Operator Filters_Operator `protobuf:"varint,1,opt,name=operator,proto3,enum=weaviate.v1.Filters_Operator" json:"operator,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/base.proto.
 	On      []string   `protobuf:"bytes,2,rep,name=on,proto3" json:"on,omitempty"` // will be removed in the future, use path
 	Filters []*Filters `protobuf:"bytes,3,rep,name=filters,proto3" json:"filters,omitempty"`
 	// Types that are assignable to TestValue:
+	//
 	//	*Filters_ValueText
 	//	*Filters_ValueInt
 	//	*Filters_ValueBoolean
@@ -896,7 +897,7 @@ func (x *Filters) GetOperator() Filters_Operator {
 	return Filters_OPERATOR_UNSPECIFIED
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/base.proto.
 func (x *Filters) GetOn() []string {
 	if x != nil {
 		return x.On
@@ -1217,6 +1218,7 @@ type FilterTarget struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Target:
+	//
 	//	*FilterTarget_Property
 	//	*FilterTarget_SingleTarget
 	//	*FilterTarget_MultiTarget
@@ -1388,7 +1390,7 @@ type Vectors struct {
 	unknownFields protoimpl.UnknownFields
 
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/base.proto.
 	Index       uint64             `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"` // for multi-vec
 	VectorBytes []byte             `protobuf:"bytes,3,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
 	Type        Vectors_VectorType `protobuf:"varint,4,opt,name=type,proto3,enum=weaviate.v1.Vectors_VectorType" json:"type,omitempty"`
@@ -1433,7 +1435,7 @@ func (x *Vectors) GetName() string {
 	return ""
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/base.proto.
 func (x *Vectors) GetIndex() uint64 {
 	if x != nil {
 		return x.Index
