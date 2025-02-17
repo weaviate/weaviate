@@ -19,7 +19,8 @@ message BatchStart {
   optional int32 concurrency = 2;
 }
 
-message BatchStop {}
+message BatchStop {
+}
 
 message BatchMessage {
   oneof message {
