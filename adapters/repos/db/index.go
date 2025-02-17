@@ -623,6 +623,7 @@ type IndexConfig struct {
 	HNSWMaxLogSize                      int64
 	HNSWWaitForCachePrefill             bool
 	HNSWFlatSearchConcurrency           int
+	HNSWAcornFilterRatio                float64
 	VisitedListPoolMaxSize              int
 	ReplicationFactor                   int64
 	DeletionStrategy                    string

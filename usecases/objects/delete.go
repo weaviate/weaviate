@@ -33,10 +33,10 @@ import (
 // if class == "" it will delete all object with same id regardless of the class name.
 // This is due to backward compatibility reasons and should be removed in the future
 func (m *Manager) DeleteObject(ctx context.Context,
-	principal *models.Principal, class string, id strfmt.UUID,
+	principal *models.Principal, className string, id strfmt.UUID,
 	repl *additional.ReplicationProperties, tenant string,
 ) error {
-	err := m.authorizer.Authorize(principal, authorization.DELETE, authorization.Objects(class, tenant, id))
+	err := m.authorizer.Authorize(principal, authorization.DELETE, authorization.Objects(className, tenant, id))
 	if err != nil {
 		return err
 	}
@@ -56,20 +56,21 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	m.metrics.DeleteObjectInc()
 	defer m.metrics.DeleteObjectDec()
 
-	if class == "" { // deprecated
+	if className == "" { // deprecated
 		return m.deleteObjectFromRepo(ctx, id, time.UnixMilli(m.timeSource.Now()))
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, class)
+	// we only use the schemaVersion in this endpoint
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
 	if err != nil {
-		return fmt.Errorf("could not get class %s: %w", class, err)
+		return fmt.Errorf("could not get class %s: %w", className, err)
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
-	if err := m.schemaManager.WaitForUpdate(ctx, vclasses[class].Version); err != nil {
-		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", vclasses[class].Version, err)
+	if err := m.schemaManager.WaitForUpdate(ctx, fetchedClasses[className].Version); err != nil {
+		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", fetchedClasses[className].Version, err)
 	}
-	if err = m.vectorRepo.DeleteObject(ctx, class, id, time.UnixMilli(m.timeSource.Now()), repl, tenant, vclasses[class].Version); err != nil {
+	if err = m.vectorRepo.DeleteObject(ctx, className, id, time.UnixMilli(m.timeSource.Now()), repl, tenant, fetchedClasses[className].Version); err != nil {
 		var e1 ErrMultiTenancy
 		if errors.As(err, &e1) {
 			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))

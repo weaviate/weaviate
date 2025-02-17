@@ -33,8 +33,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
-const defaultAcornMaxFilterPercentage = 0.4
-
 type FilterStrategy int
 
 const (
@@ -166,7 +164,7 @@ func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
 
 	cacheSize := h.cacheSize()
 	allowListSize := allowList.Len()
-	if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > defaultAcornMaxFilterPercentage {
+	if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > float32(h.acornFilterRatio) {
 		return false
 	}
 
@@ -707,7 +705,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 					}
 				}
 				entryPointNode.Unlock()
-				if counter/float32(len(h.nodes[entryPointID].connections[0])) > defaultAcornMaxFilterPercentage {
+				if counter/float32(len(h.nodes[entryPointID].connections[0])) > float32(h.acornFilterRatio) {
 					strategy = RRE
 				} else {
 					strategy = ACORN

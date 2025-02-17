@@ -25,11 +25,11 @@ def test_rbac_refs(request: SubRequest, admin_client, custom_client, to_upper: b
             Permissions.data(collection=name, read=True),
         ],
     )
-    admin_client.roles.assign_to_user(user="custom-user", role_names=name)
+    admin_client.users.assign_roles(user_id="custom-user", role_names=name)
     collection_no_rights = custom_client.collections.get(collection.name)
     collection_no_rights.query.fetch_objects()
 
-    admin_client.roles.revoke_from_user(user="custom-user", role_names=name)
+    admin_client.users.revoke_roles(user_id="custom-user", role_names=name)
     admin_client.roles.delete(name)
 
     admin_client.collections.delete(name)
@@ -52,9 +52,9 @@ def test_role_name_case_sensitivity(request: SubRequest, admin_client):
         role_name=u_name, permissions=Permissions.collections(collection="upper", read_config=True)
     )
 
-    admin_client.roles.assign_to_user(user="custom-user", role_names=[l_name, u_name])
+    admin_client.users.assign_roles(user_id="custom-user", role_names=[l_name, u_name])
 
-    roles = admin_client.roles.by_user("custom-user")
+    roles = admin_client.users.get_assigned_roles("custom-user")
     assert sorted(roles.keys()) == sorted([l_name, u_name])
 
     admin_client.roles.delete(l_name)

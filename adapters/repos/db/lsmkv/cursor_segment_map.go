@@ -31,10 +31,11 @@ func (s *segment) newMapCursor() *segmentCursorMap {
 }
 
 func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
-	sg.maintenanceLock.RLock()
-	out := make([]innerCursorMap, len(sg.segments))
+	segments, release := sg.getAndLockSegments()
 
-	for i, segment := range sg.segments {
+	out := make([]innerCursorMap, len(segments))
+
+	for i, segment := range segments {
 		if segment.strategy == segmentindex.StrategyInverted {
 			out[i] = segment.newInvertedCursorReusable()
 		} else {
@@ -42,7 +43,7 @@ func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
 		}
 	}
 
-	return out, sg.maintenanceLock.RUnlock
+	return out, release
 }
 
 func (s *segmentCursorMap) decode(parsed segmentCollectionNode) ([]MapPair, error) {
