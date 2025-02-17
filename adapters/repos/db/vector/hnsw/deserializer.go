@@ -143,6 +143,7 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 			out.Entrypoint = 0
 			out.Level = 0
 			out.Nodes = make([]*vertex, cache.InitialSize)
+			out.Tombstones = make(map[uint64]struct{})
 		case AddPQ:
 			var totalRead int
 			totalRead, err = d.ReadPQ(fd, out)

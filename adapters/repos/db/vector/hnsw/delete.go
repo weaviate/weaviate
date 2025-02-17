@@ -129,6 +129,8 @@ func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	defer h.resetLock.Unlock()
 	h.Lock()
 	defer h.Unlock()
+	h.tombstoneLock.Lock()
+	defer h.tombstoneLock.Unlock()
 
 	empty = func() bool {
 		h.shardedNodeLocks.RLock(h.entryPointID)
@@ -153,6 +155,8 @@ func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (only
 	defer h.resetLock.Unlock()
 	h.Lock()
 	defer h.Unlock()
+	h.tombstoneLock.Lock()
+	defer h.tombstoneLock.Unlock()
 
 	onlyNode = func() bool {
 		h.shardedNodeLocks.RLockAll()
@@ -182,6 +186,7 @@ func (h *hnsw) resetUnlocked() error {
 	h.currentMaximumLayer = 0
 	h.initialInsertOnce = &sync.Once{}
 	h.nodes = make([]*vertex, cache.InitialSize)
+	h.tombstones = make(map[uint64]struct{})
 
 	return h.commitLog.Reset()
 }
