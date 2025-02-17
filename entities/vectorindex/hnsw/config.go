@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/schema/config"
@@ -107,7 +108,11 @@ func (u *UserConfig) SetDefaults() {
 		TrainingLimit: DefaultSQTrainingLimit,
 		RescoreLimit:  DefaultSQRescoreLimit,
 	}
-	u.FilterStrategy = DefaultFilterStrategy
+	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategyAcorn {
+		u.FilterStrategy = FilterStrategyAcorn
+	} else {
+		u.FilterStrategy = FilterStrategySweeping
+	}
 	u.Multivector = MultivectorConfig{
 		Enabled:     DefaultMultivectorEnabled,
 		Aggregation: DefaultMultivectorAggregation,
