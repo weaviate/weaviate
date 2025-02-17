@@ -304,7 +304,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 	}
 
 	// Filter roles based on authorization
-	resourceFilter := filter.New[*models.Role](h.authorizer, config.Config{Authorization: config.Authorization{Rbac: h.rbacconfig}})
+	resourceFilter := filter.New[*models.Role](h.authorizer, h.rbacconfig)
 	filteredRoles := resourceFilter.Filter(
 		h.logger,
 		principal,
