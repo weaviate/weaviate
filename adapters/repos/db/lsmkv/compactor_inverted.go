@@ -197,7 +197,7 @@ func (c *compactorInverted) init() error {
 func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, error) {
 	tombstonesBuffer := make([]byte, 0)
 
-	if tombstones != nil && tombstones.GetCardinality() > 0 {
+	if tombstones != nil && !tombstones.IsEmpty() {
 		tombstonesBuffer = tombstones.ToBuffer()
 	}
 

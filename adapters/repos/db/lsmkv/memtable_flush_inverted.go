@@ -69,7 +69,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	}
 
 	tombstoneBuffer := make([]byte, 0)
-	if tombstones.GetCardinality() != 0 {
+	if !tombstones.IsEmpty() {
 		tombstoneBuffer = tombstones.ToBuffer()
 	}
 

@@ -28,7 +28,7 @@ const (
 
 var (
 	DefaultBaseURL     = "https://integrate.api.nvidia.com"
-	DefaultNvidiaModel = "meta/llama-3.2-3b-instruct"
+	DefaultNvidiaModel = "nvidia/llama-3.1-nemotron-51b-instruct"
 )
 
 type classSettings struct {

@@ -88,16 +88,13 @@ func (g *grouper) Do(ctx context.Context) ([]*storobj.Object, []float32, error) 
 	docIDObject := map[uint64]*storobj.Object{}
 	docIDDistance := map[uint64]float32{}
 
-	propStrings := make([]string, len(g.properties))
-	propStringsList := make([][]string, len(g.properties))
+	propertyPaths := make([][]string, len(g.properties))
 	for j := range g.properties {
-		propStrings[j] = g.properties[j]
-		propStringsList[j] = []string{g.properties[j]}
+		propertyPaths[j] = []string{g.properties[j]}
 	}
 
 	props := &storobj.PropertyExtraction{
-		PropStrings:     propStrings,
-		PropStringsList: propStringsList,
+		PropertyPaths: propertyPaths,
 	}
 
 DOCS_LOOP:

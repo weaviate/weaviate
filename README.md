@@ -132,7 +132,6 @@ Here are some popular posts:
 - [The ChatGPT Retrieval Plugin - Weaviate as a Long-term Memory Store for Generative AI](https://weaviate.io/blog/weaviate-retrieval-plugin)
 - [Combining LangChain and Weaviate](https://weaviate.io/blog/combining-langchain-and-weaviate)
 - [How to build an Image Search Application with Weaviate](https://weaviate.io/blog/how-to-build-an-image-search-application-with-weaviate)
-- [Cohere Multilingual ML Models with Weaviate](https://weaviate.io/blog/cohere-multilingual-with-weaviate)
 - [Building Multimodal AI in TypeScript](https://weaviate.io/blog/multimodal-search-in-typescript)
 - [Giving Auto-GPT Long-Term Memory with Weaviate](https://weaviate.io/blog/autogpt-and-weaviate)
 

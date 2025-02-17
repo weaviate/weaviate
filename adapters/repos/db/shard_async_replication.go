@@ -29,6 +29,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -39,18 +40,34 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-const maxHashtreeHeight = 20
-
 const (
 	defaultHashtreeHeight              = 16
-	defaultFrequency                   = 5 * time.Second
+	defaultFrequency                   = 30 * time.Second
 	defaultFrequencyWhilePropagating   = 10 * time.Millisecond
-	defaultAliveNodesCheckingFrequency = 1 * time.Second
-	defaultLoggingFrequency            = 3 * time.Second
+	defaultAliveNodesCheckingFrequency = 5 * time.Second
+	defaultLoggingFrequency            = 5 * time.Second
+	defaultDiffBatchSize               = 1_000
 	defaultDiffPerNodeTimeout          = 10 * time.Second
 	defaultPropagationTimeout          = 30 * time.Second
 	defaultPropagationLimit            = 10_000
-	defaultBatchSize                   = 100
+	defaultPropagationDelay            = 30 * time.Second
+	defaultPropagationConcurrency      = 5
+	defaultPropagationBatchSize        = 100
+
+	minHashtreeHeight = 0
+	maxHashtreeHeight = 20
+
+	minDiffBatchSize = 1
+	maxDiffBatchSize = 10_000
+
+	minPropagationLimit = 1
+	maxPropagationLimit = 1_000_000
+
+	minPropgationConcurrency  = 1
+	maxPropagationConcurrency = 20
+
+	minPropagationBatchSize = 1
+	maxPropagationBatchSize = 1_000
 )
 
 type asyncReplicationConfig struct {
@@ -59,76 +76,104 @@ type asyncReplicationConfig struct {
 	frequencyWhilePropagating   time.Duration
 	aliveNodesCheckingFrequency time.Duration
 	loggingFrequency            time.Duration
+	diffBatchSize               int
 	diffPerNodeTimeout          time.Duration
 	propagationTimeout          time.Duration
 	propagationLimit            int
-	batchSize                   int
+	propagationDelay            time.Duration
+	propagationConcurrency      int
+	propagationBatchSize        int
 }
 
 func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
 	config.hashtreeHeight, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_HASHTREE_HEIGHT"), defaultHashtreeHeight)
+		os.Getenv("ASYNC_REPLICATION_HASHTREE_HEIGHT"), defaultHashtreeHeight, minHashtreeHeight, maxHashtreeHeight)
 	if err != nil {
-		return
-	}
-	if config.hashtreeHeight < 0 || config.hashtreeHeight > maxHashtreeHeight {
-		return asyncReplicationConfig{}, fmt.Errorf("hashtree height out of range: min height 0, max height %d", maxHashtreeHeight)
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_HASHTREE_HEIGHT", err)
 	}
 
 	config.frequency, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY"), defaultFrequency)
 	if err != nil {
-		return
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_FREQUENCY", err)
 	}
 
 	config.frequencyWhilePropagating, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING"), defaultFrequencyWhilePropagating)
 	if err != nil {
-		return
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING", err)
 	}
 
 	config.aliveNodesCheckingFrequency, err = optParseDuration(
 		os.Getenv("ASYNC_REPLICATION_ALIVE_NODES_CHECKING_FREQUENCY"), defaultAliveNodesCheckingFrequency)
 	if err != nil {
-		return
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_ALIVE_NODES_CHECKING_FREQUENCY", err)
 	}
 
 	config.loggingFrequency, err = optParseDuration(
 		os.Getenv("ASYNC_REPLICATION_LOGGING_FREQUENCY"), defaultLoggingFrequency)
 	if err != nil {
-		return
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_LOGGING_FREQUENCY", err)
+	}
+
+	config.diffBatchSize, err = optParseInt(
+		os.Getenv("ASYNC_REPLICATION_DIFF_BATCH_SIZE"), defaultDiffBatchSize, minDiffBatchSize, maxDiffBatchSize)
+	if err != nil {
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_DIFF_BATCH_SIZE", err)
 	}
 
 	config.diffPerNodeTimeout, err = optParseDuration(
 		os.Getenv("ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT"), defaultDiffPerNodeTimeout)
 	if err != nil {
-		return
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT", err)
 	}
 
 	config.propagationTimeout, err = optParseDuration(
 		os.Getenv("ASYNC_REPLICATION_PROPAGATION_TIMEOUT"), defaultPropagationTimeout)
 	if err != nil {
-		return
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_TIMEOUT", err)
 	}
 
 	config.propagationLimit, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_LIMIT"), defaultPropagationLimit)
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_LIMIT"), defaultPropagationLimit, minPropagationLimit, maxPropagationLimit)
 	if err != nil {
-		return
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_LIMIT", err)
 	}
 
-	config.batchSize, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_BATCH_SIZE"), defaultBatchSize)
+	config.propagationDelay, err = optParseDuration(
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_DELAY"), defaultPropagationDelay)
 	if err != nil {
-		return
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_DELAY", err)
+	}
+
+	config.propagationConcurrency, err = optParseInt(
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_CONCURRENCY"), defaultPropagationConcurrency, minPropgationConcurrency, maxPropagationConcurrency)
+	if err != nil {
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_CONCURRENCY", err)
+	}
+
+	config.propagationBatchSize, err = optParseInt(
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE"), defaultPropagationBatchSize, minPropagationBatchSize, maxPropagationBatchSize)
+	if err != nil {
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE", err)
 	}
 
 	return
 }
 
-func optParseInt(s string, defaultInt int) (int, error) {
+func optParseInt(s string, defaultVal, minVal, maxVal int) (val int, err error) {
 	if s == "" {
-		return defaultInt, nil
+		val = defaultVal
+	} else {
+		val, err = strconv.Atoi(s)
+		if err != nil {
+			return 0, err
+		}
 	}
-	return strconv.Atoi(s)
+
+	if val < minVal || val > maxVal {
+		return 0, fmt.Errorf("value %d out of range: min %d, max %d", val, minVal, maxVal)
+	}
+
+	return val, nil
 }
 
 func optParseDuration(s string, defaultDuration time.Duration) (time.Duration, error) {
@@ -224,7 +269,7 @@ func (s *Shard) initAsyncReplication() error {
 			return fmt.Errorf("fsync hashtree directory %q: %w", s.pathHashTree(), err)
 		}
 
-		if s.hashtree.Height() != config.hashtreeHeight {
+		if s.hashtree != nil && s.hashtree.Height() != config.hashtreeHeight {
 			// existing hashtree is erased if a different height was specified
 			s.hashtree = nil
 		}
@@ -259,7 +304,7 @@ func (s *Shard) initAsyncReplication() error {
 				return ctx.Err()
 			}
 
-			if time.Since(prevProgressLogging) > time.Second {
+			if time.Since(prevProgressLogging) >= config.loggingFrequency {
 				s.index.logger.
 					WithField("action", "async_replication").
 					WithField("class_name", s.class.Class).
@@ -651,14 +696,13 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 		localObjs, remoteObjs, propagations, err := s.stepsTowardsShardConsistency(
 			ctx,
 			config,
-			s.name,
 			shardDiffReader.Host,
 			initialLeaf,
 			finalLeaf,
 			config.propagationLimit-objectsPropagated,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("achieving shard consistency : %w", err)
+			return nil, fmt.Errorf("achieving shard consistency: %w", err)
 		}
 
 		localObjects += localObjs
@@ -704,7 +748,7 @@ func incToNextLexValue(b []byte) bool {
 }
 
 func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncReplicationConfig,
-	shardName string, host string, initialLeaf, finalLeaf uint64, limit int,
+	host string, initialLeaf, finalLeaf uint64, limit int,
 ) (localObjects, remoteObjects, propagations int, err error) {
 	hashtreeHeight := config.hashtreeHeight
 
@@ -732,9 +776,20 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 			return localObjects, remoteObjects, propagations, err
 		}
 
-		localDigests, err := s.index.DigestObjectsInRange(ctx, shardName, currLocalUUID, finalUUID, config.batchSize)
+		allLocalDigests, err := s.index.DigestObjectsInRange(ctx, s.name, currLocalUUID, finalUUID, config.diffBatchSize)
 		if err != nil {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
+		}
+
+		// filter out too recent local digests to avoid object propagation when all the nodes may be alive
+		localDigests := make([]replica.RepairResponse, 0, len(allLocalDigests))
+
+		maxUpdateTime := time.Now().Add(-config.propagationDelay).UnixMilli()
+
+		for _, d := range allLocalDigests {
+			if d.UpdateTime <= maxUpdateTime {
+				localDigests = append(localDigests, d)
+			}
 		}
 
 		if len(localDigests) == 0 {
@@ -743,7 +798,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 		}
 
 		// iteration should stop when all local digests within the range has been read
-		shouldContinueFetchingLocalData = len(localDigests) == config.batchSize
+		shouldContinueFetchingLocalData = len(localDigests) == config.diffBatchSize
 
 		lastLocalUUID := strfmt.UUID(localDigests[len(localDigests)-1].ID)
 
@@ -774,13 +829,13 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 			}
 
 			remoteDigests, err := s.index.replicator.DigestObjectsInRange(ctx,
-				shardName, host, currRemoteUUID, lastLocalUUID, config.batchSize)
+				s.name, host, currRemoteUUID, lastLocalUUID, config.diffBatchSize)
 			if err != nil {
 				return localObjects, remoteObjects, propagations, fmt.Errorf("fetching remote object digests: %w", err)
 			}
 
 			if len(remoteDigests) == 0 {
-				// no more objects in remote host
+				// no more digests in remote host
 				break
 			}
 
@@ -809,16 +864,24 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 				break
 			}
 
+			if len(remoteDigests) < config.diffBatchSize {
+				break
+			}
+
 			lastRemoteUUID := strfmt.UUID(remoteDigests[len(remoteDigests)-1].ID)
 
-			currRemoteUUIDBytes, err = bytesFromUUID(lastRemoteUUID)
+			lastRemoteUUIDBytes, err := bytesFromUUID(lastRemoteUUID)
 			if err != nil {
 				return localObjects, remoteObjects, propagations, err
 			}
 
-			if len(remoteDigests) < config.batchSize {
+			overflow := incToNextLexValue(lastRemoteUUIDBytes)
+			if overflow {
+				// no more remote digests need to be fetched
 				break
 			}
+
+			currRemoteUUIDBytes = lastRemoteUUIDBytes
 		}
 
 		// to avoid reading the last uuid in the next iteration
@@ -848,12 +911,19 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 		mergeObjs := make([]*objects.VObject, 0, len(localObjs))
 
 		for _, obj := range localObjs {
-			var vectors models.Vectors
+			var vectors map[string][]float32
+			var multiVectors map[string][][]float32
 
 			if obj.Vectors != nil {
-				vectors = make(models.Vectors, len(obj.Vectors))
-				for i, v := range obj.Vectors {
-					vectors[i] = v
+				vectors = make(map[string][]float32, len(obj.Vectors))
+				for targetVector, v := range obj.Vectors {
+					vectors[targetVector] = v
+				}
+			}
+			if obj.MultiVectors != nil {
+				multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
+				for targetVector, v := range obj.MultiVectors {
+					multiVectors[targetVector] = v
 				}
 			}
 
@@ -863,6 +933,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 				LatestObject:            &obj.Object,
 				Vector:                  obj.Vector,
 				Vectors:                 vectors,
+				MultiVectors:            multiVectors,
 				StaleUpdateTime:         remoteStaleUpdateTime[obj.ID().String()],
 			}
 
@@ -874,7 +945,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 			continue
 		}
 
-		resp, err := s.index.replicator.Overwrite(ctx, host, s.class.Class, shardName, mergeObjs)
+		resp, err := s.propagateObjects(ctx, config, host, mergeObjs)
 		if err != nil {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("propagating local objects: %w", err)
 		}
@@ -911,4 +982,66 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 	// the local shard may receive recent objects when remote shard propagates them
 
 	return localObjects, remoteObjects, propagations, nil
+}
+
+func (s *Shard) propagateObjects(ctx context.Context, config asyncReplicationConfig, host string, objs []*objects.VObject) (res []replica.RepairResponse, err error) {
+	type workerResponse struct {
+		resp []replica.RepairResponse
+		err  error
+	}
+
+	var wg sync.WaitGroup
+
+	batchCh := make(chan []*objects.VObject, len(objs)/config.propagationBatchSize+1)
+	resultCh := make(chan workerResponse, len(objs)/config.propagationBatchSize+1)
+
+	for i := 0; i < config.propagationConcurrency; i++ {
+		enterrors.GoWrapper(func() {
+			for batch := range batchCh {
+				resp, err := s.index.replicator.Overwrite(ctx, host, s.class.Class, s.name, batch)
+
+				resultCh <- workerResponse{
+					resp: resp,
+					err:  err,
+				}
+
+				wg.Done()
+			}
+		}, s.index.logger)
+	}
+
+	for i := 0; i < len(objs); {
+		actualBatchSize := config.propagationBatchSize
+		if i+actualBatchSize > len(objs) {
+			actualBatchSize = len(objs) - i
+		}
+
+		wg.Add(1)
+		batchCh <- objs[i : i+actualBatchSize]
+
+		i += actualBatchSize
+	}
+
+	enterrors.GoWrapper(func() {
+		wg.Wait()
+		close(batchCh)
+		close(resultCh)
+	}, s.index.logger)
+
+	ec := errorcompounder.New()
+
+	for r := range resultCh {
+		if r.err != nil {
+			ec.Add(err)
+			continue
+		}
+
+		res = append(res, r.resp...)
+	}
+
+	if len(res) > 0 {
+		return res, nil
+	}
+
+	return nil, ec.ToError()
 }

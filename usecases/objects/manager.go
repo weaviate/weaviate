@@ -59,6 +59,8 @@ type schemaManager interface {
 	GetCachedClass(ctx context.Context, principal *models.Principal, names ...string,
 	) (map[string]versioned.Class, error)
 
+	GetCachedClassNoAuth(ctx context.Context, names ...string) (map[string]versioned.Class, error)
+
 	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
 
