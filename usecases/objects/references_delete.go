@@ -81,7 +81,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{err.Error(), StatusBadRequest, err}
 	}
 
-	class, schemaVersion, _, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
+	class, schemaVersion, _, typedErr := m.getAuthorizedFromClass(ctx, input.Class)
 	if typedErr != nil {
 		return typedErr
 	}
