@@ -186,7 +186,7 @@ func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency b
 		}
 	}
 
-	filteredClasses := filter.New[*models.Class](h.Authorizer, h.config).Filter(
+	filteredClasses := filter.New[*models.Class](h.Authorizer, h.config.Authorization.Rbac).Filter(
 		h.logger,
 		principal,
 		fullSchema.Objects.Classes,

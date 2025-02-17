@@ -45,7 +45,7 @@ const (
 	e = some(where (p.eft == allow))
 
 	[matchers]
-	m = g(r.sub, p.sub) && keyMatch5(r.obj, p.obj) && regexMatch(r.act, p.act)
+	m = g(r.sub, p.sub) && weaviateMatcher(r.obj, p.obj) && regexMatch(r.act, p.act)
 `
 )
 
@@ -100,8 +100,7 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	}
 
 	// docs: https://casbin.org/docs/function/
-	enforcer.AddNamedMatchingFunc("g", "keyMatch5", casbinutil.KeyMatch5)
-	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
+	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
 	// remove preexisting root role including assignments
 	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
@@ -155,4 +154,23 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	}
 
 	return enforcer, nil
+}
+
+func WeaviateMatcher(key1 string, key2 string) bool {
+	// If we're dealing with a tenant-specific path (matches /shards/#$)
+	if strings.HasSuffix(key1, "/shards/#") {
+		// Don't allow matching with wildcard patterns
+		if strings.HasSuffix(key2, "/shards/.*") {
+			return false
+		}
+	}
+	// For all other cases, use standard KeyMatch5
+	return casbinutil.KeyMatch5(key1, key2)
+}
+
+func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
+	name1 := args[0].(string)
+	name2 := args[1].(string)
+
+	return (bool)(WeaviateMatcher(name1, name2)), nil
 }

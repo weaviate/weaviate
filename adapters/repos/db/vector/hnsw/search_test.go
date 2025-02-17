@@ -193,6 +193,7 @@ func TestAcornPercentage(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AcornFilterRatio:     0.4,
 		}, ent.UserConfig{
 			MaxConnections:        16,
 			EFConstruction:        16,
