@@ -174,7 +174,7 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 
 	readDataAction := authorization.ReadData
 	updateDataAction := authorization.UpdateData
-	readTenantsAction := authorization.ReadTenants
+	readCollectionAction := authorization.ReadCollections
 	all := "*"
 
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
@@ -205,12 +205,12 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &articlesCls.Class},
 		},
 		{
-			Action:  &readTenantsAction,
-			Tenants: &models.PermissionTenants{Collection: &articlesCls.Class},
+			Action:      &readCollectionAction,
+			Collections: &models.PermissionCollections{Collection: &articlesCls.Class},
 		},
 		{
-			Action:  &readTenantsAction,
-			Tenants: &models.PermissionTenants{Collection: &paragraphsCls.Class},
+			Action:      &readCollectionAction,
+			Collections: &models.PermissionCollections{Collection: &paragraphsCls.Class},
 		},
 	}
 	t.Run("Test add ref only class permissions - fail", func(t *testing.T) {
@@ -238,8 +238,8 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &all},
 		},
 		{
-			Action:  &readTenantsAction,
-			Tenants: &models.PermissionTenants{Collection: &all},
+			Action:      &readCollectionAction,
+			Collections: &models.PermissionCollections{Collection: &all},
 		},
 	}
 	t.Run("Test add ref all permissions - succeed", func(t *testing.T) {
@@ -281,12 +281,12 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &articlesCls.Class},
 		},
 		{
-			Action:  &readTenantsAction,
-			Tenants: &models.PermissionTenants{Collection: &articlesCls.Class},
+			Action:      &readCollectionAction,
+			Collections: &models.PermissionCollections{Collection: &articlesCls.Class},
 		},
 		{
-			Action:  &readTenantsAction,
-			Tenants: &models.PermissionTenants{Collection: &paragraphsCls.Class},
+			Action:      &readCollectionAction,
+			Collections: &models.PermissionCollections{Collection: &paragraphsCls.Class},
 		},
 	}
 	t.Run("Test add ref only class permissions - fail", func(t *testing.T) {
@@ -314,8 +314,8 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &all},
 		},
 		{
-			Action:  &readTenantsAction,
-			Tenants: &models.PermissionTenants{Collection: &all},
+			Action:      &readCollectionAction,
+			Collections: &models.PermissionCollections{Collection: &all},
 		},
 	}
 	t.Run("Test update ref all permissions - succeed", func(t *testing.T) {
@@ -357,12 +357,12 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &articlesCls.Class},
 		},
 		{
-			Action:  &readTenantsAction,
-			Tenants: &models.PermissionTenants{Collection: &articlesCls.Class},
+			Action:      &readCollectionAction,
+			Collections: &models.PermissionCollections{Collection: &articlesCls.Class},
 		},
 		{
-			Action:  &readTenantsAction,
-			Tenants: &models.PermissionTenants{Collection: &paragraphsCls.Class},
+			Action:      &readCollectionAction,
+			Collections: &models.PermissionCollections{Collection: &paragraphsCls.Class},
 		},
 	}
 	t.Run("Test delete ref only class permissions - fail", func(t *testing.T) {
@@ -390,8 +390,8 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &all},
 		},
 		{
-			Action:  &readTenantsAction,
-			Tenants: &models.PermissionTenants{Collection: &all},
+			Action:      &readCollectionAction,
+			Collections: &models.PermissionCollections{Collection: &all},
 		},
 	}
 	t.Run("Test delete ref all permissions - succeed", func(t *testing.T) {

@@ -42,34 +42,35 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	knownClasses := map[string]versioned.Class{}
 
 	// whole request fails if permissions for any collection are not present
-	for class, shards := range classesShards {
-		vClass, err := b.schemaManager.GetCachedClass(ctx, principal, class)
+	for className, shards := range classesShards {
+		// we don't leak any info that someone who inserts data does not have anyway
+		vClass, err := b.schemaManager.GetCachedClassNoAuth(ctx, className)
 		if err != nil {
 			return nil, err
 		}
-		knownClasses[class] = vClass[class]
+		knownClasses[className] = vClass[className]
 
-		if err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(class, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 
-		if err := b.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(class, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 	}
 
-	return b.addObjects(ctx, principal, objects, fields, repl, knownClasses)
+	return b.addObjects(ctx, principal, objects, repl, knownClasses)
 }
 
 // AddObjectsGRPCAfterAuth bypasses the authentication in the REST endpoint as GRPC has its own checking
 func (b *BatchManager) AddObjectsGRPCAfterAuth(ctx context.Context, principal *models.Principal,
-	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
+	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
-	return b.addObjects(ctx, principal, objects, fields, repl, fetchedClasses)
+	return b.addObjects(ctx, principal, objects, repl, fetchedClasses)
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
-	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
+	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
