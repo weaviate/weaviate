@@ -45,10 +45,10 @@ func (f *ResourceFilter[T]) Filter(
 	verb string,
 	resourceFn FilterFn[T],
 ) []T {
+	if len(items) == 0 {
+		return items
+	}
 	if !f.config.Authorization.Rbac.Enabled {
-		if len(items) == 0 {
-			return items
-		}
 		// here it's either you have the permissions or not so 1 check is enough
 		if err := f.authorizer.Authorize(principal, verb, resourceFn(items[0])); err != nil {
 			logger.WithFields(logrus.Fields{
