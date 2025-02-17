@@ -199,6 +199,7 @@ type Config struct {
 	HNSWMaxLogSize                      int64
 	HNSWWaitForCachePrefill             bool
 	HNSWFlatSearchConcurrency           int
+	HNSWAcornFilterRatio                float64
 	VisitedListPoolMaxSize              int
 	TrackVectorDimensions               bool
 	ServerVersion                       string

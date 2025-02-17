@@ -40,6 +40,7 @@ type Config struct {
 	AllocChecker              memwatch.AllocChecker
 	WaitForCachePrefill       bool
 	FlatSearchConcurrency     int
+	AcornFilterRatio          float64
 
 	// metadata for monitoring
 	ShardName string
