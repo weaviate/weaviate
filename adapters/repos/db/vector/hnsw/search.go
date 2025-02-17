@@ -738,7 +738,8 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		eps.Insert(entryPointID, entryPointDistance)
 		visited.Reset()
 		//entryPoint without filter
-		resEntryPoint, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, 1, 0, nil, compressorDistancer, strategy, visited, visitedExp)
+		resEntryPoint, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, 1, 0, nil, compressorDistancer, SWEEPING, visited, visitedExp)
+		visited.Reset()
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 		}
@@ -763,6 +764,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		}
 
 		for i := 0; i < 2; i++ {
+		for i := 0; i < 10; i++ {
 			//search next seed
 			currentNode := unfilteredEntryPointNode
 			currentDist := unfilteredEntryPointDist
@@ -772,7 +774,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 				maxDist := float32(-math.MaxFloat32)
 				var nextId uint64
 				for _, conn := range currentNode.connections[0] {
-					if visitedRRE.Visited(conn) {
+					if visitedRRE.Visited(conn) || visited.Visited(conn) || visitedRes.Visited(conn) {
 						continue
 					}
 					moreToVisit = true
@@ -793,9 +795,10 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 					currentDist = maxDist
 				}
 			}
+			currentDist, _ = h.distToNode(compressorDistancer, currentNode.id, searchVec)
 
 			//if valid seed, search again
-			if allowList.Contains(currentNode.id) && !h.hasTombstone(currentNode.id) {
+			if allowList.Contains(currentNode.id) && !h.hasTombstone(currentNode.id) && res.Top().Dist > currentDist {
 				eps.Reset()
 				eps.Insert(currentNode.id, currentDist)
 				resTemp, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, RRE, visited, visitedExp)
@@ -806,11 +809,11 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 				//and merge results
 				for resTemp.Len() > 0 {
 					elem = resTemp.Pop()
-					if visitedRes.Visited(elem.ID) {
+					if visitedRes.Visited(elem.ID) || res.Top().Dist < elem.Dist {
 						continue
 					}
 					visitedRes.Visit(elem.ID)
-					res.Pop()
+					h.logger.Error(ef, elem.ID, elem.Dist, res.Pop().Dist, res.Top().Dist)
 					res.Insert(elem.ID, elem.Dist)
 				}
 				h.pools.pqResults.Put(resTemp)
