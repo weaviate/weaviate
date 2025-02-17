@@ -14,20 +14,21 @@ package filter
 import (
 	"slices"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // ResourceFilter handles filtering resources based on authorization
 type ResourceFilter[T any] struct {
 	authorizer authorization.Authorizer
-	config     config.Config
+	config     rbacconf.Config
 }
 
-func New[T any](authorizer authorization.Authorizer, config config.Config) *ResourceFilter[T] {
+func New[T any](authorizer authorization.Authorizer, config rbacconf.Config) *ResourceFilter[T] {
 	return &ResourceFilter[T]{
 		authorizer: authorizer,
 		config:     config,
@@ -48,7 +49,7 @@ func (f *ResourceFilter[T]) Filter(
 	if len(items) == 0 {
 		return items
 	}
-	if !f.config.Authorization.Rbac.Enabled {
+	if !f.config.Enabled {
 		// here it's either you have the permissions or not so 1 check is enough
 		if err := f.authorizer.Authorize(principal, verb, resourceFn(items[0])); err != nil {
 			logger.WithFields(logrus.Fields{
