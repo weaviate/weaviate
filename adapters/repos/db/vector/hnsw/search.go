@@ -34,6 +34,7 @@ import (
 )
 
 const defaultAcornMaxFilterPercentage = 0.4
+const acornRate = 8
 
 type FilterStrategy int
 
@@ -223,7 +224,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		strategy = SWEEPING
 	}
 	if strategy == ACORN {
-		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(8 * h.maximumConnectionsLayerZero)
+		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(acornRate * h.maximumConnectionsLayerZero)
 		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 		slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 	} else {
@@ -293,7 +294,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			copy(pendingNextRound, candidateNode.connections[level])
 			hop := 1
 			maxHops := 2
-			for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
+			for hop <= maxHops && realLen < acornRate*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
 				if cap(pendingThisRound) >= len(pendingNextRound) {
 					pendingThisRound = pendingThisRound[:len(pendingNextRound)]
 				} else {
@@ -302,7 +303,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				}
 				copy(pendingThisRound, pendingNextRound)
 				pendingNextRound = pendingNextRound[:0]
-				for index < len(pendingThisRound) && realLen < 8*h.maximumConnectionsLayerZero {
+				for index < len(pendingThisRound) && realLen < acornRate*h.maximumConnectionsLayerZero {
 					nodeId := pendingThisRound[index]
 					index++
 					if ok := visited.Visited(nodeId); ok {
@@ -337,7 +338,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 							continue
 						}
 
-						if realLen >= 8*h.maximumConnectionsLayerZero {
+						if realLen >= acornRate*h.maximumConnectionsLayerZero {
 							break
 						}
 
@@ -786,7 +787,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 				rreResets++
 				eps.Reset()
 				eps.Insert(currentExp, dist)
-				resTemp, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, RRE, visited, visitedExp)
+				resTemp, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy, visited, visitedExp)
 				if err != nil {
 					return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 				}
