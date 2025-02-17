@@ -82,7 +82,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		return nil, &Error{"offset or limit", StatusBadRequest, err}
 	}
 
-	filteredQuery := filter.New[*QueryInput](m.authorizer, m.config.Config).Filter(
+	filteredQuery := filter.New[*QueryInput](m.authorizer, m.config.Config.Authorization.Rbac).Filter(
 		m.logger,
 		principal,
 		[]*QueryInput{q},
