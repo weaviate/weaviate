@@ -79,7 +79,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	}
 
 	// Filter objects based on authorization
-	resourceFilter := filter.New[*models.Object](m.authorizer, m.config.Config)
+	resourceFilter := filter.New[*models.Object](m.authorizer, m.config.Config.Authorization.Rbac)
 	filteredObjects := resourceFilter.Filter(
 		m.logger,
 		principal,

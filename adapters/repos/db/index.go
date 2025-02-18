@@ -1722,6 +1722,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
+	var localSearches int64
+	var localResponses atomic.Int64
+	var remoteSearches int64
+	var remoteResponses atomic.Int64
 
 	for _, sn := range shardNames {
 		shardName := sn
@@ -1734,6 +1738,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		if shard != nil {
+			localSearches++
 			eg.Go(func() error {
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err1 != nil {
@@ -1742,6 +1747,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				}
 
 				m.Lock()
+				localResponses.Add(1)
 				out = append(out, localShardResult...)
 				dists = append(dists, localShardScores...)
 				m.Unlock()
@@ -1750,6 +1756,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		if shard == nil || i.Config.ForceFullReplicasSearch {
+			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
@@ -1758,6 +1765,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 						"remote shard object search %s: %w", shardName, err2)
 				}
 				m.Lock()
+				remoteResponses.Add(1)
 				out = append(out, remoteShardObject...)
 				dists = append(dists, remoteShardScores...)
 				m.Unlock()
@@ -1772,6 +1780,12 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
+		if localSearches != localResponses.Load() {
+			i.logger.Warnf("(in full replica search) local search count does not match local response count: searches=%d responses=%d", localSearches, localResponses.Load())
+		}
+		if remoteSearches != remoteResponses.Load() {
+			i.logger.Warnf("(in full replica search) remote search count does not match remote response count: searches=%d responses=%d", remoteSearches, remoteResponses.Load())
+		}
 		out, dists, err = searchResultDedup(out, dists)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not deduplicate result after full replicas search: %w", err)
