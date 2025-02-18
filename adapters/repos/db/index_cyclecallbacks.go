@@ -49,17 +49,17 @@ func (index *Index) initCycleCallbacks() {
 		return strings.Join(elems, "/")
 	}
 
-	compactionCallbacks := cyclemanager.NewCallbackGroup(id("compaction"), index.logger, _NUMCPU*2)
+	compactionCallbacks := cyclemanager.NewCallbackGroup(id("compaction"), index.logger, _NUMCPU)
 	compactionCycle := cyclemanager.NewManager(
 		cyclemanager.CompactionCycleTicker(),
 		compactionCallbacks.CycleCallback, index.logger)
 
-	flushCallbacks := cyclemanager.NewCallbackGroup(id("flush"), index.logger, _NUMCPU*2)
+	flushCallbacks := cyclemanager.NewCallbackGroup(id("flush"), index.logger, _NUMCPU)
 	flushCycle := cyclemanager.NewManager(
 		cyclemanager.MemtableFlushCycleTicker(),
 		flushCallbacks.CycleCallback, index.logger)
 
-	vectorCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("vector", "commit_logger"), index.logger, _NUMCPU*2)
+	vectorCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("vector", "commit_logger"), index.logger, _NUMCPU)
 	// Previously we had an interval of 10s in here, which was changed to
 	// 0.5s as part of gh-1867. There's really no way to wait so long in
 	// between checks: If you are running on a low-powered machine, the
@@ -80,17 +80,17 @@ func (index *Index) initCycleCallbacks() {
 		cyclemanager.HnswCommitLoggerCycleTicker(),
 		vectorCommitLoggerCallbacks.CycleCallback, index.logger)
 
-	vectorTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("vector", "tombstone_cleanup"), index.logger, _NUMCPU*2)
+	vectorTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("vector", "tombstone_cleanup"), index.logger, _NUMCPU)
 	vectorTombstoneCleanupCycle := cyclemanager.NewManager(
 		cyclemanager.NewFixedTicker(time.Duration(vectorTombstoneCleanupIntervalSeconds)*time.Second),
 		vectorTombstoneCleanupCallbacks.CycleCallback, index.logger)
 
-	geoPropsCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "commit_logger"), index.logger, _NUMCPU*2)
+	geoPropsCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "commit_logger"), index.logger, _NUMCPU)
 	geoPropsCommitLoggerCycle := cyclemanager.NewManager(
 		cyclemanager.GeoCommitLoggerCycleTicker(),
 		geoPropsCommitLoggerCallbacks.CycleCallback, index.logger)
 
-	geoPropsTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "tombstone_cleanup"), index.logger, _NUMCPU*2)
+	geoPropsTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "tombstone_cleanup"), index.logger, _NUMCPU)
 	geoPropsTombstoneCleanupCycle := cyclemanager.NewManager(
 		cyclemanager.NewFixedTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
 		geoPropsTombstoneCleanupCallbacks.CycleCallback, index.logger)
