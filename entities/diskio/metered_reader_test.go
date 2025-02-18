@@ -73,7 +73,7 @@ func TestMeteredReader(t *testing.T) {
 		n, err := mr.Read(target)
 
 		assert.Equal(t, io.EOF, err)
-		assert.Equal(t, int64(0), n)
+		assert.Equal(t, 0, n)
 
 		// callback should not have been called in error cases, so we expect to
 		// read initial values
