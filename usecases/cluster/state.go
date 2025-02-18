@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
@@ -89,6 +90,12 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
+	// default is 6
+	cfg.SuspicionMaxTimeoutMult = 10
+	// default is 500ms
+	cfg.ProbeTimeout = 5 * time.Second
+	// default is 1s
+	cfg.ProbeInterval = 10 * time.Second
 	state := State{
 		config:          userConfig,
 		nonStorageNodes: nonStorageNodes,
