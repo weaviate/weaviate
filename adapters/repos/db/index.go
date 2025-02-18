@@ -1163,6 +1163,11 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 func (i *Index) multiObjectByID(ctx context.Context,
 	query []multi.Identifier, tenant string,
 ) ([]*storobj.Object, error) {
+	// if this is reference search and tenant is given (as origin class is MT)
+	// but searched class is non-MT, then skip tenant to pass validation
+	if !i.partitioningEnabled {
+		tenant = ""
+	}
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, err
 	}
