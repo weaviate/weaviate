@@ -29,11 +29,11 @@
     },
     "Permission": {
       "type": "object",
-      "description": "permissions attached to a role.",
+      "description": "Permissions attached to a role:",
       "properties": {
         "backups": {
           "type": "object",
-          "description": "resources applicable for backup actions",
+          "description": "Resources applicable for backup actions.",
           "properties": {
             "collection": {
               "type": "string",
@@ -44,7 +44,7 @@
         },
         "data": {
           "type": "object",
-          "description": "resources applicable for data actions",
+          "description": "Resources applicable for data actions.",
           "properties": {
             "collection": {
               "type": "string",
@@ -65,7 +65,7 @@
         },
         "nodes": {
           "type": "object",
-          "description": "resources applicable for cluster actions",
+          "description": "Resources applicable for cluster actions.",
           "properties": {
             "verbosity": {
               "type": "string",
@@ -74,7 +74,7 @@
                 "verbose",
                 "minimal"
               ],
-              "description": "whether to allow (verbose) returning shards and stats data in the response"
+              "description": "Whether to allow (verbose) returning shards and stats data in the response."
             },
             "collection": {
               "type": "string",
@@ -85,7 +85,7 @@
         },
         "roles": {
           "type": "object",
-          "description": "resources applicable for role actions",
+          "description": "Resources applicable for role actions.",
           "properties": {
             "role": {
               "type": "string",
@@ -96,7 +96,7 @@
         },
         "collections": {
           "type": "object",
-          "description": "resources applicable for collection and/or tenant actions",
+          "description": "Resources applicable for collection and/or tenant actions.",
           "properties": {
             "collection": {
               "type": "string",
@@ -112,7 +112,7 @@
         },
         "action": {
           "type": "string",
-          "description": "allowed actions in weaviate.",
+          "description": "Allowed actions in weaviate.",
           "enum": [            
             "manage_backups",
 
@@ -2686,7 +2686,7 @@
     },
     "/authz/roles/{id}/add-permissions":{
       "post": {
-        "summary": "Add permissions to a role.",
+        "summary": "Add permissions to a role",
         "description": "Permissions can be added to a specified role.",
         "operationId": "addPermissions",
         "x-serviceIds": [
@@ -2762,7 +2762,7 @@
     },
     "/authz/roles/{id}/remove-permissions":{
       "post": {
-        "summary": "Remove permissions from a role.",
+        "summary": "Remove permissions from a role",
         "description": "Permissions can be revoked from a specified role. Removing all permissions from a role will delete the role itself.",
         "operationId": "removePermissions",
         "x-serviceIds": [
@@ -3244,142 +3244,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/authz/groups/{id}/assign": {
-      "post": {
-        "summary": "Assign a role to a group",
-        "description": "Assign a role to a an OIDC group.",
-        "operationId": "assignRoleToGroup",
-        "x-serviceIds": [
-          "weaviate.authz.assign.role"
-        ],
-        "tags": [
-          "authz"
-        ],
-        "parameters": [
-          {
-            "description": "The name of the group.",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "properties": {
-                "roles": {
-                  "type": "array",
-                  "description": "The roles to be assigned to a group.",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Roles assigned successfully."
-          },
-          "400": {
-            "description": "Bad request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Roles or group not found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/authz/groups/{id}/revoke": {
-      "post": {
-        "summary": "Revoke a role from a group",
-        "description": "Remove roles from an OIDC group.",
-        "operationId": "revokeRoleFromGroup",
-        "x-serviceIds": [
-          "weaviate.authz.revoke.role.group"
-        ],
-        "tags": [
-          "authz"
-        ],
-        "parameters": [
-          {
-            "description": "The name of the group.",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "properties": {
-                "roles": {
-                  "type": "array",
-                  "description": "The roles to be revoked from a group.",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Role revoked successfully."
-          },
-          "400": {
-            "description": "Bad request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Roles or group not found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
