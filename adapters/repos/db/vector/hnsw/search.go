@@ -751,6 +751,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		pendingConnsSlice := h.pools.tempVectorsUint64.Get(1)
 		defer h.pools.tempVectorsUint64.Put(pendingConnsSlice)
 		pendingConnsSlice.Slice[0] = elem.ID
+		visitedUnfiltered.Reset()
 
 		rreResets := 0
 		i := 0
@@ -759,11 +760,12 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			visitedRes.Visit(elem.ID)
 		}
 
-		for len(pendingConnsSlice.Slice) > i && rreResets < 4 {
+		for len(pendingConnsSlice.Slice) > i && rreResets < 10 {
 			//search next seed
 			currentExp := pendingConnsSlice.Slice[i]
 			i++
-			if !allowList.Contains(currentExp) || h.hasTombstone(currentExp) {
+			currentPassTheFilter := allowList.Contains(currentExp)
+			if !currentPassTheFilter || h.hasTombstone(currentExp) || (currentPassTheFilter && visited.Visited(currentExp)) {
 				h.shardedNodeLocks.RLock(currentExp)
 				currentExpNode := h.nodes[currentExp]
 				h.shardedNodeLocks.RUnlock(currentExp)
@@ -772,13 +774,13 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 				}
 				currentExpNode.Lock()
 				for _, conn := range currentExpNode.connections[0] {
-					if !visited.Visited(conn) {
+					if !visitedUnfiltered.Visited(conn) {
 						pendingConnsSlice.Slice = append(pendingConnsSlice.Slice, conn)
-						visited.Visit(conn)
+						visitedUnfiltered.Visit(conn)
 					}
 				}
 				currentExpNode.Unlock()
-			} else {
+			} else if currentPassTheFilter {
 				dist, err := h.distToNode(compressorDistancer, currentExp, searchVec)
 				if err != nil {
 					return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
