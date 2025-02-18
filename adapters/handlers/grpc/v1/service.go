@@ -328,7 +328,7 @@ func (s *Service) Batch(stream pb.Weaviate_BatchServer) error {
 		objects = append(objects, object)
 		if len(objects) == 1000 {
 			eg.Go(func() error { return send(objects, index) })
-			objects = make([]*pb.BatchObject, 0, 1000)
+			objects = objects[:0] // clear while maintaining capacity
 		}
 	}
 	eg.Wait()
