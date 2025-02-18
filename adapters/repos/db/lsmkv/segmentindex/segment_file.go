@@ -217,9 +217,12 @@ func (f *SegmentFile) ValidateChecksum(info os.FileInfo) error {
 	f.checksumReader = integrity.NewCRC32Reader(f.reader)
 
 	var header [HeaderSize]byte
-	_, err := f.reader.Read(header[:])
+	n, err := f.reader.Read(header[:])
 	if err != nil {
 		return fmt.Errorf("read segment file header: %w", err)
+	}
+	if n != HeaderSize {
+		return fmt.Errorf("expected to read %d bytes, got %d", HeaderSize, n)
 	}
 
 	var (
