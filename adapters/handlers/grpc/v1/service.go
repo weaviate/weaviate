@@ -228,7 +228,9 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		if err := s.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
 			return nil, err
 		}
-		vClass, err := s.schemaManager.GetCachedClass(ctx, principal, classname)
+
+		// we don't leak any info that someone who inserts data does not have anyway
+		vClass, err := s.schemaManager.GetCachedClassNoAuth(ctx, classname)
 		if err != nil {
 			return nil, err
 		}
@@ -254,8 +256,7 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
-	all := "ALL"
-	response, err := s.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, []*string{&all}, replicationProperties, knownClasses)
+	response, err := s.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, replicationProperties, knownClasses)
 	if err != nil {
 		return nil, err
 	}
@@ -342,10 +343,12 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 
 func (s *Service) classGetterWithAuthzFunc(principal *models.Principal) func(string) (*models.Class, error) {
 	authorizedCollections := map[string]*models.Class{}
+
 	return func(name string) (*models.Class, error) {
 		class, ok := authorizedCollections[name]
 		if !ok {
-			if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+			// having data access is enough for querying as we dont leak any info from the collection config that you cannot get via data access anyways
+			if err := s.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(name)...); err != nil {
 				return nil, err
 			}
 			class = s.schemaManager.ReadOnlyClass(name)

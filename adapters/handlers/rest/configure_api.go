@@ -361,6 +361,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		HNSWMaxLogSize:                      appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
 		HNSWWaitForCachePrefill:             appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		HNSWFlatSearchConcurrency:           appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
+		HNSWAcornFilterRatio:                appState.ServerConfig.Config.HNSWAcornFilterRatio,
 		VisitedListPoolMaxSize:              appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
