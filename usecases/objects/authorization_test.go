@@ -18,12 +18,12 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/google/uuid"
-
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -190,7 +190,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 
 				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 				aerr := out[len(out)-1].Interface().(error)
-				if err, ok := aerr.(*Error); !ok || !err.Forbidden() {
+				var customErr *Error
+				if !errors.As(aerr, &customErr) || !customErr.Forbidden() {
 					assert.Equal(t, errors.New("just a test fake"), aerr,
 						"execution must abort with authorizer error")
 				}
@@ -220,8 +221,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				[]*string{},
 				&additional.ReplicationProperties{},
 			},
-			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("", ""),
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.ShardsData("", ""),
 		},
 		{
 			methodName: "AddReferences",

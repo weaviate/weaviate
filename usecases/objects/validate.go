@@ -13,9 +13,13 @@ package objects
 
 import (
 	"context"
+	"errors"
+
+	"github.com/weaviate/weaviate/entities/classcache"
+
+	"github.com/weaviate/weaviate/entities/schema"
 
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -26,7 +30,18 @@ import (
 func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principal,
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
-	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(obj.Class, obj.Tenant, obj.ID))
+	className := schema.UppercaseClassName(obj.Class)
+	obj.Class = className
+
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))
+	if err != nil {
+		return err
+	}
+
+	ctx = classcache.ContextWithClassCache(ctx)
+
+	// we don't reveal any info that the end users cannot get through the structure of the data anyway
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
 	if err != nil {
 		return err
 	}
@@ -37,10 +52,10 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	}
 	defer unlock()
 
-	ctx = classcache.ContextWithClassCache(ctx)
-	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, obj, nil)
+	err = m.validateObjectAndNormalizeNames(ctx, repl, obj, nil, fetchedClasses)
 	if err != nil {
-		if _, ok := err.(autherrs.Forbidden); ok {
+		var forbidden autherrs.Forbidden
+		if errors.As(err, &forbidden) {
 			return err
 		}
 		return NewErrInvalidUserInput("invalid object: %v", err)

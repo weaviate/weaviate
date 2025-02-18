@@ -14,6 +14,7 @@ package hnsw
 import (
 	"encoding/json"
 	"math"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -63,6 +64,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -99,6 +104,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -146,6 +155,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -193,6 +206,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -241,6 +258,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -286,6 +307,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -340,6 +365,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -393,6 +422,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -466,6 +499,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 		{
@@ -550,6 +587,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 		{
@@ -595,6 +636,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 		{
@@ -655,13 +700,17 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: FilterStrategyAcorn,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cfg, err := ParseAndValidateConfig(test.input)
+			cfg, err := ParseAndValidateConfig(test.input, false)
 			if test.expectErr {
 				require.NotNil(t, err)
 				assert.Contains(t, err.Error(), test.expectErrMsg)
@@ -672,4 +721,20 @@ func Test_UserConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_UserConfigFilterStrategy(t *testing.T) {
+	t.Run("default filter strategy is sweeping", func(t *testing.T) {
+		cfg := UserConfig{}
+		cfg.SetDefaults()
+		assert.Equal(t, FilterStrategySweeping, cfg.FilterStrategy)
+	})
+
+	t.Run("can override default strategy", func(t *testing.T) {
+		os.Setenv("HNSW_DEFAULT_FILTER_STRATEGY", FilterStrategyAcorn)
+		cfg := UserConfig{}
+		cfg.SetDefaults()
+		assert.Equal(t, FilterStrategyAcorn, cfg.FilterStrategy)
+		assert.Nil(t, os.Unsetenv("HNSW_DEFAULT_FILTER_STRATEGY"))
+	})
 }

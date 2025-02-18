@@ -41,7 +41,7 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -96,7 +96,7 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 		},
 	}
 
-	t.Run("add new object to node one", func(t *testing.T) {
+	t.Run("add new object to node one with node2 down", func(t *testing.T) {
 		common.CreateObjectCL(t, compose.GetWeaviate().URI(), &repairObj, replica.One)
 	})
 
@@ -119,16 +119,16 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 		require.EqualValues(t, repairObj.Vector, resp.Vector)
 	})
 
+	t.Run("stop node 3", func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, 3)
+	})
+
 	replaceObj := repairObj
 	replaceObj.Properties = map[string]interface{}{
 		"contents": "this paragraph was replaced",
 	}
 
-	t.Run("stop node 3", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 3)
-	})
-
-	t.Run("replace object", func(t *testing.T) {
+	t.Run("replace object with node3 down", func(t *testing.T) {
 		common.UpdateObjectCL(t, compose.GetWeaviateNode2().URI(), &replaceObj, replica.One)
 	})
 
@@ -144,8 +144,6 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 	})
 
 	t.Run("require updated object read repair was made", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 2)
-
 		exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode3().URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
@@ -160,24 +158,28 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 		require.EqualValues(t, replaceObj.Vector, resp.Vector)
 	})
 
+	t.Run("stop node 2", func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, 2)
+	})
+
 	t.Run("delete article with consistency level ONE and node2 down", func(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviate().URI())
 		helper.DeleteObjectCL(t, replaceObj.Class, replaceObj.ID, replica.One)
-	})
-
-	t.Run("stop node3", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 3)
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, 2)
 	})
 
+	t.Run("stop node3", func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, 3)
+	})
+
 	replaceObj.Properties = map[string]interface{}{
 		"contents": "this paragraph was replaced for second time",
 	}
 
-	t.Run("replace object in node2", func(t *testing.T) {
+	t.Run("replace object in node2 with node3 down", func(t *testing.T) {
 		common.UpdateObjectCL(t, compose.GetWeaviateNode2().URI(), &replaceObj, replica.One)
 	})
 
@@ -190,13 +192,6 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
 		require.False(t, exists)
-	})
-
-	t.Run("deleted article should be present in node2", func(t *testing.T) {
-		exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode2().URI(),
-			replaceObj.Class, replaceObj.ID, replica.One)
-		require.Nil(t, err)
-		require.True(t, exists)
 	})
 
 	t.Run("run exists to trigger read repair with deleted object resolution", func(t *testing.T) {

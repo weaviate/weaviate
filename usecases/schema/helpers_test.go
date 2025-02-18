@@ -14,11 +14,13 @@ package schema
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -44,10 +46,14 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
 	}
+	fakeClusterState := fakes.NewFakeClusterState()
+	fakeValidator := &fakeValidator{}
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{})
 	handler, err := NewHandler(
-		schemaManager, schemaManager, &fakeValidator{}, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
+		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
+
 	require.Nil(t, err)
 	return &handler, schemaManager
 }
@@ -61,10 +67,13 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 			"model1", "model2",
 		},
 	}
+	fakeClusterState := fakes.NewFakeClusterState()
+	fakeValidator := &fakeValidator{}
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
 	handler, err := NewHandler(
-		metaHandler, metaHandler, &fakeValidator{}, logger, authorizer,
+		metaHandler, metaHandler, fakeValidator, logger, authorizer,
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
+		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
 }
@@ -121,7 +130,7 @@ func (f *fakeDB) UpdateTenantsProcess(class string, req *command.TenantProcessRe
 	return nil
 }
 
-func (f *fakeDB) DeleteTenants(class string, cmd *command.DeleteTenantsRequest) error {
+func (f *fakeDB) DeleteTenants(class string, tenants []*models.Tenant) error {
 	return nil
 }
 
@@ -215,6 +224,18 @@ func (f *fakeModuleConfig) GetByName(name string) modulecapabilities.Module {
 	return nil
 }
 
+func (f *fakeModuleConfig) IsGenerative(moduleName string) bool {
+	return strings.Contains(moduleName, "generative")
+}
+
+func (f *fakeModuleConfig) IsReranker(moduleName string) bool {
+	return strings.Contains(moduleName, "reranker")
+}
+
+func (f *fakeModuleConfig) IsMultiVector(moduleName string) bool {
+	return strings.Contains(moduleName, "colbert")
+}
+
 type fakeVectorizerValidator struct {
 	valid []string
 }
@@ -241,7 +262,11 @@ func (f fakeVectorConfig) DistanceName() string {
 	return common.DistanceCosine
 }
 
-func dummyParseVectorConfig(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error) {
+func (f fakeVectorConfig) IsMultiVector() bool {
+	return false
+}
+
+func dummyParseVectorConfig(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
 	return fakeVectorConfig{raw: in}, nil
 }
 
@@ -286,7 +311,7 @@ func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, u
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []string) error {
+func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
 	args := f.Called(ctx, class, tenants)
 	return args.Error(0)
 }

@@ -15,9 +15,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -30,17 +34,22 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
+	className := schema.UppercaseClassName(updates.Class)
+	updates.Class = className
+
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
 		return nil, err
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(updates.Class, updates.Tenant)...); err != nil {
+
+	ctx = classcache.ContextWithClassCache(ctx)
+	// we don't reveal any info that the end users cannot get through the structure of the data anyway
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
+	if err != nil {
 		return nil, err
 	}
 
 	m.metrics.UpdateObjectInc()
 	defer m.metrics.UpdateObjectDec()
-
-	ctx = classcache.ContextWithClassCache(ctx)
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
@@ -53,12 +62,12 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 		return nil, fmt.Errorf("cannot process update object: %w", err)
 	}
 
-	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl)
+	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID, updates *models.Object,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (*models.Object, error) {
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
@@ -69,9 +78,13 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, err
 	}
 
-	var schemaVersion uint64
-	if schemaVersion, err = m.autoSchemaManager.autoSchema(ctx, principal, false, updates); err != nil {
+	maxSchemaVersion := fetchedClasses[className].Version
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClasses, updates)
+	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
+	}
+	if schemaVersion > maxSchemaVersion {
+		maxSchemaVersion = schemaVersion
 	}
 
 	m.logger.
@@ -81,9 +94,10 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		WithField("id", id).
 		Debug("received update kind request")
 
+	class := fetchedClasses[className].Class
+
 	prevObj := obj.Object()
-	err = m.validateObjectAndNormalizeNames(
-		ctx, principal, repl, updates, prevObj)
+	err = m.validateObjectAndNormalizeNames(ctx, repl, updates, prevObj, fetchedClasses)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -95,22 +109,20 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
-	if err != nil {
-		return nil, err
-	}
-
-	vclass := vclasses[className]
-	err = m.modulesProvider.UpdateVector(ctx, updates, vclass.Class, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, updates, class, m.findObject, m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
-	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
 	}
 
-	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, repl, schemaVersion)
+	vectors, multiVectors, err := dto.GetVectors(updates.Vectors)
+	if err != nil {
+		return nil, fmt.Errorf("put object: cannot get vectors: %w", err)
+	}
+	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, vectors, multiVectors, repl, maxSchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}

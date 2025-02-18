@@ -22,9 +22,8 @@ import (
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/entities/sentry"
-
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -38,6 +37,7 @@ const (
 	DefaultRaftBootstrapTimeout = 600
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
+	DefaultHNSWAcornFilterRatio = 0.4
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -201,17 +201,27 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) {
+	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) || entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_ENABLED")) {
 		config.Authorization.Rbac.Enabled = true
 
-		adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
+		adminsString, ok := os.LookupEnv("AUTHORIZATION_RBAC_ROOT_USERS")
 		if ok {
-			config.Authorization.Rbac.Admins = strings.Split(adminsString, ",")
+			config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
+		} else {
+			adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
+			if ok {
+				config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
+			}
 		}
 
-		viewersString, ok := os.LookupEnv("AUTHORIZATION_VIEWER_USERS")
+		groupString, ok := os.LookupEnv("AUTHORIZATION_RBAC_ROOT_GROUPS")
 		if ok {
-			config.Authorization.Rbac.Viewers = strings.Split(viewersString, ",")
+			config.Authorization.Rbac.RootGroups = strings.Split(groupString, ",")
+		}
+
+		viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
+		if ok {
+			config.Authorization.Rbac.ViewerRootGroups = strings.Split(viewerGroupString, ",")
 		}
 	}
 
@@ -248,6 +258,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMSeparateObjectsCompactions = true
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_ENABLE_SEGMENTS_CHECKSUM_VALIDATION")) {
+		config.Persistence.LSMEnableSegmentsChecksumValidation = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -272,6 +286,14 @@ func FromEnv(config *Config) error {
 		"HNSW_FLAT_SEARCH_CONCURRENCY",
 		func(val int) { config.HNSWFlatSearchConcurrency = val },
 		DefaultHNSWFlatSearchConcurrency,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePercentage(
+		"HNSW_ACORN_FILTER_RATIO",
+		func(val float64) { config.HNSWAcornFilterRatio = val },
+		DefaultHNSWAcornFilterRatio,
 	); err != nil {
 		return err
 	}
@@ -704,6 +726,33 @@ func (c *Config) parseMemtableConfig() error {
 	return nil
 }
 
+func parsePercentage(envName string, cb func(val float64), defaultValue float64) error {
+	return parseFloat64(envName, defaultValue, func(val float64) error {
+		if val < 0 || val > 1 {
+			return fmt.Errorf("%s must be between 0 and 1", envName)
+		}
+		return nil
+	}, cb)
+}
+
+func parseFloat64(envName string, defaultValue float64, verify func(val float64) error, cb func(val float64)) error {
+	var err error
+	asFloat := defaultValue
+
+	if v := os.Getenv(envName); v != "" {
+		asFloat, err = strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse %s as float64: %w", envName, err)
+		}
+		if err = verify(asFloat); err != nil {
+			return err
+		}
+	}
+
+	cb(asFloat)
+	return nil
+}
+
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
 	return parseInt(envName, defaultValue, func(val int) error {
 		if val <= 0 {
@@ -810,7 +859,7 @@ const (
 	DefaultPersistenceMemtablesMaxDuration     = 45
 	DefaultMaxConcurrentGetRequests            = 0
 	DefaultGRPCPort                            = 50051
-	DefaultGRPCMaxMsgSize                      = 10 * 1024 * 1024
+	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultMinimumReplicationFactor            = 1
 )
 

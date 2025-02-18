@@ -267,6 +267,14 @@ func (p *Provider) IsReranker(modName string) bool {
 	return mod.Type() == modulecapabilities.Text2TextReranker
 }
 
+func (p *Provider) IsMultiVector(modName string) bool {
+	mod := p.GetByName(modName)
+	if mod == nil {
+		return false
+	}
+	return mod.Type() == modulecapabilities.Text2ColBERT
+}
+
 func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
 	switch moduleType {
 	case modulecapabilities.Text2Vec,
@@ -653,7 +661,7 @@ func (p *Provider) ListObjectsAdditionalExtend(ctx context.Context,
 
 // GetExploreAdditionalExtend extends graphql api get queries with additional properties
 func (p *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32,
+	moduleParams map[string]interface{}, searchVector models.Vector,
 	argumentModuleParams map[string]interface{},
 ) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
@@ -664,7 +672,7 @@ func (p *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.
 	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams)
 }
 
-func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, searchVector []float32, capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, searchVector models.Vector, capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	toBeExtended := in
 	if len(toBeExtended) > 0 {
 		class, err := p.getClassFromSearchResult(toBeExtended)
@@ -710,9 +718,20 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 				additionalPropertyFn := p.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
 				if additionalPropertyFn != nil && value != nil {
 					searchValue := value
-					if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
-						searchVectorValue.SetSearchVector(searchVector)
-						searchValue = searchVectorValue
+					if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector[[]float32]); ok {
+						if vec, ok := searchVector.([]float32); ok {
+							searchVectorValue.SetSearchVector(vec)
+							searchValue = searchVectorValue
+						} else {
+							return nil, errors.Errorf("extend %s: set search vector unrecongnized type: %T", name, searchVector)
+						}
+					} else if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector[[][]float32]); ok {
+						if vec, ok := searchVector.([][]float32); ok {
+							searchVectorValue.SetSearchVector(vec)
+							searchValue = searchVectorValue
+						} else {
+							return nil, errors.Errorf("extend %s: set search multi vector unrecongnized type: %T", name, searchVector)
+						}
 					}
 					resArray, err := additionalPropertyFn(ctx, toBeExtended, searchValue, nil, argumentModuleParams, cfg)
 					if err != nil {
@@ -817,6 +836,15 @@ func (p *Provider) TargetsFromSearchParam(className string, params interface{}) 
 	}
 
 	return targetVectors, nil
+}
+
+func (p *Provider) IsTargetVectorMultiVector(className, targetVector string) (bool, error) {
+	class, err := p.getClass(className)
+	if err != nil {
+		return false, err
+	}
+	targetModule := p.getModuleNameForTargetVector(class, targetVector)
+	return p.IsMultiVector(targetModule), nil
 }
 
 // VectorFromSearchParam gets a vector for a given argument. This is used in
@@ -934,9 +962,9 @@ func (p *Provider) VectorFromInput(ctx context.Context,
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if mod.Name() == targetModule {
+		if p.isModuleNameEqual(mod, targetModule) {
 			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
-				if found, vector, err := vectorFromInput[[]float32](ctx, mod, class, input, targetModule); found {
+				if found, vector, err := vectorFromInput[[]float32](ctx, mod, class, input, targetVector); found {
 					return vector, err
 				}
 			}
@@ -956,9 +984,9 @@ func (p *Provider) MultiVectorFromInput(ctx context.Context,
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if mod.Name() == targetModule {
+		if p.isModuleNameEqual(mod, targetModule) {
 			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
-				if found, vector, err := vectorFromInput[[][]float32](ctx, mod, class, input, targetModule); found {
+				if found, vector, err := vectorFromInput[[][]float32](ctx, mod, class, input, targetVector); found {
 					return vector, err
 				}
 			}

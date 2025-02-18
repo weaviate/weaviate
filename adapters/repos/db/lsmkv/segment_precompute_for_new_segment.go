@@ -32,14 +32,18 @@ func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, erro
 	// It is now safe to hold the RLock on the maintenanceLock because we know
 	// that the compaction routine will not try to obtain the Lock() until we
 	// have released the flushVsCompactLock.
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
-	newSegmentIndex := len(sg.segments)
+	segments, release := sg.getAndLockSegments()
+	defer release()
 
 	segment, err := newSegment(path, sg.logger,
-		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
-		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+		sg.metrics, sg.makeExistsOn(segments),
+		segmentConfig{
+			mmapContents:             sg.mmapContents,
+			useBloomFilter:           sg.useBloomFilter,
+			calcCountNetAdditions:    sg.calcCountNetAdditions,
+			overwriteDerived:         true,
+			enableChecksumValidation: sg.enableChecksumValidation,
+		})
 	if err != nil {
 		return nil, fmt.Errorf("init and pre-compute new segment %s: %w", path, err)
 	}

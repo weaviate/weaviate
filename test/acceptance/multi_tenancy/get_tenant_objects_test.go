@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -368,7 +369,7 @@ func TestListTenantObjects(t *testing.T) {
 			require.NotNil(t, err)
 			expErr := &objects.ObjectsListUnprocessableEntity{}
 			require.ErrorAs(t, err, &expErr)
-			assert.Contains(t, err.(*objects.ObjectsListUnprocessableEntity).Payload.Error[0].Message, tenantNames[0])
+			assert.Contains(t, expErr.Payload.Error[0].Message, tenantNames[0])
 			require.Nil(t, res)
 		})
 	})
@@ -417,7 +418,7 @@ func TestListTenantObjects(t *testing.T) {
 			require.NotNil(t, err)
 			expErr := &objects.ObjectsListUnprocessableEntity{}
 			require.ErrorAs(t, err, &expErr)
-			assert.Contains(t, err.(*objects.ObjectsListUnprocessableEntity).Payload.Error[0].Message, tenantNames[1])
+			assert.Contains(t, expErr.Payload.Error[0].Message, tenantNames[1])
 			require.Nil(t, res)
 		})
 

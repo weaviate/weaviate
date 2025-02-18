@@ -350,7 +350,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 
 func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T) {
 	var vectors [][]float32
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10000; i++ {
 		vectors = append(vectors, []float32{rand.Float32(), rand.Float32(), rand.Float32()})
 	}
 	var vectorIndex *hnsw
@@ -430,6 +430,18 @@ func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T
 		}()
 
 		wg.Wait()
+	})
+
+	t.Run("final tombstone cleanup", func(t *testing.T) {
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+		require.Nil(t, err)
+	})
+
+	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
+		vectorIndex.tombstoneLock.Lock()
+		defer vectorIndex.tombstoneLock.Unlock()
+
+		assert.Len(t, vectorIndex.tombstones, 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {

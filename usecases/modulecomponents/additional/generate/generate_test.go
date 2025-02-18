@@ -77,12 +77,6 @@ func (c *fakeClient) GenerateSingleResult(ctx context.Context, textProperties ma
 	return c.getResult(textProperties, prompt), nil
 }
 
-func (c *fakeClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, settings interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	return &modulecapabilities.GenerateResponse{
-		Result: &prompt,
-	}, nil
-}
-
 func (c *fakeClient) getResults(text []map[string]string, task string) *modulecapabilities.GenerateResponse {
 	return &modulecapabilities.GenerateResponse{
 		Result: &task,

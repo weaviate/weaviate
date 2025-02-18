@@ -29,7 +29,7 @@ type BlockEntry struct {
 	MaxImpactPropLength uint32
 }
 
-func (b *BlockEntry) Size() int {
+func (b BlockEntry) Size() int {
 	return 20
 }
 

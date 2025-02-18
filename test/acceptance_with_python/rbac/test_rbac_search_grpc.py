@@ -36,7 +36,6 @@ def test_rbac_search(
 
     # with correct rights
     required_permissions = [
-        Permissions.collections(collection=col1.name, read_config=True),
         Permissions.data(collection=col1.name, read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):

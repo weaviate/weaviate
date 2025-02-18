@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -93,7 +94,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	m.indexer.AssertExpectations(t)
 
 	// Create a new FSM that will restore from it's state from the disk (using snapshot and logs)
-	s := NewFSM(m.cfg)
+	s := NewFSM(m.cfg, prometheus.NewPedanticRegistry())
 	m.store = &s
 	// We refresh the mock schema to ensure that we can assert no calls except Open are sent to the database
 	m.indexer = fakes.NewMockSchemaExecutor()
@@ -101,6 +102,8 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	// Ensure raft starts and a leader is elected
 	m.indexer.On("Open", Anything).Return(nil)
+	// shall be called because of restoring from snapshot
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return().Once()
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))

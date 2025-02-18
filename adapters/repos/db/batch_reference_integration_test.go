@@ -113,7 +113,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "source item",
 			},
-		}, []float32{0.5}, nil, nil, 0)
+		}, []float32{0.5}, nil, nil, nil, 0)
 		require.Nil(t, err)
 
 		targets := []strfmt.UUID{target1, target2, target3, target4}
@@ -125,7 +125,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				Properties: map[string]interface{}{
 					"name": fmt.Sprintf("target item %d", i),
 				},
-			}, []float32{0.7}, nil, nil, 0)
+			}, []float32{0.7}, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -381,7 +381,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				Pagination: &filters.Pagination{
 					Limit: 1,
 				},
-			}, []string{""}, [][]float32{{0.49}})
+			}, []string{""}, []models.Vector{[]float32{0.49}})
 
 			require.Nil(t, err)
 			require.Len(t, res, 1)

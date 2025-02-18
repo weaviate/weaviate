@@ -139,7 +139,7 @@ func (i *Inspector) individualWords(ctx context.Context,
 	for _, word := range wordArray {
 		iw, err := i.individualWord(ctx, word)
 		if err != nil {
-			return nil, fmt.Errorf("word '%s': %v", word, err)
+			return nil, fmt.Errorf("word '%s': %w", word, err)
 		}
 
 		res = append(res, iw)
@@ -153,7 +153,7 @@ func (i *Inspector) individualWord(ctx context.Context,
 ) (*models.C11yWordsResponseIndividualWordsItems0, error) {
 	ok, err := i.client.IsWordPresent(ctx, word)
 	if err != nil {
-		return nil, fmt.Errorf("could not check word presence:  %v", err)
+		return nil, fmt.Errorf("could not check word presence:  %w", err)
 	}
 
 	if !ok {

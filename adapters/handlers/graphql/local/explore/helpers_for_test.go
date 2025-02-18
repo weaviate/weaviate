@@ -16,11 +16,11 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/tailor-inc/graphql"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	testhelper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -44,6 +44,14 @@ type fakeAuthorizer struct{}
 
 func (a *fakeAuthorizer) Authorize(principal *models.Principal, verb string, resource ...string) error {
 	return nil
+}
+
+func (a *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resource ...string) error {
+	return nil
+}
+
+func (a *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	return resources, nil
 }
 
 func getFakeAuthorizer() authorization.Authorizer {

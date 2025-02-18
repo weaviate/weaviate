@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -57,8 +58,8 @@ type replicator interface {
 		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, class, shardName string,
 		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
-	DigestObjectsInTokenRange(ctx context.Context, class, shardName string,
-		initialToken, finalToken uint64, limit int) (result []replica.RepairResponse, lastTokenRead uint64, err error)
+	DigestObjectsInRange(ctx context.Context, class, shardName string,
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []replica.RepairResponse, err error)
 	HashTreeLevel(ctx context.Context, index, shard string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
@@ -84,8 +85,8 @@ var (
 		`\/shards\/(` + sh + `)\/objects/_overwrite`)
 	regxObjectsDigest = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/_digest`)
-	regexObjectsDigestsInTokenRange = regexp.MustCompile(`\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/objects/digestsInTokenRange`)
+	regexObjectsDigestsInRange = regexp.MustCompile(`\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects/digestsInRange`)
 	regxHashTreeLevel = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/hashtree\/(` + l + `)`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
@@ -129,9 +130,9 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
-		case regexObjectsDigestsInTokenRange.MatchString(path):
+		case regexObjectsDigestsInRange.MatchString(path):
 			if r.Method == http.MethodPost {
-				i.getObjectsDigestsInTokenRange().ServeHTTP(w, r)
+				i.getObjectsDigestsInRange().ServeHTTP(w, r)
 				return
 			}
 
@@ -433,9 +434,9 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 	})
 }
 
-func (i *replicatedIndices) getObjectsDigestsInTokenRange() http.Handler {
+func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := regexObjectsDigestsInTokenRange.FindStringSubmatch(r.URL.Path)
+		args := regexObjectsDigestsInRange.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -450,24 +451,23 @@ func (i *replicatedIndices) getObjectsDigestsInTokenRange() http.Handler {
 			return
 		}
 
-		var tokenRangeReq replica.DigestObjectsInTokenRangeReq
-		if err := json.Unmarshal(reqPayload, &tokenRangeReq); err != nil {
+		var rangeReq replica.DigestObjectsInRangeReq
+		if err := json.Unmarshal(reqPayload, &rangeReq); err != nil {
 			http.Error(w, "unmarshal digest objects in token range params from json: "+err.Error(),
 				http.StatusBadRequest)
 			return
 		}
 
-		digests, lastTokenRead, err := i.shards.DigestObjectsInTokenRange(r.Context(),
-			index, shard, tokenRangeReq.InitialToken, tokenRangeReq.FinalToken, tokenRangeReq.Limit)
+		digests, err := i.shards.DigestObjectsInRange(r.Context(),
+			index, shard, rangeReq.InitialUUID, rangeReq.FinalUUID, rangeReq.Limit)
 		if err != nil {
 			http.Error(w, "digest objects in range: "+err.Error(),
 				http.StatusInternalServerError)
 			return
 		}
 
-		resBytes, err := json.Marshal(replica.DigestObjectsInTokenRangeResp{
-			Digests:       digests,
-			LastTokenRead: lastTokenRead,
+		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{
+			Digests: digests,
 		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -876,8 +876,8 @@ func (i *replicatedIndices) postRefs() http.Handler {
 
 func localIndexNotReady(resp replica.SimpleResponse) bool {
 	if err := resp.FirstError(); err != nil {
-		re, ok := err.(*replica.Error)
-		if ok && re.IsStatusCode(replica.StatusNotReady) {
+		var replicaErr *replica.Error
+		if errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replica.StatusNotReady) {
 			return true
 		}
 	}

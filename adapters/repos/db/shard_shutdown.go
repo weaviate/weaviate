@@ -63,13 +63,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	).Unregister(ctx)
 	ec.Add(err)
 
-	s.mayStopHashBeater()
-
-	s.hashtreeRWMux.Lock()
-	if s.hashtree != nil {
-		s.closeHashTree()
-	}
-	s.hashtreeRWMux.Unlock()
+	s.mayStopAsyncReplication()
 
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
@@ -130,6 +124,11 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)
 		ec.AddWrap(err, "stop lsmkv store")
+	}
+
+	if s.dynamicVectorIndexDB != nil {
+		err = s.dynamicVectorIndexDB.Close()
+		ec.AddWrap(err, "stop dynamic vector index db")
 	}
 
 	if s.dimensionTrackingInitialized.Load() {

@@ -332,20 +332,26 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			continue
 		}
 
-		if len(object.Vector) == 0 && len(object.Vectors) == 0 {
+		if len(object.Vector) == 0 && len(object.Vectors) == 0 && len(object.MultiVectors) == 0 {
 			continue
 		}
 
 		if hasTargetVectors {
 			for targetVector, vector := range object.Vectors {
-				targetVectors[targetVector] = append(targetVectors[targetVector], common.VectorRecord{
+				targetVectors[targetVector] = append(targetVectors[targetVector], &common.Vector[[]float32]{
+					ID:     status.docID,
+					Vector: vector,
+				})
+			}
+			for targetVector, vector := range object.MultiVectors {
+				targetVectors[targetVector] = append(targetVectors[targetVector], &common.Vector[[][]float32]{
 					ID:     status.docID,
 					Vector: vector,
 				})
 			}
 		} else {
 			if len(object.Vector) > 0 {
-				vectors = append(vectors, common.VectorRecord{
+				vectors = append(vectors, &common.Vector[[]float32]{
 					ID:     status.docID,
 					Vector: object.Vector,
 				})
@@ -413,7 +419,7 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 		return
 	}
 
-	if object.Vector != nil || len(object.Vectors) > 0 {
+	if object.Vector != nil || len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
 		// By this time all required deletes (e.g. because of DocID changes) have
 		// already been grouped and performed in bulk. Only the insertions are
 		// left. The motivation for this change is explained in
@@ -437,6 +443,12 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 			if len(object.Vectors) > 0 {
 				if err := ob.shard.updateVectorIndexesIgnoreDelete(ctx, object.Vectors, status); err != nil {
 					ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+					return
+				}
+			}
+			if len(object.MultiVectors) > 0 {
+				if err := ob.shard.updateMultiVectorIndexesIgnoreDelete(ctx, object.MultiVectors, status); err != nil {
+					ob.setErrorAtIndex(errors.Wrap(err, "insert to multi vector index"), index)
 					return
 				}
 			}

@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -74,8 +75,11 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzAddPermissionsHandler: authz.AddPermissionsHandlerFunc(func(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AddPermissions has not yet been implemented")
 		}),
-		AuthzAssignRoleHandler: authz.AssignRoleHandlerFunc(func(params authz.AssignRoleParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation authz.AssignRole has not yet been implemented")
+		AuthzAssignRoleToGroupHandler: authz.AssignRoleToGroupHandlerFunc(func(params authz.AssignRoleToGroupParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.AssignRoleToGroup has not yet been implemented")
+		}),
+		AuthzAssignRoleToUserHandler: authz.AssignRoleToUserHandlerFunc(func(params authz.AssignRoleToUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.AssignRoleToUser has not yet been implemented")
 		}),
 		BackupsBackupsCancelHandler: backups.BackupsCancelHandlerFunc(func(params backups.BackupsCancelParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation backups.BackupsCancel has not yet been implemented")
@@ -119,14 +123,14 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzDeleteRoleHandler: authz.DeleteRoleHandlerFunc(func(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.DeleteRole has not yet been implemented")
 		}),
+		UsersGetOwnInfoHandler: users.GetOwnInfoHandlerFunc(func(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.GetOwnInfo has not yet been implemented")
+		}),
 		AuthzGetRoleHandler: authz.GetRoleHandlerFunc(func(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRole has not yet been implemented")
 		}),
 		AuthzGetRolesHandler: authz.GetRolesHandlerFunc(func(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRoles has not yet been implemented")
-		}),
-		AuthzGetRolesForOwnUserHandler: authz.GetRolesForOwnUserHandlerFunc(func(params authz.GetRolesForOwnUserParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation authz.GetRolesForOwnUser has not yet been implemented")
 		}),
 		AuthzGetRolesForUserHandler: authz.GetRolesForUserHandlerFunc(func(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRolesForUser has not yet been implemented")
@@ -212,8 +216,11 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzRemovePermissionsHandler: authz.RemovePermissionsHandlerFunc(func(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.RemovePermissions has not yet been implemented")
 		}),
-		AuthzRevokeRoleHandler: authz.RevokeRoleHandlerFunc(func(params authz.RevokeRoleParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation authz.RevokeRole has not yet been implemented")
+		AuthzRevokeRoleFromGroupHandler: authz.RevokeRoleFromGroupHandlerFunc(func(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.RevokeRoleFromGroup has not yet been implemented")
+		}),
+		AuthzRevokeRoleFromUserHandler: authz.RevokeRoleFromUserHandlerFunc(func(params authz.RevokeRoleFromUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.RevokeRoleFromUser has not yet been implemented")
 		}),
 		SchemaSchemaDumpHandler: schema.SchemaDumpHandlerFunc(func(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaDump has not yet been implemented")
@@ -337,8 +344,10 @@ type WeaviateAPI struct {
 	WellKnownGetWellKnownOpenidConfigurationHandler well_known.GetWellKnownOpenidConfigurationHandler
 	// AuthzAddPermissionsHandler sets the operation handler for the add permissions operation
 	AuthzAddPermissionsHandler authz.AddPermissionsHandler
-	// AuthzAssignRoleHandler sets the operation handler for the assign role operation
-	AuthzAssignRoleHandler authz.AssignRoleHandler
+	// AuthzAssignRoleToGroupHandler sets the operation handler for the assign role to group operation
+	AuthzAssignRoleToGroupHandler authz.AssignRoleToGroupHandler
+	// AuthzAssignRoleToUserHandler sets the operation handler for the assign role to user operation
+	AuthzAssignRoleToUserHandler authz.AssignRoleToUserHandler
 	// BackupsBackupsCancelHandler sets the operation handler for the backups cancel operation
 	BackupsBackupsCancelHandler backups.BackupsCancelHandler
 	// BackupsBackupsCreateHandler sets the operation handler for the backups create operation
@@ -367,12 +376,12 @@ type WeaviateAPI struct {
 	AuthzCreateRoleHandler authz.CreateRoleHandler
 	// AuthzDeleteRoleHandler sets the operation handler for the delete role operation
 	AuthzDeleteRoleHandler authz.DeleteRoleHandler
+	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
+	UsersGetOwnInfoHandler users.GetOwnInfoHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
 	AuthzGetRoleHandler authz.GetRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
 	AuthzGetRolesHandler authz.GetRolesHandler
-	// AuthzGetRolesForOwnUserHandler sets the operation handler for the get roles for own user operation
-	AuthzGetRolesForOwnUserHandler authz.GetRolesForOwnUserHandler
 	// AuthzGetRolesForUserHandler sets the operation handler for the get roles for user operation
 	AuthzGetRolesForUserHandler authz.GetRolesForUserHandler
 	// AuthzGetUsersForRoleHandler sets the operation handler for the get users for role operation
@@ -429,8 +438,10 @@ type WeaviateAPI struct {
 	ObjectsObjectsValidateHandler objects.ObjectsValidateHandler
 	// AuthzRemovePermissionsHandler sets the operation handler for the remove permissions operation
 	AuthzRemovePermissionsHandler authz.RemovePermissionsHandler
-	// AuthzRevokeRoleHandler sets the operation handler for the revoke role operation
-	AuthzRevokeRoleHandler authz.RevokeRoleHandler
+	// AuthzRevokeRoleFromGroupHandler sets the operation handler for the revoke role from group operation
+	AuthzRevokeRoleFromGroupHandler authz.RevokeRoleFromGroupHandler
+	// AuthzRevokeRoleFromUserHandler sets the operation handler for the revoke role from user operation
+	AuthzRevokeRoleFromUserHandler authz.RevokeRoleFromUserHandler
 	// SchemaSchemaDumpHandler sets the operation handler for the schema dump operation
 	SchemaSchemaDumpHandler schema.SchemaDumpHandler
 	// SchemaSchemaObjectsCreateHandler sets the operation handler for the schema objects create operation
@@ -555,8 +566,11 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzAddPermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.AddPermissionsHandler")
 	}
-	if o.AuthzAssignRoleHandler == nil {
-		unregistered = append(unregistered, "authz.AssignRoleHandler")
+	if o.AuthzAssignRoleToGroupHandler == nil {
+		unregistered = append(unregistered, "authz.AssignRoleToGroupHandler")
+	}
+	if o.AuthzAssignRoleToUserHandler == nil {
+		unregistered = append(unregistered, "authz.AssignRoleToUserHandler")
 	}
 	if o.BackupsBackupsCancelHandler == nil {
 		unregistered = append(unregistered, "backups.BackupsCancelHandler")
@@ -600,14 +614,14 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzDeleteRoleHandler == nil {
 		unregistered = append(unregistered, "authz.DeleteRoleHandler")
 	}
+	if o.UsersGetOwnInfoHandler == nil {
+		unregistered = append(unregistered, "users.GetOwnInfoHandler")
+	}
 	if o.AuthzGetRoleHandler == nil {
 		unregistered = append(unregistered, "authz.GetRoleHandler")
 	}
 	if o.AuthzGetRolesHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesHandler")
-	}
-	if o.AuthzGetRolesForOwnUserHandler == nil {
-		unregistered = append(unregistered, "authz.GetRolesForOwnUserHandler")
 	}
 	if o.AuthzGetRolesForUserHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesForUserHandler")
@@ -693,8 +707,11 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzRemovePermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.RemovePermissionsHandler")
 	}
-	if o.AuthzRevokeRoleHandler == nil {
-		unregistered = append(unregistered, "authz.RevokeRoleHandler")
+	if o.AuthzRevokeRoleFromGroupHandler == nil {
+		unregistered = append(unregistered, "authz.RevokeRoleFromGroupHandler")
+	}
+	if o.AuthzRevokeRoleFromUserHandler == nil {
+		unregistered = append(unregistered, "authz.RevokeRoleFromUserHandler")
 	}
 	if o.SchemaSchemaDumpHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaDumpHandler")
@@ -858,7 +875,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/authz/users/{id}/assign"] = authz.NewAssignRole(o.context, o.AuthzAssignRoleHandler)
+	o.handlers["POST"]["/authz/groups/{id}/assign"] = authz.NewAssignRoleToGroup(o.context, o.AuthzAssignRoleToGroupHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/authz/users/{id}/assign"] = authz.NewAssignRoleToUser(o.context, o.AuthzAssignRoleToUserHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
@@ -918,15 +939,15 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
+	o.handlers["GET"]["/users/own-info"] = users.NewGetOwnInfo(o.context, o.UsersGetOwnInfoHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
 	o.handlers["GET"]["/authz/roles/{id}"] = authz.NewGetRole(o.context, o.AuthzGetRoleHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/authz/roles"] = authz.NewGetRoles(o.context, o.AuthzGetRolesHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/authz/users/own-roles"] = authz.NewGetRolesForOwnUser(o.context, o.AuthzGetRolesForOwnUserHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1042,7 +1063,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/authz/users/{id}/revoke"] = authz.NewRevokeRole(o.context, o.AuthzRevokeRoleHandler)
+	o.handlers["POST"]["/authz/groups/{id}/revoke"] = authz.NewRevokeRoleFromGroup(o.context, o.AuthzRevokeRoleFromGroupHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/authz/users/{id}/revoke"] = authz.NewRevokeRoleFromUser(o.context, o.AuthzRevokeRoleFromUserHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

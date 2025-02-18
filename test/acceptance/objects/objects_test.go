@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/weaviate/weaviate/client/objects"
@@ -72,7 +72,8 @@ func creatingObjects(t *testing.T) {
 		// Ensure that the response is OK
 		helper.AssertRequestOk(t, resp, err, func() {
 			object := resp.Payload
-			assert.Regexp(t, strfmt.UUIDPattern, object.ID)
+			_, err := uuid.Parse(object.ID.String())
+			assert.NoError(t, err)
 
 			schema, ok := object.Properties.(map[string]interface{})
 			if !ok {
@@ -117,8 +118,8 @@ func creatingObjects(t *testing.T) {
 
 		resp, err = helper.Client(t).Objects.ObjectsCreate(params, nil)
 		helper.AssertRequestFail(t, resp, err, func() {
-			errResponse, ok := err.(*objects.ObjectsCreateUnprocessableEntity)
-			if !ok {
+			var errResponse *objects.ObjectsCreateUnprocessableEntity
+			if !errors.As(err, &errResponse) {
 				t.Fatalf("Did not get not found response, but %#v", err)
 			}
 
@@ -158,7 +159,8 @@ func creatingObjects(t *testing.T) {
 		// Ensure that the response is OK
 		helper.AssertRequestOk(t, resp, err, func() {
 			object := resp.Payload
-			assert.Regexp(t, strfmt.UUIDPattern, object.ID)
+			_, err := uuid.Parse(object.ID.String())
+			assert.NoError(t, err)
 
 			schema, ok := object.Properties.(map[string]interface{})
 			if !ok {
@@ -313,8 +315,8 @@ func creatingObjects(t *testing.T) {
 				params := objects.NewObjectsCreateParams().WithBody(example.object())
 				resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
 				helper.AssertRequestFail(t, resp, err, func() {
-					errResponse, ok := err.(*objects.ObjectsCreateUnprocessableEntity)
-					if !ok {
+					var errResponse *objects.ObjectsCreateUnprocessableEntity
+					if !errors.As(err, &errResponse) {
 						t.Fatalf("Did not get not found response, but %#v", err)
 					}
 					example.errorCheck(t, errResponse.Payload)

@@ -68,10 +68,6 @@ type Physical struct {
 	BelongsToNodes                       []string `json:"belongsToNodes,omitempty"`
 
 	Status string `json:"status,omitempty"`
-	// DataVersion is experimental. Starts at 0 and is incremented each time this tenant is offloaded
-	// to cloud storage. It can be used to see if externally cached data is up to date with the data
-	// in S3. Wraps around to 0 if it reaches math.MaxInt64
-	DataVersion int64 `json:"dataVersion,omitempty"`
 }
 
 // BelongsToNode for backward-compatibility when there was no replication. It
@@ -354,9 +350,16 @@ func (s *State) AddPartition(name string, nodes []string, status string) Physica
 	return p
 }
 
-// DeletePartition to physical shards
-func (s *State) DeletePartition(name string) {
+// DeletePartition to physical shards. Return `true` if given partition is
+// actually deleted.
+func (s *State) DeletePartition(name string) (string, bool) {
+	t, ok := s.Physical[name]
+	if !ok {
+		return "", false
+	}
+	status := t.Status
 	delete(s.Physical, name)
+	return status, true
 }
 
 // ApplyNodeMapping replaces node names with their new value form nodeMapping in s.
@@ -516,7 +519,6 @@ func (p Physical) DeepCopy() Physical {
 		OwnsPercentage: p.OwnsPercentage,
 		BelongsToNodes: belongsCopy,
 		Status:         p.Status,
-		DataVersion:    p.DataVersion,
 	}
 }
 

@@ -42,21 +42,16 @@ func (s *Shard) drop() (err error) {
 		s.clearDimensionMetrics()
 	}
 
-	s.mayStopHashBeater()
+	s.index.logger.WithFields(logrus.Fields{
+		"action": "drop_shard",
+		"class":  s.class.Class,
+		"shard":  s.name,
+	}).Debug("dropping shard")
 
-	s.hashtreeRWMux.Lock()
-	if s.hashtree != nil {
-		s.hashtree = nil
-		s.hashtreeInitialized.Store(false)
-	}
-	s.hashtreeRWMux.Unlock()
+	s.mayStopAsyncReplication()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
-	s.index.logger.WithFields(logrus.Fields{
-		"action":   "drop_shard",
-		"duration": 5 * time.Second,
-	}).Debug("context.WithTimeout")
 
 	// unregister all callbacks at once, in parallel
 	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
@@ -133,6 +128,12 @@ func (s *Shard) drop() (err error) {
 	}
 
 	s.metrics.baseMetrics.FinishUnloadingShard(s.index.Config.ClassName.String())
+
+	s.index.logger.WithFields(logrus.Fields{
+		"action": "drop_shard",
+		"class":  s.class.Class,
+		"shard":  s.name,
+	}).Debug("shard successfully dropped")
 
 	return nil
 }

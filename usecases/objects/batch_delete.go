@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -137,7 +138,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	// Validate schema given in body with the weaviate schema
 	vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
 	if err != nil {
-		return nil, 0, errors.Wrapf(err, "failed to get class: %s", match.Class)
+		return nil, 0, fmt.Errorf("failed to get class: %s: %w", match.Class, err)
 	}
 	if vclasses[match.Class].Class == nil {
 		return nil, 0, fmt.Errorf("failed to get class: %s", match.Class)
@@ -146,12 +147,12 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 
 	filter, err := filterext.Parse(match.Where, class.Class)
 	if err != nil {
-		return nil, 0, errors.Wrapf(err, "failed to parse where filter")
+		return nil, 0, fmt.Errorf("failed to parse where filter: %w", err)
 	}
 
 	err = filters.ValidateFilters(b.classGetterFunc(principal), filter)
 	if err != nil {
-		return nil, 0, errors.Wrapf(err, "invalid where filter")
+		return nil, 0, fmt.Errorf("invalid where filter: %w", err)
 	}
 
 	dryRunParam := false

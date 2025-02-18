@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -365,11 +366,8 @@ func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, r
 	if err == nil && meta.Status != backup.Cancelled {
 		return fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}
-	if _, ok := err.(backup.ErrNotFound); !ok {
-		return fmt.Errorf("check if backup %q exists at %q: %w", req.ID, destPath, err)
-	}
-	var errNotFound backup.ErrNotFound
-	if !errors.As(err, &errNotFound) {
+
+	if !errors.As(err, &backup.ErrNotFound{}) {
 		return fmt.Errorf("check if backup %q exists at %q: %w", req.ID, destPath, err)
 	}
 	return nil
@@ -390,7 +388,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if err != nil {
 		notFoundErr := backup.ErrNotFound{}
 		if errors.As(err, &notFoundErr) {
-			return nil, fmt.Errorf("backup id %q does not exist: %v: %w", req.ID, notFoundErr, errMetaNotFound)
+			return nil, fmt.Errorf("backup id %q does not exist: %w: %w", req.ID, notFoundErr, errMetaNotFound)
 		}
 		return nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}

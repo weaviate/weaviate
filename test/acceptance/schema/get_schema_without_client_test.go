@@ -70,6 +70,10 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"rescoreLimit":  float64(20),
 					},
 					"filterStrategy": "sweeping",
+					"multivector": map[string]interface{}{
+						"enabled":     false,
+						"aggregation": "maxSim",
+					},
 				},
 				"shardingConfig": map[string]interface{}{
 					"actualCount":         float64(1),

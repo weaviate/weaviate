@@ -69,14 +69,17 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	}
 
 	tombstoneBuffer := make([]byte, 0)
-	if tombstones.GetCardinality() != 0 {
+	if !tombstones.IsEmpty() {
 		tombstoneBuffer = tombstones.ToBuffer()
 	}
 
 	header := segmentindex.Header{
+		// TODO: checksums currently not supported for StrategyInverted,
+		//       which was introduced with segmentindex.SegmentV1. When
+		//       support is added, we can bump this header version to 1.
+		Version:          0,
 		IndexStart:       0, // will be updated later
 		Level:            0, // always level zero on a new one
-		Version:          0, // always version 0 for now
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(StrategyInverted),
 	}
@@ -90,6 +93,11 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 		DataFieldCount:        uint8(segmentindex.SegmentInvertedDefaultFieldCount),
 		DataFields:            []varenc.VarEncDataType{varenc.DeltaVarIntUint64, varenc.VarIntUint64},
 	}
+
+	docIdEncoder := varenc.GetVarEncEncoder64(headerInverted.DataFields[0])
+	tfEncoder := varenc.GetVarEncEncoder64(headerInverted.DataFields[1])
+	docIdEncoder.Init(segmentindex.SegmentInvertedDefaultBlockSize)
+	tfEncoder.Init(segmentindex.SegmentInvertedDefaultBlockSize)
 
 	n, err := header.WriteTo(f)
 	if err != nil {
@@ -117,7 +125,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 				ValueStart: totalWritten,
 			}
 
-			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values)
+			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values, docIdEncoder, tfEncoder)
 
 			if _, err := f.Write(blocksEncoded); err != nil {
 				return nil, nil, err
@@ -161,7 +169,9 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 	b := new(bytes.Buffer)
 
-	binary.LittleEndian.PutUint64(buf, propLengthSum)
+	propLengthAvg := float64(propLengthSum) / float64(propLengthCount)
+
+	binary.LittleEndian.PutUint64(buf, math.Float64bits(propLengthAvg))
 	if _, err := f.Write(buf); err != nil {
 		return nil, nil, err
 	}

@@ -237,7 +237,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 			vectorfmt, ok2 := vector.([]float32)
 			if ok2 {
 				metadata.Vector = vectorfmt // deprecated, remove in a bit
-				metadata.VectorBytes = byteops.Float32ToByteVector(vectorfmt)
+				metadata.VectorBytes = byteops.Fp32SliceToBytes(vectorfmt)
 			}
 		}
 	}
@@ -245,17 +245,28 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 	if len(additionalPropsParams.Vectors) > 0 {
 		vectors, ok := additionalPropertiesMap["vectors"]
 		if ok {
-			vectorfmt, ok2 := vectors.(map[string][]float32)
+			vectorfmt, ok2 := vectors.(map[string]models.Vector)
 			if ok2 {
 				metadata.Vectors = make([]*pb.Vectors, 0, len(vectorfmt))
 				for name, vector := range vectorfmt {
-					metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
-						VectorBytes: byteops.Float32ToByteVector(vector),
-						Name:        name,
-					})
+					switch vec := vector.(type) {
+					case []float32:
+						metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
+							VectorBytes: byteops.Fp32SliceToBytes(vec),
+							Name:        name,
+							Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
+						})
+					case [][]float32:
+						metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
+							VectorBytes: byteops.Fp32SliceOfSlicesToBytes(vec),
+							Name:        name,
+							Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
+						})
+					default:
+						// do nothing
+					}
 				}
 			}
-
 		}
 	}
 
@@ -814,7 +825,7 @@ func extractArrayTypes(rawProps map[string]interface{}, props *pb.ObjectProperti
 			}
 			props.NumberArrayProperties = append(
 				props.NumberArrayProperties,
-				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: byteops.Float64ToByteVector(propFloat), Values: propFloat},
+				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: byteops.Fp64SliceToBytes(propFloat), Values: propFloat},
 			)
 			delete(rawProps, propName)
 		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeUUIDArray:

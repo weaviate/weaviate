@@ -86,7 +86,7 @@ func Benchmark_Migration(b *testing.B) {
 
 				id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 				obj := &models.Object{Class: "Test", ID: id}
-				err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
+				err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -155,7 +155,7 @@ func Test_Migration(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
@@ -221,7 +221,7 @@ func Test_DimensionTracking(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
@@ -236,7 +236,7 @@ func Test_DimensionTracking(t *testing.T) {
 		for i := 100; i < 200; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, nil, nil, nil, 0)
+			err := repo.PutObject(context.Background(), obj, nil, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
@@ -291,7 +291,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinstert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
@@ -308,7 +308,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinsert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, nil, nil, nil, 0)
+			err := repo.PutObject(context.Background(), obj, nil, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
@@ -342,7 +342,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinsert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
@@ -359,7 +359,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinstert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, nil, nil, nil, 0)
+			err := repo.PutObject(context.Background(), obj, nil, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
@@ -529,10 +529,170 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 
 					id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 					obj := &models.Object{Class: tc.className, ID: id}
-					namedVectors := models.Vectors{
+					namedVectors := map[string][]float32{
 						"vec": vec,
 					}
-					err := repo.PutObject(context.Background(), obj, vec, namedVectors, nil, 0)
+					err := repo.PutObject(context.Background(), obj, vec, namedVectors, nil, nil, 0)
+					require.Nil(t, err)
+				}
+
+				publishDimensionMetricsFromRepo(context.Background(), repo, tc.className)
+
+				shardName = getSingleShardNameFromRepo(repo, tc.className)
+
+				// Check dimensions metric
+				metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(tc.className, shardName)
+				require.Nil(t, err)
+				metricValue := testutil.ToFloat64(metric)
+				require.Equal(t, tc.expectedDims, metricValue, "dimensions should match expected value")
+
+				// Check segments metric
+				metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(tc.className, shardName)
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, tc.expectedSegs, metricValue, "segments should match expected value")
+
+				// Check named dimensions metric
+				metric, err = metrics.VectorDimensionsSumByVector.GetMetricWithLabelValues(tc.className, shardName, "vec")
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, tc.expectedDims, metricValue, "named dimensions should match expected value")
+
+				// Check named segments metric
+				metric, err = metrics.VectorSegmentsSumByVector.GetMetricWithLabelValues(tc.className, shardName, "vec")
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, tc.expectedSegs, metricValue, "named segments should match expected value")
+			})
+
+			// Delete class and verify metrics are reset
+			t.Run("delete class", func(t *testing.T) {
+				err := migrator.DropClass(context.Background(), tc.className, false)
+				require.Nil(t, err)
+
+				// Verify dimensions metric is reset
+				metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(tc.className, shardName)
+				require.Nil(t, err)
+				metricValue := testutil.ToFloat64(metric)
+				require.Equal(t, 0.0, metricValue, "dimensions metric should be reset")
+
+				// Verify segments metric is reset
+				metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(tc.className, shardName)
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, 0.0, metricValue, "segments metric should be reset")
+
+				// Verify dimensions metric is reset
+				metric, err = metrics.VectorDimensionsSumByVector.GetMetricWithLabelValues(tc.className, shardName, "vec")
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, 0.0, metricValue, "named dimensions metric should be reset")
+
+				// Verify segments metric is reset
+				metric, err = metrics.VectorSegmentsSumByVector.GetMetricWithLabelValues(tc.className, shardName, "vec")
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, 0.0, metricValue, "named segments metric should be reset")
+			})
+		})
+	}
+}
+
+func Test_MultiDimensionTrackingMetrics(t *testing.T) {
+	type testConfig struct {
+		name            string
+		className       string
+		vectorConfig    func() *enthnsw.UserConfig
+		expectedDims    float64
+		expectedSegs    float64
+		importDimension int
+		importTokens    int
+	}
+
+	tests := []testConfig{
+		{
+			name:      "HNSW",
+			className: "HNSW",
+			vectorConfig: func() *enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.Multivector = enthnsw.MultivectorConfig{Enabled: true}
+				return &cfg
+			},
+			expectedDims:    32000.0, // 100 objects * 5 tokens * 64 dimensions
+			expectedSegs:    0.0,
+			importDimension: 64,
+			importTokens:    5,
+		},
+	}
+
+	r := getRandomSeed()
+	dirName := t.TempDir()
+	var shardName string
+
+	shardState := singleShardState()
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	metrics := monitoring.GetMetrics()
+	repo, err := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor())
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
+	defer repo.Shutdown(context.Background())
+
+	migrator := NewMigrator(repo, logger)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Set schema
+			t.Run("set schema", func(t *testing.T) {
+				class := &models.Class{
+					Class:             tc.className,
+					VectorIndexConfig: *tc.vectorConfig(),
+					VectorConfig: map[string]models.VectorConfig{
+						"vec": {
+							VectorIndexConfig: *tc.vectorConfig(),
+						},
+					},
+					InvertedIndexConfig: invertedConfig(),
+				}
+				schema := schema.Schema{
+					Objects: &models.Schema{
+						Classes: []*models.Class{class},
+					},
+				}
+
+				require.Nil(t,
+					migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+
+				schemaGetter.schema = schema
+			})
+
+			// Import objects and validate metrics
+			t.Run("import objects and validate metrics", func(t *testing.T) {
+				for i := 0; i < 100; i++ {
+					multiVec := make([][]float32, tc.importTokens)
+					for i := range tc.importTokens {
+						vec := make([]float32, tc.importDimension)
+						for j := range vec {
+							vec[j] = r.Float32()
+						}
+						multiVec[i] = vec
+					}
+
+					id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+					obj := &models.Object{Class: tc.className, ID: id}
+					namedVectors := map[string][][]float32{
+						"vec": multiVec,
+					}
+					err := repo.PutObject(context.Background(), obj, nil, nil, namedVectors, nil, 0)
 					require.Nil(t, err)
 				}
 

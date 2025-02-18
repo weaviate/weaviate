@@ -25,12 +25,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"gopkg.in/yaml.v2"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 var download = flag.Bool("download", false, "download datasets if not found locally")
@@ -254,7 +254,7 @@ func readBigAnnDataset(t testing.TB, file string, maxObjects int) [][]float32 {
 
 	for i := 0; i < n; i++ {
 		_, err = f.Read(vectorBytes)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		require.NoError(t, err)

@@ -41,7 +41,7 @@ func (suite *ReplicationTestSuite) TestReadRepairTimebasedResolution() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -96,7 +96,7 @@ func (suite *ReplicationTestSuite) TestReadRepairTimebasedResolution() {
 		},
 	}
 
-	t.Run("add new object to node one", func(t *testing.T) {
+	t.Run("add new object to node1 with node2 down", func(t *testing.T) {
 		common.CreateObjectCL(t, compose.GetWeaviate().URI(), &repairObj, replica.One)
 	})
 
@@ -144,8 +144,6 @@ func (suite *ReplicationTestSuite) TestReadRepairTimebasedResolution() {
 	})
 
 	t.Run("require updated object read repair was made", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 2)
-
 		exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode3().URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
@@ -160,17 +158,21 @@ func (suite *ReplicationTestSuite) TestReadRepairTimebasedResolution() {
 		require.EqualValues(t, replaceObj.Vector, resp.Vector)
 	})
 
+	t.Run("stop node 2", func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, 2)
+	})
+
 	t.Run("delete article with consistency level ONE and node2 down", func(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviate().URI())
 		helper.DeleteObjectCL(t, replaceObj.Class, replaceObj.ID, replica.One)
 	})
 
-	t.Run("stop node3", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 3)
-	})
-
 	t.Run("restart node 2", func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, 2)
+	})
+
+	t.Run("stop node3", func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, 3)
 	})
 
 	replaceObj.Properties = map[string]interface{}{

@@ -43,7 +43,7 @@ def test_rbac_refs(
 
     required_permissions = [
         Permissions.collections(collection=[source.name, target.name], read_config=True),
-        Permissions.data(collection=source.name, update=True),
+        Permissions.data(collection=[source.name, target.name], update=True, read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -142,7 +142,6 @@ def test_batch_delete_with_filter(
     )
 
     required_permissions = [
-        Permissions.collections(collection=[target.name, source.name], read_config=True),
         Permissions.data(collection=source.name, delete=True, read=True),
         Permissions.data(collection=target.name, read=True),
     ]
@@ -219,8 +218,8 @@ def test_search_with_filter_and_return(
     admin_client.roles.delete(role_name)
 
     required_permissions = [
-        Permissions.collections(collection=[target.name, source.name], read_config=True),
-        Permissions.data(collection=[source.name, target.name], read=True),
+        Permissions.data(collection=[source.name], read=True),
+        Permissions.data(collection=[target.name], read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(

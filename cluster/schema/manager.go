@@ -19,10 +19,12 @@ import (
 	"io"
 
 	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	gproto "google.golang.org/protobuf/proto"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 var (
@@ -38,9 +40,9 @@ type SchemaManager struct {
 	log    *logrus.Logger
 }
 
-func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logger) *SchemaManager {
+func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, db),
+		schema: NewSchema(nodeId, db, reg),
 		db:     db,
 		parser: parser,
 		log:    log,
@@ -122,7 +124,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
 		i++
 	}
-
+	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
 	s.db.ReloadLocalDB(context.Background(), cs)
 }
@@ -342,11 +344,29 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	tenantsResponse, err := s.schema.getTenants(cmd.Class, req.Tenants)
+	if err != nil {
+		// error are handled by the updateSchema, so they are ignored here.
+		// Instead, we log the error to detect tenant status before deleting
+		// them from the schema. this allows the database layer to decide whether
+		// to send the delete request to the cloud provider.
+		s.log.WithFields(logrus.Fields{
+			"class":   cmd.Class,
+			"tenants": req.Tenants,
+			"error":   err.Error(),
+		}).Error("error getting tenants")
+	}
+
+	tenants := make([]*models.Tenant, len(tenantsResponse))
+	for i := range tenantsResponse {
+		tenants[i] = &tenantsResponse[i].Tenant
+	}
+
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
-			updateStore:  func() error { return s.db.DeleteTenants(cmd.Class, req) },
+			updateStore:  func() error { return s.db.DeleteTenants(cmd.Class, tenants) },
 			schemaOnly:   schemaOnly,
 		},
 	)
@@ -392,12 +412,18 @@ func (op applyOp) validate() error {
 // apply does apply commands from RAFT to schema 1st and then db
 func (s *SchemaManager) apply(op applyOp) error {
 	if err := op.validate(); err != nil {
-		return fmt.Errorf("could not validate raft apply op: %s", err)
+		return fmt.Errorf("could not validate raft apply op: %w", err)
 	}
 
 	// schema applied 1st to make sure any validation happen before applying it to db
 	if err := op.updateSchema(); err != nil {
 		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
+	}
+
+	if op.enableSchemaCallback {
+		// TriggerSchemaUpdateCallbacks is concurrent and at
+		// this point of time schema shall be up to date.
+		s.db.TriggerSchemaUpdateCallbacks()
 	}
 
 	if !op.schemaOnly {
@@ -406,10 +432,6 @@ func (s *SchemaManager) apply(op applyOp) error {
 		}
 	}
 
-	// Always trigger the schema callback last
-	if op.enableSchemaCallback {
-		s.db.TriggerSchemaUpdateCallbacks()
-	}
 	return nil
 }
 

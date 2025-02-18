@@ -91,7 +91,7 @@ func (cv *ConfigValidator) validateClassName(ctx context.Context, className stri
 		word := strings.ToLower(part)
 		sw, err := cv.remote.IsStopWord(ctx, word)
 		if err != nil {
-			return fmt.Errorf("check stopword: %v", err)
+			return fmt.Errorf("check stopword: %w", err)
 		}
 
 		if sw {
@@ -101,7 +101,7 @@ func (cv *ConfigValidator) validateClassName(ctx context.Context, className stri
 
 		present, err := cv.remote.IsWordPresent(ctx, word)
 		if err != nil {
-			return fmt.Errorf("check word presence: %v", err)
+			return fmt.Errorf("check word presence: %w", err)
 		}
 
 		if !present {
@@ -134,7 +134,7 @@ func (cv *ConfigValidator) validatePropertyName(ctx context.Context,
 		word := strings.ToLower(part)
 		sw, err := cv.remote.IsStopWord(ctx, word)
 		if err != nil {
-			return fmt.Errorf("check stopword: %v", err)
+			return fmt.Errorf("check stopword: %w", err)
 		}
 
 		if sw {
@@ -144,7 +144,7 @@ func (cv *ConfigValidator) validatePropertyName(ctx context.Context,
 
 		present, err := cv.remote.IsWordPresent(ctx, word)
 		if err != nil {
-			return fmt.Errorf("check word presence: %v", err)
+			return fmt.Errorf("check word presence: %w", err)
 		}
 
 		if !present {

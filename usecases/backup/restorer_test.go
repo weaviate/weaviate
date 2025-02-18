@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -173,7 +174,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		m3 := createManager(nil, nil, backend, nil)
 
 		_, err = m3.Restore(ctx, nil, req)
-		if _, ok := err.(backup.ErrNotFound); !ok {
+		if !errors.As(err, &backup.ErrNotFound{}) {
 			t.Errorf("must return an error if meta data doesn't exist: %v", err)
 		}
 	})

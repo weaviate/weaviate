@@ -16,10 +16,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/classcache"
+	"github.com/weaviate/weaviate/entities/versioned"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/sirupsen/logrus"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/usecases/config"
@@ -62,6 +66,54 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		logger:               logger,
 		authorizer:           authorization,
 	}
+}
+
+func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
+	var result *pb.AggregateReply
+	var errInner error
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.aggregate(ctx, req)
+	}, s.logger); err != nil {
+		return nil, err
+	}
+
+	return result, errInner
+}
+
+func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
+	before := time.Now()
+
+	principal, err := s.principalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract auth: %w", err)
+	}
+
+	parser := NewAggregateParser(
+		s.classGetterWithAuthzFunc(principal),
+	)
+
+	params, err := parser.Aggregate(req)
+	if err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+
+	res, err := s.traverser.Aggregate(restCtx.AddPrincipalToContext(ctx, principal), principal, params)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate: %w", err)
+	}
+
+	replier := NewAggregateReplier(
+		s.classGetterWithAuthzFunc(principal),
+		params,
+	)
+	reply, err := replier.Aggregate(res, params.GroupBy != nil)
+	if err != nil {
+		return nil, fmt.Errorf("prepare reply: %w", err)
+	}
+
+	reply.Took = float32(time.Since(before).Seconds())
+	return reply, nil
 }
 
 func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
@@ -152,18 +204,20 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	ctx = classcache.ContextWithClassCache(ctx)
 
-	knownClasses := map[string]*models.Class{}
+	// we need to save the class two times:
+	// - to check if we already authorized the class+shard combination and if yes skip the auth, this is indexed by
+	//   a combination of class+shard
+	// - to pass down the stack to reuse, index by classname so it can be found easily
+	knownClasses := map[string]versioned.Class{}
+	knownClassesAuthCheck := map[string]*models.Class{}
 	classGetter := func(classname, shard string) (*models.Class, error) {
 		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
-		name := classname + "#" + shard
-		class, ok := knownClasses[name]
+		classTenantName := classname + "#" + shard
+		class, ok := knownClassesAuthCheck[classTenantName]
 		if ok {
 			return class, nil
-		}
-
-		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(classname, shard)...); err != nil {
-			return nil, err
 		}
 
 		// batch is upsert
@@ -174,10 +228,15 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		if err := s.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
 			return nil, err
 		}
-		class = s.schemaManager.ReadOnlyClass(classname)
 
-		knownClasses[name] = class
-		return class, nil
+		// we don't leak any info that someone who inserts data does not have anyway
+		vClass, err := s.schemaManager.GetCachedClassNoAuth(ctx, classname)
+		if err != nil {
+			return nil, err
+		}
+		knownClasses[classname] = vClass[classname]
+		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
+		return vClass[classname].Class, nil
 	}
 	objs, objOriginalIndex, objectParsingErrors := BatchFromProto(req, classGetter)
 
@@ -197,8 +256,7 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
-	all := "ALL"
-	response, err := s.batchManager.AddObjects(ctx, principal, objs, []*string{&all}, replicationProperties)
+	response, err := s.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, replicationProperties, knownClasses)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +316,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, err
 	}
 
-	res, err := s.traverser.GetClass(ctx, principal, searchParams)
+	res, err := s.traverser.GetClass(restCtx.AddPrincipalToContext(ctx, principal), principal, searchParams)
 	if err != nil {
 		return nil, err
 	}
@@ -284,11 +342,18 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 }
 
 func (s *Service) classGetterWithAuthzFunc(principal *models.Principal) func(string) (*models.Class, error) {
+	authorizedCollections := map[string]*models.Class{}
+
 	return func(name string) (*models.Class, error) {
-		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
-			return nil, err
+		class, ok := authorizedCollections[name]
+		if !ok {
+			// having data access is enough for querying as we dont leak any info from the collection config that you cannot get via data access anyways
+			if err := s.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(name)...); err != nil {
+				return nil, err
+			}
+			class = s.schemaManager.ReadOnlyClass(name)
+			authorizedCollections[name] = class
 		}
-		class := s.schemaManager.ReadOnlyClass(name)
 		if class == nil {
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}

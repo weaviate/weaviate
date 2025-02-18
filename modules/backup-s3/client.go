@@ -26,6 +26,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -52,7 +53,9 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath, bucket
 		creds = credentials.NewEnvAWS()
 	} else {
 		creds = credentials.NewIAM("")
-		if _, err := creds.Get(); err != nil {
+		// .Get() got deprecated with 7.0.83
+		// and passing nil will use default context,
+		if _, err := creds.GetWithContext(nil); err != nil {
 			// can be anonymous access
 			creds = credentials.NewEnvAWS()
 		}
@@ -161,7 +164,8 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 
 	contents, err := io.ReadAll(obj)
 	if err != nil {
-		if s3Err, ok := err.(minio.ErrorResponse); ok && s3Err.StatusCode == http.StatusNotFound {
+		var s3Err minio.ErrorResponse
+		if errors.As(err, &s3Err) && s3Err.StatusCode == http.StatusNotFound {
 			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object contents from %s:%s not found %s", bucket, remotePath, remotePath))
 		}
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object contents from %s:%s %s", bucket, remotePath, remotePath))
@@ -317,7 +321,8 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 	read, err := io.Copy(w, obj)
 	if err != nil {
 		err = fmt.Errorf("get object %q: %w", remotePath, err)
-		if s3Err, ok := err.(minio.ErrorResponse); ok && s3Err.StatusCode == http.StatusNotFound {
+		var s3Err minio.ErrorResponse
+		if errors.As(err, &s3Err) && s3Err.StatusCode == http.StatusNotFound {
 			err = backup.NewErrNotFound(err)
 		}
 		return 0, err

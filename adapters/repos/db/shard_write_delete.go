@@ -19,7 +19,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -201,6 +200,16 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 					return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
 				}
 			}
+			var dims int
+			for vecName, vec := range previousObject.MultiVectors {
+				dims = 0
+				for _, v := range vec {
+					dims += len(v)
+				}
+				if err := s.removeDimensionsForVecLSM(len(vec), docID, vecName); err != nil {
+					return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
+				}
+			}
 		} else {
 			if err = s.removeDimensionsLSM(len(previousObject.Vector), docID); err != nil {
 				return fmt.Errorf("track dimensions (delete): %w", err)
@@ -212,8 +221,8 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 }
 
 func (s *Shard) mayDeleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
-	s.hashtreeRWMux.RLock()
-	defer s.hashtreeRWMux.RUnlock()
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
 
 	if s.hashtree == nil {
 		return nil
@@ -231,9 +240,7 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 		return fmt.Errorf("invalid object update time")
 	}
 
-	h := murmur3.New64()
-	h.Write(uuidBytes)
-	token := h.Sum64()
+	leaf := s.hashtreeLeafFor(uuidBytes)
 
 	var objectDigest [16 + 8]byte
 
@@ -243,9 +250,7 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 	// object deletion is treated as non-existent,
 	// that because deletion time or tombstone may not be available
 
-	s.hashtree.AggregateLeafWith(token, objectDigest[:])
-
-	s.objectPropagationRequired()
+	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
 	return nil
 }

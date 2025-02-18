@@ -12,11 +12,16 @@
 package schema
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
+	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -49,14 +54,49 @@ func (ci *ClassInfo) Version() uint64 {
 type schema struct {
 	nodeID      string
 	shardReader shardReader
-	sync.RWMutex
-	Classes map[string]*metaClass
+
+	// mu protects the `classes`
+	mu      sync.RWMutex
+	classes map[string]*metaClass
+
+	// metrics
+	// collectionsCount represents the number of collections on this specific node.
+	collectionsCount prometheus.Gauge
+
+	// shardsCount represents the number of shards (of all collections) on this specific node.
+	shardsCount *prometheus.GaugeVec
+}
+
+func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer) *schema {
+	// this also registers the prometheus metrics with given `reg` in addition to just creating it.
+	r := promauto.With(reg)
+
+	s := &schema{
+		nodeID:      nodeID,
+		classes:     make(map[string]*metaClass, 128),
+		shardReader: shardReader,
+		collectionsCount: r.NewGauge(prometheus.GaugeOpts{
+			Namespace:   "weaviate",
+			Name:        "schema_collections",
+			Help:        "Number of collections per node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		shardsCount: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace:   "weaviate",
+			Name:        "schema_shards",
+			Help:        "Number of shards per node with corresponding status",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}, []string{"status"}), // status: HOT, WARM, COLD, FROZEN
+	}
+
+	return s
 }
 
 func (s *schema) ClassInfo(class string) ClassInfo {
-	s.RLock()
-	defer s.RUnlock()
-	cl, ok := s.Classes[class]
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	cl, ok := s.classes[class]
 	if !ok {
 		return ClassInfo{}
 	}
@@ -66,9 +106,10 @@ func (s *schema) ClassInfo(class string) ClassInfo {
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
 // strings.EqualFold is used to compare classes
 func (s *schema) ClassEqual(name string) string {
-	s.RLock()
-	defer s.RUnlock()
-	for k := range s.Classes {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for k := range s.classes {
 		if strings.EqualFold(k, name) {
 			return k
 		}
@@ -91,17 +132,18 @@ func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) 
 }
 
 func (s *schema) metaClass(class string) *metaClass {
-	s.RLock()
-	defer s.RUnlock()
-	return s.Classes[class]
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.classes[class]
 }
 
 // ReadOnlyClass returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
 func (s *schema) ReadOnlyClass(class string) (*models.Class, uint64) {
-	s.RLock()
-	defer s.RUnlock()
-	meta := s.Classes[class]
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	meta := s.classes[class]
 	if meta == nil {
 		return nil, 0
 	}
@@ -116,11 +158,11 @@ func (s *schema) ReadOnlyClasses(classes ...string) map[string]versioned.Class {
 	}
 
 	vclasses := make(map[string]versioned.Class, len(classes))
-	s.RLock()
-	defer s.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	for _, class := range classes {
-		meta := s.Classes[class]
+		meta := s.classes[class]
 		if meta == nil {
 			continue
 		}
@@ -141,11 +183,12 @@ func (s *schema) ReadOnlyClasses(classes ...string) map[string]versioned.Class {
 // This implementation assumes that individual properties are overwritten rather than partially updated
 func (s *schema) ReadOnlySchema() models.Schema {
 	cp := models.Schema{}
-	s.RLock()
-	defer s.RUnlock()
-	cp.Classes = make([]*models.Class, len(s.Classes))
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	cp.Classes = make([]*models.Class, len(s.classes))
 	i := 0
-	for _, meta := range s.Classes {
+	for _, meta := range s.classes {
 		cp.Classes[i] = meta.CloneClass()
 		i++
 	}
@@ -183,10 +226,10 @@ func (s *schema) ShardReplicas(class, shard string) ([]string, uint64, error) {
 
 // TenantsShards returns shard name for the provided tenant and its activity status
 func (s *schema) TenantsShards(class string, tenants ...string) (map[string]string, uint64) {
-	s.RLock()
-	defer s.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	meta := s.Classes[class]
+	meta := s.classes[class]
 	if meta == nil {
 		return nil, 0
 	}
@@ -211,28 +254,22 @@ type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
-func NewSchema(nodeID string, shardReader shardReader) *schema {
-	return &schema{
-		nodeID:      nodeID,
-		Classes:     make(map[string]*metaClass, 128),
-		shardReader: shardReader,
-	}
-}
-
 func (s *schema) len() int {
-	s.RLock()
-	defer s.RUnlock()
-	return len(s.Classes)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.classes)
 }
 
 func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo, error) {
-	s.RLock()
-	defer s.RUnlock()
-	meta := s.Classes[class]
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	meta := s.classes[class]
 	if meta == nil {
 		return false, nil, ClassInfo{}, ErrClassNotFound
 	}
-	info := s.Classes[class].ClassInfo()
+	info := s.classes[class].ClassInfo()
 	if !info.MultiTenancy.Enabled {
 		return false, nil, ClassInfo{}, fmt.Errorf("%w for class %q", ErrMTDisabled, class)
 	}
@@ -240,29 +277,90 @@ func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo,
 }
 
 func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error {
-	s.Lock()
-	defer s.Unlock()
-	_, exists := s.Classes[cls.Class]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, exists := s.classes[cls.Class]
 	if exists {
 		return ErrClassExists
 	}
 
-	s.Classes[cls.Class] = &metaClass{
+	s.classes[cls.Class] = &metaClass{
 		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
 	}
+
+	s.collectionsCount.Inc()
+
+	for _, shard := range ss.Physical {
+		s.shardsCount.WithLabelValues(shard.Status).Inc()
+	}
+
 	return nil
 }
 
 // updateClass modifies existing class based on the givin update function
 func (s *schema) updateClass(name string, f func(*metaClass) error) error {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	meta := s.Classes[name]
+	meta := s.classes[name]
 	if meta == nil {
 		return ErrClassNotFound
 	}
 	return meta.LockGuard(f)
+}
+
+func (s *schema) deleteClass(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// since `delete(map, key)` is no-op if `key` doesn't exist, check before deleting
+	// so that we can increment the `collectionsCount` correctly.
+	class, ok := s.classes[name]
+	if !ok {
+		return false
+	}
+
+	// sc tracks number of shards in this collection to be deleted by status.
+	sc := make(map[string]int)
+
+	// need to decrement shards count on this class.
+	for _, shard := range class.Sharding.Physical {
+		sc[shard.Status]++
+	}
+
+	delete(s.classes, name)
+
+	s.collectionsCount.Dec()
+	for status, count := range sc {
+		s.shardsCount.WithLabelValues(status).Sub(float64(count))
+	}
+
+	return true
+}
+
+// replaceClasses replaces the existing `schema.Classes` with given `classes`
+// mainly used in cases like restoring the whole schema from backup or something.
+func (s *schema) replaceClasses(classes map[string]*metaClass) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.collectionsCount.Sub(float64(len(s.classes)))
+	for _, ss := range s.classes {
+		for _, shard := range ss.Sharding.Physical {
+			s.shardsCount.WithLabelValues(shard.Status).Dec()
+		}
+	}
+
+	s.classes = classes
+
+	s.collectionsCount.Add(float64(len(s.classes)))
+
+	for _, ss := range s.classes {
+		for _, shard := range ss.Sharding.Physical {
+			s.shardsCount.WithLabelValues(shard.Status).Inc()
+		}
+	}
 }
 
 // replaceStatesNodeName it update the node name inside sharding states.
@@ -270,10 +368,10 @@ func (s *schema) updateClass(name string, f func(*metaClass) error) error {
 // because it will replace the shard node name if the node name got updated
 // only if the replication factor is 1, otherwise it's no-op
 func (s *schema) replaceStatesNodeName(new string) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	for _, meta := range s.Classes {
+	for _, meta := range s.classes {
 		meta.LockGuard(func(mc *metaClass) error {
 			if meta.Class.ReplicationConfig.Factor > 1 {
 				return nil
@@ -289,17 +387,11 @@ func (s *schema) replaceStatesNodeName(new string) {
 	}
 }
 
-func (s *schema) deleteClass(name string) {
-	s.Lock()
-	defer s.Unlock()
-	delete(s.Classes, name)
-}
-
 func (s *schema) addProperty(class string, v uint64, props ...*models.Property) error {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	meta := s.Classes[class]
+	meta := s.classes[class]
 	if meta == nil {
 		return ErrClassNotFound
 	}
@@ -309,35 +401,68 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {
 	req.Tenants = removeNilTenants(req.Tenants)
 
-	if ok, meta, info, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, info, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
 	}
+
+	sc, err := meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
+	if err != nil {
+		return err
+	}
+	for status, count := range sc {
+		s.shardsCount.WithLabelValues(status).Add(float64(count))
+	}
+
+	return nil
 }
 
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {
-	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, _, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.DeleteTenants(req, v)
 	}
+	sc, err := meta.DeleteTenants(req, v)
+	if err != nil {
+		return err
+	}
+
+	for status, count := range sc {
+		s.shardsCount.WithLabelValues(status).Sub(float64(count))
+	}
+
+	return nil
 }
 
 func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) error {
-	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, _, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.UpdateTenants(s.nodeID, req, v)
 	}
+	sc, err := meta.UpdateTenants(s.nodeID, req, v)
+	// partial update possible
+	for status, count := range sc {
+		// count can be positive or negative.
+		s.shardsCount.WithLabelValues(status).Add(float64(count))
+	}
+
+	return err
 }
 
 func (s *schema) updateTenantsProcess(class string, v uint64, req *command.TenantProcessRequest) error {
-	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+	ok, meta, _, err := s.multiTenancyEnabled(class)
+	if !ok {
 		return err
-	} else {
-		return meta.UpdateTenantsProcess(s.nodeID, req, v)
 	}
+
+	sc, err := meta.UpdateTenantsProcess(s.nodeID, req, v)
+	// partial update possible
+	for status, count := range sc {
+		// count can be positive or negative.
+		s.shardsCount.WithLabelValues(status).Add(float64(count))
+	}
+
+	return err
 }
 
 func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantResponse, error) {
@@ -350,26 +475,15 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantRes
 	var res []*models.TenantResponse
 	f := func(_ *models.Class, ss *sharding.State) error {
 		if len(tenants) == 0 {
-			res = make([]*models.TenantResponse, len(ss.Physical))
-			i := 0
+			res = make([]*models.TenantResponse, 0, len(ss.Physical))
 			for tenant, physical := range ss.Physical {
-				// Ensure we copy the belongs to nodes array to avoid it being modified
-				cpy := make([]string, len(physical.BelongsToNodes))
-				copy(cpy, physical.BelongsToNodes)
-
-				res[i] = MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy)
-
-				// Increment our result iterator
-				i++
+				res = append(res, makeTenantResponse(tenant, physical))
 			}
 		} else {
 			res = make([]*models.TenantResponse, 0, len(tenants))
 			for _, tenant := range tenants {
 				if physical, ok := ss.Physical[tenant]; ok {
-					// Ensure we copy the belongs to nodes array to avoid it being modified
-					cpy := make([]string, len(physical.BelongsToNodes))
-					copy(cpy, physical.BelongsToNodes)
-					res = append(res, MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy))
+					res = append(res, makeTenantResponse(tenant, physical))
 				}
 			}
 		}
@@ -379,11 +493,11 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantRes
 }
 
 func (s *schema) States() map[string]types.ClassState {
-	s.RLock()
-	defer s.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	cs := make(map[string]types.ClassState, len(s.Classes))
-	for _, c := range s.Classes {
+	cs := make(map[string]types.ClassState, len(s.classes))
+	for _, c := range s.classes {
 		cs[c.Class.Class] = types.ClassState{
 			Class:  c.Class,
 			Shards: c.Sharding,
@@ -394,10 +508,48 @@ func (s *schema) States() map[string]types.ClassState {
 }
 
 func (s *schema) MetaClasses() map[string]*metaClass {
-	s.RLock()
-	defer s.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	return s.Classes
+	return s.classes
+}
+
+func (s *schema) Restore(r io.Reader, parser Parser) error {
+	snap := snapshot{}
+	if err := json.NewDecoder(r).Decode(&snap); err != nil {
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+	for _, cls := range snap.Classes {
+		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
+			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
+		}
+		cls.Sharding.SetLocalName(s.nodeID)
+	}
+
+	s.replaceClasses(snap.Classes)
+	return nil
+}
+
+// Persist should dump all necessary state to the WriteCloser 'sink',
+// and call sink.Close() when finished or call sink.Cancel() on error.
+func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	defer sink.Close()
+	snap := snapshot{
+		NodeID:     s.nodeID,
+		SnapshotID: sink.ID(),
+		Classes:    s.classes,
+	}
+	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
+		return fmt.Errorf("encode: %w", err)
+	}
+
+	return nil
+}
+
+func (s *schema) Release() {
 }
 
 // makeTenant creates a tenant with the given name and status
@@ -406,6 +558,14 @@ func makeTenant(name, status string) models.Tenant {
 		Name:           name,
 		ActivityStatus: status,
 	}
+}
+
+func makeTenantResponse(tenant string, physical sharding.Physical) *models.TenantResponse {
+	// copy BelongsToNodes to avoid modification of the original slice
+	cpy := make([]string, len(physical.BelongsToNodes))
+	copy(cpy, physical.BelongsToNodes)
+
+	return MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy)
 }
 
 // MakeTenantWithBelongsToNodes creates a tenant with the given name, status, and belongsToNodes

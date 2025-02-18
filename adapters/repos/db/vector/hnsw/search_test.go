@@ -137,6 +137,45 @@ func TestQueryVectorDistancer(t *testing.T) {
 	require.NotNil(t, err)
 }
 
+func TestQueryMultiVectorDistancer(t *testing.T) {
+	vectors := [][][]float32{
+		{{0.3, 0.1}, {1, 0}},
+	}
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "bug-2155",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewDotProductProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[0][int(id)], nil
+		},
+		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+			return vectors[int(id)], nil
+		},
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		VectorCacheMaxObjects: 100000,
+		Multivector: ent.MultivectorConfig{
+			Enabled: true,
+		},
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+
+	index.AddMulti(context.TODO(), uint64(0), vectors[0])
+
+	dist := index.QueryMultiVectorDistancer([][]float32{{0.2, 0}, {1, 0}})
+	require.NotNil(t, dist)
+	distance, err := dist.DistanceToNode(0)
+	require.Nil(t, err)
+	require.Equal(t, float32(-1.2), distance)
+
+	// get distance for non-existing node
+	_, err = dist.DistanceToNode(1032)
+	require.NotNil(t, err)
+}
+
 func TestAcornPercentage(t *testing.T) {
 	vectors, _ := testinghelpers.RandomVecs(10, 1, 3)
 	var vectorIndex *hnsw
@@ -154,6 +193,7 @@ func TestAcornPercentage(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AcornFilterRatio:     0.4,
 		}, ent.UserConfig{
 			MaxConnections:        16,
 			EFConstruction:        16,
@@ -171,23 +211,20 @@ func TestAcornPercentage(t *testing.T) {
 	t.Run("check acorn params on different filter percentags", func(t *testing.T) {
 		vectorIndex.acornSearch.Store(false)
 		allowList := helpers.NewAllowList(1, 2, 3)
-		useAcorn, M := vectorIndex.acornParams(allowList)
+		useAcorn := vectorIndex.acornEnabled(allowList)
 		assert.False(t, useAcorn)
-		assert.Equal(t, 0, M)
 
 		vectorIndex.acornSearch.Store(true)
 
-		useAcorn, M = vectorIndex.acornParams(allowList)
+		useAcorn = vectorIndex.acornEnabled(allowList)
 		assert.True(t, useAcorn)
-		assert.Equal(t, 3, M)
 
 		vectorIndex.acornSearch.Store(true)
 
 		largerAllowList := helpers.NewAllowList(1, 2, 3, 4, 5)
-		useAcorn, M = vectorIndex.acornParams(largerAllowList)
+		useAcorn = vectorIndex.acornEnabled(largerAllowList)
 		// should be false as allow list percentage is 50%
 		assert.False(t, useAcorn)
-		assert.Equal(t, 2, M)
 	})
 }
 

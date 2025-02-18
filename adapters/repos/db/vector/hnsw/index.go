@@ -100,11 +100,12 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID          common.VectorForID[float32]
-	TempVectorForIDThunk common.TempVectorForID
-	multiVectorForID     common.MultiVectorForID
-	trackDimensionsOnce  sync.Once
-	dims                 int32
+	vectorForID               common.VectorForID[float32]
+	TempVectorForIDThunk      common.TempVectorForID[float32]
+	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
+	multiVectorForID          common.MultiVectorForID
+	trackDimensionsOnce       sync.Once
+	dims                      int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -125,10 +126,10 @@ type hnsw struct {
 	id       string
 	rootPath string
 
-	logger            logrus.FieldLogger
-	distancerProvider distancer.Provider
-
-	pools *pools
+	logger                 logrus.FieldLogger
+	distancerProvider      distancer.Provider
+	multiDistancerProvider distancer.Provider
+	pools                  *pools
 
 	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
 
@@ -157,9 +158,10 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed   atomic.Bool
-	doNotRescore bool
-	acornSearch  atomic.Bool
+	compressed       atomic.Bool
+	doNotRescore     bool
+	acornSearch      atomic.Bool
+	acornFilterRatio float64
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -181,6 +183,12 @@ type hnsw struct {
 	tombstoneCleanupRunning atomic.Bool
 
 	visitedListPoolMaxSize int
+
+	// only used for multivector mode
+	multivector  atomic.Bool
+	docIDVectors map[uint64][]uint64
+	vecIDcounter uint64
+	maxDocID     uint64
 }
 
 type CommitLogger interface {
@@ -236,9 +244,15 @@ func New(cfg Config, uc ent.UserConfig,
 		normalizeOnRead = true
 	}
 
-	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, 1,
-		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+	var vectorCache cache.Cache[float32]
 
+	if uc.Multivector.Enabled {
+		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects,
+			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+	} else {
+		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
+			normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
@@ -252,6 +266,7 @@ func New(cfg Config, uc ent.UserConfig,
 		efConstruction:        uc.EFConstruction,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
+		acornFilterRatio:      cfg.AcornFilterRatio,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
@@ -279,22 +294,31 @@ func New(cfg Config, uc ent.UserConfig,
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
 
-		randFunc:             rand.Float64,
-		compressActionLock:   &sync.RWMutex{},
-		className:            cfg.ClassName,
-		VectorForIDThunk:     cfg.VectorForIDThunk,
-		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
-		pqConfig:             uc.PQ,
-		bqConfig:             uc.BQ,
-		sqConfig:             uc.SQ,
-		rescoreConcurrency:   2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
-		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
+		randFunc:                  rand.Float64,
+		compressActionLock:        &sync.RWMutex{},
+		className:                 cfg.ClassName,
+		VectorForIDThunk:          cfg.VectorForIDThunk,
+		TempVectorForIDThunk:      cfg.TempVectorForIDThunk,
+		TempMultiVectorForIDThunk: cfg.TempMultiVectorForIDThunk,
+		pqConfig:                  uc.PQ,
+		bqConfig:                  uc.BQ,
+		sqConfig:                  uc.SQ,
+		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
+		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
 
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
+
+		docIDVectors: make(map[uint64][]uint64),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
+
+	index.multivector.Store(uc.Multivector.Enabled)
+
+	if uc.Multivector.Enabled && (uc.PQ.Enabled || uc.SQ.Enabled || uc.BQ.Enabled) {
+		return nil, errors.New("compression is not supported in multivector mode")
+	}
 
 	if uc.BQ.Enabled {
 		var err error
@@ -307,6 +331,14 @@ func New(cfg Config, uc ent.UserConfig,
 		index.compressed.Store(true)
 		index.cache.Drop()
 		index.cache = nil
+	}
+
+	if uc.Multivector.Enabled {
+		index.multiDistancerProvider = distancer.NewDotProductProvider()
+		err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+		if err != nil {
+			return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
+		}
 	}
 
 	if err := index.init(cfg); err != nil {
@@ -483,15 +515,16 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, err := h.vectorForID(context.Background(), a)
-	if err != nil {
+	vecA, errA := h.vectorForID(context.Background(), a)
+
+	if errA != nil {
 		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
+		if errors.As(errA, &e) {
 			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
-		return 0, errors.Wrapf(err,
+		return 0, errors.Wrapf(errA,
 			"could not get vector of object at docID %d", a)
 	}
 
@@ -499,15 +532,16 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
 
-	vecB, err := h.vectorForID(context.Background(), b)
-	if err != nil {
+	vecB, errB := h.vectorForID(context.Background(), b)
+
+	if errB != nil {
 		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
+		if errors.As(errB, &e) {
 			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
-		return 0, errors.Wrapf(err,
+		return 0, errors.Wrapf(errB,
 			"could not get vector of object at docID %d", b)
 	}
 
@@ -530,7 +564,9 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, err := h.vectorForID(context.Background(), node)
+	var vecA []float32
+	var err error
+	vecA, err = h.vectorForID(context.Background(), node)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -649,17 +685,32 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return h.distancerProvider.SingleDist(x, y)
 }
 
-func (h *hnsw) ContainsNode(id uint64) bool {
+func (h *hnsw) ContainsDoc(docID uint64) bool {
+	if h.Multivector() {
+		h.RLock()
+		vecIds, exists := h.docIDVectors[docID]
+		h.RUnlock()
+		return exists && !h.hasTombstones(vecIds)
+	}
+
 	h.RLock()
-	h.shardedNodeLocks.RLock(id)
-	exists := len(h.nodes) > int(id) && h.nodes[id] != nil
-	h.shardedNodeLocks.RUnlock(id)
+	h.shardedNodeLocks.RLock(docID)
+	exists := len(h.nodes) > int(docID) && h.nodes[docID] != nil
+	h.shardedNodeLocks.RUnlock(docID)
 	h.RUnlock()
 
-	return exists && !h.hasTombstone(id)
+	return exists && !h.hasTombstone(docID)
 }
 
-func (h *hnsw) Iterate(fn func(id uint64) bool) {
+func (h *hnsw) Iterate(fn func(docID uint64) bool) {
+	if h.Multivector() {
+		h.iterateMulti(fn)
+		return
+	}
+	h.iterate(fn)
+}
+
+func (h *hnsw) iterate(fn func(docID uint64) bool) {
 	var id uint64
 
 	for {
@@ -691,6 +742,31 @@ func (h *hnsw) Iterate(fn func(id uint64) bool) {
 	}
 }
 
+func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
+	h.RLock()
+	indexedDocIDs := make([]uint64, 0, len(h.docIDVectors))
+	for docID := range h.docIDVectors {
+		indexedDocIDs = append(indexedDocIDs, docID)
+	}
+	h.RUnlock()
+
+	for _, docID := range indexedDocIDs {
+		if h.shutdownCtx.Err() != nil || h.resetCtx.Err() != nil {
+			return
+		}
+
+		h.RLock()
+		nodes, ok := h.docIDVectors[docID]
+		h.RUnlock()
+
+		if ok && !h.hasTombstones(nodes) {
+			if !fn(docID) {
+				return
+			}
+		}
+	}
+}
+
 func (h *hnsw) DistancerProvider() distancer.Provider {
 	return h.distancerProvider
 }
@@ -714,12 +790,21 @@ func (h *hnsw) Compressed() bool {
 	return h.compressed.Load()
 }
 
+func (h *hnsw) Multivector() bool {
+	return h.multivector.Load()
+}
+
 func (h *hnsw) Upgraded() bool {
 	return h.Compressed()
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
+}
+
+func (h *hnsw) GetKeys(id uint64) (uint64, uint64, error) {
+	docID, relativeID := h.cache.GetKeys(id)
+	return docID, relativeID, nil
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
@@ -729,6 +814,17 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 		return distancer.Normalize(vec)
 	}
 	return vec
+}
+
+func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		normalized := make([][]float32, len(vecs))
+		for i, vec := range vecs {
+			normalized[i] = distancer.Normalize(vec)
+		}
+		return normalized
+	}
+	return vecs
 }
 
 func IsHNSWIndex(index any) bool {

@@ -17,9 +17,9 @@ import (
 	"testing"
 
 	"github.com/go-openapi/runtime"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/meta"
 	"github.com/weaviate/weaviate/client/objects"
@@ -72,6 +72,14 @@ func GetClass(t *testing.T, class string) *models.Class {
 	return resp.Payload
 }
 
+func GetSchemaAuth(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) []*models.Class {
+	t.Helper()
+	params := schema.NewSchemaDumpParams()
+	resp, err := Client(t).Schema.SchemaDump(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+	return resp.Payload.Classes
+}
+
 func GetClassWithoutAssert(t *testing.T, class string) (*models.Class, error) {
 	t.Helper()
 	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
@@ -101,8 +109,7 @@ func CreateObject(t *testing.T, object *models.Object) error {
 func CreateObjectAuth(t *testing.T, object *models.Object, key string) error {
 	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(object)
-	resp, err := Client(t).Objects.ObjectsCreate(params, CreateAuth(key))
-	AssertRequestOk(t, resp, err, nil)
+	_, err := Client(t).Objects.ObjectsCreate(params, CreateAuth(key))
 	return err
 }
 
@@ -340,6 +347,13 @@ func UpdateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func UpdateTenantsWithAuthz(t *testing.T, class string, tenants []*models.Tenant, authInfo runtime.ClientAuthInfoWriter) {
+	t.Helper()
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
+	resp, err := Client(t).Schema.TenantsUpdate(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
 	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
@@ -358,6 +372,13 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	t.Helper()
 	params := schema.NewTenantsGetParams().WithClassName(class)
 	resp, err := Client(t).Schema.TenantsGet(params, nil)
+	return resp, err
+}
+
+func GetTenantsWithAuthz(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) (*schema.TenantsGetOK, error) {
+	t.Helper()
+	params := schema.NewTenantsGetParams().WithClassName(class)
+	resp, err := Client(t).Schema.TenantsGet(params, authInfo)
 	return resp, err
 }
 
@@ -382,6 +403,13 @@ func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExis
 func DeleteTenants(t *testing.T, class string, tenants []string) error {
 	t.Helper()
 	params := schema.NewTenantsDeleteParams().WithClassName(class).WithTenants(tenants)
+	_, err := Client(t).Schema.TenantsDelete(params, nil)
+	return err
+}
+
+func DeleteTenantsWithContext(t *testing.T, ctx context.Context, class string, tenants []string) error {
+	t.Helper()
+	params := schema.NewTenantsDeleteParams().WithContext(ctx).WithClassName(class).WithTenants(tenants)
 	_, err := Client(t).Schema.TenantsDelete(params, nil)
 	return err
 }

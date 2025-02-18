@@ -23,9 +23,11 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -38,6 +40,10 @@ type SegmentGroup struct {
 	// operation
 	maintenanceLock sync.RWMutex
 	dir             string
+
+	cursorsLock      sync.RWMutex
+	activeCursors    int
+	enqueuedSegments []*segment
 
 	// flushVsCompactLock is a simple synchronization mechanism between the
 	// compaction and flush cycle. In general, those are independent, however,
@@ -64,11 +70,12 @@ type SegmentGroup struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	mmapContents            bool
-	keepTombstones          bool // see bucket for more datails
-	useBloomFilter          bool // see bucket for more datails
-	calcCountNetAdditions   bool // see bucket for more datails
-	compactLeftOverSegments bool // see bucket for more datails
+	mmapContents             bool
+	keepTombstones           bool // see bucket for more details
+	useBloomFilter           bool // see bucket for more details
+	calcCountNetAdditions    bool // see bucket for more details
+	compactLeftOverSegments  bool // see bucket for more details
+	enableChecksumValidation bool
 
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
@@ -80,17 +87,18 @@ type SegmentGroup struct {
 }
 
 type sgConfig struct {
-	dir                   string
-	strategy              string
-	mapRequiresSorting    bool
-	monitorCount          bool
-	mmapContents          bool
-	keepTombstones        bool
-	useBloomFilter        bool
-	calcCountNetAdditions bool
-	forceCompaction       bool
-	maxSegmentSize        int64
-	cleanupInterval       time.Duration
+	dir                      string
+	strategy                 string
+	mapRequiresSorting       bool
+	monitorCount             bool
+	mmapContents             bool
+	keepTombstones           bool
+	useBloomFilter           bool
+	calcCountNetAdditions    bool
+	forceCompaction          bool
+	maxSegmentSize           int64
+	cleanupInterval          time.Duration
+	enableChecksumValidation bool
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -104,23 +112,24 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 	now := time.Now()
 	sg := &SegmentGroup{
-		segments:                make([]*segment, len(list)),
-		dir:                     cfg.dir,
-		logger:                  logger,
-		metrics:                 metrics,
-		monitorCount:            cfg.monitorCount,
-		mapRequiresSorting:      cfg.mapRequiresSorting,
-		strategy:                cfg.strategy,
-		mmapContents:            cfg.mmapContents,
-		keepTombstones:          cfg.keepTombstones,
-		useBloomFilter:          cfg.useBloomFilter,
-		calcCountNetAdditions:   cfg.calcCountNetAdditions,
-		compactLeftOverSegments: cfg.forceCompaction,
-		maxSegmentSize:          cfg.maxSegmentSize,
-		cleanupInterval:         cfg.cleanupInterval,
-		allocChecker:            allocChecker,
-		lastCompactionCall:      now,
-		lastCleanupCall:         now,
+		segments:                 make([]*segment, len(list)),
+		dir:                      cfg.dir,
+		logger:                   logger,
+		metrics:                  metrics,
+		monitorCount:             cfg.monitorCount,
+		mapRequiresSorting:       cfg.mapRequiresSorting,
+		strategy:                 cfg.strategy,
+		mmapContents:             cfg.mmapContents,
+		keepTombstones:           cfg.keepTombstones,
+		useBloomFilter:           cfg.useBloomFilter,
+		calcCountNetAdditions:    cfg.calcCountNetAdditions,
+		compactLeftOverSegments:  cfg.forceCompaction,
+		maxSegmentSize:           cfg.maxSegmentSize,
+		cleanupInterval:          cfg.cleanupInterval,
+		enableChecksumValidation: cfg.enableChecksumValidation,
+		allocChecker:             allocChecker,
+		lastCompactionCall:       now,
+		lastCleanupCall:          now,
 	}
 
 	segmentIndex := 0
@@ -192,8 +201,14 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			// segment is initialized just to be erased
 			// there is no need of bloom filters nor net addition counter re-calculation
 			rightSegment, err := newSegment(rightSegmentPath, logger,
-				metrics, sg.makeExistsOnLower(segmentIndex),
-				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
+				metrics, sg.makeExistsOn(nil),
+				segmentConfig{
+					mmapContents:             sg.mmapContents,
+					useBloomFilter:           sg.useBloomFilter,
+					calcCountNetAdditions:    sg.calcCountNetAdditions,
+					overwriteDerived:         false,
+					enableChecksumValidation: sg.enableChecksumValidation,
+				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
@@ -223,7 +238,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
-			err = fsync(sg.dir)
+			err = diskio.Fsync(sg.dir)
 			if err != nil {
 				return nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 			}
@@ -234,8 +249,15 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		segment, err := newSegment(rightSegmentPath, logger,
-			metrics, sg.makeExistsOnLower(segmentIndex),
-			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+			metrics, sg.makeExistsOn(sg.segments[:segmentIndex]),
+			segmentConfig{
+				mmapContents:             sg.mmapContents,
+				useBloomFilter:           sg.useBloomFilter,
+				calcCountNetAdditions:    sg.calcCountNetAdditions,
+				overwriteDerived:         true,
+				enableChecksumValidation: sg.enableChecksumValidation,
+			},
+		)
 		if err != nil {
 			return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
 		}
@@ -298,8 +320,14 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		segment, err := newSegment(filepath.Join(sg.dir, entry.Name()), logger,
-			metrics, sg.makeExistsOnLower(segmentIndex),
-			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
+			metrics, sg.makeExistsOn(sg.segments[:segmentIndex]),
+			segmentConfig{
+				mmapContents:             sg.mmapContents,
+				useBloomFilter:           sg.useBloomFilter,
+				calcCountNetAdditions:    sg.calcCountNetAdditions,
+				overwriteDerived:         false,
+				enableChecksumValidation: sg.enableChecksumValidation,
+			})
 		if err != nil {
 			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
 		}
@@ -324,21 +352,56 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	id := "segmentgroup/compaction/" + sg.dir
 	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
+	// if a segment exists of the map collection strategy, we need to
+	// convert the inverted strategy to a map collection strategy
+	// as it is done on the bucket level
+	if sg.strategy == StrategyInverted && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+		sg.strategy = StrategyMapCollection
+	}
+
+	if sg.strategy == StrategyInverted {
+		// start at  len(sg.segments) - 2 as the last segment doesn't need any tombstones for now
+		for i := len(sg.segments) - 2; i >= 0; i-- {
+			// avoid crashing if segment has no tombstones
+			tombstonesNext, err := sg.segments[i+1].GetTombstones()
+			if err != nil {
+				return nil, fmt.Errorf("init segment %s: load tombstones %w", sg.segments[i+1].path, err)
+			}
+
+			tombstonesCurrent, err := sg.segments[i].GetTombstones()
+			if err != nil {
+				return nil, fmt.Errorf("init segment %s: load tombstones %w", sg.segments[i].path, err)
+			}
+
+			if tombstonesNext == nil {
+				continue
+			}
+			// init new sroar bitmap if segment had no tombstones
+			if tombstonesCurrent == nil {
+				tombstonesCurrent = sroar.NewBitmap()
+			}
+			if tombstonesNext.IsEmpty() {
+				continue
+			}
+			tombstonesCurrent.Or(tombstonesNext)
+		}
+	}
+
 	return sg, nil
 }
 
-func (sg *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSegmentsFn {
+func (sg *SegmentGroup) makeExistsOn(segments []*segment) existsOnLowerSegmentsFn {
 	return func(key []byte) (bool, error) {
-		if nextSegmentIndex == 0 {
+		if len(segments) == 0 {
 			// this is already the lowest possible segment, we can guarantee that
 			// any key in this segment is previously unseen.
 			return false, nil
 		}
 
-		v, err := sg.getWithUpperSegmentBoundary(key, nextSegmentIndex-1)
+		v, err := sg.getWithUpperSegmentBoundary(key, segments)
 		if err != nil {
-			return false, fmt.Errorf("check exists on segments lower than %d: %w",
-				nextSegmentIndex, err)
+			return false, fmt.Errorf("check exists on segments: %w", err)
 		}
 
 		return v != nil, nil
@@ -349,10 +412,15 @@ func (sg *SegmentGroup) add(path string) error {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
-	newSegmentIndex := len(sg.segments)
 	segment, err := newSegment(path, sg.logger,
-		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
-		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+		sg.metrics, sg.makeExistsOn(sg.segments),
+		segmentConfig{
+			mmapContents:             sg.mmapContents,
+			useBloomFilter:           sg.useBloomFilter,
+			calcCountNetAdditions:    sg.calcCountNetAdditions,
+			overwriteDerived:         true,
+			enableChecksumValidation: sg.enableChecksumValidation,
+		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
 	}
@@ -361,7 +429,37 @@ func (sg *SegmentGroup) add(path string) error {
 	return nil
 }
 
+func (sg *SegmentGroup) getAndLockSegments() (segments []*segment, release func()) {
+	sg.cursorsLock.RLock()
+	sg.maintenanceLock.RLock()
+
+	if len(sg.enqueuedSegments) == 0 {
+		return sg.segments, func() {
+			sg.cursorsLock.RUnlock()
+			sg.maintenanceLock.RUnlock()
+		}
+	}
+
+	segments = make([]*segment, 0, len(sg.segments)+len(sg.enqueuedSegments))
+
+	segments = append(segments, sg.segments...)
+	segments = append(segments, sg.enqueuedSegments...)
+
+	return segments, func() {
+		sg.cursorsLock.RUnlock()
+		sg.maintenanceLock.RUnlock()
+	}
+}
+
 func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
+	sg.cursorsLock.Lock()
+	defer sg.cursorsLock.Unlock()
+
+	if sg.activeCursors > 0 {
+		sg.enqueuedSegments = append(sg.enqueuedSegments, segment)
+		return nil
+	}
+
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
@@ -371,27 +469,28 @@ func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
 
 func (sg *SegmentGroup) get(key []byte) ([]byte, error) {
 	beforeMaintenanceLock := time.Now()
-	sg.maintenanceLock.RLock()
+	segments, release := sg.getAndLockSegments()
+	defer release()
+
 	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
 		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
 			WithField("action", "lsm_segment_group_get_obtain_maintenance_lock").
 			Debug("waited over 100ms to obtain maintenance lock in segment group get()")
 	}
-	defer sg.maintenanceLock.RUnlock()
 
-	return sg.getWithUpperSegmentBoundary(key, len(sg.segments)-1)
+	return sg.getWithUpperSegmentBoundary(key, segments)
 }
 
 // not thread-safe on its own, as the assumption is that this is called from a
 // lockholder, e.g. within .get()
-func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment int) ([]byte, error) {
+func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, segments []*segment) ([]byte, error) {
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
-	for i := topMostSegment; i >= 0; i-- {
+	for i := len(segments) - 1; i >= 0; i-- {
 		beforeSegment := time.Now()
-		v, err := sg.segments[i].get(key)
+		v, err := segments[i].get(key)
 		if time.Since(beforeSegment) > 100*time.Millisecond {
 			sg.logger.WithField("duration", time.Since(beforeSegment)).
 				WithField("action", "lsm_segment_group_get_individual_segment").
@@ -418,19 +517,19 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 }
 
 func (sg *SegmentGroup) getErrDeleted(key []byte) ([]byte, error) {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
+	segments, release := sg.getAndLockSegments()
+	defer release()
 
-	return sg.getWithUpperSegmentBoundaryErrDeleted(key, len(sg.segments)-1)
+	return sg.getWithUpperSegmentBoundaryErrDeleted(key, segments)
 }
 
-func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, topMostSegment int) ([]byte, error) {
+func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, segments []*segment) ([]byte, error) {
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
-	for i := topMostSegment; i >= 0; i-- {
-		v, err := sg.segments[i].get(key)
+	for i := len(segments) - 1; i >= 0; i-- {
+		v, err := segments[i].get(key)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
@@ -450,15 +549,15 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, topMos
 }
 
 func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
+	segments, release := sg.getAndLockSegments()
+	defer release()
 
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
-	for i := len(sg.segments) - 1; i >= 0; i-- {
-		k, v, allocatedBuff, err := sg.segments[i].getBySecondaryIntoMemory(pos, key, buffer)
+	for i := len(segments) - 1; i >= 0; i-- {
+		k, v, allocatedBuff, err := segments[i].getBySecondaryIntoMemory(pos, key, buffer)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
@@ -478,13 +577,13 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 }
 
 func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
+	segments, release := sg.getAndLockSegments()
+	defer release()
 
 	var out []value
 
 	// start with first and do not exit
-	for _, segment := range sg.segments {
+	for _, segment := range segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
@@ -504,20 +603,20 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
-func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []*segment, error) {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
+func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []*segment, func(), error) {
+	segments, release := sg.getAndLockSegments()
 
-	out := make([][]value, len(sg.segments))
-	segments := make([]*segment, len(sg.segments))
+	out := make([][]value, len(segments))
+	outSegments := make([]*segment, len(segments))
 
 	i := 0
 	// start with first and do not exit
-	for _, segment := range sg.segments {
+	for _, segment := range segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
-				return nil, nil, err
+				release()
+				return nil, nil, func() {}, err
 			}
 			// inverted segments need to be loaded anyway, even if they don't have
 			// the key, as we need to know if they have tombstones
@@ -527,22 +626,22 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []*segm
 		}
 
 		out[i] = v
-		segments[i] = segment
+		outSegments[i] = segment
 		i++
 	}
 
-	return out[:i], segments[:i], nil
+	return out[:i], outSegments[:i], release, nil
 }
 
 func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, error) {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
+	segments, release := sg.getAndLockSegments()
+	defer release()
 
 	var out roaringset.BitmapLayers
 
 	// start with first and do not exit
-	for _, segment := range sg.segments {
-		rs, err := segment.roaringSetGet(key)
+	for _, segment := range segments {
+		layer, err := segment.roaringSetGet(key)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
@@ -551,18 +650,18 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, erro
 			return nil, err
 		}
 
-		out = append(out, rs)
+		out = append(out, layer)
 	}
 
 	return out, nil
 }
 
 func (sg *SegmentGroup) count() int {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
+	segments, release := sg.getAndLockSegments()
+	defer release()
 
 	count := 0
-	for _, seg := range sg.segments {
+	for _, seg := range segments {
 		count += seg.countNetAdditions
 	}
 
@@ -577,6 +676,13 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 		return err
 	}
 
+	sg.cursorsLock.Lock()
+	defer sg.cursorsLock.Unlock()
+
+	for _, seg := range sg.enqueuedSegments {
+		seg.close()
+	}
+
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
 	// because compaction logic used in cycle also requires maintenance lock.
 	//
@@ -587,12 +693,10 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
-	for i, seg := range sg.segments {
+	for _, seg := range sg.segments {
 		if err := seg.close(); err != nil {
 			return err
 		}
-
-		sg.segments[i] = nil
 	}
 
 	// make sure the segment list itself is set to nil. In case a memtable will
@@ -676,8 +780,8 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 }
 
 func (sg *SegmentGroup) Len() int {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
+	segments, release := sg.getAndLockSegments()
+	defer release()
 
-	return len(sg.segments)
+	return len(segments)
 }

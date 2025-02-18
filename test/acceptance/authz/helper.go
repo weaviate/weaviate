@@ -12,7 +12,12 @@
 package authz
 
 import (
+	"bufio"
+	"context"
+	"strings"
 	"testing"
+
+	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/stretchr/testify/require"
 	gql "github.com/weaviate/weaviate/client/graphql"
@@ -36,7 +41,7 @@ const (
 	UUID6 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168246")
 )
 
-const NumBuildInRoles = 2
+const NumBuildInRoles = 3
 
 func deleteObjectClass(t *testing.T, class string, auth runtime.ClientAuthInfoWriter) {
 	delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(class)
@@ -68,14 +73,29 @@ func createObject(t *testing.T, object *models.Object, key string) (*objects.Obj
 	return helper.Client(t).Objects.ObjectsCreate(params, helper.CreateAuth(key))
 }
 
-func getObject(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsGetOK, error) {
+func getObject(t *testing.T, class string, id strfmt.UUID, tenant *string, key string) (*objects.ObjectsClassGetOK, error) {
+	params := objects.NewObjectsClassGetParams().WithClassName(class).WithID(id).WithTenant(tenant)
+	return helper.Client(t).Objects.ObjectsClassGet(params, helper.CreateAuth(key))
+}
+
+func getObjectDeprecated(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsGetOK, error) {
 	params := objects.NewObjectsGetParams().WithID(id)
 	return helper.Client(t).Objects.ObjectsGet(params, helper.CreateAuth(key))
 }
 
-func deleteObject(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsDeleteNoContent, error) {
+func deleteObject(t *testing.T, class string, id strfmt.UUID, tenant *string, key string) (*objects.ObjectsClassDeleteNoContent, error) {
+	params := objects.NewObjectsClassDeleteParams().WithClassName(class).WithID(id).WithTenant(tenant)
+	return helper.Client(t).Objects.ObjectsClassDelete(params, helper.CreateAuth(key))
+}
+
+func deleteObjectDeprecated(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsDeleteNoContent, error) {
 	params := objects.NewObjectsDeleteParams().WithID(id)
 	return helper.Client(t).Objects.ObjectsDelete(params, helper.CreateAuth(key))
+}
+
+func updateObject(t *testing.T, object *models.Object, key string) (*objects.ObjectsClassPatchNoContent, error) {
+	params := objects.NewObjectsClassPatchParams().WithBody(object).WithID(object.ID).WithClassName(object.Class)
+	return helper.Client(t).Objects.ObjectsClassPatch(params, helper.CreateAuth(key))
 }
 
 func addRef(t *testing.T, fromId strfmt.UUID, fromProp string, ref *models.SingleRef, key string) (*objects.ObjectsReferencesCreateOK, error) {
@@ -111,4 +131,76 @@ func assertGQL(t *testing.T, query, key string) *models.GraphQLResponse {
 	}
 	require.Equal(t, len(resp.Payload.Errors), 0)
 	return resp.Payload
+}
+
+func readTenant(t *testing.T, class string, tenant string, key string) error {
+	params := clschema.NewTenantsGetOneParams().WithClassName(class).WithTenantName(tenant)
+	_, err := helper.Client(t).Schema.TenantsGetOne(params, helper.CreateAuth(key))
+	return err
+}
+
+func readTenants(t *testing.T, class string, key string) error {
+	params := clschema.NewTenantsGetParams().WithClassName(class)
+	_, err := helper.Client(t).Schema.TenantsGet(params, helper.CreateAuth(key))
+	return err
+}
+
+func existsTenant(t *testing.T, class string, tenant string, key string) error {
+	params := clschema.NewTenantExistsParams().WithClassName(class).WithTenantName(tenant)
+	_, err := helper.Client(t).Schema.TenantExists(params, helper.CreateAuth(key))
+	return err
+}
+
+func createTenant(t *testing.T, class string, tenants []*models.Tenant, key string) error {
+	params := clschema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
+	_, err := helper.Client(t).Schema.TenantsCreate(params, helper.CreateAuth(key))
+	return err
+}
+
+func deleteTenant(t *testing.T, class string, tenants []string, key string) error {
+	params := clschema.NewTenantsDeleteParams().WithClassName(class).WithTenants(tenants)
+	_, err := helper.Client(t).Schema.TenantsDelete(params, helper.CreateAuth(key))
+	return err
+}
+
+func updateTenantStatus(t *testing.T, class string, tenants []*models.Tenant, key string) error {
+	params := clschema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
+	_, err := helper.Client(t).Schema.TenantsUpdate(params, helper.CreateAuth(key))
+	return err
+}
+
+type logScanner struct {
+	container testcontainers.Container
+	pos       int
+}
+
+func newLogScanner(c testcontainers.Container) *logScanner {
+	return &logScanner{container: c}
+}
+
+func (s *logScanner) GetAuthzLogs(t *testing.T) []string {
+	t.Helper() // produces more accurate error tracebacks
+
+	logs, err := s.container.Logs(context.Background())
+	require.Nil(t, err)
+	defer logs.Close()
+
+	scanner := bufio.NewScanner(logs)
+	currentPosition := 0
+
+	var newLines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		if currentPosition >= s.pos && strings.Contains(line, `"action":"authorize"`) {
+			newLines = append(newLines, line)
+		}
+		currentPosition++
+	}
+
+	s.pos = currentPosition
+
+	return newLines
 }

@@ -21,11 +21,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -325,7 +325,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	meta, err := store.Meta(ctx, filename, store.bucket, store.path)
 	if err != nil {
 		path := st.Path
-		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v store: %v", errMetaNotFound, path, err, st)
+		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %w store: %v", errMetaNotFound, path, err, st)
 	}
 
 	status := &Status{

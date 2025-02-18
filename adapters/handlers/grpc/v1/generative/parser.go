@@ -23,6 +23,7 @@ import (
 	friendliaiParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
+	nvidiaParams "github.com/weaviate/weaviate/modules/generative-nvidia/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
@@ -120,6 +121,9 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 			case *pb.GenerativeProvider_Friendliai:
 				options = p.friendliai(query.GetFriendliai())
 				providerName = friendliaiParams.Name
+			case *pb.GenerativeProvider_Nvidia:
+				options = p.nvidia(query.GetNvidia())
+				providerName = nvidiaParams.Name
 			default:
 				// do nothing
 			}
@@ -154,6 +158,7 @@ func (p *Parser) anthropic(in *pb.GenerativeAnthropic) map[string]any {
 			StopSequences: in.StopSequences.GetValues(),
 			TopP:          in.TopP,
 			TopK:          p.int64ToInt(in.TopK),
+			Images:        p.getImages(in.Images),
 		},
 	}
 }
@@ -184,6 +189,7 @@ func (p *Parser) aws(in *pb.GenerativeAWS) map[string]any {
 			TargetVariant: in.GetTargetVariant(),
 			Model:         in.GetModel(),
 			Temperature:   in.Temperature,
+			Images:        p.getImages(in.Images),
 		},
 	}
 }
@@ -231,6 +237,7 @@ func (p *Parser) ollama(in *pb.GenerativeOllama) map[string]any {
 			ApiEndpoint: in.GetApiEndpoint(),
 			Model:       in.GetModel(),
 			Temperature: in.Temperature,
+			Images:      p.getImages(in.Images),
 		},
 	}
 }
@@ -254,6 +261,7 @@ func (p *Parser) openai(in *pb.GenerativeOpenAI) map[string]any {
 			Stop:             in.Stop.GetValues(),
 			Temperature:      in.Temperature,
 			TopP:             in.TopP,
+			Images:           p.getImages(in.Images),
 		},
 	}
 }
@@ -276,6 +284,7 @@ func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 			StopSequences:    in.StopSequences.GetValues(),
 			PresencePenalty:  in.PresencePenalty,
 			FrequencyPenalty: in.FrequencyPenalty,
+			Images:           p.getImages(in.Images),
 		},
 	}
 }
@@ -315,6 +324,28 @@ func (p *Parser) friendliai(in *pb.GenerativeFriendliAI) map[string]any {
 			TopP:        in.TopP,
 		},
 	}
+}
+
+func (p *Parser) nvidia(in *pb.GenerativeNvidia) map[string]any {
+	if in == nil {
+		return nil
+	}
+	return map[string]any{
+		nvidiaParams.Name: nvidiaParams.Params{
+			BaseURL:     in.GetBaseUrl(),
+			Model:       in.GetModel(),
+			Temperature: in.Temperature,
+			TopP:        in.TopP,
+			MaxTokens:   p.int64ToInt(in.MaxTokens),
+		},
+	}
+}
+
+func (p *Parser) getImages(in *pb.TextArray) []string {
+	if in != nil && len(in.Values) > 0 {
+		return in.Values
+	}
+	return nil
 }
 
 func (p *Parser) int64ToInt(in *int64) *int {

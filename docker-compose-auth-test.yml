@@ -1,7 +1,6 @@
-version: '3.4'
 services:
   weaviate-auth:
-    image: weaviate/test-server
+    image: weaviate/test-auth-server
     build:
       context: .
       dockerfile: Dockerfile
@@ -29,8 +28,5 @@ services:
       AUTHENTICATION_APIKEY_ENABLED: "true"
       AUTHENTICATION_APIKEY_ALLOWED_KEYS: 'viewer-key,editor-key,admin-key,custom-key'
       AUTHENTICATION_APIKEY_USERS: 'viewer-user,editor-user,admin-user,custom-user'
-      AUTHORIZATION_ENABLE_RBAC: "true"
-      AUTHORIZATION_ADMIN_USERS: "admin-user"
-      AUTHORIZATION_VIEWER_USERS: "viewer-user"
-
-
+      AUTHORIZATION_RBAC_ENABLED: "true"
+      AUTHORIZATION_RBAC_ROOT_USERS: "admin-user"

@@ -24,9 +24,10 @@ import (
 	"github.com/go-openapi/spec"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"golang.org/x/exp/rand"
+
 	"github.com/weaviate/weaviate/entities/models"
 	eschema "github.com/weaviate/weaviate/entities/schema"
-	"golang.org/x/exp/rand"
 )
 
 type endpoint struct {
@@ -57,7 +58,7 @@ func newCollector() (*collector, error) {
 func (c *collector) collectEndpoints() ([]endpoint, error) {
 	document, err := loads.Spec("../../../openapi-specs/schema.json")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load Swagger spec: %v", err)
+		return nil, fmt.Errorf("failed to load Swagger spec: %w", err)
 	}
 
 	specDoc := document.Spec()
@@ -82,7 +83,7 @@ func (c *collector) collectEndpoints() ([]endpoint, error) {
 				if param.In == "body" && param.Schema != nil {
 					requestBodyData, err = generateValidRequestBody(&param, specDoc.Definitions)
 					if err != nil {
-						return nil, fmt.Errorf("failed to generate request body data: %v", err)
+						return nil, fmt.Errorf("failed to generate request body data: %w", err)
 					}
 				}
 			}
@@ -147,6 +148,18 @@ func generateValidRequestBody(param *spec.Parameter, definitions map[string]spec
 }
 
 func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) ([]byte, error) {
+	// needs to be at the top, because it contains a SingleRef
+	if strings.Contains(schema.Ref.String(), "MultipleRef") {
+		ref := &models.MultipleRef{
+			&models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/ABC/%s", uuid.New().String()))},
+		}
+		jsonData, err := json.Marshal(ref)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal mock data: %w", err)
+		}
+		return jsonData, nil
+	}
+
 	if schema.Ref.String() != "" {
 		ref := schema.Ref.String()
 
@@ -194,7 +207,7 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 				mockData = array
 				jsonData, err := json.Marshal(mockData)
 				if err != nil {
-					return nil, fmt.Errorf("failed to marshal mock data: %v", err)
+					return nil, fmt.Errorf("failed to marshal mock data: %w", err)
 				}
 				return jsonData, nil
 			}
@@ -214,7 +227,7 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 				mockData = array
 				jsonData, err := json.Marshal(mockData)
 				if err != nil {
-					return nil, fmt.Errorf("failed to marshal mock data: %v", err)
+					return nil, fmt.Errorf("failed to marshal mock data: %w", err)
 				}
 				return jsonData, nil
 			}
@@ -228,7 +241,7 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 				mockData = array
 				jsonData, err := json.Marshal(mockData)
 				if err != nil {
-					return nil, fmt.Errorf("failed to marshal mock data: %v", err)
+					return nil, fmt.Errorf("failed to marshal mock data: %w", err)
 				}
 				return jsonData, nil
 			}
@@ -240,6 +253,18 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 					return nil, err
 				}
 				itemSchema = refSchema
+				data, err := generateValidData(itemSchema, definitions)
+				if err != nil {
+					return nil, err
+				}
+				var dd interface{}
+				err = json.Unmarshal(data, &dd)
+				if err != nil {
+					return nil, err
+				}
+				array = append(array, dd)
+			}
+			if itemSchema.Type[0] == "string" {
 				data, err := generateValidData(itemSchema, definitions)
 				if err != nil {
 					return nil, err
@@ -272,7 +297,7 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 
 	jsonData, err := json.Marshal(mockData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal mock data: %v", err)
+		return nil, fmt.Errorf("failed to marshal mock data: %w", err)
 	}
 	return jsonData, nil
 }

@@ -14,7 +14,7 @@ package modulecomponents
 import (
 	"time"
 
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 type RateLimits struct {
@@ -78,14 +78,14 @@ func (rl *RateLimits) IsInitialized() bool {
 	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
 }
 
-type VectorizationResult[T types.Embedding] struct {
+type VectorizationResult[T dto.Embedding] struct {
 	Text       []string
 	Dimensions int
 	Vector     []T
 	Errors     []error
 }
 
-type VectorizationCLIPResult[T types.Embedding] struct {
+type VectorizationCLIPResult[T dto.Embedding] struct {
 	TextVectors  []T
 	ImageVectors []T
 }

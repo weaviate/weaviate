@@ -45,7 +45,6 @@ type schemaManager interface {
 	// AddClassProperty it is upsert operation. it adds properties to a class and updates
 	// existing properties if the merge bool passed true.
 	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
-	MultiTenancy(class string) models.MultiTenancyConfig
 
 	// Consistent methods with the consistency flag.
 	// This is used to ensure that internal users will not miss-use the flag and it doesn't need to be set to a default
@@ -59,6 +58,8 @@ type schemaManager interface {
 	// GetCachedClass extracts class from context. If class was not set it is fetched first
 	GetCachedClass(ctx context.Context, principal *models.Principal, names ...string,
 	) (map[string]versioned.Class, error)
+
+	GetCachedClassNoAuth(ctx context.Context, names ...string) (map[string]versioned.Class, error)
 
 	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
@@ -121,7 +122,8 @@ type locks interface {
 }
 
 type VectorRepo interface {
-	PutObject(ctx context.Context, concept *models.Object, vector []float32, vectors models.Vectors,
+	PutObject(ctx context.Context, concept *models.Object, vector []float32,
+		vectors map[string][]float32, multiVectors map[string][][]float32,
 		repl *additional.ReplicationProperties, schemaVersion uint64) error
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID, deletionTime time.Time,
 		repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error
@@ -184,7 +186,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 func generateUUID() (strfmt.UUID, error) {
 	id, err := uuid.NewRandom()
 	if err != nil {
-		return "", fmt.Errorf("could not generate uuid v4: %v", err)
+		return "", fmt.Errorf("could not generate uuid v4: %w", err)
 	}
 
 	return strfmt.UUID(id.String()), nil
