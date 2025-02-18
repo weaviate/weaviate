@@ -94,7 +94,7 @@ func NewRemovePermissionsOK() *RemovePermissionsOK {
 /*
 RemovePermissionsOK describes a response with status code 200, with default header values.
 
-Permissions removed successfully
+Permissions removed successfully.
 */
 type RemovePermissionsOK struct {
 }
@@ -342,7 +342,7 @@ func NewRemovePermissionsNotFound() *RemovePermissionsNotFound {
 /*
 RemovePermissionsNotFound describes a response with status code 404, with default header values.
 
-no role found
+Role not found.
 */
 type RemovePermissionsNotFound struct {
 }
@@ -532,7 +532,7 @@ swagger:model RemovePermissionsBody
 */
 type RemovePermissionsBody struct {
 
-	// permissions to remove from the role
+	// Permissions to be removed from the role.
 	// Required: true
 	Permissions []*models.Permission `json:"permissions"`
 }

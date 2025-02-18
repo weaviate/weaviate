@@ -77,7 +77,7 @@ type RemovePermissionsParams struct {
 
 	/* ID.
 
-	   role name
+	   The name of the role being modified.
 	*/
 	ID string
 

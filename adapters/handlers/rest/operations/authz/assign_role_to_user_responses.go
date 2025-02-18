@@ -28,7 +28,7 @@ import (
 const AssignRoleToUserOKCode int = 200
 
 /*
-AssignRoleToUserOK Role assigned successfully
+AssignRoleToUserOK Role assigned successfully.
 
 swagger:response assignRoleToUserOK
 */

@@ -45,7 +45,9 @@ func NewHasPermission(ctx *middleware.Context, handler HasPermissionHandler) *Ha
 /*
 	HasPermission swagger:route POST /authz/roles/{id}/has-permission authz hasPermission
 
-Check whether role possesses this permission.
+# Check whether a role possesses a permission
+
+Check whether a role has the specified permissions.
 */
 type HasPermission struct {
 	Context *middleware.Context

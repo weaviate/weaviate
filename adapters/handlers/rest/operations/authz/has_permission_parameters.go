@@ -46,12 +46,12 @@ type HasPermissionParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The permissions to be checked.
 	  Required: true
 	  In: body
 	*/
 	Body *models.Permission
-	/*role name
+	/*The name of the role.
 	  Required: true
 	  In: path
 	*/

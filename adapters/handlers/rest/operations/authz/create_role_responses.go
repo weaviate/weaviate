@@ -28,7 +28,7 @@ import (
 const CreateRoleCreatedCode int = 201
 
 /*
-CreateRoleCreated Role created successfully
+CreateRoleCreated Role created successfully.
 
 swagger:response createRoleCreated
 */
@@ -168,7 +168,7 @@ func (o *CreateRoleForbidden) WriteResponse(rw http.ResponseWriter, producer run
 const CreateRoleConflictCode int = 409
 
 /*
-CreateRoleConflict Role already exists
+CreateRoleConflict Role already exists.
 
 swagger:response createRoleConflict
 */

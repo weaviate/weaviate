@@ -47,7 +47,9 @@ type ClientService interface {
 }
 
 /*
-GetOwnInfo gets info relevant to own user e g username roles
+GetOwnInfo gets info relevant to own user
+
+Get information about the current user (e.g. username, roles).
 */
 func (a *Client) GetOwnInfo(params *GetOwnInfoParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetOwnInfoOK, error) {
 	// TODO: Validate the params before sending

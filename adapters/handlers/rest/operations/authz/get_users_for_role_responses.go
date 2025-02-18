@@ -28,7 +28,7 @@ import (
 const GetUsersForRoleOKCode int = 200
 
 /*
-GetUsersForRoleOK Users assigned to this role
+GetUsersForRoleOK Users assigned to this role.
 
 swagger:response getUsersForRoleOK
 */
@@ -191,7 +191,7 @@ func (o *GetUsersForRoleForbidden) WriteResponse(rw http.ResponseWriter, produce
 const GetUsersForRoleNotFoundCode int = 404
 
 /*
-GetUsersForRoleNotFound no role found
+GetUsersForRoleNotFound Role not found.
 
 swagger:response getUsersForRoleNotFound
 */

@@ -85,7 +85,7 @@ func NewAssignRoleToUserOK() *AssignRoleToUserOK {
 /*
 AssignRoleToUserOK describes a response with status code 200, with default header values.
 
-Role assigned successfully
+Role assigned successfully.
 */
 type AssignRoleToUserOK struct {
 }
@@ -467,7 +467,7 @@ swagger:model AssignRoleToUserBody
 */
 type AssignRoleToUserBody struct {
 
-	// the roles that assigned to user
+	// The roles that are assigned to the specified user.
 	Roles []string `json:"roles"`
 }
 

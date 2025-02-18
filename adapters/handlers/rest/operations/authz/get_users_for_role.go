@@ -45,7 +45,9 @@ func NewGetUsersForRole(ctx *middleware.Context, handler GetUsersForRoleHandler)
 /*
 	GetUsersForRole swagger:route GET /authz/roles/{id}/users authz getUsersForRole
 
-get users or a keys assigned to role
+# Get users assigned to a role
+
+Get all the users who have been assigned a specific role.
 */
 type GetUsersForRole struct {
 	Context *middleware.Context

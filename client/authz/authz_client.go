@@ -71,7 +71,9 @@ type ClientService interface {
 }
 
 /*
-AddPermissions adds permission to a given role
+AddPermissions adds permissions to a role
+
+Permissions can be added to a specified role.
 */
 func (a *Client) AddPermissions(params *AddPermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPermissionsOK, error) {
 	// TODO: Validate the params before sending
@@ -150,6 +152,8 @@ func (a *Client) AssignRoleToGroup(params *AssignRoleToGroupParams, authInfo run
 
 /*
 AssignRoleToUser assigns a role to a user
+
+A user can have any number of roles assigned to them.
 */
 func (a *Client) AssignRoleToUser(params *AssignRoleToUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AssignRoleToUserOK, error) {
 	// TODO: Validate the params before sending
@@ -188,7 +192,9 @@ func (a *Client) AssignRoleToUser(params *AssignRoleToUserParams, authInfo runti
 }
 
 /*
-CreateRole creates new role
+CreateRole creates a new role
+
+Create a new role with the scpecified permissions.
 */
 func (a *Client) CreateRole(params *CreateRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CreateRoleCreated, error) {
 	// TODO: Validate the params before sending
@@ -227,7 +233,9 @@ func (a *Client) CreateRole(params *CreateRoleParams, authInfo runtime.ClientAut
 }
 
 /*
-DeleteRole deletes role
+DeleteRole deletes a role
+
+Deleting a role will remove it from the system, and revoke the associated permissions from all users who had this role.
 */
 func (a *Client) DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteRoleNoContent, error) {
 	// TODO: Validate the params before sending
@@ -267,6 +275,8 @@ func (a *Client) DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAut
 
 /*
 GetRole gets a role
+
+Fetch a role by its name.
 */
 func (a *Client) GetRole(params *GetRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -306,6 +316,8 @@ func (a *Client) GetRole(params *GetRoleParams, authInfo runtime.ClientAuthInfoW
 
 /*
 GetRoles gets all roles
+
+Get all roles in the system and their permissions.
 */
 func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesOK, error) {
 	// TODO: Validate the params before sending
@@ -344,7 +356,9 @@ func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInf
 }
 
 /*
-GetRolesForUser gets roles assigned to user
+GetRolesForUser gets roles assigned to a user
+
+Retrieve the roles and permissions assigned for a specific user.
 */
 func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error) {
 	// TODO: Validate the params before sending
@@ -383,7 +397,9 @@ func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime
 }
 
 /*
-GetUsersForRole gets users or a keys assigned to role
+GetUsersForRole gets users assigned to a role
+
+Get all the users who have been assigned a specific role.
 */
 func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -422,7 +438,9 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 }
 
 /*
-HasPermission checks whether role possesses this permission
+HasPermission checks whether a role possesses a permission
+
+Check whether a role has the specified permissions.
 */
 func (a *Client) HasPermission(params *HasPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*HasPermissionOK, error) {
 	// TODO: Validate the params before sending
@@ -461,7 +479,9 @@ func (a *Client) HasPermission(params *HasPermissionParams, authInfo runtime.Cli
 }
 
 /*
-RemovePermissions removes permissions from a role if this results in an empty role the role will be deleted
+RemovePermissions removes permissions from a role
+
+Permissions can be revoked from a specified role. Removing all permissions from a role will delete the role itself.
 */
 func (a *Client) RemovePermissions(params *RemovePermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RemovePermissionsOK, error) {
 	// TODO: Validate the params before sending
@@ -540,6 +560,8 @@ func (a *Client) RevokeRoleFromGroup(params *RevokeRoleFromGroupParams, authInfo
 
 /*
 RevokeRoleFromUser revokes a role from a user
+
+You can revoke one or more roles from a specified user.
 */
 func (a *Client) RevokeRoleFromUser(params *RevokeRoleFromUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RevokeRoleFromUserOK, error) {
 	// TODO: Validate the params before sending
