@@ -246,15 +246,21 @@ func (f *SegmentFile) ValidateChecksum(info os.FileInfo) error {
 	}
 
 	var checksumBytes [ChecksumSize]byte
-	_, err = f.reader.Read(checksumBytes[:])
+	n, err = f.reader.Read(checksumBytes[:])
 	if err != nil {
 		return fmt.Errorf("read segment file checksum: %w", err)
 	}
+	if n != ChecksumSize {
+		return fmt.Errorf("expected to read %d bytes, got %d", ChecksumSize, n)
+	}
 
 	f.reader.Reset(bytes.NewReader(header[:]))
-	_, err = f.checksumReader.Read(make([]byte, HeaderSize))
+	n, err = f.checksumReader.Read(make([]byte, HeaderSize))
 	if err != nil {
 		return fmt.Errorf("add header to checksum: %w", err)
+	}
+	if n != HeaderSize {
+		return fmt.Errorf("expected to read %d bytes, got %d", HeaderSize, n)
 	}
 
 	computedChecksum := f.checksumReader.Hash()

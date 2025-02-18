@@ -48,8 +48,9 @@ func TestMeteredReader(t *testing.T) {
 		mr := NewMeteredReader(bytes.NewReader(data), nil)
 
 		target := make([]byte, 128)
-		_, err := mr.Read(target)
+		n, err := mr.Read(target)
 		require.Nil(t, err)
+		assert.Equal(t, 128, n)
 	})
 
 	t.Run("with an error", func(t *testing.T) {
@@ -69,9 +70,10 @@ func TestMeteredReader(t *testing.T) {
 		mr := NewMeteredReader(underlying, cb)
 
 		target := make([]byte, 128)
-		_, err := mr.Read(target)
+		n, err := mr.Read(target)
 
 		assert.Equal(t, io.EOF, err)
+		assert.Equal(t, int64(0), n)
 
 		// callback should not have been called in error cases, so we expect to
 		// read initial values

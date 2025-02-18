@@ -98,11 +98,13 @@ func readSiftFloat(file string, maxObjects int) []*models.Object {
 	vectorLengthFloat := 128
 	vectorBytes := make([]byte, bytesPerF+vectorLengthFloat*bytesPerF)
 	for i := 0; i >= 0; i++ {
-		_, err = f.Read(vectorBytes)
+		read, err := f.Read(vectorBytes)
 		if errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
 			panic(err)
+		} else if read != len(vectorBytes) {
+			panic("Could not read all bytes.")
 		}
 		if int32FromBytes(vectorBytes[0:bytesPerF]) != vectorLengthFloat {
 			panic("Each vector must have 128 entries.")

@@ -427,11 +427,14 @@ func readSiftFloat(file string, maxObjects int) [][]float32 {
 	bytesPerF := 4
 	vectorBytes := make([]byte, bytesPerF+vectorSize*bytesPerF)
 	for i := 0; i >= 0; i++ {
-		_, err = f.Read(vectorBytes)
+		read, err := f.Read(vectorBytes)
 		if errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
 			panic(err)
+		}
+		if read != len(vectorBytes) {
+			panic("Could not read all bytes.")
 		}
 		if int32FromBytes(vectorBytes[0:bytesPerF]) != vectorSize {
 			panic("Each vector must have 128 entries.")
