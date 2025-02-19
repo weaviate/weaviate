@@ -382,6 +382,75 @@ func Test_AddClass(t *testing.T) {
 	})
 }
 
+func Test_AddClassWithLimits(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("with max collections limit", func(t *testing.T) {
+		tests := []struct {
+			name          string
+			existingCount int
+			maxAllowed    int
+			expectedError error
+		}{
+			{
+				name:          "under the limit",
+				existingCount: 5,
+				maxAllowed:    10,
+				expectedError: nil,
+			},
+			{
+				name:          "at the limit",
+				existingCount: 10,
+				maxAllowed:    10,
+				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
+			},
+			{
+				name:          "over the limit",
+				existingCount: 11,
+				maxAllowed:    10,
+				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
+			},
+			{
+				name:          "no limit set",
+				existingCount: 100,
+				maxAllowed:    -1,
+				expectedError: nil,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+				// Mock the schema count
+				fakeSchemaManager.On("QueryCollectionsCount").Return(tt.existingCount, nil)
+
+				// Set the max collections limit in config
+				handler.config.MaximumAllowedCollectionsCount = tt.maxAllowed
+
+				class := &models.Class{
+					Class:      "NewClass",
+					Vectorizer: "none",
+				}
+
+				if tt.expectedError == nil {
+					fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+				}
+
+				_, _, err := handler.AddClass(ctx, nil, class)
+				if tt.expectedError != nil {
+					require.NotNil(t, err)
+					assert.Contains(t, err.Error(), tt.expectedError.Error())
+				} else {
+					require.Nil(t, err)
+				}
+				fakeSchemaManager.AssertExpectations(t)
+			})
+		}
+	})
+}
+
 func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 	t.Parallel()
 
