@@ -112,7 +112,8 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		h.logger.WithField("err", err).Error("could not query the collections count")
 	}
-	if existedCollectionsCount >= h.config.MaximumAllowedCollectionsCount {
+
+	if h.config.MaximumAllowedCollectionsCount != -1 && existedCollectionsCount >= h.config.MaximumAllowedCollectionsCount {
 		return nil, 0,
 			fmt.Errorf("cannot create class: maximum number of collections (%d) reached, try MT feature", h.config.MaximumAllowedCollectionsCount)
 	}
