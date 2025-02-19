@@ -51,6 +51,7 @@ func (sm *SchemaManager) QuerySchema() ([]byte, error) {
 	}
 	return payload, nil
 }
+
 func (sm *SchemaManager) QueryCollectionsCount() ([]byte, error) {
 	// Build the response, marshal and return
 	response := cmd.QueryCollectionsCountResponse{Count: sm.schema.CollectionsCount()}
