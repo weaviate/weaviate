@@ -20,6 +20,7 @@ import (
 
 func TestPagedCache(t *testing.T) {
 	cache := NewPagedCacheWith[int](10, 2)
+	require.Len(t, cache.cache, 2, "wrong initial number of pages")
 
 	setN := func(n int) {
 		for i := 0; i < n; i++ {
