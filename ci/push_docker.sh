@@ -59,11 +59,11 @@ function release() {
   if $only_build_amd64; then
         if [ -n "$tag_exact" ]; then
           # exact tag on main
-          args+=("-t=amd64_only_$tag_exact")
+          args+=("-t=${tag_exact}_amd64_only")
         fi
         if [ -n "$tag_preview" ]; then
           # preview tag on PR builds
-          args+=("-t=amd64_only_$tag_preview_semver")
+          args+=("-t=${tag_preview_semver}_amd64_only")
         fi
   else
     if [ -n "$tag_exact" ]; then
