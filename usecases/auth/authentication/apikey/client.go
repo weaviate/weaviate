@@ -87,6 +87,9 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	if !c.config.Enabled {
 		return nil, errors.New(401, "apikey auth is not configured, please try another auth scheme or set up weaviate with apikey configured")
 	}
+	startBaseline := time.Now()
+	_ = sha256.Sum256([]byte(token))
+	baseline := time.Since(startBaseline)
 
 	hash, err := argon2id.CreateHash(token, argon2id.DefaultParams)
 	if err != nil {
@@ -100,7 +103,7 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	}
 	defaultParams := time.Since(start)
 
-	hash2, err := argon2id.CreateHash(token, &argon2id.Params{Memory: 64 * 1024, Parallelism: 8, Iterations: 3, SaltLength: 16, KeyLength: 32})
+	hash2, err := argon2id.CreateHash(token, &argon2id.Params{Memory: 64 * 1024, Parallelism: 2, Iterations: 3, SaltLength: 16, KeyLength: 32})
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +115,7 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	}
 	secondRecommend := time.Since(start2)
 
-	hash3, err := argon2id.CreateHash(token, &argon2id.Params{Memory: 48 * 1024, Parallelism: 8, Iterations: 3, SaltLength: 16, KeyLength: 32})
+	hash3, err := argon2id.CreateHash(token, &argon2id.Params{Memory: 48 * 1024, Parallelism: 2, Iterations: 3, SaltLength: 16, KeyLength: 32})
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +127,7 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	}
 	lower := time.Since(start3)
 
-	return nil, fmt.Errorf("default took %v, second recommended took %v, lower took: %v", defaultParams, secondRecommend, lower)
+	return nil, fmt.Errorf("baseline sha256: %v, default took %v, second recommended took %v, lower took: %v", baseline, defaultParams, secondRecommend, lower)
 
 	tokenPos, ok := c.isTokenAllowed(token)
 	if !ok {
