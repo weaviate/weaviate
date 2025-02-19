@@ -465,7 +465,7 @@ jobs:
         run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
 
   Push-Docker:
-    if: ${{ !github.event.pull_request.head.repo.fork && !startsWith(github.head_ref, 'build') }} # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && (startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build')) }} # no PRs from fork
     needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
     name: push-docker
     timeout-minutes: 30
@@ -488,10 +488,10 @@ jobs:
           PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
-    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork    
+    if: ${{ !github.event.pull_request.head.repo.fork && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') }} # no PRs from fork    
     name: push-docker-fast
     timeout-minutes: 30
-    runs-on: ubuntu-latest-8-cores    
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -501,7 +501,7 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
         id: push-container
-        run: ./ci/push_docker.sh
+        run: ./ci/push_docker.sh --amd64-only
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
       - name: Generate Report
