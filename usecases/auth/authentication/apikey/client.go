@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/alexedwards/argon2id"
 
 	errors "github.com/go-openapi/errors"
@@ -99,17 +101,16 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 		intParts[i], _ = strconv.Atoi(part)
 	}
 
-	hash, err := argon2id.CreateHash(token, argon2id.DefaultParams)
+	hashBcrypt, err := bcrypt.GenerateFromPassword([]byte(token), intParts[5])
 	if err != nil {
 		return nil, err
 	}
-
-	start := time.Now()
-	_, err = argon2id.ComparePasswordAndHash(token, hash)
+	startBcryptMin := time.Now()
+	err = bcrypt.CompareHashAndPassword(hashBcrypt, []byte(token))
 	if err != nil {
 		return nil, err
 	}
-	defaultParams := time.Since(start)
+	bcryptMin := time.Since(startBcryptMin)
 
 	hash2, err := argon2id.CreateHash(token, &argon2id.Params{Memory: uint32(intParts[0]), Parallelism: uint8(intParts[1]), Iterations: uint32(intParts[2]), SaltLength: uint32(intParts[3]), KeyLength: uint32(intParts[4])})
 	if err != nil {
@@ -121,21 +122,9 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	if err != nil {
 		return nil, err
 	}
-	secondRecommend := time.Since(start2)
+	customArgon := time.Since(start2)
 
-	hash3, err := argon2id.CreateHash(token, &argon2id.Params{Memory: 48 * 1024, Parallelism: 2, Iterations: 3, SaltLength: 16, KeyLength: 32})
-	if err != nil {
-		return nil, err
-	}
-
-	start3 := time.Now()
-	_, err = argon2id.ComparePasswordAndHash(token, hash3)
-	if err != nil {
-		return nil, err
-	}
-	lower := time.Since(start3)
-
-	return nil, fmt.Errorf("baseline sha256: %v, default took %v, second recommended took %v, lower took: %v", baseline, defaultParams, secondRecommend, lower)
+	return nil, fmt.Errorf("baseline sha256: %v, bcrypt took %v, argon took %v. Params %v", baseline, bcryptMin, customArgon, intParts)
 
 	tokenPos, ok := c.isTokenAllowed(token)
 	if !ok {
