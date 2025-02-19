@@ -15,6 +15,9 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
+	"time"
+
+	"github.com/alexedwards/argon2id"
 
 	errors "github.com/go-openapi/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -84,6 +87,44 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	if !c.config.Enabled {
 		return nil, errors.New(401, "apikey auth is not configured, please try another auth scheme or set up weaviate with apikey configured")
 	}
+
+	hash, err := argon2id.CreateHash(token, argon2id.DefaultParams)
+	if err != nil {
+		return nil, err
+	}
+
+	start := time.Now()
+	_, err = argon2id.ComparePasswordAndHash(token, hash)
+	if err != nil {
+		return nil, err
+	}
+	defaultParams := time.Since(start)
+
+	hash2, err := argon2id.CreateHash(token, &argon2id.Params{Memory: 64 * 1024, Parallelism: 8, Iterations: 3, SaltLength: 16, KeyLength: 32})
+	if err != nil {
+		return nil, err
+	}
+
+	start2 := time.Now()
+	_, err = argon2id.ComparePasswordAndHash(token, hash2)
+	if err != nil {
+		return nil, err
+	}
+	secondRecommend := time.Since(start2)
+
+	hash3, err := argon2id.CreateHash(token, &argon2id.Params{Memory: 48 * 1024, Parallelism: 8, Iterations: 3, SaltLength: 16, KeyLength: 32})
+	if err != nil {
+		return nil, err
+	}
+
+	start3 := time.Now()
+	_, err = argon2id.ComparePasswordAndHash(token, hash3)
+	if err != nil {
+		return nil, err
+	}
+	lower := time.Since(start3)
+
+	return nil, fmt.Errorf("default took %v, second recommended took %v, lower took: %v", defaultParams, secondRecommend, lower)
 
 	tokenPos, ok := c.isTokenAllowed(token)
 	if !ok {
