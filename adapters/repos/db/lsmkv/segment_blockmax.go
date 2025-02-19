@@ -562,3 +562,8 @@ func (s *SegmentBlockMax) exhaust() {
 	s.currentBlockMaxId = math.MaxUint64
 	s.exhausted = true
 }
+
+func (s *SegmentBlockMax) SetIdf(idf float64) {
+	s.idf = idf
+	s.currentBlockImpact = s.computeCurrentBlockImpact()
+}
