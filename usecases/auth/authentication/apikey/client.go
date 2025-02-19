@@ -108,7 +108,7 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 
 	repeats := 50
 	startBcrypt := time.Now()
-	for i := 0; i < 10; i++ {
+	for i := 0; i < repeats; i++ {
 		err = bcrypt.CompareHashAndPassword(hashBcrypt, []byte(token))
 		if err != nil {
 			return nil, err
