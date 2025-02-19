@@ -533,10 +533,11 @@ func FromEnv(config *Config) error {
 		config.HNSWStartupWaitForVectorCache = true
 	}
 
-	if err := parsePositiveInt(
+	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
-		func(val int) { config.MaximumAllowedCollectionsCount = val },
 		DefaultMAXAllowedCollectionsCount,
+		func(val int) error { return nil },
+		func(val int) { config.MaximumAllowedCollectionsCount = val },
 	); err != nil {
 		return err
 	}

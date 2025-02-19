@@ -145,6 +145,16 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
+	existedCollectionsCount, err := h.schemaManager.QueryCollectionsCount()
+	if err != nil {
+		h.logger.WithField("error", err).Error("could not query the collections count")
+	}
+
+	if h.config.MaximumAllowedCollectionsCount != -1 && existedCollectionsCount >= h.config.MaximumAllowedCollectionsCount {
+		return nil, 0,
+			fmt.Errorf("cannot create class: maximum number of collections (%d) reached, try MT feature", h.config.MaximumAllowedCollectionsCount)
+	}
+
 	shardState, err := sharding.InitState(cls.Class,
 		cls.ShardingConfig.(shardingcfg.Config),
 		h.clusterState.LocalName(), h.schemaManager.StorageCandidates(), cls.ReplicationConfig.Factor,

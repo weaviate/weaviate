@@ -111,7 +111,6 @@ func testAddObjectClassWrongVectorizer(t *testing.T, handler *Handler, fakeSchem
 		}},
 	}
 
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Error(t, err)
 }
@@ -128,7 +127,6 @@ func testAddObjectClassWrongIndexType(t *testing.T, handler *Handler, fakeSchema
 			Name:         "dummy",
 		}},
 	}
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	require.NotNil(t, err)
 	assert.Equal(t, "unrecognized or unsupported vectorIndexType \"vector-index-2-million\"", err.Error())
@@ -328,7 +326,6 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeSc
 		{Name: "color", DataType: []string{"blurp"}},
 	}
 
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
@@ -343,7 +340,6 @@ func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, handler
 		{Name: "color", DataType: []string{""}},
 	}
 
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,

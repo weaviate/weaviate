@@ -55,6 +55,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 
 	require.Nil(t, err)
+	handler.config.MaximumAllowedCollectionsCount = -1
 	return &handler, schemaManager
 }
 
