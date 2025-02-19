@@ -2,7 +2,22 @@
 
 DOCKER_REPO="semitechnologies/weaviate"
 
+
+only_build_amd64=false
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --amd64-only) only_build_amd64=true;;
+        --help|-h) printf '%s\n' \
+            "Options:"\
+            "--amd64-only"\
+            "--help | -h"; exit 1;;
+        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+    esac
+    shift
+done
+
 function release() {
+
   # for multi-platform build
   docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
   docker buildx create --use
@@ -34,18 +49,34 @@ function release() {
     fi
   fi
 
-  args=("--build-arg=GITHASH=$git_hash" "--build-arg=DOCKER_IMAGE_TAG=$weaviate_version" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
-  if [ -n "$tag_exact" ]; then
-    # exact tag on main
-    args+=("-t=$tag_exact")
-    args+=("-t=$tag_latest")
-  fi
-  if [ -n "$tag_preview" ]; then
-    # preview tag on PR builds
-    args+=("-t=$tag_preview")
-    args+=("-t=$tag_preview_semver")
+  if $only_build_amd64; then
+     build_platform="linux/amd64"
+  else
+     build_platform="linux/amd64,linux/arm64"
   fi
 
+  args=("--build-arg=GITHASH=$git_hash" "--build-arg=DOCKER_IMAGE_TAG=$weaviate_version" "--platform=$build_platform" "--target=weaviate" "--push")
+  if $only_build_amd64; then
+        if [ -n "$tag_exact" ]; then
+          # exact tag on main
+          args+=("-t=amd64_only_$tag_exact")
+        fi
+        if [ -n "$tag_preview" ]; then
+          # preview tag on PR builds
+          args+=("-t=amd64_only_$tag_preview_semver")
+        fi
+  else
+    if [ -n "$tag_exact" ]; then
+      # exact tag on main
+      args+=("-t=$tag_exact")
+      args+=("-t=$tag_latest")
+    fi
+    if [ -n "$tag_preview" ]; then
+      # preview tag on PR builds
+      args+=("-t=$tag_preview")
+      args+=("-t=$tag_preview_semver")
+    fi
+  fi
   docker buildx build "${args[@]}" . || exit 1
 
   if [ -n "$tag_preview" ]; then
