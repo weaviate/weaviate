@@ -531,7 +531,7 @@ func (sg *SegmentGroup) exists(key []byte) (bool, error) {
 }
 
 // not thread-safe on its own, as the assumption is that this is called from a
-// lockholder, e.g. within .get()
+// lockholder, e.g. within .exists()
 func (sg *SegmentGroup) existsWithUpperSegmentBoundary(key []byte, segments []*segment) (bool, error) {
 	// assumes "replace" strategy
 
