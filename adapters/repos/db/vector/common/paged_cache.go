@@ -27,10 +27,10 @@ func NewPagedCache[T any](pageSize int) *PagedCache[T] {
 }
 
 // NewPagedCacheWith creates a new PagedCache with the given page size and initial number of pages.
-func NewPagedCacheWith[T any](pageSize int, initalPages int) *PagedCache[T] {
+func NewPagedCacheWith[T any](pageSize int, initialPages int) *PagedCache[T] {
 	return &PagedCache[T]{
 		pageSize: pageSize,
-		cache:    make([][]*T, 10),
+		cache:    make([][]*T, initialPages),
 	}
 }
 
