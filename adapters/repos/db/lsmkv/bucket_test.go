@@ -268,3 +268,116 @@ func TestBucket_MemtableCountWithFlushing(t *testing.T) {
 		})
 	}
 }
+
+func TestBucket_GetBySecondary(t *testing.T) {
+	newBucket := func(t *testing.T) *Bucket {
+		tmpDir := t.TempDir()
+
+		log, _ := test.NewNullLogger()
+		b, err := NewBucketCreator().NewBucket(context.Background(), tmpDir, "", log, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithSecondaryIndices(1))
+		require.Nil(t, err)
+
+		t.Cleanup(func() {
+			require.Nil(t, b.Shutdown(context.Background()))
+		})
+
+		return b
+	}
+
+	var (
+		secondaryKeyPos = 0
+
+		key          = []byte("key")
+		val          = []byte("value")
+		secondaryKey = []byte{0x00, 0x01, 0x02, 0x03}
+	)
+
+	t.Run("value does not exist", func(t *testing.T) {
+		b := newBucket(t)
+		result, err := b.GetBySecondary(secondaryKeyPos, secondaryKey)
+		require.NoError(t, err)
+		require.Nil(t, result)
+	})
+
+	t.Run("value exists only in memory", func(t *testing.T) {
+		b := newBucket(t)
+
+		err := b.Put(key, val, WithSecondaryKey(secondaryKeyPos, secondaryKey))
+		require.NoError(t, err)
+
+		result, err := b.GetBySecondary(secondaryKeyPos, secondaryKey)
+		require.NoError(t, err)
+		require.Equal(t, val, result)
+	})
+
+	t.Run("value exists only on disk", func(t *testing.T) {
+		b := newBucket(t)
+
+		err := b.Put(key, val, WithSecondaryKey(secondaryKeyPos, secondaryKey))
+		require.NoError(t, err)
+
+		err = b.FlushMemtable()
+		require.NoError(t, err)
+
+		result, err := b.GetBySecondary(secondaryKeyPos, secondaryKey)
+		require.NoError(t, err)
+		require.Equal(t, val, result)
+	})
+
+	t.Run("different values exists on disk and memory", func(t *testing.T) {
+		b := newBucket(t)
+
+		err := b.Put(key, val, WithSecondaryKey(secondaryKeyPos, secondaryKey))
+		require.NoError(t, err)
+
+		err = b.FlushMemtable()
+		require.NoError(t, err)
+
+		newVal := []byte("new value")
+		err = b.Put(key, newVal, WithSecondaryKey(secondaryKeyPos, secondaryKey))
+		require.NoError(t, err)
+
+		result, err := b.GetBySecondary(secondaryKeyPos, secondaryKey)
+		require.NoError(t, err)
+		require.Equal(t, newVal, result)
+	})
+
+	t.Run("key deleted in memory, present on disk", func(t *testing.T) {
+		b := newBucket(t)
+
+		err := b.Put(key, val, WithSecondaryKey(secondaryKeyPos, secondaryKey))
+		require.NoError(t, err)
+
+		err = b.FlushMemtable()
+		require.NoError(t, err)
+
+		err = b.Delete(key)
+		require.NoError(t, err)
+
+		result, err := b.GetBySecondary(secondaryKeyPos, secondaryKey)
+		require.NoError(t, err)
+		require.Nil(t, result)
+	})
+
+	t.Run("key present in memory, deleted on disk", func(t *testing.T) {
+		b := newBucket(t)
+
+		err := b.Put(key, val, WithSecondaryKey(secondaryKeyPos, secondaryKey))
+		require.NoError(t, err)
+
+		err = b.Delete(key)
+		require.NoError(t, err)
+
+		err = b.FlushMemtable()
+		require.NoError(t, err)
+
+		newVal := []byte("new value")
+		err = b.Put(key, newVal, WithSecondaryKey(secondaryKeyPos, secondaryKey))
+		require.NoError(t, err)
+
+		result, err := b.GetBySecondary(secondaryKeyPos, secondaryKey)
+		require.NoError(t, err)
+		require.Equal(t, newVal, result)
+	})
+}

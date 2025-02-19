@@ -95,19 +95,23 @@ func (os *objectScannerLSM) scan() error {
 		buf = make([]byte, 10*1024)
 	)
 	for _, id := range os.pointers {
+		var (
+			objectBytes []byte
+			err         error
+		)
+
 		binary.LittleEndian.PutUint64(docIDBytes, id)
-		res, b, err := os.objectsBucket.GetBySecondaryIntoMemory(0, docIDBytes, buf)
-		buf = b
+		objectBytes, buf, err = os.objectsBucket.GetBySecondaryWithBuffer(0, docIDBytes, buf)
 		if err != nil {
 			return err
 		}
 
-		if res == nil {
+		if objectBytes == nil {
 			continue
 		}
 
 		if len(propertyPaths) > 0 {
-			err = storobj.UnmarshalPropertiesFromObject(res, propertiesTyped, propertyPaths)
+			err = storobj.UnmarshalPropertiesFromObject(objectBytes, propertiesTyped, propertyPaths)
 			if err != nil {
 				return errors.Wrapf(err, "unmarshal data object")
 			}
