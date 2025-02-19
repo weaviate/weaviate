@@ -1525,7 +1525,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }
 
-func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, func(), error) {
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, []uint64, func(), error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1544,6 +1544,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))
+	idfCounts := make([]uint64, len(query))
 
 	// flusing memtable
 	output[len(segmentsDisk)] = make([]*SegmentBlockMax, 0, len(query))
@@ -1570,7 +1571,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			tombstones, err := b.active.GetTombstones()
 			if err != nil {
 				release()
-				return nil, func() {}, err
+				return nil, nil, func() {}, err
 			}
 			allTombstones[1] = tombstones
 
@@ -1590,7 +1591,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			tombstones, err := b.flushing.GetTombstones()
 			if err != nil {
 				release()
-				return nil, func() {}, err
+				return nil, nil, func() {}, err
 			}
 
 			allTombstones[0] = tombstones
@@ -1616,6 +1617,8 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 		flushing.idf = idfs[i]
 		flushing.currentBlockImpact = float32(idfs[i])
+
+		idfCounts[i] = n
 	}
 
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {
@@ -1624,7 +1627,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		tombstones, err := segment.GetTombstones()
 		if err != nil {
 			release()
-			return nil, func() {}, err
+			return nil, nil, func() {}, err
 		}
 
 		if b.flushing != nil {
@@ -1642,7 +1645,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 
 	}
-	return output, release, nil
+	return output, idfCounts, release, nil
 }
 
 func fillTerm(memtable *Memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {
