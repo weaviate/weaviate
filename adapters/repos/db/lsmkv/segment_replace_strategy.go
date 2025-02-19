@@ -108,6 +108,7 @@ func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) (
 	if uint64(cap(buffer)) >= node.End-node.Start {
 		contentsCopy = buffer[:node.End-node.Start]
 	} else {
+		fmt.Printf("Received buffer %v, required %v\n", cap(buffer), node.End-node.Start)
 		contentsCopy = make([]byte, node.End-node.Start)
 	}
 	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {

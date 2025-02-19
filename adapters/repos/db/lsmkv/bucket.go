@@ -467,6 +467,56 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 	return b.disk.get(key)
 }
 
+func (b *Bucket) exists(key []byte) (bool, error) {
+	beforeMemtable := time.Now()
+	_, err := b.active.get(key)
+	if time.Since(beforeMemtable) > 100*time.Millisecond {
+		b.logger.WithField("duration", time.Since(beforeMemtable)).
+			WithField("action", "lsm_bucket_get_active_memtable").
+			Debugf("Waited more than 100ms to retrieve object from memtable")
+	}
+	if err == nil {
+		// item found and no error, return and stop searching, since the strategy
+		// is replace
+		return true, nil
+	}
+	if errors.Is(err, lsmkv.Deleted) {
+		// deleted in the mem-table (which is always the latest) means we don't
+		// have to check the disk segments, return nil now
+		return false, nil
+	}
+
+	if !errors.Is(err, lsmkv.NotFound) {
+		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
+	}
+
+	if b.flushing != nil {
+		beforeFlushMemtable := time.Now()
+		_, err := b.flushing.get(key)
+		if time.Since(beforeFlushMemtable) > 100*time.Millisecond {
+			b.logger.WithField("duration", time.Since(beforeFlushMemtable)).
+				WithField("action", "lsm_bucket_get_flushing_memtable").
+				Debugf("Waited over 100ms to retrieve object from flushing memtable")
+		}
+		if err == nil {
+			// item found and no error, return and stop searching, since the strategy
+			// is replace
+			return true, nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			// deleted in the now most recent memtable  means we don't have to check
+			// the disk segments, return nil now
+			return false, nil
+		}
+
+		if !errors.Is(err, lsmkv.NotFound) {
+			panic("unsupported error in bucket.Get")
+		}
+	}
+
+	return b.disk.exists(key)
+}
+
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -508,6 +558,43 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	return b.disk.getErrDeleted(key)
 }
 
+type PooledBytes struct {
+	Bytes     []byte
+	ReleaseFn func()
+}
+
+func (b PooledBytes) Release() {
+	if b.ReleaseFn != nil {
+		b.ReleaseFn()
+	}
+}
+
+type GenericPool[T any] struct {
+	p *sync.Pool
+}
+
+func NewPool[T any](ctr func() T) *GenericPool[T] {
+	return &GenericPool[T]{
+		p: &sync.Pool{
+			New: func() interface{} {
+				return ctr()
+			},
+		},
+	}
+}
+
+func (p *GenericPool[T]) Put(item T) {
+	p.p.Put(item)
+}
+
+func (p *GenericPool[T]) Get() T {
+	return p.p.Get().(T)
+}
+
+var bytesPool = NewPool(func() []byte {
+	return make([]byte, 10*1024)
+})
+
 // GetBySecondary retrieves an object using one of its secondary keys. A bucket
 // can have an infinite number of secondary keys. Specify the secondary key
 // position as the first argument.
@@ -522,6 +609,23 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 	bytes, _, err := b.GetBySecondaryIntoMemory(pos, key, nil)
 	return bytes, err
+}
+
+func (b *Bucket) GetBySecondaryV2(pos int, key []byte) (PooledBytes, error) {
+	buf := bytesPool.Get()
+	clear(buf)
+
+	bytes, _, err := b.GetBySecondaryIntoMemory(pos, key, buf)
+	if err != nil {
+		return PooledBytes{}, err
+	}
+
+	return PooledBytes{
+		Bytes: bytes,
+		ReleaseFn: func() {
+			bytesPool.Put(bytes)
+		},
+	}, err
 }
 
 // GetBySecondaryWithBuffer is like [Bucket.GetBySecondary], but also takes a
@@ -590,10 +694,10 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 	}
 
 	// additional validation to ensure the primary key has not been marked as deleted
-	pkv, err := b.get(k)
+	pkExists, err := b.exists(k)
 	if err != nil {
 		return nil, nil, err
-	} else if pkv == nil {
+	} else if !pkExists {
 		return nil, buffer, nil
 	}
 

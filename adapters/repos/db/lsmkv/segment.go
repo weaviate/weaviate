@@ -21,10 +21,10 @@ import (
 	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomnew2"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
-	"github.com/willf/bloom"
 )
 
 type segment struct {
@@ -47,8 +47,8 @@ type segment struct {
 	mmapContents        bool
 
 	useBloomFilter        bool // see bucket for more datails
-	bloomFilter           *bloom.BloomFilter
-	secondaryBloomFilters []*bloom.BloomFilter
+	bloomFilter           *bloomnew2.BloomFilter
+	secondaryBloomFilters []*bloomnew2.BloomFilter
 	bloomFilterMetrics    *bloomFilterMetrics
 
 	// the net addition this segment adds with respect to all previous segments

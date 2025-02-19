@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/willf/bloom"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomnew2"
 )
 
 func (s *segment) bloomFilterPath() string {
@@ -40,7 +40,7 @@ func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
 		return fmt.Errorf("init bloom filter for primary index: %w", err)
 	}
 	if s.secondaryIndexCount > 0 {
-		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
+		s.secondaryBloomFilters = make([]*bloomnew2.BloomFilter, s.secondaryIndexCount)
 		for i := range s.secondaryBloomFilters {
 			if err := s.initSecondaryBloomFilter(i, overwrite); err != nil {
 				return fmt.Errorf("init bloom filter for secondary index at %d: %w", i, err)
@@ -102,7 +102,7 @@ func (s *segment) computeAndStoreBloomFilter(path string) error {
 		return err
 	}
 
-	s.bloomFilter = bloom.NewWithEstimates(uint(len(keys)), 0.001)
+	s.bloomFilter = bloomnew2.NewWithEstimates(uint(len(keys)), 0.001)
 	for _, key := range keys {
 		s.bloomFilter.Add(key)
 	}
@@ -123,7 +123,7 @@ func (s *segment) precomputeBloomFilters() ([]string, error) {
 	out = append(out, fmt.Sprintf("%s.tmp", s.bloomFilterPath()))
 
 	if s.secondaryIndexCount > 0 {
-		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
+		s.secondaryBloomFilters = make([]*bloomnew2.BloomFilter, s.secondaryIndexCount)
 		for i := range s.secondaryBloomFilters {
 			if err := s.precomputeSecondaryBloomFilter(i); err != nil {
 				return nil, fmt.Errorf("precompute bloom filter for secondary index at %d: %w", i, err)
@@ -182,7 +182,7 @@ func (s *segment) loadBloomFilterFromDisk() error {
 		return err
 	}
 
-	s.bloomFilter = new(bloom.BloomFilter)
+	s.bloomFilter = new(bloomnew2.BloomFilter)
 	_, err = s.bloomFilter.ReadFrom(bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("read bloom filter from disk: %w", err)
@@ -243,7 +243,7 @@ func (s *segment) computeAndStoreSecondaryBloomFilter(path string, pos int) erro
 		return err
 	}
 
-	s.secondaryBloomFilters[pos] = bloom.NewWithEstimates(uint(len(keys)), 0.001)
+	s.secondaryBloomFilters[pos] = bloomnew2.NewWithEstimates(uint(len(keys)), 0.001)
 	for _, key := range keys {
 		s.secondaryBloomFilters[pos].Add(key)
 	}
@@ -303,7 +303,7 @@ func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 		return err
 	}
 
-	s.secondaryBloomFilters[pos] = new(bloom.BloomFilter)
+	s.secondaryBloomFilters[pos] = new(bloomnew2.BloomFilter)
 	_, err = s.secondaryBloomFilters[pos].ReadFrom(bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("read bloom filter from disk: %w", err)

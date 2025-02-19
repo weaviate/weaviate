@@ -13,7 +13,12 @@ package docid
 
 import (
 	"encoding/binary"
+	"math"
+	"runtime"
+	"sync/atomic"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -31,8 +36,8 @@ type ObjectScanFn func(prop *models.PropertySchema, docID uint64) (bool, error)
 // specified pointer. If a pointer does not resolve to an object-id, the item
 // will be skipped. The number of times scanFn is called can therefore be
 // smaller than the input length of pointers.
-func ScanObjectsLSM(store *lsmkv.Store, pointers []uint64, scan ObjectScanFn, properties []string) error {
-	return newObjectScannerLSM(store, pointers, scan, properties).Do()
+func ScanObjectsLSM(store *lsmkv.Store, pointers []uint64, scan ObjectScanFn, properties []string, logger logrus.FieldLogger) error {
+	return newObjectScannerLSM(store, pointers, scan, properties, logger).Do()
 }
 
 type objectScannerLSM struct {
@@ -41,16 +46,16 @@ type objectScannerLSM struct {
 	scanFn        ObjectScanFn
 	objectsBucket *lsmkv.Bucket
 	properties    []string
+	logger        logrus.FieldLogger
 }
 
-func newObjectScannerLSM(store *lsmkv.Store, pointers []uint64,
-	scan ObjectScanFn, properties []string,
-) *objectScannerLSM {
+func newObjectScannerLSM(store *lsmkv.Store, pointers []uint64, scan ObjectScanFn, properties []string, logger logrus.FieldLogger) *objectScannerLSM {
 	return &objectScannerLSM{
 		store:      store,
 		pointers:   pointers,
 		scanFn:     scan,
 		properties: properties,
+		logger:     logger,
 	}
 }
 
@@ -86,40 +91,84 @@ func (os *objectScannerLSM) scan() error {
 		propertyPaths[i] = []string{os.properties[i]}
 	}
 
-	var (
-		properties models.PropertySchema
+	concurrency := 2 * runtime.GOMAXPROCS(0)
 
-		// used for extraction from json
-		propertiesTyped = make(map[string]interface{}, len(os.properties))
-	)
-	for _, id := range os.pointers {
-		binary.LittleEndian.PutUint64(docIDBytes, id)
-		res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
-		if err != nil {
-			return err
-		}
+	var continueScan atomic.Bool
+	continueScan.Store(true)
 
-		if res == nil {
-			continue
-		}
-
-		if len(propertyPaths) > 0 {
-			err = storobj.UnmarshalPropertiesFromObject(res, propertiesTyped, propertyPaths)
-			if err != nil {
-				return errors.Wrapf(err, "unmarshal data object")
-			}
-			properties = propertiesTyped
-		}
-
-		continueScan, err := os.scanFn(&properties, id)
-		if err != nil {
-			return errors.Wrapf(err, "scan")
-		}
-
-		if !continueScan {
-			break
-		}
+	type result struct {
+		properties *models.PropertySchema
+		docID      uint64
 	}
 
-	return nil
+	resultsCh := make(chan result, concurrency*2)
+	var err error
+	go func() {
+		for res := range resultsCh {
+			sc, e := os.scanFn(res.properties, res.docID)
+			if e != nil || !sc {
+				err = e
+				continueScan.Store(false)
+				return
+			}
+		}
+	}()
+
+	eg := enterrors.NewErrorGroupWrapper(os.logger)
+	stride := int(math.Ceil(max(float64(len(os.pointers))/float64(concurrency), 1)))
+
+	for workerID := range concurrency {
+		workerID := workerID
+		eg.Go(func() error {
+			if !continueScan.Load() {
+				return nil
+			}
+
+			var (
+				start = workerID * stride
+				end   = min(start+stride, len(os.pointers))
+			)
+
+			if start >= len(os.pointers) {
+				return nil
+			}
+
+			for _, id := range os.pointers[start:end] {
+				binary.LittleEndian.PutUint64(docIDBytes, id)
+				res, err := os.objectsBucket.GetBySecondaryV2(0, docIDBytes)
+				if err != nil {
+					return err
+				}
+
+				if res.Bytes == nil {
+					continue
+				}
+				var (
+					// used for extraction from json
+					propertiesTyped = make(map[string]interface{}, len(os.properties))
+				)
+
+				if len(propertyPaths) > 0 {
+					err = storobj.UnmarshalPropertiesFromObject(res.Bytes, propertiesTyped, propertyPaths)
+					if err != nil {
+						return errors.Wrapf(err, "unmarshal data object")
+					}
+				}
+				res.Release()
+
+				schema := models.PropertySchema(propertiesTyped)
+				resultsCh <- result{
+					properties: &schema,
+					docID:      id,
+				}
+			}
+			return nil
+		})
+	}
+
+	err2 := eg.Wait()
+	if err2 != nil {
+		return err2
+	}
+	return err
 }
