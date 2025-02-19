@@ -102,6 +102,15 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
+	existedCollectionsCount, err := h.schemaManager.QueryCollectionsCount()
+	if err != nil {
+		h.logger.WithField("err", err).Error("could not query the collections count")
+	}
+	if existedCollectionsCount >= h.config.MaximumAllowedCollectionsCount {
+		return nil, 0,
+			fmt.Errorf("cannot create class: maximum number of collections (%d) reached, try MT feature", h.config.MaximumAllowedCollectionsCount)
+	}
+
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
