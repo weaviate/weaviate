@@ -507,7 +507,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, segments []*segm
 				return nil, nil
 			}
 
-			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
+			return nil, fmt.Errorf("segment[%d].get(): %w", i, err)
 		}
 
 		return v, nil
@@ -556,7 +556,7 @@ func (sg *SegmentGroup) existsWithUpperSegmentBoundary(key []byte, segments []*s
 				return false, nil
 			}
 
-			panic(fmt.Sprintf("unsupported error in segmentGroup.exists(): %v", err))
+			return false, fmt.Errorf("segment[%d].exists(): %w", i, err)
 		}
 
 		return true, nil
