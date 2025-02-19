@@ -418,6 +418,35 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
+	val, found, err := b.getFromMemory(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if found {
+		return val, nil
+	}
+
+	return b.disk.get(key)
+}
+
+// exists checks whether the object is present in the system and is not deleted.
+func (b *Bucket) exists(key []byte) (bool, error) {
+	val, found, err := b.getFromMemory(key)
+	if err != nil {
+		return false, err
+	}
+	if found {
+		return val != nil, nil
+	}
+
+	return b.disk.exists(key)
+}
+
+// getFromMemory searches for an object by its primary key in memory and returns the value
+// together with the status whether the object is present in memory at all.
+// Note: value == nil indicates that the object was found, however, it is deleted.
+func (b *Bucket) getFromMemory(key []byte) ([]byte, bool, error) {
 	beforeMemtable := time.Now()
 	v, err := b.active.get(key)
 	if time.Since(beforeMemtable) > 100*time.Millisecond {
@@ -428,12 +457,12 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
 		// is replace
-		return v, nil
+		return v, true, nil
 	}
 	if errors.Is(err, lsmkv.Deleted) {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
-		return nil, nil
+		return nil, true, nil
 	}
 
 	if !errors.Is(err, lsmkv.NotFound) {
@@ -451,12 +480,12 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
-			return v, nil
+			return v, true, nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
-			return nil, nil
+			return nil, true, nil
 		}
 
 		if !errors.Is(err, lsmkv.NotFound) {
@@ -464,7 +493,7 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 		}
 	}
 
-	return b.disk.get(key)
+	return nil, false, nil
 }
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
@@ -590,10 +619,10 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 	}
 
 	// additional validation to ensure the primary key has not been marked as deleted
-	pkv, err := b.get(k)
+	exists, err := b.exists(k)
 	if err != nil {
 		return nil, nil, err
-	} else if pkv == nil {
+	} else if !exists {
 		return nil, buffer, nil
 	}
 

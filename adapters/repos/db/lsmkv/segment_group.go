@@ -516,6 +516,55 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, segments []*segm
 	return nil, nil
 }
 
+func (sg *SegmentGroup) exists(key []byte) (bool, error) {
+	beforeMaintenanceLock := time.Now()
+	segments, release := sg.getAndLockSegments()
+	defer release()
+
+	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
+		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
+			WithField("action", "lsm_segment_group_get_obtain_maintenance_lock").
+			Debug("waited over 100ms to obtain maintenance lock in segment group get()")
+	}
+
+	return sg.existsWithUpperSegmentBoundary(key, segments)
+}
+
+// not thread-safe on its own, as the assumption is that this is called from a
+// lockholder, e.g. within .get()
+func (sg *SegmentGroup) existsWithUpperSegmentBoundary(key []byte, segments []*segment) (bool, error) {
+	// assumes "replace" strategy
+
+	// start with latest and exit as soon as something is found, thus making sure
+	// the latest takes presence
+	for i := len(segments) - 1; i >= 0; i-- {
+		beforeSegment := time.Now()
+		_, err := segments[i].exists(key)
+		if time.Since(beforeSegment) > 100*time.Millisecond {
+			sg.logger.WithField("duration", time.Since(beforeSegment)).
+				WithField("action", "lsm_segment_group_exists_individual_segment").
+				WithError(err).
+				WithField("segment_pos", i).
+				Debug("waited over 100ms to get result from individual segment")
+		}
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				continue
+			}
+
+			if errors.Is(err, lsmkv.Deleted) {
+				return false, nil
+			}
+
+			panic(fmt.Sprintf("unsupported error in segmentGroup.exists(): %v", err))
+		}
+
+		return true, nil
+	}
+
+	return false, nil
+}
+
 func (sg *SegmentGroup) getErrDeleted(key []byte) ([]byte, error) {
 	segments, release := sg.getAndLockSegments()
 	defer release()

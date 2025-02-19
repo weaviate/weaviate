@@ -91,10 +91,13 @@ func (os *objectScannerLSM) scan() error {
 
 		// used for extraction from json
 		propertiesTyped = make(map[string]interface{}, len(os.properties))
+
+		buf = make([]byte, 10*1024)
 	)
 	for _, id := range os.pointers {
 		binary.LittleEndian.PutUint64(docIDBytes, id)
-		res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
+		res, b, err := os.objectsBucket.GetBySecondaryIntoMemory(0, docIDBytes, buf)
+		buf = b
 		if err != nil {
 			return err
 		}
