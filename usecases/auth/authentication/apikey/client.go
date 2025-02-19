@@ -15,6 +15,8 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -91,6 +93,12 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	_ = sha256.Sum256([]byte(token))
 	baseline := time.Since(startBaseline)
 
+	parts := strings.Split(token, "_")
+	intParts := make([]int, len(parts))
+	for i, part := range parts {
+		intParts[i], _ = strconv.Atoi(part)
+	}
+
 	hash, err := argon2id.CreateHash(token, argon2id.DefaultParams)
 	if err != nil {
 		return nil, err
@@ -103,7 +111,7 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	}
 	defaultParams := time.Since(start)
 
-	hash2, err := argon2id.CreateHash(token, &argon2id.Params{Memory: 64 * 1024, Parallelism: 2, Iterations: 3, SaltLength: 16, KeyLength: 32})
+	hash2, err := argon2id.CreateHash(token, &argon2id.Params{Memory: uint32(intParts[0]), Parallelism: uint8(intParts[1]), Iterations: uint32(intParts[2]), SaltLength: uint32(intParts[3]), KeyLength: uint32(intParts[4])})
 	if err != nil {
 		return nil, err
 	}
