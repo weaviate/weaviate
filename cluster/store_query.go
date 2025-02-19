@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -31,6 +32,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		}
 	case cmd.QueryRequest_TYPE_GET_SCHEMA:
 		payload, err = st.schemaManager.QuerySchema()
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get schema: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_GET_COLLECTIONS_COUNT:
+		payload, err = st.schemaManager.QueryCollectionsCount()
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get schema: %w", err)
 		}

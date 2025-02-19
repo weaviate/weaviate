@@ -20,9 +20,8 @@ import (
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/sentry"
-
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -442,6 +441,14 @@ func FromEnv(config *Config) error {
 		config.HNSWStartupWaitForVectorCache = true
 	}
 
+	if err := parsePositiveInt(
+		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
+		func(val int) { config.MaximumAllowedCollectionsCount = val },
+		DefaultMAXAllowedCollectionsCount,
+	); err != nil {
+		return err
+	}
+
 	// explicitly reset sentry config
 	sentry.Config = nil
 	config.Sentry, err = sentry.InitSentryConfig()
@@ -690,6 +697,7 @@ const (
 	DefaultMaxConcurrentGetRequests            = 0
 	DefaultGRPCPort                            = 50051
 	DefaultMinimumReplicationFactor            = 1
+	DefaultMAXAllowedCollectionsCount          = 100
 )
 
 const VectorizerModuleNone = "none"

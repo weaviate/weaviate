@@ -19,16 +19,16 @@ import (
 	"reflect"
 	"strings"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/replication"
-
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -106,6 +106,15 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	err := h.Authorizer.Authorize(principal, "create", "schema/objects")
 	if err != nil {
 		return nil, 0, err
+	}
+
+	existedCollectionsCount, err := h.schemaManager.QueryCollectionsCount()
+	if err != nil {
+		h.logger.WithField("err", err).Error("could not query the collections count")
+	}
+	if existedCollectionsCount >= h.config.MaximumAllowedCollectionsCount {
+		return nil, 0,
+			fmt.Errorf("cannot create class: maximum number of collections (%d) reached, try MT feature", h.config.MaximumAllowedCollectionsCount)
 	}
 
 	cls.Class = schema.UppercaseClassName(cls.Class)
