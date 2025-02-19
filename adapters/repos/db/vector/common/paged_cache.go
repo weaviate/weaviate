@@ -11,16 +11,22 @@
 
 package common
 
+// PagedCache is a cache that stores elements in pages of a fixed size.
+// It is optimized for cases where the cache is sparse and the number of elements is not known in advance.
+// The cache will grow as needed and will reuse pages that have been freed.
 type PagedCache[T any] struct {
 	cache     [][]*T
 	pageSize  int
 	freePages [][]*T
 }
 
+// NewPagedCache creates a new PagedCache with the given page size.
+// The cache will start with 10 pages.
 func NewPagedCache[T any](pageSize int) *PagedCache[T] {
 	return NewPagedCacheWith[T](pageSize, 10)
 }
 
+// NewPagedCacheWith creates a new PagedCache with the given page size and initial number of pages.
 func NewPagedCacheWith[T any](pageSize int, initalPages int) *PagedCache[T] {
 	return &PagedCache[T]{
 		pageSize: pageSize,
@@ -28,6 +34,8 @@ func NewPagedCacheWith[T any](pageSize int, initalPages int) *PagedCache[T] {
 	}
 }
 
+// Get returns the element at the given index.
+// If the element is not in the cache, it will return nil.
 func (p *PagedCache[T]) Get(id int) *T {
 	pageID := id / p.pageSize
 	slotID := id % p.pageSize
@@ -39,6 +47,8 @@ func (p *PagedCache[T]) Get(id int) *T {
 	return p.cache[pageID][slotID]
 }
 
+// Set sets the element at the given index.
+// If the page does not exist, it will be created.
 func (p *PagedCache[T]) Set(id int, value *T) {
 	pageID := id / p.pageSize
 	slotID := id % p.pageSize
@@ -72,6 +82,8 @@ func (p *PagedCache[T]) getPage() []*T {
 	return make([]*T, p.pageSize)
 }
 
+// Reset clears the cache and frees all pages.
+// Free pages are reused when new pages are needed.
 func (p *PagedCache[T]) Reset() {
 	for i := range p.cache {
 		if p.cache[i] != nil {
@@ -82,6 +94,7 @@ func (p *PagedCache[T]) Reset() {
 	}
 }
 
+// Cap returns the current capacity of the cache.
 func (p *PagedCache[T]) Cap() int {
 	return len(p.cache) * p.pageSize
 }
