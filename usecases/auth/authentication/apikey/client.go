@@ -114,7 +114,7 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 			return nil, err
 		}
 	}
-	bcryptTime := float64(time.Since(startBcrypt).Milliseconds()) / float64(repeats)
+	bcryptTime := float64(time.Since(startBcrypt).Microseconds()) / float64(repeats) / 1000
 
 	hash2, err := argon2id.CreateHash(token, &argon2id.Params{Memory: uint32(intParts[0]), Parallelism: uint8(intParts[1]), Iterations: uint32(intParts[2]), SaltLength: uint32(intParts[3]), KeyLength: uint32(intParts[4])})
 	if err != nil {
@@ -128,9 +128,16 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 			return nil, err
 		}
 	}
-	customArgon := float64(time.Since(start2).Milliseconds()) / float64(repeats)
+	customArgon := float64(time.Since(start2).Microseconds()) / float64(repeats) / 1000
 
-	return nil, fmt.Errorf("baseline sha256: %v, bcrypt took %v, argon took %v. Params %v", baseline, bcryptTime, customArgon, intParts)
+	bcryptSingleStart := time.Now()
+	err = bcrypt.CompareHashAndPassword(hashBcrypt, []byte(token))
+	if err != nil {
+		return nil, err
+	}
+	bcryptTimeSingle := float64(time.Since(bcryptSingleStart).Microseconds()) / 1000
+
+	return nil, fmt.Errorf("baseline sha256: %v, bcrypt took %v, %v (repeats/single), argon took %v. Params %v", baseline, bcryptTime, bcryptTimeSingle, customArgon, intParts)
 
 	tokenPos, ok := c.isTokenAllowed(token)
 	if !ok {
