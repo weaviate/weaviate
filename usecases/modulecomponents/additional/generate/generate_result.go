@@ -194,6 +194,13 @@ func (p *GenerateProvider) setIndividualResult(in []search.Result, i int,
 		ap = models.AdditionalProperties{}
 	}
 
+	// pulls out the error from the task rather than cloberring it below
+	if g := ap["generate"]; g != nil {
+		if e := g.(map[string]interface{})["error"]; e != nil {
+			err = e.(error)
+		}
+	}
+
 	generate := map[string]interface{}{
 		"singleResult": result,
 		"error":        err,

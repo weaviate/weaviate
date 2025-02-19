@@ -161,55 +161,67 @@ func CreateTweetTestGRPC(t *testing.T, className string) {
 }
 
 func CreateTweetTestWithParamsGRPC(t *testing.T, className string, params *pb.GenerativeProvider) {
-	CreatePromptTestWithParamsGRPC(t, className, "Write a short tweet about planet {name}", params)
+	CreatePromptTestWithParamsGRPC(t, className, "Write a short tweet about planet {name}", "Write a short tweet about the following planets", params)
 }
 
-func CreatePromptTestWithParamsGRPC(t *testing.T, className, prompt string, params *pb.GenerativeProvider) {
+func CreatePromptTestWithParamsGRPC(t *testing.T, className, singlePrompt, groupPrompt string, params *pb.GenerativeProvider) {
 	var queries []*pb.GenerativeProvider
 	if params != nil {
 		queries = []*pb.GenerativeProvider{params}
 	}
 	req := &pb.SearchRequest{
 		Collection: className,
+		Limit:      1,
 		Generative: &pb.GenerativeSearch{
 			Single: &pb.GenerativeSearch_Single{
-				Prompt:  prompt,
+				Prompt:  singlePrompt,
 				Queries: queries,
+			},
+			Grouped: &pb.GenerativeSearch_Grouped{
+				Task:       groupPrompt,
+				Properties: &pb.TextArray{Values: []string{"name", "image"}},
+				Queries:    queries,
 			},
 		},
 		Uses_127Api: true,
 	}
 	resp := grpchelper.AssertSearchWithTimeout(t, req, 5*time.Minute)
 	require.NotNil(t, resp)
-	require.Len(t, resp.Results, 2)
+	require.Len(t, resp.Results, 1)
 	for i, res := range resp.Results {
-		require.Len(t, res.Generative.GetValues(), 1)
-		require.NotEmpty(t, res.Generative.GetValues()[0].Result)
-		if params.GetReturnMetadata() {
-			metadata := res.Generative.GetValues()[0].GetMetadata()
-			require.NotEmpty(t, metadata)
-			if params.GetAnthropic() != nil {
-				anthropic := metadata.GetAnthropic()
-				require.NotEmpty(t, anthropic)
-				usage := anthropic.GetUsage()
-				require.NotEmpty(t, usage)
-				require.NotEmpty(t, usage.GetInputTokens())
-				require.NotEmpty(t, usage.GetOutputTokens())
-			}
-			if params.GetCohere() != nil {
-				require.NotEmpty(t, metadata.GetCohere())
-			}
-			if params.GetMistral() != nil {
-				require.NotEmpty(t, metadata.GetMistral())
-			}
-			if params.GetOpenai() != nil {
-				require.NotEmpty(t, metadata.GetOpenai())
-			}
-			if params.GetGoogle() != nil {
-				require.NotEmpty(t, metadata.GetGoogle())
-			}
+		assertGenerative(t, res.Generative, params)
+		t.Logf("[%v]Single Prompt: %s\nResult: %s\n", i, singlePrompt, res.Generative.GetValues()[0].Result)
+	}
+	assertGenerative(t, resp.GenerativeGroupedResults, params)
+	t.Logf("Grouped Prompt: %s\nResult: %s\n", groupPrompt, resp.GenerativeGroupedResults.GetValues()[0].Result)
+}
+
+func assertGenerative(t *testing.T, generative *pb.GenerativeResult, params *pb.GenerativeProvider) {
+	require.Len(t, generative.GetValues(), 1)
+	require.NotEmpty(t, generative.GetValues()[0].Result)
+	if params.GetReturnMetadata() {
+		metadata := generative.GetValues()[0].GetMetadata()
+		require.NotEmpty(t, metadata)
+		if params.GetAnthropic() != nil {
+			anthropic := metadata.GetAnthropic()
+			require.NotEmpty(t, anthropic)
+			usage := anthropic.GetUsage()
+			require.NotEmpty(t, usage)
+			require.NotEmpty(t, usage.GetInputTokens())
+			require.NotEmpty(t, usage.GetOutputTokens())
 		}
-		t.Logf("[%v]Prompt: %s\nResult: %s\n", i, prompt, res.Generative.GetValues()[0].Result)
+		if params.GetCohere() != nil {
+			require.NotEmpty(t, metadata.GetCohere())
+		}
+		if params.GetMistral() != nil {
+			require.NotEmpty(t, metadata.GetMistral())
+		}
+		if params.GetOpenai() != nil {
+			require.NotEmpty(t, metadata.GetOpenai())
+		}
+		if params.GetGoogle() != nil {
+			require.NotEmpty(t, metadata.GetGoogle())
+		}
 	}
 }
 

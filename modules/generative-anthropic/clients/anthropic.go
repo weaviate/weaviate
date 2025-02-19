@@ -56,7 +56,7 @@ func (a *anthropic) GenerateSingleResult(ctx context.Context, textProperties map
 	if err != nil {
 		return nil, err
 	}
-	return a.generate(ctx, cfg, forPrompt, textProperties, options, debug)
+	return a.generate(ctx, cfg, forPrompt, []map[string]string{textProperties}, options, debug)
 }
 
 func (a *anthropic) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
@@ -64,10 +64,10 @@ func (a *anthropic) GenerateAllResults(ctx context.Context, textProperties []map
 	if err != nil {
 		return nil, err
 	}
-	return a.generate(ctx, cfg, forTask, nil, options, debug)
+	return a.generate(ctx, cfg, forTask, textProperties, options, debug)
 }
 
-func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, textProperties map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, textProperties []map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	params := a.getParameters(cfg, options, textProperties)
 	debugInformation := a.getDebugInformation(debug, prompt)
 
@@ -167,7 +167,7 @@ func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, p
 	}, nil
 }
 
-func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface{}, textProperties map[string]string) anthropicparams.Params {
+func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface{}, textPropertiesArray []map[string]string) anthropicparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params anthropicparams.Params
@@ -201,13 +201,18 @@ func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface
 		params.MaxTokens = &maxTokens
 	}
 
-	if len(params.Images) > 0 && len(textProperties) > 0 {
+	if len(params.Images) > 0 && len(textPropertiesArray) > 0 {
 		images := make([]string, len(params.Images))
-		for i, imageProperty := range params.Images {
-			if image, ok := textProperties[imageProperty]; ok {
-				images[i] = image
-			} else {
-				images[i] = imageProperty
+		for _, textProperties := range textPropertiesArray {
+			if len(textProperties) == 0 {
+				continue
+			}
+			for i, imageProperty := range params.Images {
+				if image, ok := textProperties[imageProperty]; ok {
+					images[i] = image
+				} else {
+					images[i] = imageProperty
+				}
 			}
 		}
 		params.Images = images

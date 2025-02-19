@@ -143,7 +143,8 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
 						})
 						t.Run("grpc", func(t *testing.T) {
-							prompt := "Give a short answer: What's on the image?"
+							singlePrompt := "Give a short answer: What's on the image?"
+							groupPrompt := "Give a short answer: What are on the following images?"
 							openaiParams := &pb.GenerativeOpenAI{
 								MaxTokens:   grpchelper.ToPtr(int64(90)),
 								Model:       tt.generativeModel,
@@ -155,7 +156,7 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 							if tt.absentModuleConfig {
 								openaiParams.BaseUrl = grpchelper.ToPtr("https://api.openai.com")
 							}
-							planets.CreatePromptTestWithParamsGRPC(t, class.Class, prompt, &pb.GenerativeProvider{
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
 								ReturnMetadata: true,
 								Kind:           &pb.GenerativeProvider_Openai{Openai: openaiParams},
 							})

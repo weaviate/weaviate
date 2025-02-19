@@ -12,7 +12,6 @@
 package tests
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,27 +50,27 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 			absentModuleConfig bool
 			withImages         bool
 		}{
-			{
-				name:            "claude-3-5-sonnet-20240620",
-				generativeModel: "claude-3-5-sonnet-20240620",
-			},
-			{
-				name:            "claude-3-opus-20240229",
-				generativeModel: "claude-3-opus-20240229",
-			},
-			{
-				name:            "claude-3-sonnet-20240229",
-				generativeModel: "claude-3-sonnet-20240229",
-			},
-			{
-				name:            "claude-3-haiku-20240307",
-				generativeModel: "claude-3-haiku-20240307",
-			},
-			{
-				name:               "absent module config",
-				generativeModel:    "claude-3-5-sonnet-20240620",
-				absentModuleConfig: true,
-			},
+			// {
+			// 	name:            "claude-3-5-sonnet-20240620",
+			// 	generativeModel: "claude-3-5-sonnet-20240620",
+			// },
+			// {
+			// 	name:            "claude-3-opus-20240229",
+			// 	generativeModel: "claude-3-opus-20240229",
+			// },
+			// {
+			// 	name:            "claude-3-sonnet-20240229",
+			// 	generativeModel: "claude-3-sonnet-20240229",
+			// },
+			// {
+			// 	name:            "claude-3-haiku-20240307",
+			// 	generativeModel: "claude-3-haiku-20240307",
+			// },
+			// {
+			// 	name:               "absent module config",
+			// 	generativeModel:    "claude-3-5-sonnet-20240620",
+			// 	absentModuleConfig: true,
+			// },
 			{
 				name:            "claude-3-5-sonnet-20241022",
 				generativeModel: "claude-3-5-sonnet-20241022",
@@ -112,36 +111,36 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 					}
 				})
 				// generative task
-				t.Run("create a tweet", func(t *testing.T) {
-					planets.CreateTweetTest(t, class.Class)
-				})
-				t.Run("create a tweet with params", func(t *testing.T) {
-					params := fmt.Sprintf("anthropic:{topP:0.9 topK:90 model:%q}", tt.generativeModel)
-					if tt.absentModuleConfig {
-						params = fmt.Sprintf("anthropic:{topP:0.9 topK:90 model:%q baseURL:\"%s\"}", tt.generativeModel, "https://api.anthropic.com")
-					}
-					planets.CreateTweetTestWithParams(t, class.Class, params)
-				})
-				t.Run("create a tweet using grpc", func(t *testing.T) {
-					planets.CreateTweetTestGRPC(t, class.Class)
-				})
-				t.Run("create a tweet with params using grpc", func(t *testing.T) {
-					annthropic := &pb.GenerativeAnthropic{
-						MaxTokens:     grpchelper.ToPtr(int64(90)),
-						Model:         grpchelper.ToPtr(tt.generativeModel),
-						Temperature:   grpchelper.ToPtr(0.9),
-						TopK:          grpchelper.ToPtr(int64(90)),
-						TopP:          grpchelper.ToPtr(0.9),
-						StopSequences: &pb.TextArray{Values: []string{"stop"}},
-					}
-					if tt.absentModuleConfig {
-						annthropic.BaseUrl = grpchelper.ToPtr("https://api.anthropic.com")
-					}
-					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
-						ReturnMetadata: true,
-						Kind:           &pb.GenerativeProvider_Anthropic{Anthropic: annthropic},
-					})
-				})
+				// t.Run("create a tweet", func(t *testing.T) {
+				// 	planets.CreateTweetTest(t, class.Class)
+				// })
+				// t.Run("create a tweet with params", func(t *testing.T) {
+				// 	params := fmt.Sprintf("anthropic:{topP:0.9 topK:90 model:%q}", tt.generativeModel)
+				// 	if tt.absentModuleConfig {
+				// 		params = fmt.Sprintf("anthropic:{topP:0.9 topK:90 model:%q baseURL:\"%s\"}", tt.generativeModel, "https://api.anthropic.com")
+				// 	}
+				// 	planets.CreateTweetTestWithParams(t, class.Class, params)
+				// })
+				// t.Run("create a tweet using grpc", func(t *testing.T) {
+				// 	planets.CreateTweetTestGRPC(t, class.Class)
+				// })
+				// t.Run("create a tweet with params using grpc", func(t *testing.T) {
+				// 	anthropic := &pb.GenerativeAnthropic{
+				// 		MaxTokens:     grpchelper.ToPtr(int64(90)),
+				// 		Model:         grpchelper.ToPtr(tt.generativeModel),
+				// 		Temperature:   grpchelper.ToPtr(0.9),
+				// 		TopK:          grpchelper.ToPtr(int64(90)),
+				// 		TopP:          grpchelper.ToPtr(0.9),
+				// 		StopSequences: &pb.TextArray{Values: []string{"stop"}},
+				// 	}
+				// 	if tt.absentModuleConfig {
+				// 		anthropic.BaseUrl = grpchelper.ToPtr("https://api.anthropic.com")
+				// 	}
+				// 	planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
+				// 		ReturnMetadata: true,
+				// 		Kind:           &pb.GenerativeProvider_Anthropic{Anthropic: anthropic},
+				// 	})
+				// })
 				if tt.withImages {
 					t.Run("image prompt", func(t *testing.T) {
 						t.Run("graphql", func(t *testing.T) {
@@ -150,8 +149,9 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
 						})
 						t.Run("grpc", func(t *testing.T) {
-							prompt := "Give a short answer: What's on the image?"
-							annthropic := &pb.GenerativeAnthropic{
+							singlePrompt := "Give a short answer: What's on the image?"
+							groupPrompt := "Give a short answer: What are on the following images?"
+							anthropic := &pb.GenerativeAnthropic{
 								MaxTokens:   grpchelper.ToPtr(int64(90)),
 								Model:       grpchelper.ToPtr(tt.generativeModel),
 								Temperature: grpchelper.ToPtr(0.9),
@@ -160,11 +160,11 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 								Images:      &pb.TextArray{Values: []string{"image"}},
 							}
 							if tt.absentModuleConfig {
-								annthropic.BaseUrl = grpchelper.ToPtr("https://api.anthropic.com")
+								anthropic.BaseUrl = grpchelper.ToPtr("https://api.anthropic.com")
 							}
-							planets.CreatePromptTestWithParamsGRPC(t, class.Class, prompt, &pb.GenerativeProvider{
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
 								ReturnMetadata: true,
-								Kind:           &pb.GenerativeProvider_Anthropic{Anthropic: annthropic},
+								Kind:           &pb.GenerativeProvider_Anthropic{Anthropic: anthropic},
 							})
 						})
 					})

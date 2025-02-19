@@ -79,57 +79,61 @@ func (p *Parser) extractDeprecated(req *pb.GenerativeSearch, class *models.Class
 	return &generative
 }
 
+func (p *Parser) extractQuery(queries []*pb.GenerativeProvider) map[string]any {
+	if len(queries) == 0 {
+		return nil
+	}
+	var options map[string]any
+	query := queries[0]
+	p.returnMetadata = query.ReturnMetadata
+	switch query.Kind.(type) {
+	case *pb.GenerativeProvider_Anthropic:
+		options = p.anthropic(query.GetAnthropic())
+		p.providerName = anthropicParams.Name
+	case *pb.GenerativeProvider_Anyscale:
+		options = p.anyscale(query.GetAnyscale())
+		p.providerName = anyscaleParams.Name
+	case *pb.GenerativeProvider_Aws:
+		options = p.aws(query.GetAws())
+		p.providerName = awsParams.Name
+	case *pb.GenerativeProvider_Cohere:
+		options = p.cohere(query.GetCohere())
+		p.providerName = cohereParams.Name
+	case *pb.GenerativeProvider_Mistral:
+		options = p.mistral(query.GetMistral())
+		p.providerName = mistralParams.Name
+	case *pb.GenerativeProvider_Ollama:
+		options = p.ollama(query.GetOllama())
+		p.providerName = ollamaParams.Name
+	case *pb.GenerativeProvider_Openai:
+		options = p.openai(query.GetOpenai())
+		p.providerName = openaiParams.Name
+	case *pb.GenerativeProvider_Google:
+		options = p.google(query.GetGoogle())
+		p.providerName = googleParams.Name
+	case *pb.GenerativeProvider_Databricks:
+		options = p.databricks(query.GetDatabricks())
+		p.providerName = databricksParams.Name
+	case *pb.GenerativeProvider_Friendliai:
+		options = p.friendliai(query.GetFriendliai())
+		p.providerName = friendliaiParams.Name
+	default:
+		// do nothing
+	}
+	return options
+}
+
 func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generate.Params {
 	generative := generate.Params{}
 	if req.Single != nil {
 		generative.Prompt = &req.Single.Prompt
+		generative.Options = p.extractQuery(req.Single.Queries)
 		singleResultPrompts := generate.ExtractPropsFromPrompt(generative.Prompt)
 		generative.PropertiesToExtract = append(generative.PropertiesToExtract, singleResultPrompts...)
-		if len(req.Single.Queries) > 0 {
-			var options map[string]any
-			var providerName string
-			query := req.Single.Queries[0]
-			switch query.Kind.(type) {
-			case *pb.GenerativeProvider_Anthropic:
-				options = p.anthropic(query.GetAnthropic())
-				providerName = anthropicParams.Name
-			case *pb.GenerativeProvider_Anyscale:
-				options = p.anyscale(query.GetAnyscale())
-				providerName = anyscaleParams.Name
-			case *pb.GenerativeProvider_Aws:
-				options = p.aws(query.GetAws())
-				providerName = awsParams.Name
-			case *pb.GenerativeProvider_Cohere:
-				options = p.cohere(query.GetCohere())
-				providerName = cohereParams.Name
-			case *pb.GenerativeProvider_Mistral:
-				options = p.mistral(query.GetMistral())
-				providerName = mistralParams.Name
-			case *pb.GenerativeProvider_Ollama:
-				options = p.ollama(query.GetOllama())
-				providerName = ollamaParams.Name
-			case *pb.GenerativeProvider_Openai:
-				options = p.openai(query.GetOpenai())
-				providerName = openaiParams.Name
-			case *pb.GenerativeProvider_Google:
-				options = p.google(query.GetGoogle())
-				providerName = googleParams.Name
-			case *pb.GenerativeProvider_Databricks:
-				options = p.databricks(query.GetDatabricks())
-				providerName = databricksParams.Name
-			case *pb.GenerativeProvider_Friendliai:
-				options = p.friendliai(query.GetFriendliai())
-				providerName = friendliaiParams.Name
-			default:
-				// do nothing
-			}
-			generative.Options = options
-			p.providerName = providerName
-			p.returnMetadata = query.ReturnMetadata
-		}
 	}
 	if req.Grouped != nil {
 		generative.Task = &req.Grouped.Task
+		generative.Options = p.extractQuery(req.Grouped.Queries)
 		if req.Grouped.GetProperties() != nil {
 			generative.Properties = req.Grouped.Properties.GetValues()
 			generative.PropertiesToExtract = append(generative.PropertiesToExtract, generative.Properties...)
