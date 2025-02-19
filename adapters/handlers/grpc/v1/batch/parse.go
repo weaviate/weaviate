@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package v1
+package batch
 
 import (
 	"fmt"
