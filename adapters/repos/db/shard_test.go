@@ -696,7 +696,7 @@ func TestShard_FillQueue(t *testing.T) {
 			// wait for the worker to index
 			time.Sleep(500 * time.Millisecond)
 
-			// make sure all objects except >= 100 < 300 are back in the vector index
+			// make sure all objects except >= 100 < 150 are back in the vector index
 			for i := 0; i < amount; i++ {
 				if 100 <= i && i < 150 {
 					require.Falsef(t, vidx.ContainsDoc(uint64(i)), "doc %d should not be in the vector index", i)
