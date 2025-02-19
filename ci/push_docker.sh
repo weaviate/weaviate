@@ -4,6 +4,19 @@ set -euo pipefail
 
 DOCKER_REPO_WEAVIATE="semitechnologies/weaviate"
 
+only_build_amd64=false
+while [[ "$#" -gt 0 ]]; do
+  case $1 in
+    --amd64-only) only_build_amd64=true;;
+    --help|-h) printf '%s\n' \
+      "Options:"\
+      "--amd64-only"\
+      "--help | -h"; exit 1;;
+    *) echo "Unknown parameter passed: $1"; exit 1 ;;
+  esac
+  shift
+done
+
 function release() {
   DOCKER_REPO=$DOCKER_REPO_WEAVIATE
 
@@ -49,7 +62,13 @@ function release() {
     fi
   fi
 
-  args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
+  if $only_build_amd64; then
+    build_platform="linux/amd64"
+  else
+    build_platform="linux/amd64,linux/arm64"
+  fi
+
+  args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=$build_platform" "--target=weaviate" "--push")
 
   if [ -n "$tag_exact" ]; then
     # exact tag on main
