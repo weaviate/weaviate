@@ -535,7 +535,7 @@ func FromEnv(config *Config) error {
 
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
-		DefaultMAXAllowedCollectionsCount,
+		DefaultMaximumAllowedCollectionsCount,
 		func(val int) error { return nil },
 		func(val int) { config.MaximumAllowedCollectionsCount = val },
 	); err != nil {
@@ -890,7 +890,7 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultMinimumReplicationFactor            = 1
-	DefaultMAXAllowedCollectionsCount          = 100
+	DefaultMaximumAllowedCollectionsCount      = 100
 )
 
 const VectorizerModuleNone = "none"

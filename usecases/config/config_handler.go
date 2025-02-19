@@ -129,7 +129,7 @@ type Config struct {
 	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
-	MaximumAllowedCollectionsCount      int                      `json:"max_allowed_collections_count" yaml:"max_allowed_collections_count"`
+	MaximumAllowedCollectionsCount      int                      `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
