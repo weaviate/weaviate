@@ -29,6 +29,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+const (
+	// source : https://github.com/minio/minio-go/blob/master/api-put-object-common.go#L69
+	// minio has min part size of 16MB
+	MINIO_MIN_PART_SIZE = 16 * 1024 * 1024
+)
+
 type s3Client struct {
 	client   *minio.Client
 	config   *clientConfig
@@ -130,7 +136,7 @@ func (s *s3Client) PutFile(ctx context.Context, backupID, key string, srcPath st
 
 func (s *s3Client) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
 	objectName := s.makeObjectName(backupID, key)
-	opt := minio.PutObjectOptions{ContentType: "application/octet-stream", PartSize: 16 * 1024 * 1024}
+	opt := minio.PutObjectOptions{ContentType: "application/octet-stream", PartSize: MINIO_MIN_PART_SIZE}
 	reader := bytes.NewReader(byes)
 	objectSize := int64(len(byes))
 
@@ -186,7 +192,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key string, r io.ReadClo
 	opt := minio.PutObjectOptions{
 		ContentType:      "application/octet-stream",
 		DisableMultipart: false,
-		PartSize:         16 * 1024 * 1024, // 16MB
+		PartSize:         MINIO_MIN_PART_SIZE,
 	}
 
 	info, err := s.client.PutObject(ctx, s.config.Bucket, path, r, -1, opt)
