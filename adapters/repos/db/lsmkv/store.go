@@ -430,6 +430,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
+
 	bucket := s.bucketsByName[bucketName]
 	if bucket == nil {
 		return fmt.Errorf("bucket '%s' not found", bucketName)
@@ -441,6 +442,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	}
 	s.bucketsByName[bucketName] = replacementBucket
 	delete(s.bucketsByName, replacementBucketName)
+	replacementBucket.disk.maintenanceLock.Lock()
 
 	currBucketDir := bucket.dir
 	newBucketDir := bucket.dir + "___del"
@@ -451,20 +453,24 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
 	}
 
+	s.logger.WithField("action", "lsm_replace_bucket").
+		WithField("bucket", bucketName).
+		WithField("replacement_bucket", replacementBucketName).
+		WithField("dir", s.dir).
+		Info("replacing bucket")
 	replacementBucket.flushLock.Lock()
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		replacementBucket.disk.maintenanceLock.Unlock()
 		replacementBucket.flushLock.Unlock()
-		s.bucketAccessLock.Unlock()
 		return errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
 	}
 	if err := os.Rename(currReplacementBucketDir, newReplacementBucketDir); err != nil {
 		replacementBucket.disk.maintenanceLock.Unlock()
 		replacementBucket.flushLock.Unlock()
-		s.bucketAccessLock.Unlock()
 		return errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
 	}
 	replacementBucket.flushLock.Unlock()
+	replacementBucket.disk.maintenanceLock.Unlock()
 
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
