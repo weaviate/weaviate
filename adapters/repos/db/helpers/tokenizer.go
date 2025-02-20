@@ -76,7 +76,7 @@ func init_gse() {
 			}
 			gseTokenizer = &seg
 		}
-		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
+		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("gse").Observe(float64(time.Since(startTime).Microseconds()))
 	}
 }
 
@@ -141,7 +141,7 @@ func removeEmptyStrings(terms []string) []string {
 func tokenizeField(in string) []string {
 	startTime := time.Now()
 	ret := []string{strings.TrimFunc(in, unicode.IsSpace)}
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("field").Observe(time.Since(startTime).Seconds())
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("field").Observe(float64(time.Since(startTime).Microseconds()))
 	return ret
 }
 
@@ -150,7 +150,7 @@ func tokenizeField(in string) []string {
 func tokenizeWhitespace(in string) []string {
 	startTime := time.Now()
 	ret := strings.FieldsFunc(in, unicode.IsSpace)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("whitespace").Observe(time.Since(startTime).Seconds())
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("whitespace").Observe(float64(time.Since(startTime).Microseconds()))
 	return ret
 }
 
@@ -159,7 +159,7 @@ func tokenizeLowercase(in string) []string {
 	startTime := time.Now()
 	terms := tokenizeWhitespace(in)
 	ret := lowercase(terms)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("lowercase").Observe(time.Since(startTime).Seconds())
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("lowercase").Observe(float64(time.Since(startTime).Microseconds()))
 	return ret
 }
 
@@ -171,7 +171,7 @@ func tokenizeWord(in string) []string {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	})
 	ret := lowercase(terms)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("word").Observe(time.Since(startTime).Seconds())
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("word").Observe(float64(time.Since(startTime).Microseconds()))
 	return ret
 }
 
@@ -192,7 +192,7 @@ func tokenizetrigram(in string) []string {
 	for _, trirune := range trirunes {
 		trigrams = append(trigrams, string(trirune))
 	}
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("trigram").Observe(time.Since(startTime).Seconds())
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("trigram").Observe(float64(time.Since(startTime).Microseconds()))
 	return trigrams
 }
 
@@ -211,7 +211,7 @@ func tokenizeGSE(in string) []string {
 	alpha := tokenizeWord(in)
 
 	ret := append(terms, alpha...)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("gse").Observe(float64(time.Since(startTime).Microseconds()))
 	return ret
 
 }
@@ -245,7 +245,7 @@ func initializeKagomeTokenizerKr() error {
 
 		tokenizers.Korean = tokenizer
 		KagomeKrEnabled = true
-		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("kagome_kr").Observe(time.Since(startTime).Seconds())
+		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("kagome_kr").Observe(float64(time.Since(startTime).Microseconds()))
 		return nil
 	}
 
@@ -269,7 +269,7 @@ func tokenizeKagomeKr(in string) []string {
 	}
 
 	ret := removeEmptyStrings(terms)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("kagome_kr").Observe(time.Since(startTime).Seconds())
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("kagome_kr").Observe(float64(time.Since(startTime).Microseconds()))
 	return ret
 }
 
@@ -291,7 +291,7 @@ func initializeKagomeTokenizerJa() error {
 
 		tokenizers.Japanese = tokenizer
 		KagomeJaEnabled = true
-		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("kagome_ja").Observe(time.Since(startTime).Seconds())
+		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("kagome_ja").Observe(float64(time.Since(startTime).Microseconds()))
 		return nil
 	}
 
@@ -315,7 +315,7 @@ func tokenizeKagomeJa(in string) []string {
 	}
 
 	ret := removeEmptyStrings(terms)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("kagome_ja").Observe(time.Since(startTime).Seconds())
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("kagome_ja").Observe(float64(time.Since(startTime).Microseconds()))
 	return ret
 }
 
@@ -327,7 +327,7 @@ func tokenizeWordWithWildcards(in string) []string {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '?' && r != '*'
 	})
 	ret := lowercase(terms)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("word_with_wildcards").Observe(time.Since(startTime).Seconds())
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("word_with_wildcards").Observe(float64(time.Since(startTime).Microseconds()))
 	return ret
 }
 
@@ -341,7 +341,7 @@ func tokenizetrigramWithWildcards(in string) []string {
 	for i := 0; i < len(inputString)-2; i++ {
 		trigrams = append(trigrams, inputString[i:i+3])
 	}
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("trigram_with_wildcards").Observe(time.Since(startTime).Seconds())
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("trigram_with_wildcards").Observe(float64(time.Since(startTime).Microseconds()))
 	return trigrams
 }
 
