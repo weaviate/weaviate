@@ -487,7 +487,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, segments []*segm
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
-	// the latest takes presence
+	// the latest takes precedence
 	for i := len(segments) - 1; i >= 0; i-- {
 		beforeSegment := time.Now()
 		v, err := segments[i].get(key)
@@ -536,7 +536,7 @@ func (sg *SegmentGroup) existsWithUpperSegmentBoundary(key []byte, segments []*s
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
-	// the latest takes presence
+	// the latest takes precedence
 	for i := len(segments) - 1; i >= 0; i-- {
 		beforeSegment := time.Now()
 		_, err := segments[i].exists(key)
@@ -576,7 +576,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, segmen
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
-	// the latest takes presence
+	// the latest takes precedence
 	for i := len(segments) - 1; i >= 0; i-- {
 		v, err := segments[i].get(key)
 		if err != nil {
@@ -604,7 +604,7 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
-	// the latest takes presence
+	// the latest takes precedence
 	for i := len(segments) - 1; i >= 0; i-- {
 		k, v, allocatedBuff, err := segments[i].getBySecondaryIntoMemory(pos, key, buffer)
 		if err != nil {
