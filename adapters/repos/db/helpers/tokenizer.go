@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -24,6 +25,7 @@ import (
 	"github.com/ikawaha/kagome-dict/ipa"
 	kagomeTokenizer "github.com/ikawaha/kagome/v2/tokenizer"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 var (
@@ -64,6 +66,7 @@ func init_gse() {
 		UseGse = true
 	}
 	if UseGse {
+		startTime := time.Now()
 		gseTokenizerLock.Lock()
 		defer gseTokenizerLock.Unlock()
 		if gseTokenizer == nil {
@@ -73,6 +76,7 @@ func init_gse() {
 			}
 			gseTokenizer = &seg
 		}
+		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
 	}
 }
 
@@ -135,32 +139,45 @@ func removeEmptyStrings(terms []string) []string {
 // tokenizeField trims white spaces
 // (former DataTypeString/Field)
 func tokenizeField(in string) []string {
-	return []string{strings.TrimFunc(in, unicode.IsSpace)}
+	startTime := time.Now()
+	ret := []string{strings.TrimFunc(in, unicode.IsSpace)}
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("field").Observe(time.Since(startTime).Seconds())
+	return ret
 }
 
 // tokenizeWhitespace splits on white spaces, does not alter casing
 // (former DataTypeString/Word)
 func tokenizeWhitespace(in string) []string {
-	return strings.FieldsFunc(in, unicode.IsSpace)
+	startTime := time.Now()
+	ret := strings.FieldsFunc(in, unicode.IsSpace)
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("whitespace").Observe(time.Since(startTime).Seconds())
+	return ret
 }
 
 // tokenizeLowercase splits on white spaces and lowercases the words
 func tokenizeLowercase(in string) []string {
+	startTime := time.Now()
 	terms := tokenizeWhitespace(in)
-	return lowercase(terms)
+	ret := lowercase(terms)
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("lowercase").Observe(time.Since(startTime).Seconds())
+	return ret
 }
 
 // tokenizeWord splits on any non-alphanumerical and lowercases the words
 // (former DataTypeText/Word)
 func tokenizeWord(in string) []string {
+	startTime := time.Now()
 	terms := strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	})
-	return lowercase(terms)
+	ret := lowercase(terms)
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("word").Observe(time.Since(startTime).Seconds())
+	return ret
 }
 
 // tokenizetrigram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
 func tokenizetrigram(in string) []string {
+	startTime := time.Now()
 	// Strip whitespace and punctuation from the input string
 	inputString := strings.ToLower(strings.Join(strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
@@ -175,6 +192,7 @@ func tokenizetrigram(in string) []string {
 	for _, trirune := range trirunes {
 		trigrams = append(trigrams, string(trirune))
 	}
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("trigram").Observe(time.Since(startTime).Seconds())
 	return trigrams
 }
 
@@ -183,6 +201,7 @@ func tokenizeGSE(in string) []string {
 	if !UseGse {
 		return []string{}
 	}
+	startTime := time.Now()
 	gseTokenizerLock.Lock()
 	defer gseTokenizerLock.Unlock()
 	terms := gseTokenizer.CutAll(in)
@@ -190,7 +209,11 @@ func tokenizeGSE(in string) []string {
 	terms = removeEmptyStrings(terms)
 
 	alpha := tokenizeWord(in)
-	return append(terms, alpha...)
+
+	ret := append(terms, alpha...)
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
+	return ret
+
 }
 
 type KagomeTokenizers struct {
@@ -212,6 +235,7 @@ func initializeKagomeTokenizerKr() error {
 		if tokenizers.Korean != nil {
 			return nil
 		}
+		startTime := time.Now()
 
 		dictInstance := koDict.Dict()
 		tokenizer, err := kagomeTokenizer.New(dictInstance)
@@ -221,6 +245,7 @@ func initializeKagomeTokenizerKr() error {
 
 		tokenizers.Korean = tokenizer
 		KagomeKrEnabled = true
+		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("kagome_kr").Observe(time.Since(startTime).Seconds())
 		return nil
 	}
 
@@ -232,6 +257,7 @@ func tokenizeKagomeKr(in string) []string {
 	if tokenizer == nil || !KagomeKrEnabled {
 		return []string{}
 	}
+	startTime := time.Now()
 
 	kagomeTokens := tokenizer.Tokenize(in)
 	terms := make([]string, 0, len(kagomeTokens))
@@ -242,7 +268,9 @@ func tokenizeKagomeKr(in string) []string {
 		}
 	}
 
-	return removeEmptyStrings(terms)
+	ret := removeEmptyStrings(terms)
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("kagome_kr").Observe(time.Since(startTime).Seconds())
+	return ret
 }
 
 func initializeKagomeTokenizerJa() error {
@@ -254,7 +282,7 @@ func initializeKagomeTokenizerJa() error {
 		if tokenizers.Japanese != nil {
 			return nil
 		}
-
+		startTime := time.Now()
 		dictInstance := ipa.Dict()
 		tokenizer, err := kagomeTokenizer.New(dictInstance)
 		if err != nil {
@@ -263,6 +291,7 @@ func initializeKagomeTokenizerJa() error {
 
 		tokenizers.Japanese = tokenizer
 		KagomeJaEnabled = true
+		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("kagome_ja").Observe(time.Since(startTime).Seconds())
 		return nil
 	}
 
@@ -275,6 +304,7 @@ func tokenizeKagomeJa(in string) []string {
 		return []string{}
 	}
 
+	startTime := time.Now()
 	kagomeTokens := tokenizer.Analyze(in, kagomeTokenizer.Search)
 	terms := make([]string, 0, len(kagomeTokens))
 
@@ -284,27 +314,34 @@ func tokenizeKagomeJa(in string) []string {
 		}
 	}
 
-	return removeEmptyStrings(terms)
+	ret := removeEmptyStrings(terms)
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("kagome_ja").Observe(time.Since(startTime).Seconds())
+	return ret
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
 // lowercases the words
 func tokenizeWordWithWildcards(in string) []string {
+	startTime := time.Now()
 	terms := strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '?' && r != '*'
 	})
-	return lowercase(terms)
+	ret := lowercase(terms)
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("word_with_wildcards").Observe(time.Since(startTime).Seconds())
+	return ret
 }
 
 // tokenizetrigramWithWildcards splits on any non-alphanumerical and lowercases the words, applies any wildcards, then joins them together, then groups them into trigrams
 // this is unlikely to be useful, but is included for completeness
 func tokenizetrigramWithWildcards(in string) []string {
+	startTime := time.Now()
 	terms := tokenizeWordWithWildcards(in)
 	inputString := strings.Join(terms, "")
 	var trigrams []string
 	for i := 0; i < len(inputString)-2; i++ {
 		trigrams = append(trigrams, inputString[i:i+3])
 	}
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("trigram_with_wildcards").Observe(time.Since(startTime).Seconds())
 	return trigrams
 }
 
