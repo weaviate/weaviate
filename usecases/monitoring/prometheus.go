@@ -723,7 +723,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		TokenizerDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "tokenizer_duration_microseconds",
 			Help: "Duration of a tokenizer operation",
-			Buckets: []float64{1, 10, 100, 1000, 10000, 100000, 1000000},
+			Buckets: []float64{100, 1000, 5000, 10000, 100000, 500000, 1000000, 10000000},
 		}, []string{"tokenizer"}),
 		TokenizerRequests: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "tokenizer_requests_total",
@@ -732,7 +732,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		TokenizerInitializeDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "tokenizer_initialize_duration_microseconds",
 			Help: "Duration of a tokenizer initialization operation",
-			Buckets: []float64{1, 10, 100, 1000, 10000, 100000, 1000000},
+			Buckets: []float64{100, 1000, 5000, 10000, 100000, 500000, 1000000, 10000000},
 		}, []string{"tokenizer"}),
 	}
 }
