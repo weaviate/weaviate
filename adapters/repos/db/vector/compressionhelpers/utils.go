@@ -46,6 +46,7 @@ func ConcurrentlyWithError(log logrus.FieldLogger, n uint64, action func(taskInd
 	workerCount := runtime.GOMAXPROCS(0)
 	eg := enterrors.NewErrorGroupWrapper(log)
 	eg.SetLimit(workerCount)
+	eg.SetZone("ConcurrentlyWithError")
 	split := uint64(math.Ceil(n64 / float64(workerCount)))
 	for worker := uint64(0); worker < uint64(workerCount); worker++ {
 		workerID := worker

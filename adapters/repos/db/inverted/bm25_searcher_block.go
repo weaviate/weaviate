@@ -107,6 +107,7 @@ func (b *BM25Searcher) wandBlock(
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("wand_block")
 
 	allIds := make([][][]uint64, len(allResults))
 	allScores := make([][][]float32, len(allResults))

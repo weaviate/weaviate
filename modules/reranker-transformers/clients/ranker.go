@@ -54,6 +54,7 @@ func (c *client) Rank(ctx context.Context,
 ) (*ent.RankResult, error) {
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("Rank" + c.origin)
 
 	chunkedDocuments := c.chunkDocuments(documents, c.maxDocuments)
 	documentScoreResponses := make([][]DocumentScore, len(chunkedDocuments))

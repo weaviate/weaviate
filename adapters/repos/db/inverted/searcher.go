@@ -304,6 +304,7 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 	// prevent unbounded concurrency, see
 	// https://github.com/weaviate/weaviate/issues/3179 for details
 	eg.SetLimit(2 * _NUMCPU)
+	eg.SetZone("nested_query")
 
 	for i, clause := range operands {
 		i, clause := i, clause

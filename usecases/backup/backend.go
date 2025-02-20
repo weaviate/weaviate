@@ -432,6 +432,7 @@ func (u *uploader) compress(ctx context.Context,
 
 	// consumer
 	eg := enterrors.NewErrorGroupWrapper(u.log)
+	eg.SetZone("compress")
 	eg.Go(func() error {
 		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader); err != nil {
 			return err

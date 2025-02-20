@@ -72,6 +72,7 @@ func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transa
 	hosts := t.state.Hostnames()
 	resTx := make([]*Transaction, len(hosts))
 	eg := enterrors.NewErrorGroupWrapper(t.logger)
+	eg.SetZone("BroadcastTransaction")
 	for i, host := range hosts {
 		i := i       // https://golang.org/doc/faq#closures_and_goroutines
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
@@ -121,6 +122,7 @@ func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transa
 
 func (t *TxBroadcaster) BroadcastAbortTransaction(rootCtx context.Context, tx *Transaction) error {
 	eg := enterrors.NewErrorGroupWrapper(t.logger)
+	eg.SetZone("BroadcastAbortTransaction")
 	for _, host := range t.state.Hostnames() {
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
@@ -153,6 +155,7 @@ func (t *TxBroadcaster) BroadcastCommitTransaction(rootCtx context.Context, tx *
 		}
 	}
 	eg := enterrors.NewErrorGroupWrapper(t.logger)
+	eg.SetZone("BroadcastCommitTransaction")
 	for _, host := range t.state.Hostnames() {
 		// make sure we don't block forever if the caller passes in an unlimited
 		// context. If another node does not respond within the timeout, consider

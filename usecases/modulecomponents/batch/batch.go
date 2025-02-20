@@ -505,6 +505,7 @@ func VectorizeBatch[T []float32](ctx context.Context, objs []*models.Object, ski
 	// error group is used to limit concurrency
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU * 2)
+	eg.SetZone("VectorizeBatch")
 	for i := range objs {
 		i := i
 

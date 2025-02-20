@@ -449,6 +449,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
+		eg.SetZone("updateTenants_hot")
 
 		for _, name := range hot {
 			name := name // prevent loop variable capture
@@ -482,6 +483,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
+		eg.SetZone("updateTenants_cold")
 
 		for _, name := range cold {
 			name := name
@@ -850,6 +852,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("inverted_reindex")
 	for _, index := range m.db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
 			eg.Go(func() error {
@@ -896,6 +899,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
+	eg.SetZone("ii_missing_text_filterable")
 	for _, index := range m.db.indices {
 		index := index
 		className := index.Config.ClassName.String()
@@ -906,6 +910,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 		eg.Go(func() error {
 			errgrpShards := enterrors.NewErrorGroupWrapper(m.logger)
+			eg.SetZone("ii_missing_text_filterable_shards")
 			index.ForEachShard(func(_ string, shard ShardLike) error {
 				errgrpShards.Go(func() error {
 					m.logMissingFilterableShard(shard).

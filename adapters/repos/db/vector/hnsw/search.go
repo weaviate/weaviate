@@ -926,6 +926,7 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	eg.SetZone("rescore")
 	for workerID := 0; workerID < h.rescoreConcurrency; workerID++ {
 		workerID := workerID
 

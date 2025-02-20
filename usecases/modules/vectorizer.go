@@ -117,6 +117,7 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 		errorList := make([]error, len(modConfigs))
 		counter := 0
 		eg := enterrors.NewErrorGroupWrapper(logger)
+		eg.SetZone("BatchUpdateVector")
 		eg.SetLimit(_NUMCPU)
 		for targetVector, modConfig := range modConfigs {
 			shouldVectorizeClass, err := p.shouldVectorizeClass(class, targetVector, logger)
@@ -322,6 +323,7 @@ func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object,
 ) error {
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("UpdateVector")
 
 	for targetVector, modConfig := range modConfigs {
 		targetVector := targetVector // https://golang.org/doc/faq#closures_and_goroutines

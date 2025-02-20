@@ -100,6 +100,7 @@ func (m *shardMap) Range(f func(name string, shard ShardLike) error) (err error)
 func (m *shardMap) RangeConcurrently(logger logrus.FieldLogger, f func(name string, shard ShardLike) error) (err error) {
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("shardMap.RangeConcurrently")
 	(*sync.Map)(m).Range(func(key, value any) bool {
 		name, shard := key.(string), value.(ShardLike)
 		eg.Go(func() error {
@@ -311,6 +312,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	if i.Config.DisableLazyLoadShards {
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
 		eg.SetLimit(_NUMCPU)
+		eg.SetZone("initAndStoreShards")
 
 		for _, shardName := range shardState.AllLocalPhysicalShards() {
 			physical := shardState.Physical[shardName]
@@ -488,6 +490,7 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard S
 func (i *Index) addProperty(ctx context.Context, props ...*models.Property) error {
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("addProperty")
 
 	i.ForEachShard(func(key string, shard ShardLike) error {
 		shard.initPropertyBuckets(ctx, eg, props...)
@@ -1441,6 +1444,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
 	eg.SetLimit(_NUMCPU * 2)
+	eg.SetZone("object_search")
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
 		shardName := shardName
@@ -1718,6 +1722,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
 	eg.SetLimit(_NUMCPU * 2)
+	eg.SetZone("object_vector_search")
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
@@ -2194,6 +2199,7 @@ func (i *Index) drop() error {
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
+	eg.SetZone("drop_index")
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
 	dropShard := func(name string, _ ShardLike) error {
 		eg.Go(func() error {
@@ -2248,6 +2254,7 @@ func (i *Index) dropShards(names []string) error {
 	ec := errorcompounder.New()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
+	eg.SetZone("drop_shards")
 
 	for _, name := range names {
 		name := name
@@ -2288,6 +2295,7 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 	ec := &errorcompounder.ErrorCompounder{}
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
+	eg.SetZone("drop_cloud_shards")
 
 	for _, name := range names {
 		name := name

@@ -77,6 +77,7 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 
 	eg := enterrors.NewErrorGroupWrapper(b.shard.Index().logger)
 	eg.SetLimit(_NUMCPU) // prevent unbounded concurrency
+	eg.SetZone("shard_delete")
 
 	for j, docID := range batch {
 		index := j

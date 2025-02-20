@@ -62,6 +62,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 ) (*ent.RankResult, error) {
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("Rankvoyageai")
 
 	chunkedDocuments := c.chunkDocuments(documents, c.maxDocuments)
 	documentScoreResponses := make([][]ent.DocumentScore, len(chunkedDocuments))

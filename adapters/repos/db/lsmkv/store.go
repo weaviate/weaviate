@@ -230,6 +230,7 @@ func (s *Store) Shutdown(ctx context.Context) error {
 	// shutdown must be called on every bucket
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	eg.SetLimit(runtime.GOMAXPROCS(0))
+	eg.SetZone("store_shutdown")
 
 	for name, bucket := range s.bucketsByName {
 		name := name

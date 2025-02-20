@@ -445,6 +445,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("vector_search")
 	idss := make([][]uint64, len(targetVectors))
 	distss := make([][]float32, len(targetVectors))
 	beforeVector := time.Now()

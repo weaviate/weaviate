@@ -230,6 +230,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
 	eg.SetLimit(resultsCount)
+	eg.SetZone("Hybrid")
 
 	results = make([][]*search.Result, resultsCount)
 	weights = make([]float64, resultsCount)
@@ -276,6 +277,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				} else {
 					eg2 := enterrors.NewErrorGroupWrapper(e.logger)
 					eg2.SetLimit(_NUMCPU)
+					eg.SetZone("Hybrid")
 					for i, targetVector := range targetVectors {
 						i := i
 						targetVector := targetVector

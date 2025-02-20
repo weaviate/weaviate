@@ -87,6 +87,7 @@ func (c *cycleCombinedCallbackCtrl) Activate() error {
 func (c *cycleCombinedCallbackCtrl) activate() []error {
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(c.routinesLimit)
+	eg.SetZone("activate-callbacks")
 	lock := new(sync.Mutex)
 
 	errs := make([]error, 0, len(c.ctrls))
@@ -114,6 +115,7 @@ func (c *cycleCombinedCallbackCtrl) Deactivate(ctx context.Context) error {
 	// try activating back deactivated
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(c.routinesLimit)
+	eg.SetZone("activate-deactivated-callbacks")
 	for _, id := range deactivated {
 		id := id
 		eg.Go(func() error {
@@ -128,6 +130,7 @@ func (c *cycleCombinedCallbackCtrl) Deactivate(ctx context.Context) error {
 func (c *cycleCombinedCallbackCtrl) deactivate(ctx context.Context) ([]error, []int) {
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(c.routinesLimit)
+	eg.SetZone("deactivate-callbacks")
 	lock := new(sync.Mutex)
 
 	errs := make([]error, 0, len(c.ctrls))
@@ -155,6 +158,7 @@ func (c *cycleCombinedCallbackCtrl) Unregister(ctx context.Context) error {
 func (c *cycleCombinedCallbackCtrl) unregister(ctx context.Context) []error {
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(c.routinesLimit)
+	eg.SetZone("unregister-callbacks")
 	lock := new(sync.Mutex)
 
 	errs := make([]error, 0, len(c.ctrls))

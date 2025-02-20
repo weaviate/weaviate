@@ -55,6 +55,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	// all init tasks, the wait statement is at the end of this method. No other
 	// methods should attempt to wait on this error group.
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	eg.SetZone("shard_init")
 
 	eg.Go(func() error {
 		return s.initObjectBucket(ctx)

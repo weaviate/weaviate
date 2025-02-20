@@ -95,6 +95,7 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 		pv.docIDs = dbm
 	} else {
 		eg := enterrors.NewErrorGroupWrapper(pv.logger)
+		eg.SetZone("nested_query")
 		// prevent unbounded concurrency, see
 		// https://github.com/weaviate/weaviate/issues/3179 for details
 		eg.SetLimit(2 * _NUMCPU)

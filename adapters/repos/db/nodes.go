@@ -29,6 +29,7 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity str
 	nodeStatuses := make([]*models.NodeStatus, len(db.schemaGetter.Nodes()))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("get_node_status")
 	for i, nodeName := range db.schemaGetter.Nodes() {
 		i, nodeName := i, nodeName
 		eg.Go(func() error {
@@ -227,6 +228,7 @@ func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, erro
 	nodeStatistics := make([]*models.Statistics, len(db.schemaGetter.Nodes()))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("get_node_statistics")
 	for i, nodeName := range db.schemaGetter.Nodes() {
 		i, nodeName := i, nodeName
 		eg.Go(func() error {

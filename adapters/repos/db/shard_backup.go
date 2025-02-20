@@ -108,6 +108,7 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)
+	g.SetZone("resume-maintenance-cycles")
 
 	g.Go(func() error {
 		return s.store.ResumeCompaction(ctx)

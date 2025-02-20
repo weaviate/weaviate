@@ -241,6 +241,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	searchVectors := make([]models.Vector, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
 	eg.SetLimit(2 * _NUMCPU)
+	eg.SetZone("explorer:searchForTargets")
 	for i := range targetVectors {
 		i := i
 		eg.Go(func() error {

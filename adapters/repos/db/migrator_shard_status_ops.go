@@ -37,6 +37,7 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
+	eg.SetZone("frozen")
 
 	for _, name := range frozen {
 		name := name
@@ -90,6 +91,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
+	eg.SetZone("freeze")
 
 	cmd := command.TenantProcessRequest{
 		Node:             m.nodeId,
@@ -221,6 +223,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
+	eg.SetZone("unfreeze")
 	tenantsToBeDeletedFromCloud := sync.Map{}
 	cmd := command.TenantProcessRequest{
 		Node:             m.nodeId,

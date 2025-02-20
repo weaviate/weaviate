@@ -72,6 +72,7 @@ func (m *filterableToSearchableMigrator) migrate(ctx context.Context) error {
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
+	eg.SetZone("migrate")
 	for _, index := range m.indexes {
 		index := index
 
@@ -193,6 +194,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("migrate")
 	for shardName, props := range shard2PropsToFix {
 		shard := index.shards.Load(shardName)
 		props := props

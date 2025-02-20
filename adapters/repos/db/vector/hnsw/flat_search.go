@@ -56,6 +56,7 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	eg.SetZone("flatSearch")
 	for workerID := 0; workerID < h.flatSearchConcurrency; workerID++ {
 		workerID := workerID
 		eg.Go(func() error {

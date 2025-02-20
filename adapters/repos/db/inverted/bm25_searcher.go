@@ -253,6 +253,7 @@ func (b *BM25Searcher) wand(
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("wand")
 
 	for _, request := range allRequests {
 		term := request.term
@@ -424,6 +425,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
+	eg.SetZone("create_term")
 
 	allMsAndProps := make([][]terms.DocPointerWithScore, len(propertyNames))
 	for i, propName := range propertyNames {
