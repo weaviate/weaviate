@@ -60,6 +60,8 @@ message ApplyRequest {
     TYPE_ADD_ROLES_FOR_USER = 63;
     TYPE_REVOKE_ROLES_FOR_USER = 64;
 
+    TYPE_UPSERT_USER = 80;
+
     TYPE_STORE_SCHEMA_V1 = 99;
   }
   Type type = 1;

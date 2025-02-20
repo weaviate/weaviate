@@ -21,13 +21,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-type Client struct {
-	config     config.APIKey
-	keystorage [][sha256.Size]byte
+type StaticApiKey struct {
+	config         config.APIKey
+	weakKeyStorage [][sha256.Size]byte
 }
 
-func New(cfg config.Config) (*Client, error) {
-	c := &Client{
+func NewStatic(cfg config.Config) (*StaticApiKey, error) {
+	c := &StaticApiKey{
 		config: cfg.Authentication.APIKey,
 	}
 
@@ -40,14 +40,14 @@ func New(cfg config.Config) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) parseKeys() {
-	c.keystorage = make([][sha256.Size]byte, len(c.config.AllowedKeys))
+func (c *StaticApiKey) parseKeys() {
+	c.weakKeyStorage = make([][sha256.Size]byte, len(c.config.AllowedKeys))
 	for i, rawKey := range c.config.AllowedKeys {
-		c.keystorage[i] = sha256.Sum256([]byte(rawKey))
+		c.weakKeyStorage[i] = sha256.Sum256([]byte(rawKey))
 	}
 }
 
-func (c *Client) validateConfig() error {
+func (c *StaticApiKey) validateConfig() error {
 	if !c.config.Enabled {
 		// don't validate if this scheme isn't used
 		return nil
@@ -80,7 +80,7 @@ func (c *Client) validateConfig() error {
 	return nil
 }
 
-func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
+func (c *StaticApiKey) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
 	if !c.config.Enabled {
 		return nil, errors.New(401, "apikey auth is not configured, please try another auth scheme or set up weaviate with apikey configured")
 	}
@@ -95,10 +95,10 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	}, nil
 }
 
-func (c *Client) isTokenAllowed(token string) (int, bool) {
+func (c *StaticApiKey) isTokenAllowed(token string) (int, bool) {
 	tokenHash := sha256.Sum256([]byte(token))
 
-	for i, allowed := range c.keystorage {
+	for i, allowed := range c.weakKeyStorage {
 		if subtle.ConstantTimeCompare(tokenHash[:], allowed[:]) == 1 {
 			return i, true
 		}
@@ -107,7 +107,16 @@ func (c *Client) isTokenAllowed(token string) (int, bool) {
 	return -1, false
 }
 
-func (c *Client) getUser(pos int) string {
+func (c *StaticApiKey) getUser(pos int) string {
+	// passed validation guarantees that one of those options will work
+	if pos >= len(c.config.Users) {
+		return c.config.Users[0]
+	}
+
+	return c.config.Users[pos]
+}
+
+func (c *StaticApiKey) Create(pos int) string {
 	// passed validation guarantees that one of those options will work
 	if pos >= len(c.config.Users) {
 		return c.config.Users[0]

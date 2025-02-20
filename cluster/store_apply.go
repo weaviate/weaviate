@@ -215,6 +215,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
 		}
 
+	case api.ApplyRequest_TYPE_UPSERT_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.CreateUser(&cmd)
+		}
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart

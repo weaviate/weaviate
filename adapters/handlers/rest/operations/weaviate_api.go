@@ -120,8 +120,14 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzCreateRoleHandler: authz.CreateRoleHandlerFunc(func(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.CreateRole has not yet been implemented")
 		}),
+		UsersCreateUserHandler: users.CreateUserHandlerFunc(func(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.CreateUser has not yet been implemented")
+		}),
 		AuthzDeleteRoleHandler: authz.DeleteRoleHandlerFunc(func(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.DeleteRole has not yet been implemented")
+		}),
+		UsersDeleteUserHandler: users.DeleteUserHandlerFunc(func(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.DeleteUser has not yet been implemented")
 		}),
 		UsersGetOwnInfoHandler: users.GetOwnInfoHandlerFunc(func(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetOwnInfo has not yet been implemented")
@@ -134,6 +140,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		AuthzGetRolesForUserHandler: authz.GetRolesForUserHandlerFunc(func(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRolesForUser has not yet been implemented")
+		}),
+		UsersGetUserInfoHandler: users.GetUserInfoHandlerFunc(func(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.GetUserInfo has not yet been implemented")
 		}),
 		AuthzGetUsersForRoleHandler: authz.GetUsersForRoleHandlerFunc(func(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetUsersForRole has not yet been implemented")
@@ -374,8 +383,12 @@ type WeaviateAPI struct {
 	ClusterClusterGetStatisticsHandler cluster.ClusterGetStatisticsHandler
 	// AuthzCreateRoleHandler sets the operation handler for the create role operation
 	AuthzCreateRoleHandler authz.CreateRoleHandler
+	// UsersCreateUserHandler sets the operation handler for the create user operation
+	UsersCreateUserHandler users.CreateUserHandler
 	// AuthzDeleteRoleHandler sets the operation handler for the delete role operation
 	AuthzDeleteRoleHandler authz.DeleteRoleHandler
+	// UsersDeleteUserHandler sets the operation handler for the delete user operation
+	UsersDeleteUserHandler users.DeleteUserHandler
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
 	UsersGetOwnInfoHandler users.GetOwnInfoHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
@@ -384,6 +397,8 @@ type WeaviateAPI struct {
 	AuthzGetRolesHandler authz.GetRolesHandler
 	// AuthzGetRolesForUserHandler sets the operation handler for the get roles for user operation
 	AuthzGetRolesForUserHandler authz.GetRolesForUserHandler
+	// UsersGetUserInfoHandler sets the operation handler for the get user info operation
+	UsersGetUserInfoHandler users.GetUserInfoHandler
 	// AuthzGetUsersForRoleHandler sets the operation handler for the get users for role operation
 	AuthzGetUsersForRoleHandler authz.GetUsersForRoleHandler
 	// GraphqlGraphqlBatchHandler sets the operation handler for the graphql batch operation
@@ -611,8 +626,14 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzCreateRoleHandler == nil {
 		unregistered = append(unregistered, "authz.CreateRoleHandler")
 	}
+	if o.UsersCreateUserHandler == nil {
+		unregistered = append(unregistered, "users.CreateUserHandler")
+	}
 	if o.AuthzDeleteRoleHandler == nil {
 		unregistered = append(unregistered, "authz.DeleteRoleHandler")
+	}
+	if o.UsersDeleteUserHandler == nil {
+		unregistered = append(unregistered, "users.DeleteUserHandler")
 	}
 	if o.UsersGetOwnInfoHandler == nil {
 		unregistered = append(unregistered, "users.GetOwnInfoHandler")
@@ -625,6 +646,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzGetRolesForUserHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesForUserHandler")
+	}
+	if o.UsersGetUserInfoHandler == nil {
+		unregistered = append(unregistered, "users.GetUserInfoHandler")
 	}
 	if o.AuthzGetUsersForRoleHandler == nil {
 		unregistered = append(unregistered, "authz.GetUsersForRoleHandler")
@@ -786,7 +810,6 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
-
 		}
 	}
 	return result
@@ -932,10 +955,18 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/authz/roles"] = authz.NewCreateRole(o.context, o.AuthzCreateRoleHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/users/{user_id}"] = users.NewCreateUser(o.context, o.UsersCreateUserHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/authz/roles/{id}"] = authz.NewDeleteRole(o.context, o.AuthzDeleteRoleHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/users/{user_id}"] = users.NewDeleteUser(o.context, o.UsersDeleteUserHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -952,6 +983,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/authz/users/{id}/roles"] = authz.NewGetRolesForUser(o.context, o.AuthzGetRolesForUserHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/users/{user_id}"] = users.NewGetUserInfo(o.context, o.UsersGetUserInfoHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
