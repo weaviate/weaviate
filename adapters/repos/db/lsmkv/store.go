@@ -430,7 +430,6 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
-
 	bucket := s.bucketsByName[bucketName]
 	if bucket == nil {
 		return fmt.Errorf("bucket '%s' not found", bucketName)
