@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	// StrategyReplace allows for idem-potent PUT where the latest takes presence
+	// StrategyReplace allows for idem-potent PUT where the latest takes precedence
 	StrategyReplace         = "replace"
 	StrategySetCollection   = "setcollection"
 	StrategyMapCollection   = "mapcollection"
