@@ -14,8 +14,10 @@ package batch
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/sirupsen/logrus"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
@@ -25,14 +27,16 @@ type batcher interface {
 }
 
 type StreamHandler struct {
-	batcher batcher
-	logger  logrus.FieldLogger
+	asyncEnabled bool
+	batcher      batcher
+	logger       logrus.FieldLogger
 }
 
 func NewStreamHandler(batcher batcher, logger logrus.FieldLogger) *StreamHandler {
 	return &StreamHandler{
-		batcher: batcher,
-		logger:  logger,
+		asyncEnabled: asyncEnabled(),
+		batcher:      batcher,
+		logger:       logger,
 	}
 }
 
@@ -48,7 +52,10 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 
 	objects := make([]*pb.BatchObject, 0, 1000)
 
-	send := func(objects []*pb.BatchObject, index int) error {
+	send := func(sem chan struct{}, objects []*pb.BatchObject, index int) error {
+		sem <- struct{}{}        // acquire the semaphore
+		defer func() { <-sem }() // release the semaphore
+
 		reply, err := h.batcher.BatchObjects(stream.Context(), &pb.BatchObjectsRequest{Objects: objects, ConsistencyLevel: init.ConsistencyLevel})
 		if err != nil {
 			return err
@@ -62,14 +69,14 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 		return nil
 	}
 
-	eg := enterrors.NewErrorGroupWrapper(h.logger)
 	concurrency := 2
 	if init.Concurrency != nil {
 		concurrency = int(init.GetConcurrency())
 	}
-	eg.SetLimit(concurrency)
+	sem := make(chan struct{}, concurrency)
 
 	index := 0
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
 	for {
 		req, err := stream.Recv()
 		if err != nil {
@@ -78,7 +85,7 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 
 		sentinel := req.GetSentinel()
 		if sentinel != nil {
-			eg.Go(func() error { return send(objects, index) })
+			eg.Go(func() error { return send(sem, objects, index) })
 			break
 		}
 
@@ -89,11 +96,18 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 
 		index += 1
 		objects = append(objects, object)
-		if len(objects) == 1000 {
-			eg.Go(func() error { return send(objects, index) })
+		if h.asyncEnabled && len(objects) == 1000 {
+			eg.Go(func() error { return send(sem, objects, index) })
 			objects = objects[:0] // clear while maintaining capacity
+			continue
+		}
+		if !h.asyncEnabled {
 		}
 	}
 	eg.Wait()
 	return nil
+}
+
+func asyncEnabled() bool {
+	return entcfg.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
