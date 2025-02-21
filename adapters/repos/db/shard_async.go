@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -173,6 +174,14 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 }
 
 func (s *Shard) iterateOnLSMVectors(ctx context.Context, fromID uint64, targetVector string, fn func(id uint64, vector []float32) error) error {
+	properties := additional.Properties{
+		NoProps: true,
+		Vector:  true,
+	}
+	if targetVector != "" {
+		properties.Vectors = []string{targetVector}
+	}
+
 	return s.iterateOnLSMObjects(ctx, fromID, func(obj *storobj.Object) error {
 		var vector []float32
 		if targetVector == "" {
@@ -183,20 +192,31 @@ func (s *Shard) iterateOnLSMVectors(ctx context.Context, fromID uint64, targetVe
 			}
 		}
 		return fn(obj.DocID, vector)
-	})
+	}, properties, nil)
 }
 
 func (s *Shard) iterateOnLSMMultiVectors(ctx context.Context, fromID uint64, targetVector string, fn func(id uint64, vector [][]float32) error) error {
+	properties := additional.Properties{
+		NoProps: true,
+		Vectors: []string{targetVector},
+	}
+
 	return s.iterateOnLSMObjects(ctx, fromID, func(obj *storobj.Object) error {
 		var vector [][]float32
 		if len(obj.MultiVectors) > 0 {
 			vector = obj.MultiVectors[targetVector]
 		}
 		return fn(obj.DocID, vector)
-	})
+	}, properties, nil)
 }
 
-func (s *Shard) iterateOnLSMObjects(ctx context.Context, fromID uint64, fn func(obj *storobj.Object) error) error {
+func (s *Shard) iterateOnLSMObjects(
+	ctx context.Context,
+	fromID uint64,
+	fn func(obj *storobj.Object) error,
+	addProps additional.Properties,
+	properties *storobj.PropertyExtraction,
+) error {
 	maxDocID := s.Counter().Get()
 	bucket := s.Store().Bucket(helpers.ObjectsBucketLSM)
 
@@ -215,7 +235,7 @@ func (s *Shard) iterateOnLSMObjects(ctx context.Context, fromID uint64, fn func(
 		if v == nil {
 			continue
 		}
-		obj, err := storobj.FromBinary(v)
+		obj, err := storobj.FromBinaryOptional(v, addProps, properties)
 		if err != nil {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
