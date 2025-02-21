@@ -75,11 +75,11 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 }
 
 func (v *openai) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := generative.MakeSinglePrompt(properties.Text, prompt)
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.generate(ctx, cfg, forPrompt, []map[string]string{properties.Blob}, options, debug)
+	return v.generate(ctx, cfg, forPrompt, generative.Blobs([]*modulecapabilities.GenerateProperties{properties}), options, debug)
 }
 
 func (v *openai) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {

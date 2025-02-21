@@ -49,11 +49,11 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *anthr
 }
 
 func (a *anthropic) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := generative.MakeSinglePrompt(properties.Text, prompt)
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return a.generate(ctx, cfg, forPrompt, []map[string]string{properties.Blob}, options, debug)
+	return a.generate(ctx, cfg, forPrompt, generative.Blobs([]*modulecapabilities.GenerateProperties{properties}), options, debug)
 }
 
 func (a *anthropic) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {

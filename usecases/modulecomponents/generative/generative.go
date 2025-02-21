@@ -23,6 +23,13 @@ import (
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
+func Text(properties *modulecapabilities.GenerateProperties) map[string]string {
+	if properties != nil && len(properties.Text) > 0 {
+		return properties.Text
+	}
+	return nil
+}
+
 func Texts(properties []*modulecapabilities.GenerateProperties) []map[string]string {
 	texts := make([]map[string]string, 0, len(properties))
 	for _, prop := range properties {

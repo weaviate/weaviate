@@ -45,7 +45,10 @@ func (p *GenerateProvider) generateResult(ctx context.Context,
 		return nil, err
 	}
 
-	propertyDataTypes := cfg.PropertiesDataTypes() // do once for all results to avoid loops over the schema
+	var propertyDataTypes map[string]schema.DataType
+	if cfg != nil {
+		propertyDataTypes = cfg.PropertiesDataTypes() // do once for all results to avoid loops over the schema
+	}
 	if task != nil {
 		_, err = p.generateForAllSearchResults(ctx, in, *task, properties, client, settings, debug, cfg, propertyDataTypes)
 	}
@@ -98,7 +101,10 @@ func (p *GenerateProvider) generatePerSearchResult(ctx context.Context,
 			sem <- struct{}{}
 			defer wg.Done()
 			defer func() { <-sem }()
-			props := p.getProperties(in[i], nil, propertyDataTypes)
+			var props *modulecapabilities.GenerateProperties
+			if propertyDataTypes != nil {
+				props = p.getProperties(in[i], nil, propertyDataTypes)
+			}
 			generateResult, err := client.GenerateSingleResult(ctx, props, prompt, settings, debug, cfg)
 			p.setIndividualResult(in, i, generateResult, err)
 		}, p.logger)
@@ -115,11 +121,13 @@ func (p *GenerateProvider) generateForAllSearchResults(ctx context.Context,
 	settings interface{},
 	debug bool,
 	cfg moduletools.ClassConfig,
-	primitivePropDataTypes map[string]schema.DataType,
+	propertyDataTypes map[string]schema.DataType,
 ) ([]search.Result, error) {
 	var propertiesForAllDocs []*modulecapabilities.GenerateProperties
-	for _, res := range in {
-		propertiesForAllDocs = append(propertiesForAllDocs, p.getProperties(res, properties, primitivePropDataTypes))
+	if propertyDataTypes != nil {
+		for _, res := range in {
+			propertiesForAllDocs = append(propertiesForAllDocs, p.getProperties(res, properties, propertyDataTypes))
+		}
 	}
 	generateResult, err := client.GenerateAllResults(ctx, propertiesForAllDocs, task, settings, debug, cfg)
 	p.setCombinedResult(in, 0, generateResult, err)
@@ -145,6 +153,7 @@ func (p *GenerateProvider) getProperties(result search.Result,
 				textProperties[property] = fmt.Sprintf("%v", value)
 			case schema.DataTypeBlob:
 				blobProperties[property] = value.(string)
+			default:
 			}
 		}
 	}

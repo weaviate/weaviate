@@ -60,7 +60,7 @@ func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogge
 }
 
 func (v *databricks) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := generative.MakeSinglePrompt(properties.Text, prompt)
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}

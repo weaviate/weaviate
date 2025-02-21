@@ -32,6 +32,7 @@ import (
 	generativeconfig "github.com/weaviate/weaviate/modules/generative-aws/config"
 	awsparams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 	generativecomponents "github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 )
 
@@ -70,11 +71,11 @@ func New(awsAccessKey, awsSecretKey, awsSessionToken string, timeout time.Durati
 }
 
 func (v *awsClient) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := generativecomponents.MakeSinglePrompt(properties.Text, prompt)
+	forPrompt, err := generativecomponents.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt, []map[string]string{properties.Blob}, options, debug)
+	return v.Generate(ctx, cfg, forPrompt, generative.Blobs([]*modulecapabilities.GenerateProperties{properties}), options, debug)
 }
 
 func (v *awsClient) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
