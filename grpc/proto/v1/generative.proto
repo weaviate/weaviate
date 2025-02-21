@@ -18,10 +18,9 @@ message GenerativeSearch {
   
   message Grouped {
     string task = 1;
-    optional TextArray properties = 2 [deprecated = true];
+    optional TextArray properties = 2;
     // only allow one at the beginning, but multiple in the future
     repeated GenerativeProvider queries = 3;
-    optional TextArray primitive_properties = 4;
   }
 
   string single_response_prompt = 1 [deprecated = true];

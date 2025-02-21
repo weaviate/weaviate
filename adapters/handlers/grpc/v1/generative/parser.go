@@ -150,11 +150,11 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 	if req.Grouped != nil {
 		generative.Task = &req.Grouped.Task
 		p.extractFromQuery(&generative, req.Grouped.Queries) // populates generative.Properties with any values in provider.Images (if supported)
-		if len(generative.Properties) == 0 && len(req.Grouped.GetPrimitiveProperties().GetValues()) == 0 {
+		if len(generative.Properties) == 0 && len(req.Grouped.GetProperties().GetValues()) == 0 {
 			// if users do not supply a properties, all properties need to be extracted
 			generative.PropertiesToExtract = append(generative.PropertiesToExtract, schema.GetPropertyNamesFromClass(class, false)...)
 		} else {
-			generative.Properties = append(generative.Properties, req.Grouped.PrimitiveProperties.GetValues()...)
+			generative.Properties = append(generative.Properties, req.Grouped.Properties.GetValues()...)
 			generative.PropertiesToExtract = append(generative.PropertiesToExtract, generative.Properties...)
 		}
 	}

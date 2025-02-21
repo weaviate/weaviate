@@ -14,6 +14,7 @@ package generate
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -148,9 +149,9 @@ func (p *GenerateProvider) getProperties(result search.Result,
 			switch dt {
 			// todo: add rest of types
 			case schema.DataTypeText:
-				textProperties[property] = fmt.Sprintf("%v", value)
+				textProperties[property] = value.(string)
 			case schema.DataTypeTextArray:
-				textProperties[property] = fmt.Sprintf("%v", value)
+				textProperties[property] = strings.Join(value.([]string), ",")
 			case schema.DataTypeBlob:
 				blobProperties[property] = value.(string)
 			default:

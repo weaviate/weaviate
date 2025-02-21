@@ -178,9 +178,9 @@ func CreatePromptTestWithParamsGRPC(t *testing.T, className, singlePrompt, group
 				Queries: queries,
 			},
 			Grouped: &pb.GenerativeSearch_Grouped{
-				Task:                groupPrompt,
-				PrimitiveProperties: &pb.TextArray{Values: []string{"name"}},
-				Queries:             queries,
+				Task:       groupPrompt,
+				Properties: &pb.TextArray{Values: []string{"name"}},
+				Queries:    queries,
 			},
 		},
 		Uses_127Api: true,
