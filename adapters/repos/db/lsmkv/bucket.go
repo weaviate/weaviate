@@ -494,6 +494,10 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
+	if pos >= int(b.secondaryIndices) {
+		return nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
+	}
+
 	v, err := b.active.getBySecondary(pos, key)
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
