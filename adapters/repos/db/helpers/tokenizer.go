@@ -142,6 +142,8 @@ func tokenizeField(in string) []string {
 	startTime := time.Now()
 	ret := []string{strings.TrimFunc(in, unicode.IsSpace)}
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("field").Observe(float64(time.Since(startTime).Microseconds()))
+	monitoring.GetMetrics().TokenCount.WithLabelValues("field").Add(float64(len(ret)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("field").Observe(float64(len(ret)))
 	return ret
 }
 
@@ -151,6 +153,8 @@ func tokenizeWhitespace(in string) []string {
 	startTime := time.Now()
 	ret := strings.FieldsFunc(in, unicode.IsSpace)
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("whitespace").Observe(float64(time.Since(startTime).Microseconds()))
+	monitoring.GetMetrics().TokenCount.WithLabelValues("whitespace").Add(float64(len(ret)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("whitespace").Observe(float64(len(ret)))
 	return ret
 }
 
@@ -172,6 +176,8 @@ func tokenizeWord(in string) []string {
 	})
 	ret := lowercase(terms)
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("word").Observe(float64(time.Since(startTime).Microseconds()))
+	monitoring.GetMetrics().TokenCount.WithLabelValues("word").Add(float64(len(ret)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("word").Observe(float64(len(ret)))
 	return ret
 }
 
@@ -193,6 +199,8 @@ func tokenizetrigram(in string) []string {
 		trigrams = append(trigrams, string(trirune))
 	}
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("trigram").Observe(float64(time.Since(startTime).Microseconds()))
+	monitoring.GetMetrics().TokenCount.WithLabelValues("trigram").Add(float64(len(trigrams)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("trigram").Observe(float64(len(trigrams)))
 	return trigrams
 }
 
@@ -201,6 +209,7 @@ func tokenizeGSE(in string) []string {
 	if !UseGse {
 		return []string{}
 	}
+	//alpha := tokenizeWord(in)
 	startTime := time.Now()
 	gseTokenizerLock.Lock()
 	defer gseTokenizerLock.Unlock()
@@ -208,10 +217,13 @@ func tokenizeGSE(in string) []string {
 
 	terms = removeEmptyStrings(terms)
 
-	alpha := tokenizeWord(in)
 
-	ret := append(terms, alpha...)
+
+	//ret := append(terms, alpha...)
+	ret := terms
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("gse").Observe(float64(time.Since(startTime).Microseconds()))
+	monitoring.GetMetrics().TokenCount.WithLabelValues("gse").Add(float64(len(ret)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("gse").Observe(float64(len(ret)))
 	return ret
 
 }
@@ -270,6 +282,8 @@ func tokenizeKagomeKr(in string) []string {
 
 	ret := removeEmptyStrings(terms)
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("kagome_kr").Observe(float64(time.Since(startTime).Microseconds()))
+	monitoring.GetMetrics().TokenCount.WithLabelValues("kagome_kr").Add(float64(len(ret)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("kagome_kr").Observe(float64(len(ret)))
 	return ret
 }
 
@@ -316,6 +330,8 @@ func tokenizeKagomeJa(in string) []string {
 
 	ret := removeEmptyStrings(terms)
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("kagome_ja").Observe(float64(time.Since(startTime).Microseconds()))
+	monitoring.GetMetrics().TokenCount.WithLabelValues("kagome_ja").Add(float64(len(ret)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("kagome_ja").Observe(float64(len(ret)))
 	return ret
 }
 
@@ -328,6 +344,8 @@ func tokenizeWordWithWildcards(in string) []string {
 	})
 	ret := lowercase(terms)
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("word_with_wildcards").Observe(float64(time.Since(startTime).Microseconds()))
+	monitoring.GetMetrics().TokenCount.WithLabelValues("word_with_wildcards").Add(float64(len(ret)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("word_with_wildcards").Observe(float64(len(ret)))
 	return ret
 }
 
@@ -342,6 +360,8 @@ func tokenizetrigramWithWildcards(in string) []string {
 		trigrams = append(trigrams, inputString[i:i+3])
 	}
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("trigram_with_wildcards").Observe(float64(time.Since(startTime).Microseconds()))
+	monitoring.GetMetrics().TokenCount.WithLabelValues("trigram_with_wildcards").Add(float64(len(trigrams)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("trigram_with_wildcards").Observe(float64(len(trigrams)))
 	return trigrams
 }
 
@@ -349,6 +369,8 @@ func lowercase(terms []string) []string {
 	for i := range terms {
 		terms[i] = strings.ToLower(terms[i])
 	}
+	monitoring.GetMetrics().TokenCount.WithLabelValues("lowercase").Add(float64(len(terms)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("lowercase").Observe(float64(len(terms)))
 	return terms
 }
 
