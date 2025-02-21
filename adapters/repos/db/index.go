@@ -324,7 +324,11 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 		return nil
 	}
 
-	for _, shardName := range shardState.AllLocalPhysicalShards() {
+	// shards to lazily initialize are fetch once and in the same goroutine the index is initialized
+	// so to avoid races if shards are deleted before being initialized
+	shards := shardState.AllLocalPhysicalShards()
+
+	for _, shardName := range shards {
 		physical := shardState.Physical[shardName]
 		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 			// do not instantiate inactive shard
@@ -343,7 +347,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 
 		now := time.Now()
 
-		for _, shardName := range shardState.AllLocalPhysicalShards() {
+		for _, shardName := range shards {
 			// prioritize closingCtx over ticker:
 			// check closing again in case of ticker was selected when both
 			// cases where available
