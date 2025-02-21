@@ -267,3 +267,42 @@ func TestBucket_MemtableCountWithFlushing(t *testing.T) {
 		})
 	}
 }
+
+func TestBucketGetBySecondary(t *testing.T) {
+	ctx := context.Background()
+	dirName := t.TempDir()
+
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.Nil(t, err)
+
+	err = b.Put([]byte("hello"), []byte("world"), WithSecondaryKey(0, []byte("bonjour")))
+	require.Nil(t, err)
+
+	value, err := b.Get([]byte("hello"))
+	require.Nil(t, err)
+	require.Equal(t, []byte("world"), value)
+
+	_, err = b.GetBySecondary(0, []byte("bonjour"))
+	require.Nil(t, err)
+	require.Equal(t, []byte("world"), value)
+
+	_, err = b.GetBySecondary(1, []byte("bonjour"))
+	require.Error(t, err)
+
+	require.Nil(t, b.FlushMemtable())
+
+	value, err = b.Get([]byte("hello"))
+	require.Nil(t, err)
+	require.Equal(t, []byte("world"), value)
+
+	_, err = b.GetBySecondary(0, []byte("bonjour"))
+	require.Nil(t, err)
+	require.Equal(t, []byte("world"), value)
+
+	_, err = b.GetBySecondary(1, []byte("bonjour"))
+	require.Error(t, err)
+}
