@@ -10,6 +10,18 @@ type Vertex struct {
 	maintenance bool
 }
 
+func NewVertex(id uint64, level int) *Vertex {
+	return NewVertexWithConnections(id, level, make([][]uint64, level+1))
+}
+
+func NewVertexWithConnections(id uint64, level int, connections [][]uint64) *Vertex {
+	return &Vertex{
+		id:          id,
+		level:       level,
+		connections: connections,
+	}
+}
+
 func (v *Vertex) MarkAsMaintenance() {
 	v.Lock()
 	v.maintenance = true

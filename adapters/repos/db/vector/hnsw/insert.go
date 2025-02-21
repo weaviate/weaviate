@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
@@ -108,10 +109,10 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		levels[i] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
 	}
 	h.RLock()
-	if maxId >= uint64(len(h.nodes)) {
+	if maxId >= uint64(h.nodes.Len()) {
 		h.RUnlock()
 		h.Lock()
-		if maxId >= uint64(len(h.nodes)) {
+		if maxId >= uint64(h.nodes.Len()) {
 			err := h.growIndexToAccomodateNode(maxId, h.logger)
 			if err != nil {
 				h.Unlock()
@@ -129,10 +130,6 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		}
 
 		vector := vectors[i]
-		node := &vertex{
-			id:    ids[i],
-			level: levels[i],
-		}
 		globalBefore := time.Now()
 		if len(vector) == 0 {
 			return errors.Errorf("insert called with nil-vector")
@@ -141,7 +138,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		h.metrics.InsertVector()
 
 		vector = h.normalizeVec(vector)
-		err := h.addOne(ctx, vector, node)
+		err := h.addOne(ctx, vector, ids[i], levels[i])
 		if err != nil {
 			return err
 		}
@@ -200,10 +197,10 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		maxId := counter + uint64(numVectors)
 
 		h.RLock()
-		if maxId >= uint64(len(h.nodes)) {
+		if maxId >= uint64(h.nodes.Len()) {
 			h.RUnlock()
 			h.Lock()
-			if maxId >= uint64(len(h.nodes)) {
+			if maxId >= uint64(h.nodes.Len()) {
 				err := h.growIndexToAccomodateNode(maxId, h.logger)
 				if err != nil {
 					h.Unlock()
@@ -260,11 +257,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			nodeId := counter
 			counter++
 
-			node := &vertex{
-				id:    uint64(nodeId),
-				level: levels[j],
-			}
-
 			h.Lock()
 			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
 			h.Unlock()
@@ -278,7 +270,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 				return errors.Wrap(err, fmt.Sprintf("failed to put %s_mv_mappings into the bucket", h.id))
 			}
 
-			err = h.addOne(ctx, vector, node)
+			err = h.addOne(ctx, vector, nodeId, levels[j])
 			if err != nil {
 				return err
 			}
@@ -291,7 +283,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	return nil
 }
 
-func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error {
+func (h *hnsw) addOne(ctx context.Context, vector []float32, id uint64, level int) error {
 	h.compressActionLock.RLock()
 	h.deleteVsInsertLock.RLock()
 
@@ -308,7 +300,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.initialInsertOnce.Do(func() {
 		if h.isEmpty() {
 			wasFirst = true
-			firstInsertError = h.insertInitialElement(node, vector)
+			firstInsertError = h.insertInitialElement(id, vector)
 		}
 	})
 	if wasFirst {
@@ -317,8 +309,6 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 		}
 		return nil
 	}
-
-	node.markAsMaintenance()
 
 	h.RLock()
 	// initially use the "global" entrypoint which is guaranteed to be on the
@@ -329,8 +319,8 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	targetLevel := node.level
-	node.connections = make([][]uint64, targetLevel+1)
+	targetLevel := level
+	connections := make([][]uint64, targetLevel+1)
 
 	for i := targetLevel; i >= 0; i-- {
 		capacity := h.maximumConnections
@@ -338,24 +328,23 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 			capacity = h.maximumConnectionsLayerZero
 		}
 
-		node.connections[i] = make([]uint64, 0, capacity)
+		connections[i] = make([]uint64, 0, capacity)
 	}
+
+	node := graph.NewVertexWithConnections(id, targetLevel, connections)
+	node.MarkAsMaintenance()
 
 	if err := h.commitLog.AddNode(node); err != nil {
 		return err
 	}
 
-	nodeId := node.id
-
-	h.shardedNodeLocks.Lock(nodeId)
-	h.nodes[nodeId] = node
-	h.shardedNodeLocks.Unlock(nodeId)
+	h.nodes.Set(id, node)
 
 	if h.compressed.Load() && !h.multivector.Load() {
-		h.compressor.Preload(node.id, vector)
+		h.compressor.Preload(id, vector)
 	} else {
 		if !h.multivector.Load() {
-			h.cache.Preload(node.id, vector)
+			h.cache.Preload(id, vector)
 		}
 	}
 
@@ -387,7 +376,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.insertMetrics.findAndConnectTotal(before)
 	before = time.Now()
 
-	node.unmarkAsMaintenance()
+	node.UnmarkAsMaintenance()
 
 	h.RLock()
 	if targetLevel > h.currentMaximumLayer {
@@ -395,12 +384,12 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 		h.Lock()
 		// check again to avoid changes from RUnlock to Lock again
 		if targetLevel > h.currentMaximumLayer {
-			if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
+			if err := h.commitLog.SetEntryPointWithMaxLayer(id, targetLevel); err != nil {
 				h.Unlock()
 				return err
 			}
 
-			h.entryPointID = nodeId
+			h.entryPointID = id
 			h.currentMaximumLayer = targetLevel
 		}
 		h.Unlock()
@@ -419,38 +408,37 @@ func (h *hnsw) AddMulti(ctx context.Context, id uint64, vector [][]float32) erro
 	return h.AddMultiBatch(ctx, []uint64{id}, [][][]float32{vector})
 }
 
-func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
+func (h *hnsw) insertInitialElement(id uint64, nodeVec []float32) error {
 	h.Lock()
 	defer h.Unlock()
 
-	if err := h.commitLog.SetEntryPointWithMaxLayer(node.id, 0); err != nil {
+	if err := h.commitLog.SetEntryPointWithMaxLayer(id, 0); err != nil {
 		return err
 	}
 
-	h.entryPointID = node.id
+	h.entryPointID = id
 	h.currentMaximumLayer = 0
-	node.connections = [][]uint64{
+	connections := [][]uint64{
 		make([]uint64, 0, h.maximumConnectionsLayerZero),
 	}
-	node.level = 0
+	node := graph.NewVertexWithConnections(id, 0, connections)
+
 	if err := h.commitLog.AddNode(node); err != nil {
 		return err
 	}
 
-	err := h.growIndexToAccomodateNode(node.id, h.logger)
+	err := h.growIndexToAccomodateNode(id, h.logger)
 	if err != nil {
-		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
+		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", id)
 	}
 
-	h.shardedNodeLocks.Lock(node.id)
-	h.nodes[node.id] = node
-	h.shardedNodeLocks.Unlock(node.id)
+	h.nodes.Set(id, node)
 
 	if h.compressed.Load() && !h.multivector.Load() {
-		h.compressor.Preload(node.id, nodeVec)
+		h.compressor.Preload(id, nodeVec)
 	} else {
 		if !h.multivector.Load() {
-			h.cache.Preload(node.id, nodeVec)
+			h.cache.Preload(id, nodeVec)
 		}
 	}
 
