@@ -3,12 +3,12 @@ package graph
 import (
 	"sync"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 const (
-	growthRate     = 1.25
-	minGrowthDelta = 2000
+	growthRate = 1.25
 )
 
 type Nodes struct {
@@ -20,6 +20,13 @@ type Nodes struct {
 func NewNodes(initialSize int) *Nodes {
 	return &Nodes{
 		list:  make([]*Vertex, initialSize),
+		locks: common.NewDefaultShardedRWLocks(),
+	}
+}
+
+func NewNodesWith(list []*Vertex) *Nodes {
+	return &Nodes{
+		list:  list,
 		locks: common.NewDefaultShardedRWLocks(),
 	}
 }
@@ -78,8 +85,8 @@ func (n *Nodes) IterLockedNonNil(fn func(*Vertex)) {
 }
 
 func (n *Nodes) Grow(id uint64) (previousSize, newSize int) {
-	if int(id) < n.Len() {
-		return
+	if l := n.Len(); int(id) < l {
+		return l, l
 	}
 
 	n.Lock()
@@ -92,12 +99,12 @@ func (n *Nodes) Grow(id uint64) (previousSize, newSize int) {
 
 	previousSize = len(n.list)
 	if int(id) < previousSize {
-		return
+		return previousSize, previousSize
 	}
 
-	if (growthRate-1)*float64(previousSize) < float64(minGrowthDelta) {
+	if (growthRate-1)*float64(previousSize) < float64(cache.MinimumIndexGrowthDelta) {
 		// typically grow the index by the delta
-		newSize = previousSize + minGrowthDelta
+		newSize = previousSize + cache.MinimumIndexGrowthDelta
 	} else {
 		newSize = int(float64(previousSize) * growthRate)
 	}
@@ -108,7 +115,7 @@ func (n *Nodes) Grow(id uint64) (previousSize, newSize int) {
 		// imports 21 objects, then deletes the first 20,500. When rebuilding the
 		// index from disk the first id to be imported would be 20,501, however the
 		// index default size and default delta would only reach up to 20,000.
-		newSize = int(id) + minGrowthDelta
+		newSize = int(id) + cache.MinimumIndexGrowthDelta
 	}
 
 	newIndex := make([]*Vertex, newSize)
