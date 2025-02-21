@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic
+package keys
 
 import (
 	"crypto/rand"

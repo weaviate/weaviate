@@ -13,7 +13,7 @@ package apikey
 
 import (
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/dynamic"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -34,7 +34,7 @@ func New(cfg config.Config) (*ApiKey, error) {
 }
 
 func (a *ApiKey) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
-	if randomKey, userIdentifier, err := dynamic.DecodeApiKey(token); err == nil {
+	if randomKey, userIdentifier, err := keys.DecodeApiKey(token); err == nil {
 		return a.Dynamic.ValidateAndExtract(randomKey, userIdentifier)
 	} else {
 		return a.static.ValidateAndExtract(token, scopes)
