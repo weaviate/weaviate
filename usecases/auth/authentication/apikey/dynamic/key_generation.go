@@ -28,8 +28,14 @@ const (
 	UserIdentifierBytesBase64Length = 16
 )
 
+// second recommendation from the RFC: https://www.rfc-editor.org/rfc/rfc9106.html#name-parameter-choice
+// Changing ANY of these parameters will change the output and make previously generated keys invalid.
 var argonParameters = &argon2id.Params{
-	Memory: 64 * 1024, Parallelism: 2, Iterations: 3, SaltLength: 16, KeyLength: 32,
+	Memory:      64 * 1024,
+	Parallelism: 2,
+	Iterations:  3,
+	SaltLength:  16,
+	KeyLength:   32,
 }
 
 // CreateApiKeyAndHash creates an api key that has three parts:
