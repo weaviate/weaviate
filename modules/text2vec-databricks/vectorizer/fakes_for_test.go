@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type fakeBatchClient struct {
@@ -137,4 +138,8 @@ func (f FakeClassConfig) Tenant() string {
 
 func (f FakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f FakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
 }

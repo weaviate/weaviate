@@ -18,21 +18,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/modules/generative-ollama/config"
 	ollamaparams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type ollama struct {
 	httpClient *http.Client
@@ -48,24 +45,24 @@ func New(timeout time.Duration, logger logrus.FieldLogger) *ollama {
 	}
 }
 
-func (v *ollama) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *ollama) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generative.MakeSinglePrompt(properties.Text, prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.generate(ctx, cfg, forPrompt, textProperties, options, debug)
+	return v.generate(ctx, cfg, forPrompt, []map[string]string{properties.Blob}, options, debug)
 }
 
-func (v *ollama) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *ollama) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
-	return v.generate(ctx, cfg, forTask, nil, options, debug)
+	return v.generate(ctx, cfg, forTask, generative.Blobs(properties), options, debug)
 }
 
-func (v *ollama) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, textProperties map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	params := v.getParameters(cfg, options, textProperties)
+func (v *ollama) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options, imageProperties)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
 	ollamaUrl := v.getOllamaUrl(ctx, params.ApiEndpoint)
@@ -125,7 +122,7 @@ func (v *ollama) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}, nil
 }
 
-func (v *ollama) getParameters(cfg moduletools.ClassConfig, options interface{}, textProperties map[string]string) ollamaparams.Params {
+func (v *ollama) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]string) ollamaparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params ollamaparams.Params
@@ -139,17 +136,7 @@ func (v *ollama) getParameters(cfg moduletools.ClassConfig, options interface{},
 		params.Model = settings.Model()
 	}
 
-	if len(params.Images) > 0 && len(textProperties) > 0 {
-		images := make([]string, len(params.Images))
-		for i, imageProperty := range params.Images {
-			if image, ok := textProperties[imageProperty]; ok {
-				images[i] = image
-			} else {
-				images[i] = imageProperty
-			}
-		}
-		params.Images = images
-	}
+	params.Images = generative.ParseImageProperties(params.Images, imagePropertiesArray)
 
 	return params
 }
@@ -165,38 +152,10 @@ func (v *ollama) getDebugInformation(debug bool, prompt string) *modulecapabilit
 
 func (v *ollama) getOllamaUrl(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Ollama-BaseURL"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Ollama-BaseURL"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return fmt.Sprintf("%s/api/generate", passedBaseURL)
-}
-
-func (v *ollama) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *ollama) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
-}
-
-func (v *ollama) getValueFromContext(ctx context.Context, key string) string {
-	return modulecomponents.GetValueFromContext(ctx, key)
 }
 
 type generateInput struct {

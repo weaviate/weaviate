@@ -33,6 +33,7 @@ import (
 	generativeconfig "github.com/weaviate/weaviate/modules/generative-aws/config"
 	awsparams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	generativecomponents "github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
@@ -71,24 +72,24 @@ func New(awsAccessKey, awsSecretKey, awsSessionToken string, timeout time.Durati
 	}
 }
 
-func (v *awsClient) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *awsClient) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generativecomponents.MakeSinglePrompt(properties.Text, prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt, textProperties, options, debug)
+	return v.Generate(ctx, cfg, forPrompt, []map[string]string{properties.Blob}, options, debug)
 }
 
-func (v *awsClient) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *awsClient) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generativecomponents.MakeTaskPrompt(generativecomponents.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask, nil, options, debug)
+	return v.Generate(ctx, cfg, forTask, generativecomponents.Blobs(properties), options, debug)
 }
 
-func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, textProperties map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	params := v.getParameters(cfg, options, textProperties)
+func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options, imageProperties)
 	service := params.Service
 	debugInformation := v.getDebugInformation(debug, prompt)
 
@@ -190,7 +191,7 @@ func (v *awsClient) getDebugInformation(debug bool, prompt string) *modulecapabi
 	return nil
 }
 
-func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface{}, textProperties map[string]string) awsparams.Params {
+func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]string) awsparams.Params {
 	settings := generativeconfig.NewClassSettings(cfg)
 
 	service := settings.Service()
@@ -222,17 +223,7 @@ func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface
 		params.Temperature = temperature
 	}
 
-	if len(params.Images) > 0 && len(textProperties) > 0 {
-		images := make([]string, len(params.Images))
-		for i, imageProperty := range params.Images {
-			if image, ok := textProperties[imageProperty]; ok {
-				images[i] = image
-			} else {
-				images[i] = imageProperty
-			}
-		}
-		params.Images = images
-	}
+	params.Images = generativecomponents.ParseImageProperties(params.Images, imagePropertiesArray)
 
 	return params
 }
@@ -547,30 +538,6 @@ func (v *awsClient) isSagemaker(service string) bool {
 
 func (v *awsClient) isBedrock(service string) bool {
 	return service == "bedrock"
-}
-
-func (v *awsClient) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *awsClient) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
 }
 
 func (v *awsClient) getAwsAccessKey(ctx context.Context) (string, error) {

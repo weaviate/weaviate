@@ -171,23 +171,23 @@ func CreatePromptTestWithParamsGRPC(t *testing.T, className, singlePrompt, group
 	}
 	req := &pb.SearchRequest{
 		Collection: className,
-		Limit:      1,
+		Limit:      2,
 		Generative: &pb.GenerativeSearch{
 			Single: &pb.GenerativeSearch_Single{
 				Prompt:  singlePrompt,
 				Queries: queries,
 			},
 			Grouped: &pb.GenerativeSearch_Grouped{
-				Task:       groupPrompt,
-				Properties: &pb.TextArray{Values: []string{"name", "image"}},
-				Queries:    queries,
+				Task:                groupPrompt,
+				PrimitiveProperties: &pb.TextArray{Values: []string{"name"}},
+				Queries:             queries,
 			},
 		},
 		Uses_127Api: true,
 	}
 	resp := grpchelper.AssertSearchWithTimeout(t, req, 5*time.Minute)
 	require.NotNil(t, resp)
-	require.Len(t, resp.Results, 1)
+	require.Len(t, resp.Results, 2)
 	for i, res := range resp.Results {
 		assertGenerative(t, res.Generative, params)
 		t.Logf("[%v]Single Prompt: %s\nResult: %s\n", i, singlePrompt, res.Generative.GetValues()[0].Result)

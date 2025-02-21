@@ -19,11 +19,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -32,8 +31,6 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-cohere/config"
 	cohereparams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type cohere struct {
 	apiKey     string
@@ -51,16 +48,16 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *coher
 	}
 }
 
-func (v *cohere) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *cohere) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generative.MakeSinglePrompt(properties.Text, prompt)
 	if err != nil {
 		return nil, err
 	}
 	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *cohere) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
@@ -201,30 +198,6 @@ func (v *cohere) getCohereUrl(ctx context.Context, baseURL string) (string, erro
 		passedBaseURL = headerBaseURL
 	}
 	return url.JoinPath(passedBaseURL, "/v1/chat")
-}
-
-func (v *cohere) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *cohere) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
 }
 
 func (v *cohere) getApiKey(ctx context.Context) (string, error) {

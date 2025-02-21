@@ -16,6 +16,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -24,16 +25,14 @@ func TestGenerativeAnthropic_SingleNode(t *testing.T) {
 	if apiKey == "" {
 		t.Skip("skipping, ANTHROPIC_APIKEY environment variable not present")
 	}
-	// ctx := context.Background()
-	// compose, err := createSingleNodeEnvironment(ctx, apiKey)
-	// require.NoError(t, err)
-	// defer func() {
-	// 	require.NoError(t, compose.Terminate(ctx))
-	// }()
-	// endpointREST := compose.GetWeaviate().URI()
-	// endpointGRPC := compose.GetWeaviate().GrpcURI()
-	endpointREST := "localhost:8080"
-	endpointGRPC := "localhost:50051"
+	ctx := context.Background()
+	compose, err := createSingleNodeEnvironment(ctx, apiKey)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	endpointREST := compose.GetWeaviate().URI()
+	endpointGRPC := compose.GetWeaviate().GrpcURI()
 
 	t.Run("tests", testGenerativeAnthropic(endpointREST, endpointGRPC))
 }
