@@ -1,4 +1,7 @@
 *.nsys-rep
 *.prof
+*.pprof
+*.test
 *.txt
+*.svg
 store

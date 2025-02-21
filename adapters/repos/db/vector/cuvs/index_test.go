@@ -15,7 +15,7 @@ package cuvs_index
 
 import (
 	"context"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"testing"
