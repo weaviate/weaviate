@@ -1,21 +1,8 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
-//
-//  CONTACT: hello@weaviate.io
-//
+package graph
 
-package hnsw
+import "sync"
 
-import (
-	"sync"
-)
-
-type vertex struct {
+type Vertex struct {
 	id uint64
 	sync.Mutex
 	level       int
@@ -23,37 +10,37 @@ type vertex struct {
 	maintenance bool
 }
 
-func (v *vertex) markAsMaintenance() {
+func (v *Vertex) MarkAsMaintenance() {
 	v.Lock()
 	v.maintenance = true
 	v.Unlock()
 }
 
-func (v *vertex) unmarkAsMaintenance() {
+func (v *Vertex) UnmarkAsMaintenance() {
 	v.Lock()
 	v.maintenance = false
 	v.Unlock()
 }
 
-func (v *vertex) isUnderMaintenance() bool {
+func (v *Vertex) IsUnderMaintenance() bool {
 	v.Lock()
 	m := v.maintenance
 	v.Unlock()
 	return m
 }
 
-func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
+func (v *Vertex) connectionsAtLevelNoLock(level int) []uint64 {
 	return v.connections[level]
 }
 
-func (v *vertex) upgradeToLevelNoLock(level int) {
+func (v *Vertex) upgradeToLevelNoLock(level int) {
 	newConnections := make([][]uint64, level+1)
 	copy(newConnections, v.connections)
 	v.level = level
 	v.connections = newConnections
 }
 
-func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) (owned bool) {
+func (v *Vertex) setConnectionsAtLevel(level int, connections []uint64) (owned bool) {
 	v.Lock()
 	defer v.Unlock()
 
@@ -78,7 +65,7 @@ func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) (owned b
 	return false
 }
 
-func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64, maxConns int) {
+func (v *Vertex) appendConnectionAtLevelNoLock(level int, connection uint64, maxConns int) {
 	if len(v.connections[level]) == cap(v.connections[level]) {
 		// if the len is the capacity, this  means a new array needs to be
 		// allocated to back this slice. The go runtime would do this
@@ -116,11 +103,11 @@ func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64, max
 	v.connections[level] = append(v.connections[level], connection)
 }
 
-func (v *vertex) resetConnectionsAtLevelNoLock(level int) {
+func (v *Vertex) resetConnectionsAtLevelNoLock(level int) {
 	v.connections[level] = v.connections[level][:0]
 }
 
-func (v *vertex) connectionsAtLowerLevelsNoLock(level int, visitedNodes map[nodeLevel]bool) []nodeLevel {
+func (v *Vertex) connectionsAtLowerLevelsNoLock(level int, visitedNodes map[nodeLevel]bool) []nodeLevel {
 	connections := make([]nodeLevel, 0)
 	for i := level; i >= 0; i-- {
 		for _, nodeId := range v.connections[i] {
@@ -130,4 +117,9 @@ func (v *vertex) connectionsAtLowerLevelsNoLock(level int, visitedNodes map[node
 		}
 	}
 	return connections
+}
+
+type nodeLevel struct {
+	nodeId uint64
+	level  int
 }

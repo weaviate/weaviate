@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package hnsw
+package graph
 
 import (
 	"testing"
@@ -62,7 +62,7 @@ func TestVertex_SetConnections(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &vertex{
+			v := &Vertex{
 				connections: make([][]uint64, 1),
 			}
 			v.connections[0] = tc.initial
@@ -117,7 +117,7 @@ func TestVertex_AppendConnection(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &vertex{
+			v := &Vertex{
 				connections: make([][]uint64, 1),
 			}
 			v.connections[0] = tc.initial
@@ -177,7 +177,7 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &vertex{
+			v := &Vertex{
 				connections: make([][]uint64, 1),
 			}
 			v.connections[0] = tc.initial
@@ -195,7 +195,7 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 }
 
 func TestVertex_ResetConnections(t *testing.T) {
-	v := &vertex{
+	v := &Vertex{
 		connections: make([][]uint64, 1),
 	}
 	v.connections[0] = makeConnections(4, 4)
@@ -214,11 +214,11 @@ func makeConnections(length, capacity int) []uint64 {
 }
 
 func TestVertex_Maintenance(t *testing.T) {
-	v := &vertex{}
+	v := &Vertex{}
 
-	assert.False(t, v.isUnderMaintenance())
-	v.markAsMaintenance()
-	assert.True(t, v.isUnderMaintenance())
-	v.unmarkAsMaintenance()
-	assert.False(t, v.isUnderMaintenance())
+	assert.False(t, v.IsUnderMaintenance())
+	v.MarkAsMaintenance()
+	assert.True(t, v.IsUnderMaintenance())
+	v.UnmarkAsMaintenance()
+	assert.False(t, v.IsUnderMaintenance())
 }
