@@ -5482,11 +5482,11 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
+<<<<<<< HEAD
     "version": "1.26.15"
+=======
+    "version": "1.25.32"
   },
-  "basePath": "/v1",
-  "paths": {
-    "/": {
       "get": {
         "description": "Home. Discover the REST API",
         "operationId": "weaviate.root",

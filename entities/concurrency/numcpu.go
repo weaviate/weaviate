@@ -38,3 +38,28 @@ func NoMoreThanNUMCPU(conc int) int {
 	}
 	return conc
 }
+
+// TimesNUMCPU calculate number of gorutines based on NUMCPU (gomaxprocs) and given factor.
+// Negative factors are interpreted as fractions. Result is rounded down, min returned result is 1.
+// Examples for factors:
+// * -3: NUMCPU/3
+// * -2: NUMCPU/2
+// * -1, 0, 1: NUMCPU
+// * 2: NUMCPU*2
+// * 3: NUMCPU*3
+func TimesNUMCPU(factor int) int {
+	return timesNUMCPU(factor, NUMCPU)
+}
+
+func timesNUMCPU(factor int, numcpu int) int {
+	if factor >= -1 && factor <= 1 {
+		return numcpu
+	}
+	if factor > 1 {
+		return numcpu * factor
+	}
+	if n := numcpu / -factor; n > 0 {
+		return n
+	}
+	return 1
+}
