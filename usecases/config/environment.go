@@ -443,9 +443,8 @@ func FromEnv(config *Config) error {
 
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
-		DefaultMaximumAllowedCollectionsCount,
-		func(val int) error { return nil },
 		func(val int) { config.MaximumAllowedCollectionsCount = val },
+		DefaultMaximumAllowedCollectionsCount,
 	); err != nil {
 		return err
 	}
