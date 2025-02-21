@@ -12,6 +12,7 @@
 package dynamic_user
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 
@@ -67,6 +68,26 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	apiKey, hash, userIdentifier, err := keys.CreateApiKeyAndHash()
 	if err != nil {
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	// the user identifier is random, and we need to be sure that there is no reuse. Otherwise, an existing apikey would
+	// become invalid. The chances are minimal, but with a lot of users it can happen (birthday paradox!).
+	// If we happen to have a collision by chance, simply generate a new key
+	count := 0
+	for {
+		exists, err := h.dynamicUser.CheckUserIdentifierExists(userIdentifier)
+		if err != nil {
+			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+		if !exists {
+			break
+		}
+
+		// make sure we don't deadlock. The chance for one collision is very small, so this should never happen. But better be safe than sorry.
+		if count >= 10 {
+			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("could not create a new user identifier")))
+		}
+		count++
 	}
 
 	if err := h.dynamicUser.CreateUser(params.UserID, hash, userIdentifier); err != nil {

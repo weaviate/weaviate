@@ -66,3 +66,26 @@ func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
 	}
 	return payload, nil
 }
+
+func (m *Manager) CheckUserIdentifierExists(req *cmd.QueryRequest) ([]byte, error) {
+	if m.dynUser == nil {
+		payload, _ := json.Marshal(cmd.QueryGetUsersRequest{})
+		return payload, nil
+	}
+	subCommand := cmd.QueryUserIdentifierExistsRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	exists, err := m.dynUser.CheckUserIdentifierExists(subCommand.UserIdentifier)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	response := cmd.QueryUserIdentifierExistsResponse{Exists: exists}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}

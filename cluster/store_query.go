@@ -85,6 +85,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get dynamic user: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_USER_IDENTIFIER_EXISTS:
+		payload, err = st.dynUserManager.GetUsers(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not check user identifier: %w", err)
+		}
 
 	default:
 		// This could occur when a new command has been introduced in a later app version

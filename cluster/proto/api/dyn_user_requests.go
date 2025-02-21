@@ -34,3 +34,11 @@ type QueryGetUsersRequest struct {
 type QueryGetUsersResponse struct {
 	Users map[string]*apikey.User
 }
+
+type QueryUserIdentifierExistsRequest struct {
+	UserIdentifier string
+}
+
+type QueryUserIdentifierExistsResponse struct {
+	Exists bool
+}

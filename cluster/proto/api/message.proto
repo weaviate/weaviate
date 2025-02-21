@@ -92,6 +92,8 @@ message QueryRequest {
     TYPE_GET_USERS_FOR_ROLE= 33;
 
     TYPE_GET_USERS = 61;
+    TYPE_USER_IDENTIFIER_EXISTS = 62;
+
   }
 
   Type type = 1;

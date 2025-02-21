@@ -36,3 +36,31 @@ func (s *Raft) GetUsers(userIds ...string) (map[string]*apikey.User, error) {
 
 	return response.Users, nil
 }
+
+func (s *Raft) CheckUserIdentifierExists(userIdentifier string) (bool, error) {
+	req := cmd.QueryUserIdentifierExistsRequest{
+		UserIdentifier: userIdentifier,
+	}
+
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return false, fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_USER_IDENTIFIER_EXISTS,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return false, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := cmd.QueryUserIdentifierExistsResponse{}
+	err = json.Unmarshal(queryResp.Payload, &response)
+	if err != nil {
+		return false, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+
+	return response.Exists, nil
+}

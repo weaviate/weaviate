@@ -24,6 +24,7 @@ import (
 type DynamicUser interface {
 	CreateUser(userId, secureHash, userIdentifier string) error
 	GetUsers(userIds ...string) (map[string]*User, error)
+	CheckUserIdentifierExists(userIdentifier string) (bool, error)
 }
 
 type User struct {
@@ -51,7 +52,6 @@ func (c *DynamicApiKey) CreateUser(userId, secureHash, userIdentifier string) er
 	c.secureKeyStorageById[userId] = secureHash
 	c.identifierToId[userIdentifier] = userId
 	c.users[userId] = &User{Id: userId, Active: true}
-
 	return nil
 }
 
@@ -64,6 +64,11 @@ func (c *DynamicApiKey) GetUsers(userIds ...string) (map[string]*User, error) {
 		}
 	}
 	return users, nil
+}
+
+func (c *DynamicApiKey) CheckUserIdentifierExists(userIdentifier string) (bool, error) {
+	_, ok := c.users[userIdentifier]
+	return ok, nil
 }
 
 func (c *DynamicApiKey) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {

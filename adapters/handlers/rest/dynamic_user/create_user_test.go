@@ -45,12 +45,16 @@ func TestBadRequest(t *testing.T) {
 func TestInternalServerError(t *testing.T) {
 	principal := &models.Principal{}
 	tests := []struct {
-		name             string
-		GetUserReturn    error
-		CreateUserReturn error
+		name                                 string
+		GetUserReturn                        error
+		CheckUserIdentifierExistsErrorReturn error
+		CheckUserIdentifierExistsValueReturn bool
+		CreateUserReturn                     error
 	}{
 		{name: "get user error", GetUserReturn: errors.New("some error")},
-		{name: "create user error", GetUserReturn: nil, CreateUserReturn: errors.New("some error")},
+		{name: "check identifier exists, error", GetUserReturn: nil, CheckUserIdentifierExistsErrorReturn: errors.New("some error")},
+		{name: "check identifier exists, repeated collision", GetUserReturn: nil, CheckUserIdentifierExistsErrorReturn: nil, CheckUserIdentifierExistsValueReturn: true},
+		{name: "create user error", GetUserReturn: nil, CheckUserIdentifierExistsErrorReturn: nil, CreateUserReturn: errors.New("some error")},
 	}
 
 	for _, tt := range tests {
@@ -59,6 +63,9 @@ func TestInternalServerError(t *testing.T) {
 			dynUser := mocks.NewDynamicUser(t)
 			dynUser.On("GetUsers", "user").Return(nil, tt.GetUserReturn)
 			if tt.GetUserReturn == nil {
+				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(tt.CheckUserIdentifierExistsValueReturn, tt.CheckUserIdentifierExistsErrorReturn)
+			}
+			if tt.CheckUserIdentifierExistsErrorReturn == nil && !tt.CheckUserIdentifierExistsValueReturn && tt.GetUserReturn == nil {
 				dynUser.On("CreateUser", "user", mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
 			}
 
@@ -98,6 +105,7 @@ func TestSuccess(t *testing.T) {
 	authorizer := authzMocks.NewAuthorizer(t)
 	dynUser := mocks.NewDynamicUser(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
+	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 	dynUser.On("CreateUser", "user", mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
