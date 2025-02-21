@@ -19,7 +19,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -32,8 +31,6 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-anthropic/config"
 	anthropicparams "github.com/weaviate/weaviate/modules/generative-anthropic/parameters"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type anthropic struct {
 	apiKey     string

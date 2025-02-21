@@ -139,9 +139,9 @@ func (p *GenerateProvider) getProperties(result search.Result,
 		if dt, ok := propertyDataTypes[property]; ok {
 			switch dt {
 			// todo: add rest of types
-			case schema.DataTypeText, schema.DataTypeInt:
+			case schema.DataTypeText:
 				textProperties[property] = fmt.Sprintf("%v", value)
-			case schema.DataTypeTextArray, schema.DataTypeIntArray:
+			case schema.DataTypeTextArray:
 				textProperties[property] = fmt.Sprintf("%v", value)
 			case schema.DataTypeBlob:
 				blobProperties[property] = value.(string)

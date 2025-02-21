@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -35,8 +34,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	generativecomponents "github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildBedrockUrl(service, region, model string) string {
 	urlTemplate := "https://%s.%s.amazonaws.com/model/%s/invoke"
