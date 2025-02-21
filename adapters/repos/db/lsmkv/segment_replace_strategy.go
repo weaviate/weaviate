@@ -80,7 +80,7 @@ func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) (
 		return nil, nil, nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
-	if pos > len(s.secondaryIndices) || s.secondaryIndices[pos] == nil {
+	if pos >= len(s.secondaryIndices) || s.secondaryIndices[pos] == nil {
 		return nil, nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
 	}
 
