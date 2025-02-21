@@ -73,7 +73,6 @@ func ParseImageProperties(inputImages []string, storedImageProperties []map[stri
 func MakeTaskPrompt(textProperties []map[string]string, task string) (string, error) {
 	marshal, err := json.Marshal(textProperties)
 	if err != nil {
-		fmt.Println(err)
 		return "", errors.Wrap(err, "marshal text properties")
 	}
 	task = compile.ReplaceAllStringFunc(task, func(match string) string {
