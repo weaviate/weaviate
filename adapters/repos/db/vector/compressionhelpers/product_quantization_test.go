@@ -65,6 +65,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 	vectors_size := 1000
 	queries_size := 100
 	k := 100
+	centroids := 255
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, int(dimensions))
 	distanceProvider := distancer.NewDotProductProvider()
 
@@ -74,7 +75,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 			Type:         ent.PQEncoderTypeKMeans,
 			Distribution: ent.PQEncoderDistributionLogNormal,
 		},
-		Centroids: 255,
+		Centroids: centroids,
 		Segments:  dimensions,
 	}
 	pq, _ := compressionhelpers.NewProductQuantizer(
@@ -113,6 +114,10 @@ func Test_NoRacePQKMeans(t *testing.T) {
 	recall := float32(relevant) / float32(k*queries_size)
 	fmt.Println(recall)
 	assert.True(t, recall > 0.99)
+
+	pqStats := pq.Stats().(compressionhelpers.PQStats)
+	assert.Equal(t, pqStats.M, dimensions)
+	assert.Equal(t, pqStats.Ks, centroids)
 }
 
 func Test_NoRacePQDecodeBytes(t *testing.T) {
