@@ -198,6 +198,7 @@ type Config struct {
 	ForceFullReplicasSearch             bool
 	LSMEnableSegmentsChecksumValidation bool
 	Replication                         replication.GlobalConfig
+	CycleManagerRoutinesFactor          int
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

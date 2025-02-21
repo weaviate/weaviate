@@ -230,6 +230,7 @@ type Persistence struct {
 	LSMMaxSegmentSize                   int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
 	LSMSegmentsCleanupIntervalSeconds   int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
 	LSMEnableSegmentsChecksumValidation bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
+	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	HNSWMaxLogSize                      int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 }
 
@@ -244,6 +245,10 @@ const DefaultPersistenceLSMMaxSegmentSize = math.MaxInt64
 // DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0 for backward compatibility.
 // value = 0 means cleanup is turned off.
 const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
+
+// DefaultPersistenceLSMCycleManagerRoutinesFactor - determines how many goroutines
+// are started for cyclemanager (factor * NUMCPU)
+const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 
