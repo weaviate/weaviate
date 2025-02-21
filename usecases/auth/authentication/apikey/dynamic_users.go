@@ -23,31 +23,51 @@ import (
 
 type DynamicUser interface {
 	CreateUser(userId, secureHash, userIdentifier string) error
+	GetUsers(userIds ...string) (map[string]*User, error)
+}
+
+type User struct {
+	Id     string
+	Active bool
 }
 
 type DynamicApiKey struct {
 	weakKeyStorage       map[string][sha256.Size]byte
 	secureKeyStorageById map[string]string
-	IdentifierToId       map[string]string
+	identifierToId       map[string]string
+	users                map[string]*User
 }
 
 func NewDynamicApiKey() *DynamicApiKey {
 	return &DynamicApiKey{
 		weakKeyStorage:       make(map[string][sha256.Size]byte),
 		secureKeyStorageById: make(map[string]string),
-		IdentifierToId:       make(map[string]string),
+		identifierToId:       make(map[string]string),
+		users:                make(map[string]*User),
 	}
 }
 
 func (c *DynamicApiKey) CreateUser(userId, secureHash, userIdentifier string) error {
 	c.secureKeyStorageById[userId] = secureHash
-	c.IdentifierToId[userIdentifier] = userId
+	c.identifierToId[userIdentifier] = userId
+	c.users[userId] = &User{Id: userId, Active: true}
 
 	return nil
 }
 
+func (c *DynamicApiKey) GetUsers(userIds ...string) (map[string]*User, error) {
+	users := make(map[string]*User, len(userIds))
+	for _, id := range userIds {
+		user, ok := c.users[id]
+		if ok {
+			users[id] = user
+		}
+	}
+	return users, nil
+}
+
 func (c *DynamicApiKey) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {
-	userId, ok := c.IdentifierToId[userIdentifier]
+	userId, ok := c.identifierToId[userIdentifier]
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
@@ -58,6 +78,7 @@ func (c *DynamicApiKey) ValidateAndExtract(key, userIdentifier string) (*models.
 	}
 	weakHash, ok := c.weakKeyStorage[userId]
 	if ok {
+		// use the secureHash as salt for the computation of the weaker in-memory
 		return c.validateWeakHash([]byte(key+secureHash), weakHash, userId)
 	} else {
 		return c.validateStrongHash(key, secureHash, userId)

@@ -53,7 +53,16 @@ func SetupHandlers(api *operations.WeaviateAPI, dynamicUser apikey.DynamicUser, 
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
 	if err := validateUserName(params.UserID); err != nil {
-		return users.NewCreateUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is invalid")))
+		return users.NewCreateUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("user name is invalid")))
+	}
+
+	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
+	if err != nil {
+		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("checking user exists")))
+	}
+
+	if len(existingUser) > 0 {
+		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v already exists", params.UserID)))
 	}
 
 	apiKey, hash, userIdentifier, err := dynamic.CreateApiKeyAndHash()

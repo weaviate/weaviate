@@ -90,6 +90,8 @@ message QueryRequest {
     TYPE_GET_ROLES = 31;
     TYPE_GET_ROLES_FOR_USER = 32;
     TYPE_GET_USERS_FOR_ROLE= 33;
+
+    TYPE_GET_USERS = 61;
   }
 
   Type type = 1;

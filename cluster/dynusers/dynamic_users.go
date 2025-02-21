@@ -43,3 +43,26 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 
 	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier)
 }
+
+func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
+	if m.dynUser == nil {
+		payload, _ := json.Marshal(cmd.QueryGetUsersRequest{})
+		return payload, nil
+	}
+	subCommand := cmd.QueryGetUsersRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	users, err := m.dynUser.GetUsers(subCommand.UserIds...)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	response := cmd.QueryGetUsersResponse{Users: users}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}

@@ -11,6 +11,10 @@
 
 package api
 
+import (
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+)
+
 const (
 	// NOTE: in case changes happens to the dynamic user message, add new version
 	DynUserLatestCommandPolicyVersion = iota
@@ -21,4 +25,12 @@ type CreateUsersRequest struct {
 	SecureHash     string
 	UserIdentifier string
 	Version        int
+}
+
+type QueryGetUsersRequest struct {
+	UserIds []string
+}
+
+type QueryGetUsersResponse struct {
+	Users map[string]*apikey.User
 }
