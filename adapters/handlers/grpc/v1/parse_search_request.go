@@ -494,7 +494,7 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 	if vectorSearch {
 		for _, target := range targetVectors {
 			if _, ok := class.VectorConfig[target]; !ok {
-				var configuredNamedVectors = make([]string, 0, len(class.VectorConfig))
+				configuredNamedVectors := make([]string, 0, len(class.VectorConfig))
 				for key := range class.VectorConfig {
 					configuredNamedVectors = append(configuredNamedVectors, key)
 				}
