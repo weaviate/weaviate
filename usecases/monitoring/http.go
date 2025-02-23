@@ -58,12 +58,15 @@ func InstrumentHTTP(
 
 func (i *InstrumentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	route := r.URL.String()
-	matchedRoute, rr, ok := i.context.RouteInfo(r)
-	if ok {
-		// convert dynamic route to static route.
-		// `/api/v1/schema/Question/tenant1` -> `/api/v1/schema/{class}/{tenant}`
-		route = matchedRoute.PathPattern
-		r = rr
+
+	if i.context != nil {
+		matchedRoute, rr, ok := i.context.RouteInfo(r)
+		if ok {
+			// convert dynamic route to static route.
+			// `/api/v1/schema/Question/tenant1` -> `/api/v1/schema/{class}/{tenant}`
+			route = matchedRoute.PathPattern
+			r = rr
+		}
 	}
 
 	method := r.Method

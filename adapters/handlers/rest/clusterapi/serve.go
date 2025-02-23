@@ -18,6 +18,7 @@ import (
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func Serve(appState *state.State) {
@@ -60,6 +61,19 @@ func Serve(appState *state.State) {
 		// use different options for different parts of your app.
 		handler = sentryhttp.New(sentryhttp.Options{}).Handle(mux)
 	}
+
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		handler = monitoring.InstrumentHTTP(
+			handler,
+			// this context is used for populating "routing" information in public HTTP handlers. Not needed for internal handlers here.
+			nil,
+			appState.HTTPServerMetrics.InflightRequests,
+			appState.HTTPServerMetrics.RequestDuration,
+			appState.HTTPServerMetrics.RequestBodySize,
+			appState.HTTPServerMetrics.ResponseBodySize,
+		)
+	}
+
 	http.ListenAndServe(fmt.Sprintf(":%d", port), handler)
 }
 
