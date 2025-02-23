@@ -494,7 +494,11 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 	if vectorSearch {
 		for _, target := range targetVectors {
 			if _, ok := class.VectorConfig[target]; !ok {
-				return nil, nil, false, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, class.VectorConfig)
+				configuredNamedVectors := make([]string, 0, len(class.VectorConfig))
+				for key := range class.VectorConfig {
+					configuredNamedVectors = append(configuredNamedVectors, key)
+				}
+				return nil, nil, false, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, configuredNamedVectors)
 			}
 		}
 	}
