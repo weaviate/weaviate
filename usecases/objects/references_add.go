@@ -69,7 +69,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{err.Error(), StatusBadRequest, err}
 	}
 
-	class, schemaVersion, fetchedClass, typedErr := m.getAuthorizedFromClass(ctx, principal, input.Class)
+	class, schemaVersion, fetchedClass, typedErr := m.getAuthorizedFromClass(ctx, input.Class)
 	if typedErr != nil {
 		return typedErr
 	}

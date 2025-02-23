@@ -13,7 +13,6 @@ package objects
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -22,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 func (m *Manager) autodetectToClass(class *models.Class, fromProperty string, beaconRef *crossref.Ref) (strfmt.URI, strfmt.URI, bool, *Error) {
@@ -41,13 +39,9 @@ func (m *Manager) autodetectToClass(class *models.Class, fromProperty string, be
 	return strfmt.URI(toClass), strfmt.URI(toBeacon), true, nil
 }
 
-func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.Principal, className string) (*models.Class, uint64, versioned.Classes, *Error) {
-	fetchedClass, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+func (m *Manager) getAuthorizedFromClass(ctx context.Context, className string) (*models.Class, uint64, versioned.Classes, *Error) {
+	fetchedClass, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
 	if err != nil {
-		if errors.As(err, &autherrs.Forbidden{}) {
-			return nil, 0, nil, &Error{err.Error(), StatusForbidden, err}
-		}
-
 		return nil, 0, nil, &Error{err.Error(), StatusBadRequest, err}
 	}
 	if _, ok := fetchedClass[className]; !ok {
