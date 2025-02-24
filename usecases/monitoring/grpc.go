@@ -67,6 +67,19 @@ func InstrumentGrpc(svrMetrics *GRPCServerMetrics) []grpc.ServerOption {
 	return grpcOptions
 }
 
+func InstrumentGRPCClient(metrics *GRPCServerMetrics) []grpc.CallOption {
+	grpcOptions := []grpc.CallOption{
+		grpc.StatsHandler(NewGrpcStatsHandler(
+			metrics.InflightRequests,
+			metrics.RequestBodySize,
+			metrics.ResponseBodySize,
+		)),
+	}
+	grpcInterceptUnary := grpc.ChainUnaryInterceptor()
+
+	return grpcOptions
+}
+
 func NewGrpcStatsHandler(inflight *prometheus.GaugeVec, requestSize *prometheus.HistogramVec, responseSize *prometheus.HistogramVec) *GrpcStatsHandler {
 	return &GrpcStatsHandler{
 		inflightRequests: inflight,
@@ -121,6 +134,12 @@ func (g *GrpcStatsHandler) TagConn(ctx context.Context, _ *stats.ConnTagInfo) co
 
 func (g *GrpcStatsHandler) HandleConn(_ context.Context, _ stats.ConnStats) {
 	// Don't need
+}
+
+func UnaryClientInstrument(hist *prometheus.HistogramVec) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		begin := time.Now()
+	}
 }
 
 func UnaryServerInstrument(hist *prometheus.HistogramVec) grpc.UnaryServerInterceptor {
