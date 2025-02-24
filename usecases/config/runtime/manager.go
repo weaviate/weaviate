@@ -104,7 +104,7 @@ func (cm *ConfigManager[T]) Run(ctx context.Context) error {
 	return cm.loop(ctx)
 	// cm.log.Info("starting runtime config manager")
 
-	// // Cancelling the passed in context is gracefull shutdown
+	// // Cancelling the passed in context is graceful shutdown
 	// if err := cm.loop(ctx); !errors.Is(err, context.Canceled) {
 	// 	cm.log.Error("stopping runtime config manager due to error", "msg", err.Error())
 	// }

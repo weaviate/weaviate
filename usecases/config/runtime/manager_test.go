@@ -48,11 +48,11 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.ErrorIs(t, err, ErrFailedToOpenConfig)
 
 		// assert: config_last_load_success=0 and no metric for config_hash
-		assert.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
+		assert.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 		# HELP weaviate_runtime_config_last_load_success Whether the last loading attempt of runtime config was success
 		# TYPE weaviate_runtime_config_last_load_success gauge
 		weaviate_runtime_config_last_load_success 0
-		`))))
+		`)))
 	})
 
 	t.Run("invalid config should fail config manager at the startup", func(t *testing.T) {
@@ -72,11 +72,11 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.ErrorIs(t, err, ErrFailedToParseConfig)
 
 		// assert: config_last_load_success=0 and no metric for config_hash
-		assert.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
+		assert.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 		# HELP weaviate_runtime_config_last_load_success Whether the last loading attempt of runtime config was success
 		# TYPE weaviate_runtime_config_last_load_success gauge
 		weaviate_runtime_config_last_load_success 0
-		`))))
+		`)))
 	})
 
 	t.Run("valid config should succeed creating config manager at the startup", func(t *testing.T) {
@@ -366,7 +366,7 @@ func TestConfigManager_GetConfig(t *testing.T) {
 
 		// change the config
 		buf = []byte(`backup_interval: 20s`)
-		err = os.WriteFile(tmp.Name(), buf, 0o777)
+		require.NoError(t, os.WriteFile(tmp.Name(), buf, 0o777))
 
 		require.NoError(t, cm.loadConfig()) // loading new config
 		assertConfig(t, cm, 20*time.Second)
