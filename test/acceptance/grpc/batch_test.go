@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -91,7 +92,7 @@ func TestGRPCBatchStreaming(t *testing.T) {
 		count := 0
 		for {
 			resp, err := batching.Recv()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			if err != nil {
@@ -153,7 +154,7 @@ func TestGRPCBatchStreaming(t *testing.T) {
 		count := 0
 		for {
 			resp, err := batching.Recv()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			if err != nil {
