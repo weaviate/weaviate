@@ -55,24 +55,25 @@ func NewReplier(logger logrus.FieldLogger, providerNameGetter func() string, ret
 	}
 }
 
-func (r *Replier) Extract(_additional map[string]any, params any, metadata *pb.MetadataResult) (*pb.GenerativeResult, string, error) {
+func (r *Replier) Extract(_additional map[string]any, params any, metadata *pb.MetadataResult) (*pb.GenerativeResult, *pb.GenerativeResult, string, error) {
 	if r.uses127Api {
-		return r.extractGenerativeResult(_additional, params)
+		single, grouped, err := r.extractGenerativeResult(_additional, params)
+		return single, grouped, "", err
 	} else {
 		grouped, err := r.extractDeprecated(_additional, params, metadata)
 		if err != nil {
-			return nil, "", err
+			return nil, nil, "", err
 		}
-		return nil, grouped, nil
+		return nil, nil, grouped, nil
 	}
 }
 
-func (r *Replier) extractGenerativeResult(_additional map[string]any, params any) (*pb.GenerativeResult, string, error) {
-	reply, grouped, err := r.extractGenerativeReply(_additional, params)
+func (r *Replier) extractGenerativeResult(_additional map[string]any, params any) (*pb.GenerativeResult, *pb.GenerativeResult, error) {
+	single, grouped, err := r.extractGenerativeReply(_additional, params)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-	return &pb.GenerativeResult{Values: []*pb.GenerativeReply{reply}}, grouped, nil
+	return &pb.GenerativeResult{Values: []*pb.GenerativeReply{single}}, &pb.GenerativeResult{Values: []*pb.GenerativeReply{grouped}}, nil
 }
 
 func (r *Replier) extractDeprecated(_additional map[string]any, params any, metadata *pb.MetadataResult) (string, error) {
@@ -282,19 +283,19 @@ func (r *Replier) extractGenerativeMetadata(results map[string]any) (*pb.Generat
 	return metadata, nil
 }
 
-func (r *Replier) extractGenerativeReply(_additional map[string]any, params any) (*pb.GenerativeReply, string, error) {
+func (r *Replier) extractGenerativeReply(_additional map[string]any, params any) (*pb.GenerativeReply, *pb.GenerativeReply, error) {
 	reply := &pb.GenerativeReply{}
-	var grouped string
+	grouped := &pb.GenerativeReply{}
 
 	generateParams, ok := params.(*generate.Params)
 	if !ok {
-		return nil, "", errors.New("could not cast generative search params")
+		return nil, nil, errors.New("could not cast generative search params")
 	}
 
 	if generate, ok := _additional["generate"]; ok {
 		generateResults, ok := generate.(map[string]any)
 		if !ok {
-			return nil, "", errors.New("could not cast generative result additional prop")
+			return nil, nil, errors.New("could not cast generative result additional prop")
 		}
 		if generateResults["singleResult"] != nil {
 			if singleResult, ok := generateResults["singleResult"].(*string); ok && singleResult != nil {
@@ -302,7 +303,7 @@ func (r *Replier) extractGenerativeReply(_additional map[string]any, params any)
 			}
 		} else {
 			if generateParams.Prompt != nil {
-				return nil, "", errors.New("no results for generative search despite a search request. Is a generative module enabled?")
+				return nil, nil, errors.New("no results for generative search despite a search request. Is a generative module enabled?")
 			}
 		}
 		// grouped results are only added to the first object for GQL reasons
@@ -310,26 +311,32 @@ func (r *Replier) extractGenerativeReply(_additional map[string]any, params any)
 		// recording the result if it's present assuming that it is at least somewhere and will be caught
 		if generateResults["groupedResult"] != nil {
 			if groupedResult, ok := generateResults["groupedResult"].(*string); ok && groupedResult != nil {
-				grouped = *groupedResult
+				grouped.Result = *groupedResult
 			}
 		}
 		if generateResults["error"] != nil {
 			if err, ok := generateResults["error"].(error); ok {
-				return nil, "", err
+				return nil, nil, err
 			}
 		}
 		if generateResults["debug"] != nil {
 			if debug, ok := generateResults["debug"].(*modulecapabilities.GenerateDebugInformation); ok && debug != nil {
 				prompt := debug.Prompt
 				reply.Debug = &pb.GenerativeDebug{FullPrompt: &prompt}
+				if generateResults["groupedResult"] != nil {
+					grouped.Debug = &pb.GenerativeDebug{FullPrompt: &prompt}
+				}
 			}
 		}
 		if r.returnMetadataGetter() {
 			metadata, err := r.extractGenerativeMetadata(generateResults)
 			if err != nil {
-				return nil, "", err
+				return nil, nil, err
 			}
 			reply.Metadata = metadata
+			if generateResults["groupedResult"] != nil {
+				grouped.Metadata = metadata
+			}
 		}
 	}
 	return reply, grouped, nil

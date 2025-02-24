@@ -20,7 +20,7 @@ message GenerativeSearch {
     string task = 1;
     optional TextArray properties = 2;
     // only allow one at the beginning, but multiple in the future
-    repeated GenerativeProvider queries = 3;  
+    repeated GenerativeProvider queries = 3;
   }
 
   string single_response_prompt = 1 [deprecated = true];
