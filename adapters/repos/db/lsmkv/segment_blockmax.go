@@ -292,6 +292,9 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 
 func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 	if (s.filterDocIds == nil && s.tombstones == nil) || s.exhausted {
+		if !s.exhausted {
+			s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
+		}
 		return
 	}
 
