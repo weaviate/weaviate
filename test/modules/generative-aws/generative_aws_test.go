@@ -116,6 +116,11 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				name:            "meta.llama3-70b-instruct-v1:0",
 				generativeModel: "meta.llama3-70b-instruct-v1:0",
 			},
+			{
+				name:               "absent module config",
+				generativeModel:    "meta.llama3-70b-instruct-v1:0",
+				absentModuleConfig: true,
+			},
 			// Mistral AI
 			{
 				name:            "mistral.mistral-7b-instruct-v0:2",
@@ -128,11 +133,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			{
 				name:            "mistral.mistral-large-2402-v1:0",
 				generativeModel: "mistral.mistral-large-2402-v1:0",
-			},
-			{
-				name:               "absent module config",
-				generativeModel:    "ai21.j2-mid-v1",
-				absentModuleConfig: true,
 			},
 		}
 		for _, tt := range tests {
