@@ -50,7 +50,7 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 		return fmt.Errorf("first object must be init object")
 	}
 
-	send := func(objects []queueObject, errors chan errorsObject, shouldShutdown bool) error {
+	send := func(objects []queueObject, errors chan errorsObject) error {
 		firstIndex := objects[0].Index
 		objs := make([]*pb.BatchObject, len(objects))
 		for i, obj := range objects {
@@ -69,9 +69,6 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 			}
 			errors <- errorsObject{Errors: reply.GetErrors()}
 		}
-		if shouldShutdown {
-			errors <- errorsObject{Shutdown: true}
-		}
 		return nil
 	}
 
@@ -84,17 +81,18 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 			case obj := <-queue:
 				if obj.IsSentinel() {
 					if len(objects) > 0 {
-						if err := send(objects, errors, true); err != nil {
+						if err := send(objects, errors); err != nil {
 							return err
 						}
 					}
+					errors <- errorsObject{Shutdown: true}
 					return nil
 				}
 				if obj.IsObject() {
 					objects = append(objects, obj)
 				}
 				if len(objects) == 1000 {
-					if err := send(objects, errors, false); err != nil {
+					if err := send(objects, errors); err != nil {
 						return err
 					}
 					objects = objects[:0]
@@ -104,14 +102,14 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 	}
 
 	replier := func(errors chan errorsObject, concurrency int) error {
-		haveShutdown := make([]bool, 0, concurrency)
+		haveShutdown := 0
 		for {
 			select {
 			case <-stream.Context().Done():
 				return nil
 			case errs := <-errors:
 				if errs.Shutdown {
-					haveShutdown = append(haveShutdown, true)
+					haveShutdown += 1
 				}
 				for _, err := range errs.Errors {
 					if innerErr := stream.Send(&pb.BatchError{
@@ -122,14 +120,14 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 					}
 				}
 			}
-			if len(haveShutdown) == concurrency {
+			if haveShutdown == concurrency {
 				return nil
 			}
 		}
 	}
 
 	errors := make(chan errorsObject)
-	queue := make(chan queueObject, 1000)
+	queue := make(chan queueObject)
 	defer func() {
 		close(queue)
 		close(errors)
