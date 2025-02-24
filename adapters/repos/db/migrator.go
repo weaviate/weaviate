@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/semaphore"
+	"golang.org/x/sync/semaphore"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -37,11 +37,11 @@ import (
 type Migrator struct {
 	db                *DB
 	logger            logrus.FieldLogger
-	classAddSemaphore *semaphore.Semaphore
+	classAddSemaphore *semaphore.Weighted
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
-	return &Migrator{db: db, logger: logger, classAddSemaphore: semaphore.NewSemaphore(50)}
+	return &Migrator{db: db, logger: logger, classAddSemaphore: semaphore.NewWeighted(db.config.MaximumConcurrentClassAdd)}
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
@@ -52,8 +52,11 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	}
 
 	// limit concurrency when adding classes
-	m.classAddSemaphore.Acquire()
-	defer m.classAddSemaphore.Release()
+	err := m.classAddSemaphore.Acquire(ctx, 1)
+	if err != nil {
+		return err
+	}
+	defer m.classAddSemaphore.Release(1)
 
 	idx, err := NewIndex(ctx,
 		IndexConfig{

@@ -58,15 +58,15 @@ func (db *DB) init(ctx context.Context) error {
 	}
 
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
-	semaphore := semaphore.NewWeighted(50)
+	concurrencyLimit := semaphore.NewWeighted(db.config.MaximumConcurrentClassAdd)
 
 	if objects != nil {
 		for _, class := range objects.Classes {
-			err := semaphore.Acquire(ctx, 1)
+			err := concurrencyLimit.Acquire(ctx, 1)
 			if err != nil {
 				return err
 			}
-			defer semaphore.Release(1)
+			defer concurrencyLimit.Release(1)
 
 			invertedConfig := class.InvertedIndexConfig
 			if invertedConfig == nil {
