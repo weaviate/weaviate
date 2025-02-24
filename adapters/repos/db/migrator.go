@@ -52,6 +52,24 @@ type processor interface {
 		class string, req *command.TenantProcessRequest) (uint64, error)
 }
 
+type Semaphore struct {
+	tokens chan struct{}
+}
+
+func NewSemaphore(n int) *Semaphore {
+	return &Semaphore{
+		tokens: make(chan struct{}, n),
+	}
+}
+
+func (s *Semaphore) Acquire() {
+	s.tokens <- struct{}{}
+}
+
+func (s *Semaphore) Release() {
+	<-s.tokens
+}
+
 type Migrator struct {
 	db      *DB
 	cloud   modulecapabilities.OffloadCloud
@@ -59,14 +77,16 @@ type Migrator struct {
 	cluster processor
 	nodeId  string
 
-	classLocks *esync.KeyLocker
+	classLocks        *esync.KeyLocker
+	classAddSemaphore *Semaphore
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 	return &Migrator{
-		db:         db,
-		logger:     logger,
-		classLocks: esync.NewKeyLocker(),
+		db:                db,
+		logger:            logger,
+		classLocks:        esync.NewKeyLocker(),
+		classAddSemaphore: NewSemaphore(50),
 	}
 }
 
@@ -98,6 +118,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
+
+	// limit concurrency
+	m.classAddSemaphore.Acquire()
+	defer m.classAddSemaphore.Release()
 
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx != nil {
