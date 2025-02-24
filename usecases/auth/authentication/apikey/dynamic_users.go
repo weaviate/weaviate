@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
+	"sync"
 
 	"github.com/alexedwards/argon2id"
 
@@ -34,6 +35,7 @@ type User struct {
 }
 
 type DynamicApiKey struct {
+	sync.RWMutex
 	weakKeyStorage       map[string][sha256.Size]byte
 	secureKeyStorageById map[string]string
 	identifierToId       map[string]string
@@ -50,6 +52,8 @@ func NewDynamicApiKey() *DynamicApiKey {
 }
 
 func (c *DynamicApiKey) CreateUser(userId, secureHash, userIdentifier string) error {
+	c.Lock()
+	defer c.Unlock()
 	_, secureKeyExists := c.secureKeyStorageById[userId]
 	_, identifierExists := c.identifierToId[userId]
 	_, usersExists := c.users[userId]
@@ -65,6 +69,9 @@ func (c *DynamicApiKey) CreateUser(userId, secureHash, userIdentifier string) er
 }
 
 func (c *DynamicApiKey) DeleteUser(userId string) error {
+	c.Lock()
+	defer c.Unlock()
+
 	delete(c.secureKeyStorageById, userId)
 	delete(c.identifierToId, userId)
 	delete(c.users, userId)
@@ -73,6 +80,9 @@ func (c *DynamicApiKey) DeleteUser(userId string) error {
 }
 
 func (c *DynamicApiKey) GetUsers(userIds ...string) (map[string]*User, error) {
+	c.RLock()
+	defer c.RUnlock()
+
 	users := make(map[string]*User, len(userIds))
 	for _, id := range userIds {
 		user, ok := c.users[id]
@@ -84,11 +94,17 @@ func (c *DynamicApiKey) GetUsers(userIds ...string) (map[string]*User, error) {
 }
 
 func (c *DynamicApiKey) CheckUserIdentifierExists(userIdentifier string) (bool, error) {
+	c.RLock()
+	defer c.RUnlock()
+
 	_, ok := c.users[userIdentifier]
 	return ok, nil
 }
 
 func (c *DynamicApiKey) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {
+	c.RLock()
+	defer c.RUnlock()
+
 	userId, ok := c.identifierToId[userIdentifier]
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
