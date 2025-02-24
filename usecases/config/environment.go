@@ -37,6 +37,7 @@ const (
 	DefaultRaftBootstrapTimeout = 600
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
+	DefaultHNSWAcornFilterRatio = 0.4
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -261,6 +262,14 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMEnableSegmentsChecksumValidation = true
 	}
 
+	if err := parseInt(
+		"PERSISTENCE_LSM_CYCLEMANAGER_ROUTINES_FACTOR",
+		func(factor int) { config.Persistence.LSMCycleManagerRoutinesFactor = factor },
+		DefaultPersistenceLSMCycleManagerRoutinesFactor,
+	); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -274,9 +283,8 @@ func FromEnv(config *Config) error {
 
 	if err := parseInt(
 		"HNSW_VISITED_LIST_POOL_MAX_SIZE",
-		DefaultHNSWVisitedListPoolSize,
-		func(size int) error { return nil },
 		func(size int) { config.HNSWVisitedListPoolMaxSize = size },
+		DefaultHNSWVisitedListPoolSize,
 	); err != nil {
 		return err
 	}
@@ -285,6 +293,14 @@ func FromEnv(config *Config) error {
 		"HNSW_FLAT_SEARCH_CONCURRENCY",
 		func(val int) { config.HNSWFlatSearchConcurrency = val },
 		DefaultHNSWFlatSearchConcurrency,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePercentage(
+		"HNSW_ACORN_FILTER_RATIO",
+		func(val float64) { config.HNSWAcornFilterRatio = val },
+		DefaultHNSWAcornFilterRatio,
 	); err != nil {
 		return err
 	}
@@ -717,25 +733,56 @@ func (c *Config) parseMemtableConfig() error {
 	return nil
 }
 
+func parsePercentage(envName string, cb func(val float64), defaultValue float64) error {
+	return parseFloat64(envName, defaultValue, func(val float64) error {
+		if val < 0 || val > 1 {
+			return fmt.Errorf("%s must be between 0 and 1", envName)
+		}
+		return nil
+	}, cb)
+}
+
+func parseFloat64(envName string, defaultValue float64, verify func(val float64) error, cb func(val float64)) error {
+	var err error
+	asFloat := defaultValue
+
+	if v := os.Getenv(envName); v != "" {
+		asFloat, err = strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse %s as float64: %w", envName, err)
+		}
+		if err = verify(asFloat); err != nil {
+			return err
+		}
+	}
+
+	cb(asFloat)
+	return nil
+}
+
+func parseInt(envName string, cb func(val int), defaultValue int) error {
+	return parseIntVerify(envName, defaultValue, cb, func(val int) error { return nil })
+}
+
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
-	return parseInt(envName, defaultValue, func(val int) error {
+	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
 		if val <= 0 {
 			return fmt.Errorf("%s must be a positive value larger 0. Got: %v", envName, val)
 		}
 		return nil
-	}, cb)
+	})
 }
 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
-	return parseInt(envName, defaultValue, func(val int) error {
+	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
 		if val < 0 {
 			return fmt.Errorf("%s must be an integer greater than or equal 0", envName)
 		}
 		return nil
-	}, cb)
+	})
 }
 
-func parseInt(envName string, defaultValue int, verify func(val int) error, cb func(val int)) error {
+func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int) error) error {
 	var err error
 	asInt := defaultValue
 

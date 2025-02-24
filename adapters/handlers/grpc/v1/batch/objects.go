@@ -90,7 +90,9 @@ func (h *ObjectsHandler) BatchObjects(ctx context.Context, req *pb.BatchObjectsR
 		if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
 			return nil, err
 		}
-		vClass, err := h.schemaManager.GetCachedClass(ctx, principal, classname)
+
+		// we don't leak any info that someone who inserts data does not have anyway
+		vClass, err := h.schemaManager.GetCachedClassNoAuth(ctx, classname)
 		if err != nil {
 			return nil, err
 		}
@@ -116,8 +118,7 @@ func (h *ObjectsHandler) BatchObjects(ctx context.Context, req *pb.BatchObjectsR
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
-	all := "ALL"
-	response, err := h.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, []*string{&all}, replicationProperties, knownClasses)
+	response, err := h.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, replicationProperties, knownClasses)
 	if err != nil {
 		return nil, err
 	}

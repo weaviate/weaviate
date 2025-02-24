@@ -44,11 +44,12 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 }
 
 const (
-	InitialSize             = 1000
-	RelativeInitialSize     = 100
-	MinimumIndexGrowthDelta = 2000
-	indexGrowthRate         = 1.25
-	defaultCacheMaxSize     = 1e12
+	InitialSize                = 1000
+	RelativeInitialSize        = 100
+	MinimumIndexGrowthDelta    = 2000
+	MinimumRelativeGrowthDelta = 20
+	indexGrowthRate            = 1.25
+	defaultCacheMaxSize        = 1e12
 )
 
 func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int, pageSize uint64,
@@ -637,11 +638,11 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 	atomic.AddInt64(&s.count, 1)
 	s.shardedLocks.Lock(docID)
 	if len(s.cache[docID]) <= int(relativeID) {
-		newCacheLine := make([][]T, relativeID+MinimumIndexGrowthDelta)
+		newCacheLine := make([][]T, relativeID+MinimumRelativeGrowthDelta)
 		copy(newCacheLine, s.cache[docID])
 		s.cache[docID] = newCacheLine
 	}
-	copy(s.cache[docID][relativeID], vec)
+	s.cache[docID][relativeID] = vec
 	s.shardedLocks.Unlock(docID)
 
 	return vec, nil

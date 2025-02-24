@@ -199,6 +199,7 @@ type Config struct {
 	HNSWMaxLogSize                      int64
 	HNSWWaitForCachePrefill             bool
 	HNSWFlatSearchConcurrency           int
+	HNSWAcornFilterRatio                float64
 	VisitedListPoolMaxSize              int
 	TrackVectorDimensions               bool
 	ServerVersion                       string
@@ -208,6 +209,7 @@ type Config struct {
 	ForceFullReplicasSearch             bool
 	LSMEnableSegmentsChecksumValidation bool
 	Replication                         replication.GlobalConfig
+	CycleManagerRoutinesFactor          int
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

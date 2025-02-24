@@ -15,7 +15,7 @@ def test_batch_grpc(
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete([name + "1", name + "2"])
-    # create two collections with some objects to test refs
+
     col1 = admin_client.collections.create(
         name=name + "1", multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
     )
@@ -31,9 +31,7 @@ def test_batch_grpc(
 
     required_permissions = [
         Permissions.data(collection=col1.name, create=True, update=True),
-        Permissions.tenants(collection=col1.name, read=True),
         Permissions.data(collection=col2.name, create=True, update=True),
-        Permissions.tenants(collection=col2.name, read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         with custom_client.batch.fixed_size() as batch:

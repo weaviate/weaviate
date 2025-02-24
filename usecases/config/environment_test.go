@@ -868,3 +868,34 @@ func TestEnvironmentHNSWFlatSearchConcurrency(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentHNSWAcornFilterRatio(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    float64
+		expectedErr bool
+	}{
+		{"Valid", []string{"0.5"}, 0.5, false},
+		{"not given", []string{}, 0.4, false},
+		{"max", []string{"0.0"}, 0.0, false},
+		{"min", []string{"1.0"}, 1.0, false},
+		{"negative", []string{"-1.2"}, -1.0, true},
+		{"too large", []string{"1.2"}, -1.0, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("HNSW_ACORN_FILTER_RATIO", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.HNSWAcornFilterRatio)
+			}
+		})
+	}
+}

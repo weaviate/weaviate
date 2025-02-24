@@ -158,9 +158,10 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed   atomic.Bool
-	doNotRescore bool
-	acornSearch  atomic.Bool
+	compressed       atomic.Bool
+	doNotRescore     bool
+	acornSearch      atomic.Bool
+	acornFilterRatio float64
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -265,6 +266,7 @@ func New(cfg Config, uc ent.UserConfig,
 		efConstruction:        uc.EFConstruction,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
+		acornFilterRatio:      cfg.AcornFilterRatio,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
@@ -898,13 +900,15 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 }
 
 type HnswStats struct {
-	Dimensions         int32        `json:"dimensions"`
-	EntryPointID       uint64       `json:"entryPointID"`
-	DistributionLayers map[int]uint `json:"distributionLayers"`
-	UnreachablePoints  []uint64     `json:"unreachablePoints"`
-	NumTombstones      int          `json:"numTombstones"`
-	CacheSize          int32        `json:"cacheSize"`
-	PQConfiguration    ent.PQConfig `json:"pqConfiguration"`
+	Dimensions         int32                               `json:"dimensions"`
+	EntryPointID       uint64                              `json:"entryPointID"`
+	DistributionLayers map[int]uint                        `json:"distributionLayers"`
+	UnreachablePoints  []uint64                            `json:"unreachablePoints"`
+	NumTombstones      int                                 `json:"numTombstones"`
+	CacheSize          int32                               `json:"cacheSize"`
+	Compressed         bool                                `json:"compressed"`
+	CompressorStats    compressionhelpers.CompressionStats `json:"compressionStats"`
+	CompressionType    string                              `json:"compressionType"`
 }
 
 func (s *HnswStats) IndexType() common.IndexType {
@@ -943,8 +947,16 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 		UnreachablePoints:  h.calculateUnreachablePoints(),
 		NumTombstones:      len(h.tombstones),
 		CacheSize:          h.cache.Len(),
-		PQConfiguration:    h.pqConfig,
+		Compressed:         h.compressed.Load(),
 	}
+
+	if stats.Compressed {
+		stats.CompressorStats = h.compressor.Stats()
+	} else {
+		stats.CompressorStats = compressionhelpers.UncompressedStats{}
+	}
+
+	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
 }
