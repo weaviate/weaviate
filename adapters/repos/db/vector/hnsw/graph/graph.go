@@ -50,6 +50,9 @@ func (n *Nodes) Get(id uint64) *Vertex {
 	defer n.RUnlock()
 
 	if id >= uint64(len(n.list)) {
+		// See https://github.com/weaviate/weaviate/issues/1838 for details.
+		// This could be after a crash recovery when the object store is "further
+		// ahead" than the hnsw index and we receive a delete request
 		return nil
 	}
 
@@ -70,16 +73,22 @@ func (n *Nodes) Set(id uint64, node *Vertex) {
 
 // TODO: switch to Golang iterators once Go 1.23 is the
 // minimum version
-func (n *Nodes) IterLockedNonNil(fn func(*Vertex)) {
+func (n *Nodes) Iter(skipNil bool, fn func(id uint64, node *Vertex) bool) {
 	n.RLock()
 	list := n.list
 	n.RUnlock()
 
-	for _, node := range list {
-		if node != nil {
-			n.locks.Lock(node.id)
-			fn(node)
-			n.locks.Unlock(node.id)
+	for id := range list {
+		id := uint64(id)
+		n.locks.RLock(id)
+		node := list[id]
+		n.locks.RUnlock(id)
+
+		if !skipNil || node != nil {
+			ok := fn(id, node)
+			if !ok {
+				return // stop iteration
+			}
 		}
 	}
 }

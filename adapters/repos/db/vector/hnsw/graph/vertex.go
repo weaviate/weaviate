@@ -3,8 +3,8 @@ package graph
 import "sync"
 
 type Vertex struct {
-	id uint64
-	sync.Mutex
+	id          uint64
+	m           sync.Mutex
 	level       int
 	connections [][]uint64
 	maintenance bool
@@ -23,22 +23,41 @@ func NewVertexWithConnections(id uint64, level int, connections [][]uint64) *Ver
 }
 
 func (v *Vertex) MarkAsMaintenance() {
-	v.Lock()
+	v.m.Lock()
 	v.maintenance = true
-	v.Unlock()
+	v.m.Unlock()
 }
 
 func (v *Vertex) UnmarkAsMaintenance() {
-	v.Lock()
+	v.m.Lock()
 	v.maintenance = false
-	v.Unlock()
+	v.m.Unlock()
 }
 
 func (v *Vertex) IsUnderMaintenance() bool {
-	v.Lock()
+	v.m.Lock()
 	m := v.maintenance
-	v.Unlock()
+	v.m.Unlock()
 	return m
+}
+
+func (v *Vertex) ID() uint64 {
+	// id is immutable, no need to lock
+	return v.id
+}
+
+func (v *Vertex) Level() int {
+	v.m.Lock()
+	level := v.level
+	v.m.Unlock()
+	return level
+}
+
+func (v *Vertex) ConnectionsLength() int {
+	v.m.Lock()
+	length := len(v.connections)
+	v.m.Unlock()
+	return length
 }
 
 func (v *Vertex) connectionsAtLevelNoLock(level int) []uint64 {
@@ -53,8 +72,8 @@ func (v *Vertex) upgradeToLevelNoLock(level int) {
 }
 
 func (v *Vertex) setConnectionsAtLevel(level int, connections []uint64) (owned bool) {
-	v.Lock()
-	defer v.Unlock()
+	v.m.Lock()
+	defer v.m.Unlock()
 
 	// before we simply copy the connections let's check how much smaller the new
 	// list is. If it's considerably smaller, we might want to downsize the
@@ -119,19 +138,23 @@ func (v *Vertex) resetConnectionsAtLevelNoLock(level int) {
 	v.connections[level] = v.connections[level][:0]
 }
 
-func (v *Vertex) connectionsAtLowerLevelsNoLock(level int, visitedNodes map[nodeLevel]bool) []nodeLevel {
-	connections := make([]nodeLevel, 0)
+func (v *Vertex) ConnectionsAtLowerLevels(level int, visitedNodes map[NodeLevel]bool) []NodeLevel {
+	v.m.Lock()
+	defer v.m.Unlock()
+
+	var connections []NodeLevel
 	for i := level; i >= 0; i-- {
-		for _, nodeId := range v.connections[i] {
-			if !visitedNodes[nodeLevel{nodeId, i}] {
-				connections = append(connections, nodeLevel{nodeId, i})
+		for _, nodeID := range v.connections[i] {
+			if !visitedNodes[NodeLevel{nodeID, i}] {
+				connections = append(connections, NodeLevel{nodeID, i})
 			}
 		}
 	}
+
 	return connections
 }
 
-type nodeLevel struct {
-	nodeId uint64
-	level  int
+type NodeLevel struct {
+	NodeID uint64
+	Level  int
 }
