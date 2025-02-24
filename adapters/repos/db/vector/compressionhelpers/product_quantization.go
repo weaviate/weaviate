@@ -178,6 +178,11 @@ type PQData struct {
 	TrainingLimit       int
 }
 
+type PQStats struct {
+	Ks int `json:"centroids"`
+	M  int `json:"segments"`
+}
+
 type PQEncoder interface {
 	Encode(x []float32) byte
 	Centroid(b byte) []float32
@@ -428,4 +433,15 @@ func (pq *ProductQuantizer) CenterAt(vec []float32) *DistanceLookUpTable {
 
 func (pq *ProductQuantizer) Distance(encoded []byte, lut *DistanceLookUpTable) float32 {
 	return lut.LookUp(encoded, pq)
+}
+
+func (p PQStats) CompressionType() string {
+	return "pq"
+}
+
+func (pq *ProductQuantizer) Stats() CompressionStats {
+	return PQStats{
+		Ks: pq.ks,
+		M:  pq.m,
+	}
 }

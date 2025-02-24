@@ -81,6 +81,10 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 	latency := float32(duration.Microseconds()) / float32(len(queryVecs))
 	fmt.Println(recall, latency)
 	assert.True(t, recall > 0.7)
+
+	// Currently BQ does not expose any stats so just check struct exists
+	_, ok := bq.Stats().(compressionhelpers.BQStats)
+	assert.True(t, ok)
 }
 
 func TestBinaryQuantizerChecksSize(t *testing.T) {
