@@ -158,9 +158,10 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed   atomic.Bool
-	doNotRescore bool
-	acornSearch  atomic.Bool
+	compressed     atomic.Bool
+	doNotRescore   bool
+	acornSearch    atomic.Bool
+	acornReentries atomic.Int32
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -311,6 +312,7 @@ func New(cfg Config, uc ent.UserConfig,
 		docIDVectors: make(map[uint64][]uint64),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
+	index.acornReentries.Store(uc.FilterReentries)
 
 	index.multivector.Store(uc.Multivector.Enabled)
 

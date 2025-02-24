@@ -64,7 +64,8 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
-					FilterStrategy: hnsw.DefaultFilterStrategy,
+					FilterStrategy:  hnsw.DefaultFilterStrategy,
+					FilterReentries: hnsw.DefaultFilterReentries,
 					Multivector: hnsw.MultivectorConfig{
 						Enabled:     hnsw.DefaultMultivectorEnabled,
 						Aggregation: hnsw.DefaultMultivectorAggregation,
@@ -126,7 +127,8 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
-					FilterStrategy: hnsw.DefaultFilterStrategy,
+					FilterStrategy:  hnsw.DefaultFilterStrategy,
+					FilterReentries: hnsw.DefaultFilterReentries,
 					Multivector: hnsw.MultivectorConfig{
 						Enabled:     hnsw.DefaultMultivectorEnabled,
 						Aggregation: hnsw.DefaultMultivectorAggregation,
@@ -208,7 +210,8 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
-					FilterStrategy: hnsw.FilterStrategyAcorn,
+					FilterStrategy:  hnsw.FilterStrategyAcorn,
+					FilterReentries: hnsw.DefaultFilterReentries,
 					Multivector: hnsw.MultivectorConfig{
 						Enabled:     hnsw.DefaultMultivectorEnabled,
 						Aggregation: hnsw.DefaultMultivectorAggregation,
@@ -278,7 +281,8 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
-					FilterStrategy: hnsw.DefaultFilterStrategy,
+					FilterStrategy:  hnsw.DefaultFilterStrategy,
+					FilterReentries: hnsw.DefaultFilterReentries,
 					Multivector: hnsw.MultivectorConfig{
 						Enabled:     hnsw.DefaultMultivectorEnabled,
 						Aggregation: hnsw.DefaultMultivectorAggregation,

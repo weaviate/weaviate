@@ -34,7 +34,8 @@ const (
 	FilterStrategySweeping = "sweeping"
 	FilterStrategyAcorn    = "acorn"
 
-	DefaultFilterStrategy = FilterStrategySweeping
+	DefaultFilterStrategy  = FilterStrategySweeping
+	DefaultFilterReentries = 0
 
 	// Fail validation if those criteria are not met
 	MinmumMaxConnections = 4
@@ -58,6 +59,7 @@ type UserConfig struct {
 	BQ                     BQConfig          `json:"bq"`
 	SQ                     SQConfig          `json:"sq"`
 	FilterStrategy         string            `json:"filterStrategy"`
+	FilterReentries        int32             `json:"filterReentries"`
 	Multivector            MultivectorConfig `json:"multivector"`
 }
 
@@ -108,6 +110,7 @@ func (u *UserConfig) SetDefaults() {
 		RescoreLimit:  DefaultSQRescoreLimit,
 	}
 	u.FilterStrategy = DefaultFilterStrategy
+	u.FilterReentries = DefaultFilterReentries
 	u.Multivector = MultivectorConfig{
 		Enabled:     DefaultMultivectorEnabled,
 		Aggregation: DefaultMultivectorAggregation,
@@ -209,6 +212,12 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 
 	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "filterStrategy", func(v string) {
 		uc.FilterStrategy = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "filterReentries", func(v int) {
+		uc.FilterReentries = int32(v)
 	}); err != nil {
 		return uc, err
 	}
