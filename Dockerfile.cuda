@@ -8,21 +8,23 @@
 FROM nvcr.io/nvidia/cuda:12.5.1-devel-ubuntu22.04 AS cuvs_server_builder
 
 # For local binary case, directly copy the files from named context
-COPY --from=libs /lib /opt/cuvs/lib/
-COPY --from=libs /include /opt/cuvs/include/
+# COPY --from=libs /lib /opt/cuvs/lib/
+# COPY --from=libs /include /opt/cuvs/include/
+
+RUN apt-get update && apt-get install -y wget
 
 # Install the library using mamba if build context files aren't present
-RUN if [ ! -d "/opt/cuvs/lib" ] || [ -z "$(ls -A /opt/cuvs/lib)" ]; then \
-    echo "Installing from mamba" && \
-    wget -qO- https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj bin/micromamba && \
-    ./bin/micromamba shell init -s bash -p /opt/conda && \
-    mkdir -p /opt/conda/conda-meta && \
-    eval "$(./bin/micromamba shell hook -s bash)" && \
-    mamba install -y -c conda-forge -c nvidia -c rapidsai cuvs && \
-    mkdir -p /opt/lib /opt/include && \
-    cp -r /opt/conda/lib/* /opt/lib/ && \
-    cp -r /opt/conda/include/* /opt/include/ ; \
-    fi
+RUN wget -O Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+
+RUN bash Miniforge3.sh -b -p /opt/conda
+
+ENV PATH="/opt/conda/bin:$PATH"
+RUN conda create --name cuvs python=3.12
+
+RUN conda install -n cuvs -c conda-forge -c nvidia -c rapidsai cuvs=25.02.00=cuda12_py312_250213_g09c9f19_0 conda-forge::dlpack
+
+RUN conda env list
+
 
 # Install Go 1.22.4
 RUN apt-get update && apt-get install -y wget && \
@@ -40,8 +42,8 @@ COPY . .
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential
 
-ENV CGO_CFLAGS="-I/usr/local/cuda/include -I/opt/cuvs/include"
-ENV CGO_LDFLAGS="-L/usr/local/cuda/lib64 -L/opt/cuvs/lib -lcudart -lcuvs -lcuvs_c"
+ENV CGO_CFLAGS="-I/usr/local/cuda/include -I/opt/conda/envs/cuvs/include"
+ENV CGO_LDFLAGS="-L/usr/local/cuda/lib64 -L/opt/conda/envs/cuvs/lib -lcudart -lcuvs -lcuvs_c"
 
 # RUN sed -i '/#include <time.h>/a #include <asm-generic/errno.h>' /usr/local/go/src/runtime/cgo/gcc_libinit.c
 # ENV CC=x86_64-linux-gnu-gcc
@@ -67,9 +69,9 @@ RUN  GOOS=linux GOARCH=$TARGETARCH CGO_ENABLED=1 go build $EXTRA_BUILD_ARGS \
 FROM nvcr.io/nvidia/cuda:12.5.1-runtime-ubuntu22.04 as weaviate_cuvs
 
 COPY --from=cuvs_server_builder /weaviate /bin/weaviate
-COPY --from=cuvs_server_builder /opt/cuvs/lib /opt/cuvs/lib
+COPY --from=cuvs_server_builder /opt/conda/envs/cuvs/lib /opt/conda/envs/cuvs/lib
 
-ENV LD_LIBRARY_PATH=/opt/cuvs/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/opt/conda/envs/cuvs/lib:$LD_LIBRARY_PATH
 
 RUN apt-get update && apt-get install -y ca-certificates openssl
 
