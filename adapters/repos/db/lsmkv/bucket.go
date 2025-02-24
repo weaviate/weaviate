@@ -1525,7 +1525,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }
 
-func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, []uint64, func(), error) {
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1544,8 +1544,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))
-	idfCounts := make([]uint64, len(query))
-
+	idfCounts := make(map[string]uint64, len(query))
 	// flusing memtable
 	output[len(segmentsDisk)] = make([]*SegmentBlockMax, 0, len(query))
 
@@ -1618,7 +1617,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		flushing.idf = idfs[i]
 		flushing.currentBlockImpact = float32(idfs[i])
 
-		idfCounts[i] = n
+		idfCounts[queryTerm] = n
 	}
 
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {

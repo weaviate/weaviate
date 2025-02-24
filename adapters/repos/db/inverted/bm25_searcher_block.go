@@ -31,7 +31,7 @@ import (
 
 // var metrics = lsmkv.BlockMetrics{}
 
-func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, []uint64, func(), error) {
+func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
 	bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 	return bucket.CreateDiskTerm(N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, averagePropLength, config, ctx)
 }
@@ -69,7 +69,12 @@ func (b *BM25Searcher) wandBlock(
 		if len(propNames) > 0 {
 			lenAllResults := len(allResults)
 			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
-			globalIdfCounts := make([]uint64, len(queryTerms))
+			duplicateBoostsByTerm := make(map[string]int, len(duplicateBoosts))
+			for i, term := range queryTerms {
+				duplicateBoostsByTerm[term] = duplicateBoosts[i]
+			}
+			globalIdfCounts := make(map[string]uint64, len(queryTerms))
+			nonZeroTerms := make(map[string]uint64, len(queryTerms))
 			for _, propName := range propNames {
 				results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, averagePropLength, b.config, ctx)
 				if err != nil {
@@ -82,14 +87,21 @@ func (b *BM25Searcher) wandBlock(
 
 				allResults = append(allResults, results)
 				termCounts = append(termCounts, queryTerms)
-				for i := range queryTerms {
-					globalIdfCounts[i] += idfCounts[i]
+				for _, term := range queryTerms {
+					globalIdfCounts[term] += idfCounts[term]
+					if idfCounts[term] > 0 {
+						nonZeroTerms[term]++
+					}
 				}
 			}
-			globalIdfs := make([]float64, len(queryTerms))
-			for i := range globalIdfCounts {
-				n := globalIdfCounts[i]
-				globalIdfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateBoosts[i])
+			globalIdfs := make(map[string]float64, len(queryTerms))
+			for term := range globalIdfCounts {
+				if nonZeroTerms[term] == 0 {
+					continue
+				}
+				n := globalIdfCounts[term] / nonZeroTerms[term]
+
+				globalIdfs[term] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateBoostsByTerm[term])
 			}
 			for _, result := range allResults[lenAllResults:] {
 				if len(result) == 0 {
@@ -101,7 +113,7 @@ func (b *BM25Searcher) wandBlock(
 					}
 					for k := range result[j] {
 						if result[j][k] != nil {
-							result[j][k].SetIdf(globalIdfs[k])
+							result[j][k].SetIdf(globalIdfs[result[j][k].QueryTerm()])
 						}
 					}
 				}
