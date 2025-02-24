@@ -46,6 +46,12 @@ func (o *GetUserInfoReader) ReadResponse(response runtime.ClientResponse, consum
 			return nil, err
 		}
 		return nil, result
+	case 404:
+		result := NewGetUserInfoNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewGetUserInfoInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -68,7 +74,7 @@ GetUserInfoOK describes a response with status code 200, with default header val
 Info about the user
 */
 type GetUserInfoOK struct {
-	Payload *models.UserInfo
+	Payload *models.UserInfoOnlyNames
 }
 
 // IsSuccess returns true when this get user info o k response has a 2xx status code
@@ -109,12 +115,12 @@ func (o *GetUserInfoOK) String() string {
 	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoOK  %+v", 200, o.Payload)
 }
 
-func (o *GetUserInfoOK) GetPayload() *models.UserInfo {
+func (o *GetUserInfoOK) GetPayload() *models.UserInfoOnlyNames {
 	return o.Payload
 }
 
 func (o *GetUserInfoOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-	o.Payload = new(models.UserInfo)
+	o.Payload = new(models.UserInfoOnlyNames)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -175,6 +181,60 @@ func (o *GetUserInfoUnauthorized) String() string {
 }
 
 func (o *GetUserInfoUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+	return nil
+}
+
+// NewGetUserInfoNotFound creates a GetUserInfoNotFound with default headers values
+func NewGetUserInfoNotFound() *GetUserInfoNotFound {
+	return &GetUserInfoNotFound{}
+}
+
+/*
+GetUserInfoNotFound describes a response with status code 404, with default header values.
+
+user not found
+*/
+type GetUserInfoNotFound struct{}
+
+// IsSuccess returns true when this get user info not found response has a 2xx status code
+func (o *GetUserInfoNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get user info not found response has a 3xx status code
+func (o *GetUserInfoNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get user info not found response has a 4xx status code
+func (o *GetUserInfoNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this get user info not found response has a 5xx status code
+func (o *GetUserInfoNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this get user info not found response a status code equal to that given
+func (o *GetUserInfoNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the get user info not found response
+func (o *GetUserInfoNotFound) Code() int {
+	return 404
+}
+
+func (o *GetUserInfoNotFound) Error() string {
+	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoNotFound ", 404)
+}
+
+func (o *GetUserInfoNotFound) String() string {
+	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoNotFound ", 404)
+}
+
+func (o *GetUserInfoNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	return nil
 }
 

@@ -36,7 +36,7 @@ type GetUserInfoOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.UserInfo `json:"body,omitempty"`
+	Payload *models.UserInfoOnlyNames `json:"body,omitempty"`
 }
 
 // NewGetUserInfoOK creates GetUserInfoOK with default headers values
@@ -45,13 +45,13 @@ func NewGetUserInfoOK() *GetUserInfoOK {
 }
 
 // WithPayload adds the payload to the get user info o k response
-func (o *GetUserInfoOK) WithPayload(payload *models.UserInfo) *GetUserInfoOK {
+func (o *GetUserInfoOK) WithPayload(payload *models.UserInfoOnlyNames) *GetUserInfoOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the get user info o k response
-func (o *GetUserInfoOK) SetPayload(payload *models.UserInfo) {
+func (o *GetUserInfoOK) SetPayload(payload *models.UserInfoOnlyNames) {
 	o.Payload = payload
 }
 
@@ -86,6 +86,28 @@ func (o *GetUserInfoUnauthorized) WriteResponse(rw http.ResponseWriter, producer
 	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
+}
+
+// GetUserInfoNotFoundCode is the HTTP code returned for type GetUserInfoNotFound
+const GetUserInfoNotFoundCode int = 404
+
+/*
+GetUserInfoNotFound user not found
+
+swagger:response getUserInfoNotFound
+*/
+type GetUserInfoNotFound struct{}
+
+// NewGetUserInfoNotFound creates GetUserInfoNotFound with default headers values
+func NewGetUserInfoNotFound() *GetUserInfoNotFound {
+	return &GetUserInfoNotFound{}
+}
+
+// WriteResponse to the client
+func (o *GetUserInfoNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.WriteHeader(404)
 }
 
 // GetUserInfoInternalServerErrorCode is the HTTP code returned for type GetUserInfoInternalServerError

@@ -31,7 +31,12 @@ import (
 
 type dynUserHandler struct {
 	authorizer  authorization.Authorizer
-	dynamicUser apikey.DynamicUser
+	dynamicUser DynamicUserAndRolesGetter
+}
+
+type DynamicUserAndRolesGetter interface {
+	apikey.DynamicUser
+	GetRolesForUser(user string) (map[string][]authorization.Policy, error)
 }
 
 const (
@@ -41,7 +46,7 @@ const (
 
 var validateUserNameRegex = regexp.MustCompile(`^` + userNameRegexCore + `$`)
 
-func SetupHandlers(api *operations.WeaviateAPI, dynamicUser apikey.DynamicUser, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:  authorizer,
@@ -50,6 +55,30 @@ func SetupHandlers(api *operations.WeaviateAPI, dynamicUser apikey.DynamicUser, 
 
 	api.UsersCreateUserHandler = users.CreateUserHandlerFunc(h.createUser)
 	api.UsersDeleteUserHandler = users.DeleteUserHandlerFunc(h.deleteUser)
+	api.UsersGetUserInfoHandler = users.GetUserInfoHandlerFunc(h.getUser)
+}
+
+func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
+	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
+	if err != nil {
+		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
+	}
+
+	if len(existingUser) == 0 {
+		return users.NewGetUserInfoNotFound()
+	}
+
+	existedRoles, err := h.dynamicUser.GetRolesForUser(params.UserID)
+	if err != nil {
+		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("get roles: %w", err)))
+	}
+
+	roles := make([]string, 0, len(existedRoles))
+	for roleName := range existedRoles {
+		roles = append(roles, roleName)
+	}
+
+	return users.NewGetUserInfoOK().WithPayload(&models.UserInfoOnlyNames{UserID: &params.UserID, Roles: roles})
 }
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {

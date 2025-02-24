@@ -30,6 +30,23 @@
       },
       "required": ["username"]
     },
+    "UserInfoOnlyNames": {
+      "type": "object",
+      "properties": {
+        "roles": {
+          "type": "array",
+          "description": "The role names associated to the user",
+          "items": {
+            "type": "string"
+          }
+        },
+        "user_id": {
+          "type": "string",
+          "description": "The user id of the given user"
+        }
+      },
+      "required": ["user_id"]
+    },
     "UserApiKey": {
       "type": "object",
       "properties": {
@@ -2700,11 +2717,14 @@
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/UserInfoOnlyNames"
             }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "user not found"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",

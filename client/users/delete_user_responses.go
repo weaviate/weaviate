@@ -40,12 +40,6 @@ func (o *DeleteUserReader) ReadResponse(response runtime.ClientResponse, consume
 			return nil, err
 		}
 		return result, nil
-	case 400:
-		result := NewDeleteUserBadRequest()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	case 401:
 		result := NewDeleteUserUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -120,73 +114,6 @@ func (o *DeleteUserNoContent) String() string {
 }
 
 func (o *DeleteUserNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-	return nil
-}
-
-// NewDeleteUserBadRequest creates a DeleteUserBadRequest with default headers values
-func NewDeleteUserBadRequest() *DeleteUserBadRequest {
-	return &DeleteUserBadRequest{}
-}
-
-/*
-DeleteUserBadRequest describes a response with status code 400, with default header values.
-
-Bad request
-*/
-type DeleteUserBadRequest struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this delete user bad request response has a 2xx status code
-func (o *DeleteUserBadRequest) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this delete user bad request response has a 3xx status code
-func (o *DeleteUserBadRequest) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this delete user bad request response has a 4xx status code
-func (o *DeleteUserBadRequest) IsClientError() bool {
-	return true
-}
-
-// IsServerError returns true when this delete user bad request response has a 5xx status code
-func (o *DeleteUserBadRequest) IsServerError() bool {
-	return false
-}
-
-// IsCode returns true when this delete user bad request response a status code equal to that given
-func (o *DeleteUserBadRequest) IsCode(code int) bool {
-	return code == 400
-}
-
-// Code gets the status code for the delete user bad request response
-func (o *DeleteUserBadRequest) Code() int {
-	return 400
-}
-
-func (o *DeleteUserBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserBadRequest  %+v", 400, o.Payload)
-}
-
-func (o *DeleteUserBadRequest) String() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserBadRequest  %+v", 400, o.Payload)
-}
-
-func (o *DeleteUserBadRequest) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *DeleteUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
 	return nil
 }
 

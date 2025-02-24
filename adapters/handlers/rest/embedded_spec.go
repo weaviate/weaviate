@@ -4124,11 +4124,14 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/UserInfoOnlyNames"
             }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "user not found"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -4219,12 +4222,6 @@ func init() {
         "responses": {
           "204": {
             "description": "Successfully deleted."
-          },
-          "400": {
-            "description": "Bad request",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -6483,6 +6480,25 @@ func init() {
         },
         "username": {
           "description": "The username associated with the provided key",
+          "type": "string"
+        }
+      }
+    },
+    "UserInfoOnlyNames": {
+      "type": "object",
+      "required": [
+        "user_id"
+      ],
+      "properties": {
+        "roles": {
+          "description": "The role names associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "user_id": {
+          "description": "The user id of the given user",
           "type": "string"
         }
       }
@@ -11033,11 +11049,14 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/UserInfoOnlyNames"
             }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "user not found"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -11128,12 +11147,6 @@ func init() {
         "responses": {
           "204": {
             "description": "Successfully deleted."
-          },
-          "400": {
-            "description": "Bad request",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -13680,6 +13693,25 @@ func init() {
         },
         "username": {
           "description": "The username associated with the provided key",
+          "type": "string"
+        }
+      }
+    },
+    "UserInfoOnlyNames": {
+      "type": "object",
+      "required": [
+        "user_id"
+      ],
+      "properties": {
+        "roles": {
+          "description": "The role names associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "user_id": {
+          "description": "The user id of the given user",
           "type": "string"
         }
       }
