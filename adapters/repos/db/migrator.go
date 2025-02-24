@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/semaphore"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -33,8 +35,13 @@ import (
 )
 
 type Migrator struct {
-	db     *DB
-	logger logrus.FieldLogger
+	db                *DB
+	logger            logrus.FieldLogger
+	classAddSemaphore *semaphore.Semaphore
+}
+
+func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
+	return &Migrator{db: db, logger: logger, classAddSemaphore: semaphore.NewSemaphore(50)}
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
@@ -43,6 +50,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	if err := replica.ValidateConfig(class, m.db.config.Replication); err != nil {
 		return fmt.Errorf("replication config: %w", err)
 	}
+
+	// limit concurrency when adding classes
+	m.classAddSemaphore.Acquire()
+	defer m.classAddSemaphore.Release()
 
 	idx, err := NewIndex(ctx,
 		IndexConfig{
@@ -350,10 +361,6 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class *models.Class, tenan
 		return func(bool) {}, nil
 	}
 	return idx.dropShards(tenants)
-}
-
-func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
-	return &Migrator{db: db, logger: logger}
 }
 
 func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
