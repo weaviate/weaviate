@@ -107,7 +107,7 @@ func (cm *ConfigManager[T]) Run(ctx context.Context) error {
 // via this api.
 func (cm *ConfigManager[T]) Config() (*T, error) {
 	cm.mu.RLock()
-	defer cm.mu.RLock()
+	defer cm.mu.RUnlock()
 
 	if cm.currentConfig == nil {
 		return nil, ErrEmptyConfig

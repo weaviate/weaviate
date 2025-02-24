@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -352,22 +351,20 @@ func TestConfigManager_GetConfig(t *testing.T) {
 
 		cm, err := NewConfigManager(tmp.Name(), parseYaml, 100*time.Millisecond, log, reg)
 		require.NoError(t, err)
-		assertConfig(cm, 10*time.Second)
+		assertConfig(t, cm, 10*time.Second)
 
 		// change the config
 		buf = []byte(`backup_interval: 20s`)
-		_, err = tmp.Write(buf)
-		require.NoError(t, err)
-		require.NoError(t, tmp.Close())
+		err = os.WriteFile(tmp.Name(), buf, 0o777)
 
 		require.NoError(t, cm.loadConfig()) // loading new config
-		assertConfig(cm, 20*time.Second)
+		assertConfig(t, cm, 20*time.Second)
 	})
 }
 
 // helpers
 
-func assertConfig[T any](cm *ConfigManager[T], expected time.Duration) {
+func assertConfig(t *testing.T, cm *ConfigManager[testConfig], expected time.Duration) {
 	getConfigWait := make(chan struct{})
 
 	var wg sync.WaitGroup
@@ -386,29 +383,4 @@ func assertConfig[T any](cm *ConfigManager[T], expected time.Duration) {
 
 	close(getConfigWait)
 	wg.Wait()
-}
-
-// poll calls `got` func periodically for given `every` duration until either the function returns `want` value
-// or it's `timeout`
-func poll[T any](t testing.TB, every time.Duration, timeout time.Duration, want T, got func() T) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-
-	for {
-		// break if timed out before getting expected value
-		if time.Now().After(deadline) {
-			break
-		}
-
-		if reflect.DeepEqual(want, got()) {
-			return
-		}
-
-		time.Sleep(every)
-	}
-
-	g := got()
-	if !reflect.DeepEqual(want, g) {
-		t.Fatalf("expected %v, got %v", want, g)
-	}
 }
