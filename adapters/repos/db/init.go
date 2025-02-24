@@ -18,6 +18,8 @@ import (
 	"path"
 	"time"
 
+	"golang.org/x/sync/semaphore"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -56,8 +58,16 @@ func (db *DB) init(ctx context.Context) error {
 	}
 
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
+	concurrencyLimit := semaphore.NewWeighted(db.config.MaximumConcurrentClassAdd)
+
 	if objects != nil {
 		for _, class := range objects.Classes {
+			err := concurrencyLimit.Acquire(ctx, 1)
+			if err != nil {
+				return err
+			}
+			defer concurrencyLimit.Release(1)
+
 			invertedConfig := class.InvertedIndexConfig
 			if invertedConfig == nil {
 				// for backward compatibility, this field was introduced in v1.0.4,
