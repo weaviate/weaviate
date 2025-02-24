@@ -347,6 +347,12 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 		defer ticker.Stop()
 		defer i.allShardsReady.Store(true)
 		i.ForEachShard(func(name string, shard ShardLike) error {
+			err := sema.Acquire(ctx, 1)
+			if err != nil {
+				return err
+			}
+			defer sema.Release(1)
+
 			// prioritize closingCtx over ticker:
 			// check closing again in case of ticker was selected when both
 			// cases where available
