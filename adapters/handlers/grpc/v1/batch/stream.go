@@ -34,7 +34,7 @@ type StreamHandler struct {
 
 func NewStreamHandler(batcher batcher, logger logrus.FieldLogger) *StreamHandler {
 	return &StreamHandler{
-		asyncEnabled: asyncEnabled(),
+		asyncEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
 		batcher:      batcher,
 		logger:       logger,
 	}
@@ -50,64 +50,152 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 		return fmt.Errorf("first object must be init object")
 	}
 
-	objects := make([]*pb.BatchObject, 0, 1000)
-
-	send := func(sem chan struct{}, objects []*pb.BatchObject, index int) error {
-		sem <- struct{}{}        // acquire the semaphore
-		defer func() { <-sem }() // release the semaphore
-
-		reply, err := h.batcher.BatchObjects(stream.Context(), &pb.BatchObjectsRequest{Objects: objects, ConsistencyLevel: init.ConsistencyLevel})
+	send := func(objects []queueObject, errors chan errorsObject, shouldShutdown bool) error {
+		firstIndex := objects[0].Index
+		objs := make([]*pb.BatchObject, len(objects))
+		for i, obj := range objects {
+			objs[i] = obj.Object
+		}
+		reply, err := h.batcher.BatchObjects(stream.Context(), &pb.BatchObjectsRequest{Objects: objs, ConsistencyLevel: init.ConsistencyLevel})
 		if err != nil {
 			return err
 		}
-		for _, err := range reply.GetErrors() {
-			err.Index += int32(index - len(objects))
+		if len(reply.GetErrors()) > 0 {
+			for _, err := range reply.GetErrors() {
+				if err == nil {
+					continue
+				}
+				err.Index += int32(firstIndex)
+			}
+			errors <- errorsObject{Errors: reply.GetErrors()}
 		}
-		if err := stream.Send(reply); err != nil {
-			return err
+		if shouldShutdown {
+			errors <- errorsObject{Shutdown: true}
 		}
 		return nil
 	}
+
+	batcher := func(queue chan queueObject, errors chan errorsObject) error {
+		objects := make([]queueObject, 0, 1000)
+		for {
+			select {
+			case <-stream.Context().Done():
+				return nil
+			case obj := <-queue:
+				if obj.IsSentinel() {
+					if len(objects) > 0 {
+						if err := send(objects, errors, true); err != nil {
+							return err
+						}
+					}
+					return nil
+				}
+				if obj.IsObject() {
+					objects = append(objects, obj)
+				}
+				if len(objects) == 1000 {
+					if err := send(objects, errors, false); err != nil {
+						return err
+					}
+					objects = objects[:0]
+				}
+			}
+		}
+	}
+
+	replier := func(errors chan errorsObject, concurrency int) error {
+		haveShutdown := make([]bool, 0, concurrency)
+		for {
+			select {
+			case <-stream.Context().Done():
+				return nil
+			case errs := <-errors:
+				if errs.Shutdown {
+					haveShutdown = append(haveShutdown, true)
+				}
+				for _, err := range errs.Errors {
+					if innerErr := stream.Send(&pb.BatchError{
+						Index: err.Index,
+						Error: err.Error,
+					}); innerErr != nil {
+						return innerErr
+					}
+				}
+			}
+			if len(haveShutdown) == concurrency {
+				return nil
+			}
+		}
+	}
+
+	errors := make(chan errorsObject)
+	queue := make(chan queueObject, 1000)
+	defer func() {
+		close(queue)
+		close(errors)
+	}()
 
 	concurrency := 2
 	if init.Concurrency != nil {
 		concurrency = int(init.GetConcurrency())
 	}
-	sem := make(chan struct{}, concurrency)
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for range concurrency {
+		eg.Go(func() error { return batcher(queue, errors) })
+	}
+	eg.Go(func() error { return replier(errors, concurrency) })
 
 	index := 0
-	eg := enterrors.NewErrorGroupWrapper(h.logger)
 	for {
 		req, err := stream.Recv()
 		if err != nil {
-			return err
+			stream.Send(&pb.BatchError{
+				Index: int32(index),
+				Error: err.Error(),
+			})
+			index++
+			continue
 		}
 
 		sentinel := req.GetSentinel()
 		if sentinel != nil {
-			eg.Go(func() error { return send(sem, objects, index) })
+			for range concurrency {
+				queue <- queueObject{Sentinel: sentinel}
+			}
 			break
 		}
 
 		object := req.GetObject()
 		if object == nil {
-			return fmt.Errorf("object must be message object, got %T", req)
-		}
-
-		index += 1
-		objects = append(objects, object)
-		if h.asyncEnabled && len(objects) == 1000 {
-			eg.Go(func() error { return send(sem, objects, index) })
-			objects = objects[:0] // clear while maintaining capacity
+			stream.Send(&pb.BatchError{
+				Index: int32(index),
+				Error: fmt.Errorf("object must be message object, got %T", req).Error(),
+			})
+			index++
 			continue
 		}
-		if !h.asyncEnabled {
-		}
+		queue <- queueObject{Index: index, Object: object}
+		index++
 	}
 	eg.Wait()
 	return nil
 }
 
-func asyncEnabled() bool {
-	return entcfg.Enabled(os.Getenv("ASYNC_INDEXING"))
+type queueObject struct {
+	Index    int
+	Object   *pb.BatchObject
+	Sentinel *pb.BatchStop
+}
+
+func (o queueObject) IsSentinel() bool {
+	return o.Sentinel != nil
+}
+
+func (o queueObject) IsObject() bool {
+	return o.Object != nil
+}
+
+type errorsObject struct {
+	Errors   []*pb.BatchObjectsReply_BatchError
+	Shutdown bool
 }

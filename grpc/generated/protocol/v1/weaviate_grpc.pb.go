@@ -91,7 +91,7 @@ func (c *weaviateClient) Batch(ctx context.Context, opts ...grpc.CallOption) (We
 
 type Weaviate_BatchClient interface {
 	Send(*BatchMessage) error
-	Recv() (*BatchObjectsReply, error)
+	Recv() (*BatchError, error)
 	grpc.ClientStream
 }
 
@@ -103,8 +103,8 @@ func (x *weaviateBatchClient) Send(m *BatchMessage) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *weaviateBatchClient) Recv() (*BatchObjectsReply, error) {
-	m := new(BatchObjectsReply)
+func (x *weaviateBatchClient) Recv() (*BatchError, error) {
+	m := new(BatchError)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func _Weaviate_Batch_Handler(srv interface{}, stream grpc.ServerStream) error {
 }
 
 type Weaviate_BatchServer interface {
-	Send(*BatchObjectsReply) error
+	Send(*BatchError) error
 	Recv() (*BatchMessage, error)
 	grpc.ServerStream
 }
@@ -263,7 +263,7 @@ type weaviateBatchServer struct {
 	grpc.ServerStream
 }
 
-func (x *weaviateBatchServer) Send(m *BatchObjectsReply) error {
+func (x *weaviateBatchServer) Send(m *BatchError) error {
 	return x.ServerStream.SendMsg(m)
 }
 
