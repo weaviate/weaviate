@@ -32,6 +32,7 @@ func TestGRPCBatchStreaming(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviateWithGRPC().
 		WithText2VecContextionary().
+		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
 		Start(ctx)
 	require.Nil(t, err)
 
