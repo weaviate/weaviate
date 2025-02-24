@@ -58,6 +58,24 @@ func (_m *DynamicUser) CreateUser(userId string, secureHash string, userIdentifi
 	return r0
 }
 
+// DeleteUser provides a mock function with given fields: userId
+func (_m *DynamicUser) DeleteUser(userId string) error {
+	ret := _m.Called(userId)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteUser")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string) error); ok {
+		r0 = rf(userId)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // GetUsers provides a mock function with given fields: userIds
 func (_m *DynamicUser) GetUsers(userIds ...string) (map[string]*apikey.User, error) {
 	_va := make([]interface{}, len(userIds))

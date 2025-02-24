@@ -49,6 +49,7 @@ func SetupHandlers(api *operations.WeaviateAPI, dynamicUser apikey.DynamicUser, 
 	}
 
 	api.UsersCreateUserHandler = users.CreateUserHandlerFunc(h.createUser)
+	api.UsersDeleteUserHandler = users.DeleteUserHandlerFunc(h.deleteUser)
 }
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
@@ -95,6 +96,14 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
+}
+
+func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
+	err := h.dynamicUser.DeleteUser(params.UserID)
+	if err != nil {
+		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+	return users.NewDeleteUserNoContent()
 }
 
 // validateRoleName validates that this string is a valid role name (format wise)

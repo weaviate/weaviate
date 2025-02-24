@@ -44,6 +44,18 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier)
 }
 
+func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	req := &cmd.DeleteUsersRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.dynUser.DeleteUser(req.UserId)
+}
+
 func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
 	if m.dynUser == nil {
 		payload, _ := json.Marshal(cmd.QueryGetUsersRequest{})

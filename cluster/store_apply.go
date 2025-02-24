@@ -219,6 +219,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.dynUserManager.CreateUser(&cmd)
 		}
+	case api.ApplyRequest_TYPE_DELETE_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.DeleteUser(&cmd)
+		}
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart

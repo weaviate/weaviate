@@ -23,6 +23,7 @@ import (
 
 type DynamicUser interface {
 	CreateUser(userId, secureHash, userIdentifier string) error
+	DeleteUser(userId string) error
 	GetUsers(userIds ...string) (map[string]*User, error)
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
 }
@@ -60,6 +61,14 @@ func (c *DynamicApiKey) CreateUser(userId, secureHash, userIdentifier string) er
 	c.secureKeyStorageById[userId] = secureHash
 	c.identifierToId[userIdentifier] = userId
 	c.users[userId] = &User{Id: userId, Active: true}
+	return nil
+}
+
+func (c *DynamicApiKey) DeleteUser(userId string) error {
+	delete(c.secureKeyStorageById, userId)
+	delete(c.identifierToId, userId)
+	delete(c.users, userId)
+	delete(c.weakKeyStorage, userId)
 	return nil
 }
 

@@ -27,6 +27,11 @@ type CreateUsersRequest struct {
 	Version        int
 }
 
+type DeleteUsersRequest struct {
+	UserId  string
+	Version int
+}
+
 type QueryGetUsersRequest struct {
 	UserIds []string
 }
