@@ -354,6 +354,16 @@ func FromEnv(config *Config) error {
 		config.MaximumConcurrentGetRequests = DefaultMaxConcurrentGetRequests
 	}
 
+	if v := os.Getenv("MAXIMUM_CONCURRENT_CLASS_ADD"); v != "" {
+		asInt, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse MAXIMUM_CONCURRENT_CLASS_ADD as int: %w", err)
+		}
+		config.MaximumConcurrentClassAdd = asInt
+	} else {
+		config.MaximumConcurrentClassAdd = DefaultMaxConcurrentClassAdd
+	}
+
 	if err := parsePositiveInt(
 		"GRPC_PORT",
 		func(val int) { config.GRPC.Port = val },
@@ -509,6 +519,7 @@ const (
 	DefaultPersistenceMemtablesMinDuration     = 15
 	DefaultPersistenceMemtablesMaxDuration     = 45
 	DefaultMaxConcurrentGetRequests            = 0
+	DefaultMaxConcurrentClassAdd               = 50
 	DefaultGRPCPort                            = 50051
 	DefaultMinimumReplicationFactor            = 1
 )

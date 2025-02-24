@@ -202,6 +202,7 @@ type Config struct {
 	DisableLazyLoadShards     bool
 	ForceFullReplicasSearch   bool
 	Replication               replication.GlobalConfig
+	MaximumConcurrentClassAdd int64
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
