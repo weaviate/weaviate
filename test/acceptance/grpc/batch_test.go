@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
@@ -28,22 +29,19 @@ func TestGRPCBatchStreaming(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
 	booksClass := books.ClassContextionaryVectorizer()
-	// compose, err := docker.New().
-	// 	WithWeaviateWithGRPC().
-	// 	WithText2VecContextionary().
-	// 	Start(ctx)
-	// require.Nil(t, err)
+	compose, err := docker.New().
+		WithWeaviateWithGRPC().
+		WithText2VecContextionary().
+		Start(ctx)
+	require.Nil(t, err)
 
-	// helper.SetupClient(compose.GetWeaviate().URI())
-	// helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
-
-	helper.SetupClient("localhost:8080")
-	helper.SetupGRPCClient(t, "localhost:50051")
+	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
 
 	defer func() {
 		helper.DeleteClass(t, booksClass.Class)
 		helper.ResetClient()
-		// require.NoError(t, compose.Terminate(ctx))
+		require.NoError(t, compose.Terminate(ctx))
 		cancel()
 	}()
 
