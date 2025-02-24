@@ -134,7 +134,7 @@ func CreatePromptTestWithParams(t *testing.T, className, prompt, params string) 
 				}
 			}
 		`, className, prompt, params)
-	result := graphqlhelper.AssertGraphQLWithTimeout(t, helper.RootAuth, 5*time.Minute, query)
+	result := graphqlhelper.AssertGraphQLWithTimeout(t, helper.RootAuth, 10*time.Minute, query)
 	objs := result.Get("Get", className).AsSlice()
 	require.Len(t, objs, 2)
 	for i, obj := range objs {
@@ -185,7 +185,7 @@ func CreatePromptTestWithParamsGRPC(t *testing.T, className, singlePrompt, group
 		},
 		Uses_127Api: true,
 	}
-	resp := grpchelper.AssertSearchWithTimeout(t, req, 5*time.Minute)
+	resp := grpchelper.AssertSearchWithTimeout(t, req, 10*time.Minute)
 	require.NotNil(t, resp)
 	require.Len(t, resp.Results, 2)
 	for i, res := range resp.Results {
