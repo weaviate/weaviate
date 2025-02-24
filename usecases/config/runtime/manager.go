@@ -37,7 +37,7 @@ var (
 )
 
 // Parser takes care of unmarshaling a config struct
-// from given raw bytes.
+// from given raw bytes(e.g: YAML, JSON, etc).
 type Parser[T any] func([]byte) (*T, error)
 
 // ConfigManager takes care of periodically loading the config from
