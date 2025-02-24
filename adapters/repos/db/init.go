@@ -79,6 +79,11 @@ func (db *DB) init(ctx context.Context) error {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
+			vectorIndexConfigs, err := convertToVectorIndexConfigs(nil, class.VectorConfig)
+			if err != nil {
+				return fmt.Errorf("vector index config: %w", err)
+			}
+
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                           schema.ClassName(class.Class),
 				RootPath:                            db.config.RootPath,
@@ -110,7 +115,7 @@ func (db *DB) init(ctx context.Context) error {
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
-				convertToVectorIndexConfigs(class.VectorConfig),
+				vectorIndexConfigs,
 				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
 				db.memMonitor)

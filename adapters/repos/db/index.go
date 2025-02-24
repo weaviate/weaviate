@@ -2702,17 +2702,27 @@ func convertToVectorIndexConfig(config interface{}) schemaConfig.VectorIndexConf
 	return config.(schemaConfig.VectorIndexConfig)
 }
 
-func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schemaConfig.VectorIndexConfig {
-	if len(configs) > 0 {
-		vectorIndexConfigs := make(map[string]schemaConfig.VectorIndexConfig)
-		for targetVector, vectorConfig := range configs {
-			if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
-				vectorIndexConfigs[targetVector] = vectorIndexConfig
-			}
+func convertToVectorIndexConfigs(legacyConfig interface{}, configs map[string]models.VectorConfig) (map[string]schemaConfig.VectorIndexConfig, error) {
+	vectorIndexConfigs := make(map[string]schemaConfig.VectorIndexConfig)
+
+	defaultConfig := convertToVectorIndexConfig(legacyConfig)
+
+	if defaultConfig != nil {
+		_, ok := configs["default"]
+		if ok {
+			return nil, fmt.Errorf("duplicated %q vector definition", "default")
 		}
-		return vectorIndexConfigs
+
+		vectorIndexConfigs["default"] = defaultConfig
 	}
-	return nil
+
+	for targetVector, vectorConfig := range configs {
+		if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+			vectorIndexConfigs[targetVector] = vectorIndexConfig
+		}
+	}
+
+	return vectorIndexConfigs, nil
 }
 
 // IMPORTANT:

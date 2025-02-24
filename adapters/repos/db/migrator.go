@@ -104,7 +104,12 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	idx, err := NewIndex(ctx,
+	vectorIndexConfigs, err := convertToVectorIndexConfigs(class.VectorIndexConfig, class.VectorConfig)
+	if err != nil {
+		return fmt.Errorf("vector index config: %w", err)
+	}
+
+	idx, err = NewIndex(ctx,
 		IndexConfig{
 			ClassName:                           schema.ClassName(class.Class),
 			RootPath:                            m.db.config.RootPath,
@@ -138,8 +143,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
-		convertToVectorIndexConfig(class.VectorIndexConfig),
-		convertToVectorIndexConfigs(class.VectorConfig),
+		nil,
+		vectorIndexConfigs,
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor)
