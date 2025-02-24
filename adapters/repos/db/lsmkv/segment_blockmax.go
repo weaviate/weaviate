@@ -236,6 +236,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 
 	output := &SegmentBlockMax{
 		blockEntries:      blockEntries,
+		node:              segmentindex.Node{Key: key},
 		idf:               idf,
 		queryTermIndex:    queryTermIndex,
 		averagePropLength: float32(averagePropLength),
@@ -272,6 +273,7 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 
 	output := &SegmentBlockMax{
 		queryTermIndex:    queryTermIndex,
+		node:              segmentindex.Node{Key: key},
 		averagePropLength: float32(averagePropLength),
 		b:                 float32(config.B),
 		k1:                float32(config.K1),
@@ -544,6 +546,10 @@ func (s *SegmentBlockMax) Advance() {
 func (s *SegmentBlockMax) computeCurrentBlockImpact() float32 {
 	if s.exhausted {
 		return 0
+	}
+	// for the fully decode blocks return the idf
+	if len(s.blockEntries) == 0 {
+		return float32(s.idf)
 	}
 	freq := float32(s.blockEntries[s.blockEntryIdx].MaxImpactTf)
 	propLength := float32(s.blockEntries[s.blockEntryIdx].MaxImpactPropLength)
