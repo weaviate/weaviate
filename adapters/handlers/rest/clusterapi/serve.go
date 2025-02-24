@@ -65,8 +65,7 @@ func Serve(appState *state.State) {
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		handler = monitoring.InstrumentHTTP(
 			handler,
-			// this context is used for populating "routing" information in public HTTP handlers. Not needed for internal handlers here.
-			nil,
+			staticRoute(mux),
 			appState.HTTPServerMetrics.InflightRequests,
 			appState.HTTPServerMetrics.RequestDuration,
 			appState.HTTPServerMetrics.RequestBodySize,
@@ -90,4 +89,21 @@ func index() http.Handler {
 
 		json.NewEncoder(w).Encode(payload)
 	})
+}
+
+// staticRoute is used to convert routes in our internal http server into static routes
+// by removing all the dynamic variables in the route. Useful for instrumentation
+// where "route cardinality" matters.
+
+// Example: `/replicas/indices/Movies/shards/hello0/objects` -> `/replicas/indices`
+func staticRoute(mux *http.ServeMux) monitoring.StaticRouteLabel {
+	return func(r *http.Request) (*http.Request, string) {
+		route := r.URL.String()
+
+		_, pattern := mux.Handler(r)
+		if pattern != "" {
+			route = pattern
+		}
+		return r, route
+	}
 }
