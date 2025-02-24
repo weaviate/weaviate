@@ -236,63 +236,6 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		// assert: since new config is failing, it should keep re-loading
 		assert.Greater(t, loadCount, 1)
 	})
-	t.Run("start using new config once recovered from invalid old config", func(t *testing.T) {
-		reg := prometheus.NewPedanticRegistry()
-
-		// calling parser => reloading the config
-		loadCount := 0
-		trackedParser := func(buf []byte) (*testConfig, error) {
-			loadCount++
-			return parseYaml(buf)
-		}
-
-		tmp, err := os.CreateTemp("", "valid_config.yaml")
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			require.NoError(t, os.Remove(tmp.Name()))
-		})
-
-		buf := []byte(`backup_interval: 10s`) // valid yaml
-
-		_, err = tmp.Write(buf)
-		require.NoError(t, err)
-		require.NoError(t, tmp.Close())
-
-		cm, err := NewConfigManager(tmp.Name(), trackedParser, 10*time.Millisecond, log, reg)
-		require.NoError(t, err)
-
-		// assert: should have called `parser` only once during initial loading.
-		assert.Equal(t, 1, loadCount)
-
-		// Now let's change the config file few times
-		var (
-			wg          sync.WaitGroup
-			ctx, cancel = context.WithCancel(context.Background())
-		)
-		defer cancel() // being good citizen.
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			cm.Run(ctx)
-		}()
-
-		writeDelay := 100 * time.Millisecond
-		buf = []byte(`backup_interval=10s`) // in-valid yaml
-		err = os.WriteFile(tmp.Name(), buf, 0o777)
-		require.NoError(t, err)
-
-		// give enough time to config manager to reload the previously written config
-		time.Sleep(writeDelay)
-
-		// assert: writing same content shouldn't reload the config
-		assert.Greater(t, loadCount, 1)
-
-		// stop the manger
-		cancel()
-		wg.Wait() // config manager should have stopped correctly.
-	})
-
 	t.Run("unchanged config should not reload", func(t *testing.T) {
 		reg := prometheus.NewPedanticRegistry()
 
@@ -354,12 +297,96 @@ func TestConfigManager_loadConfig(t *testing.T) {
 }
 
 func TestConfigManager_GetConfig(t *testing.T) {
-	// receiving config should never block if manager is not reloading the config
+	log, _ := test.NewNullLogger()
 
-	// should receive latest config after last reload
+	t.Run("receiving config should never block if manager is not reloading the config", func(t *testing.T) {
+		reg := prometheus.NewPedanticRegistry()
+		tmp, err := os.CreateTemp("", "valid_config.yaml")
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, os.Remove(tmp.Name()))
+		})
+
+		buf := []byte(`backup_interval: 10s`)
+
+		_, err = tmp.Write(buf) // valid yaml
+		require.NoError(t, err)
+		require.NoError(t, tmp.Close())
+
+		cm, err := NewConfigManager(tmp.Name(), parseYaml, 100*time.Millisecond, log, reg)
+		require.NoError(t, err)
+
+		getConfigWait := make(chan struct{})
+
+		var wg sync.WaitGroup
+
+		n := 100 // 100 goroutine
+		wg.Add(n)
+		for i := 0; i < 100; i++ {
+			go func() {
+				defer wg.Done()
+				<-getConfigWait // wait till all go routines ready to get the config
+				c, err := cm.Config()
+				require.NoError(t, err)
+				assert.Equal(t, 10*time.Second, c.BackupInterval)
+			}()
+		}
+
+		close(getConfigWait)
+		wg.Wait()
+	})
+
+	t.Run("should receive latest config after last reload", func(t *testing.T) {
+		reg := prometheus.NewPedanticRegistry()
+		tmp, err := os.CreateTemp("", "valid_config.yaml")
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, os.Remove(tmp.Name()))
+		})
+
+		buf := []byte(`backup_interval: 10s`)
+
+		_, err = tmp.Write(buf)
+		require.NoError(t, err)
+		require.NoError(t, tmp.Close())
+
+		cm, err := NewConfigManager(tmp.Name(), parseYaml, 100*time.Millisecond, log, reg)
+		require.NoError(t, err)
+		assertConfig(cm, 10*time.Second)
+
+		// change the config
+		buf = []byte(`backup_interval: 20s`)
+		_, err = tmp.Write(buf)
+		require.NoError(t, err)
+		require.NoError(t, tmp.Close())
+
+		require.NoError(t, cm.loadConfig()) // loading new config
+		assertConfig(cm, 20*time.Second)
+	})
 }
 
 // helpers
+
+func assertConfig[T any](cm *ConfigManager[T], expected time.Duration) {
+	getConfigWait := make(chan struct{})
+
+	var wg sync.WaitGroup
+
+	n := 100 // 100 goroutine
+	wg.Add(n)
+	for i := 0; i < 100; i++ {
+		go func() {
+			defer wg.Done()
+			<-getConfigWait // wait till all go routines ready to get the config
+			c, err := cm.Config()
+			require.NoError(t, err)
+			assert.Equal(t, expected, c.BackupInterval)
+		}()
+	}
+
+	close(getConfigWait)
+	wg.Wait()
+}
 
 // poll calls `got` func periodically for given `every` duration until either the function returns `want` value
 // or it's `timeout`
