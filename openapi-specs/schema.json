@@ -2796,12 +2796,6 @@
           "204": {
             "description": "Successfully deleted."
           },
-          "400": {
-            "description": "Bad request",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
