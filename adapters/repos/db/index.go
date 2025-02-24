@@ -59,6 +59,7 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -634,7 +635,7 @@ type IndexConfig struct {
 	AsyncReplicationEnabled             bool
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
-	ForceFullReplicasSearch             bool
+	ForceFullReplicasSearch             *configRuntime.FeatureFlag[bool]
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 }
@@ -1637,7 +1638,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors [][]float32,
 func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32,
 	targetVectors []string, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
-	targetCombination *dto.TargetCombination, properties []string, shardName string,
+	targetCombination *dto.TargetCombination, properties []string, shardName string, forceFullReplicasSearch bool,
 ) ([]*storobj.Object, []float32, error) {
 	var outObjects []*storobj.Object
 	var outScores []float32
@@ -1650,7 +1651,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32
 		defer release()
 	}
 
-	if i.Config.ForceFullReplicasSearch {
+	if forceFullReplicasSearch {
 		// Force a search on all the replicas for the shard
 		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
 			i.logger, shardName, searchVectors, targetVectors, limit, localFilters,
@@ -1698,7 +1699,13 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 		return nil, nil, err
 	}
 
-	if len(shardNames) == 1 && !i.Config.ForceFullReplicasSearch {
+	forceFullReplicasSearch := false
+	// It should not be nil, but it's better to be on the safe side
+	if i.Config.ForceFullReplicasSearch != nil {
+		forceFullReplicasSearch = i.Config.ForceFullReplicasSearch.Get()
+	}
+
+	if len(shardNames) == 1 && !forceFullReplicasSearch {
 		shard, release, err := i.GetShard(ctx, shardNames[0])
 		if err != nil {
 			return nil, nil, err
@@ -1759,11 +1766,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 			})
 		}
 
-		if shard == nil || i.Config.ForceFullReplicasSearch {
+		if shard == nil || forceFullReplicasSearch {
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
-				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName, forceFullReplicasSearch)
 				if err2 != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err2)
@@ -1783,7 +1790,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 	}
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
-	if i.Config.ForceFullReplicasSearch {
+	if forceFullReplicasSearch {
 		if localSearches != localResponses.Load() {
 			i.logger.Warnf("(in full replica search) local search count does not match local response count: searches=%d responses=%d", localSearches, localResponses.Load())
 		}
