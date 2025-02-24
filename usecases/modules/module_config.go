@@ -52,6 +52,18 @@ func (cbmc *ClassBasedModuleConfig) TargetVector() string {
 	return cbmc.targetVector
 }
 
+func (cbmc *ClassBasedModuleConfig) PropertiesDataTypes() map[string]schema.DataType {
+	primitiveProps := map[string]schema.DataType{}
+	for _, schemaProp := range cbmc.class.Properties {
+		dt, err := schema.GetValueDataTypeFromString(schemaProp.DataType[0])
+		if err != nil {
+			continue
+		}
+		primitiveProps[schemaProp.Name] = *dt
+	}
+	return primitiveProps
+}
+
 func (cbmc *ClassBasedModuleConfig) ClassByModuleName(moduleName string) map[string]interface{} {
 	defaultConf := map[string]interface{}{}
 	asMap, ok := cbmc.getModuleConfig().(map[string]interface{})
