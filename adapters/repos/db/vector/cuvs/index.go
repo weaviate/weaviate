@@ -402,6 +402,22 @@ func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
 	return nil
 }
 
+func (index *cuvs_index) ContainsDoc(docID uint64) bool {
+	_, exists := index.idCuvsIdMap.GetCuvsId(docID)
+
+	return exists
+}
+
+func (index *cuvs_index) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
+	return common.QueryVectorDistancer{}
+}
+
+func (index *cuvs_index) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32,
+	targetDistance float32, maxLimit int64, allow helpers.AllowList,
+) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("SearchByMultiVectorDistance is not supported for cuvs index")
+}
+
 func (index *cuvs_index) Delete(ids ...uint64) error {
 	index.Lock()
 	defer index.Unlock()
