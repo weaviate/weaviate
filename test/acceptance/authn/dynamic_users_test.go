@@ -12,8 +12,12 @@
 package authn
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/weaviate/weaviate/test/docker"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/users"
@@ -22,9 +26,19 @@ import (
 
 func TestCreateUser(t *testing.T) {
 	adminKey := "admin-key"
+	adminUser := "admin-user"
 
-	helper.SetupClient("127.0.0.1:8081")
-	defer helper.ResetClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).
+		Start(ctx)
+	require.Nil(t, err)
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
 
 	userName := "CreateUserTestUser"
 
