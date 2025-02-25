@@ -28,6 +28,7 @@ import (
 func TestSuccessList(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user"}}, nil)
 	dynUser.On("GetRolesForUser", "user").Return(
@@ -50,6 +51,7 @@ func TestSuccessList(t *testing.T) {
 func TestNotFound(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
@@ -78,6 +80,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authzMocks.NewAuthorizer(t)
+			authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(tt.GetUserReturnValue, tt.GetUserReturnErr)
 			if tt.GetUserReturnErr == nil {

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user/mocks"
 
 	"github.com/stretchr/testify/assert"
@@ -72,6 +74,8 @@ func TestInternalServerError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authzMocks.NewAuthorizer(t)
+			authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(nil, tt.GetUserReturn)
 			if tt.GetUserReturn == nil {
@@ -99,6 +103,7 @@ func TestConflict(t *testing.T) {
 
 	authorizer := authzMocks.NewAuthorizer(t)
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
 
 	h := dynUserHandler{
@@ -115,6 +120,8 @@ func TestConflict(t *testing.T) {
 func TestSuccess(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
