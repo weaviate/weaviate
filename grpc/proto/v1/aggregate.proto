@@ -1,0 +1,205 @@
+syntax = "proto3";
+
+package weaviate.v1;
+
+import "v1/base.proto";
+import "v1/base_search.proto";
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoAggregate";
+
+message AggregateRequest {
+  message Aggregation {
+    message Integer {
+      bool count = 1;
+      bool type = 2;
+      bool sum = 3;
+      bool mean = 4;
+      bool mode = 5;
+      bool median = 6;
+      bool maximum = 7;
+      bool minimum = 8;
+    }
+    message Number {
+      bool count = 1;
+      bool type = 2;
+      bool sum = 3;
+      bool mean = 4;
+      bool mode = 5;
+      bool median = 6;
+      bool maximum = 7;
+      bool minimum = 8;
+    }
+    message Text {
+      bool count = 1;
+      bool type = 2;
+      bool top_occurences = 3;
+      optional uint32 top_occurences_limit = 4;
+    }
+    message Boolean {
+      bool count = 1;
+      bool type = 2;
+      bool total_true = 3;
+      bool total_false = 4;
+      bool percentage_true = 5;
+      bool percentage_false = 6;
+    }
+    message Date {
+      bool count = 1;
+      bool type = 2;
+      bool median = 3;
+      bool mode = 4;
+      bool maximum = 5;
+      bool minimum = 6;
+    }
+    message Reference {
+      bool type = 1;
+      bool pointing_to = 2;
+    }
+    string property = 1;
+    oneof aggregation {
+      Integer int = 2;
+      Number number = 3;
+      Text text = 4;
+      Boolean boolean = 5;
+      Date date = 6;
+      Reference reference = 7;
+    }
+  }
+  message GroupBy {
+    string collection = 1;
+    string property = 2;
+  }
+  // required
+  string collection = 1;
+
+  // parameters
+  string tenant = 10;
+
+  // what is returned
+  bool objects_count = 20;
+  repeated Aggregation aggregations = 21;
+
+  // affects aggregation results
+  optional uint32 object_limit = 30;
+  optional GroupBy group_by = 31;
+  optional uint32 limit = 32;
+
+  // matches/searches for objects
+  optional Filters filters = 40;
+  oneof search {
+    Hybrid hybrid = 41;
+    NearVector near_vector = 42;
+    NearObject near_object = 43;
+    NearTextSearch near_text = 44;
+    NearImageSearch near_image = 45;
+    NearAudioSearch near_audio = 46;
+    NearVideoSearch near_video = 47;
+    NearDepthSearch near_depth = 48;
+    NearThermalSearch near_thermal = 49;
+    NearIMUSearch near_imu = 50;
+  }
+}
+
+message AggregateReply {
+  message Aggregations {
+    message Aggregation {
+      message Integer {
+        optional int64 count = 1;
+        optional string type = 2;
+        optional double mean = 3;
+        optional double median = 4;
+        optional int64 mode = 5;
+        optional int64 maximum = 6;
+        optional int64 minimum = 7;
+        optional int64 sum = 8;
+      }
+      message Number {
+        optional int64 count = 1;
+        optional string type = 2;
+        optional double mean = 3;
+        optional double median = 4;
+        optional double mode = 5;
+        optional double maximum = 6;
+        optional double minimum = 7;
+        optional double sum = 8;
+      }
+      message Text {
+        message TopOccurrences {
+          message TopOccurrence {
+            string value = 1;
+            int64 occurs = 2;
+          }
+          repeated TopOccurrence items = 1;
+        }
+        optional int64 count = 1;
+        optional string type = 2;
+        optional TopOccurrences top_occurences = 3;
+      }
+      message Boolean {
+        optional int64 count = 1;
+        optional string type = 2;
+        optional int64 total_true = 3;
+        optional int64 total_false = 4;
+        optional double percentage_true = 5;
+        optional double percentage_false = 6;
+      }
+      message Date {
+        optional int64 count = 1;
+        optional string type = 2;
+        optional string median = 3;
+        optional string mode = 4;
+        optional string maximum = 5;
+        optional string minimum = 6;
+      }
+      message Reference {
+        optional string type = 1;
+        // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+        repeated string pointing_to = 2;
+      }
+      string property = 1;
+      oneof aggregation {
+        Integer int = 2;
+        Number number = 3;
+        Text text = 4;
+        Boolean boolean = 5;
+        Date date = 6;
+        Reference reference = 7;
+      }
+    }
+    repeated Aggregation aggregations = 1;
+  }
+  message Single {
+    optional int64 objects_count = 1;
+    optional Aggregations aggregations = 2;
+  }
+  message Group {
+    message GroupedBy {
+      // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+      repeated string path = 1;
+      oneof value {
+        string text = 2;
+        int64 int = 3;
+        bool boolean = 4;
+        double number = 5;
+        TextArray texts = 6;
+        IntArray ints = 7;
+        BooleanArray booleans = 8;
+        NumberArray numbers = 9;
+        GeoCoordinatesFilter geo = 10;
+      };
+    }
+    optional int64 objects_count = 1;
+    optional Aggregations aggregations = 2;
+    optional GroupedBy grouped_by = 3;
+  }
+  message Grouped {
+    repeated Group groups = 1;
+  }
+  float took = 1;
+  oneof result {
+    Single single_result = 2;
+    Grouped grouped_results = 3;
+  };
+}

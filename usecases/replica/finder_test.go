@@ -34,18 +34,18 @@ func object(id strfmt.UUID, lastTime int64) *storobj.Object {
 	}
 }
 
-func objectWithVectors(id strfmt.UUID, lastTime int64, vectors models.Vectors) *storobj.Object {
-	vectors2 := make(map[string][]float32, len(vectors))
-	for k, v := range vectors {
-		vectors2[k] = v
+func objectWithVectors(id strfmt.UUID, lastTime int64, vectors map[string][]float32) *storobj.Object {
+	vectors2 := make(models.Vectors, len(vectors))
+	for k, vec := range vectors {
+		vectors2[k] = vec
 	}
 	return &storobj.Object{
 		Object: models.Object{
 			ID:                 id,
 			LastUpdateTimeUnix: lastTime,
-			Vectors:            vectors,
+			Vectors:            vectors2,
 		},
-		Vectors: vectors2,
+		Vectors: vectors,
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -114,15 +115,20 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 	return b.propLenTracker.(*JsonShardMetaData)
 }
 
-func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params searchparams.KeywordRanking) (float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
+func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params searchparams.KeywordRanking) (bool, float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
+
+	// This flag checks whether all buckets are of the inverted strategy,
+	// and thus, compatible with BlockMaxWAND, or if there are other strategies present,
+	// which would require the old WAND implementation.
+	allBucketsAreInverted := true
 
 	var stopWordDetector *stopwords.Detector
 	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
 		var err error
 		stopWordDetector, err = stopwords.NewDetectorFromConfig(*(class.InvertedIndexConfig.Stopwords))
 		if err != nil {
-			return 0, nil, nil, nil, nil, 0, err
+			return false, 0, nil, nil, nil, nil, 0, err
 		}
 	}
 
@@ -165,7 +171,16 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 
 		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
-			return 0, nil, nil, nil, nil, 0, err
+			return false, 0, nil, nil, nil, nil, 0, err
+		}
+
+		bucket := b.GetBucket(property)
+		if bucket == nil {
+			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("could not find bucket for property %v", property)
+		}
+
+		if bucket.Strategy() != lsmkv.StrategyInverted {
+			allBucketsAreInverted = false
 		}
 
 		// A NaN here is the results of a corrupted prop length tracker.
@@ -179,18 +194,18 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 
 		prop, err := schema.GetPropertyByName(class, property)
 		if err != nil {
-			return 0, nil, nil, nil, nil, 0, err
+			return false, 0, nil, nil, nil, nil, 0, err
 		}
 
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			if _, exists := propNamesByTokenization[prop.Tokenization]; !exists {
-				return 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
+				return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
 					prop.Tokenization, prop.Name)
 			}
 			propNamesByTokenization[prop.Tokenization] = append(propNamesByTokenization[prop.Tokenization], property)
 		default:
-			return 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
+			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
 		}
 	}
 
@@ -203,13 +218,13 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 	if math.IsNaN(averagePropLength) || averagePropLength == 0 {
 		averagePropLength = 40.0
 	}
-	return N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
+	return allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
 }
 
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
+	_, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -293,7 +308,7 @@ func (b *BM25Searcher) wand(
 		Count: len(allRequests),
 	}
 
-	topKHeap := terms.DoWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+	topKHeap := lsmkv.DoWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
 
 	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
 }
@@ -382,6 +397,21 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 	return objs, scores, nil
 }
 
+func (b *BM25Searcher) getTopKIds(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]) ([]uint64, []float32, [][]*terms.DocPointerWithScore, error) {
+	scores := make([]float32, 0, topKHeap.Len())
+	ids := make([]uint64, 0, topKHeap.Len())
+	explanations := make([][]*terms.DocPointerWithScore, 0, topKHeap.Len())
+	for topKHeap.Len() > 0 {
+		res := topKHeap.Pop()
+		ids = append(ids, res.ID)
+		scores = append(scores, res.Dist)
+		if res.Value != nil {
+			explanations = append(explanations, res.Value)
+		}
+	}
+	return ids, scores, explanations, nil
+}
+
 func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, ctx context.Context) (*terms.Term, error) {
 	termResult := terms.NewTerm(query, queryTermIndex, float32(1.0), b.config)
 
@@ -441,7 +471,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	if filterDocIds != nil {
 		for _, docIDs := range filteredDocIDsThread {
 			if docIDs != nil {
-				filteredDocIDs.Or(docIDs)
+				filteredDocIDs.OrConc(docIDs, concurrency.SROAR_MERGE)
 			}
 		}
 	}

@@ -155,4 +155,21 @@ func TestMoveVectorToAnother(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("should error for multivectors", func(t *testing.T) {
+		source := [][]float32{{0, 1}, {2, 3}}
+		target := [][]float32{{0, 1}, {2, 3}}
+
+		t.Run("multivectors moveTo", func(t *testing.T) {
+			v := newMovements[[][]float32]()
+			_, err := v.MoveTo(source, target, 0)
+			assert.Equal(t, err, fmt.Errorf("move to operations are not applicable for multivector embeddings"))
+		})
+
+		t.Run("multivectors moveAwayFrom", func(t *testing.T) {
+			v := newMovements[[][]float32]()
+			_, err := v.MoveAwayFrom(source, target, 0)
+			assert.Equal(t, err, fmt.Errorf("move away from operations are not applicable for multivector embeddings"))
+		})
+	})
 }

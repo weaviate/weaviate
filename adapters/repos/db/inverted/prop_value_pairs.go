@@ -14,14 +14,16 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -55,7 +57,6 @@ func newPropValuePair(class *models.Class, logger logrus.FieldLogger) (*propValu
 
 func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
-
 		// TODO text_rbm_inverted_index find better way check whether prop len
 		if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
 			!pv.Class.InvertedIndexConfig.IndexPropertyLength {
@@ -125,35 +126,52 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 		return &pv.docIDs, nil
 	}
 
-	if pv.operator != filters.OperatorAnd && pv.operator != filters.OperatorOr {
+	switch pv.operator {
+	case filters.OperatorAnd:
+	case filters.OperatorOr:
+		// ok
+	default:
 		return nil, fmt.Errorf("unsupported operator: %s", pv.operator.Name())
 	}
-	if len(pv.children) == 0 {
+
+	switch len(pv.children) {
+	case 0:
 		return nil, fmt.Errorf("no children for operator: %s", pv.operator.Name())
+	case 1:
+		return pv.children[0].mergeDocIDs()
 	}
 
+	var err error
 	dbms := make([]*docBitmap, len(pv.children))
 	for i, child := range pv.children {
-		dbm, err := child.mergeDocIDs()
+		dbms[i], err = child.mergeDocIDs()
 		if err != nil {
 			return nil, errors.Wrapf(err, "retrieve doc bitmap of child %d", i)
 		}
-		dbms[i] = dbm
 	}
 
-	mergeRes := dbms[0].docIDs.Clone()
-	mergeFn := mergeRes.And
+	var mergeFn func(*sroar.Bitmap, int) *sroar.Bitmap
 	if pv.operator == filters.OperatorOr {
-		mergeFn = mergeRes.Or
+		// biggest to smallest, so smaller bitmaps are merged into biggest one,
+		// minimising chance of expanding destination bitmap (memory allocations)
+		sort.Slice(dbms, func(i, j int) bool {
+			return dbms[i].docIDs.CompareNumKeys(dbms[j].docIDs) > 0
+		})
+		mergeFn = dbms[0].docIDs.OrConc
+	} else {
+		// smallest to biggest, so data is removed from smallest bitmap
+		// allowing bigger bitmaps to be garbage collected asap
+		sort.Slice(dbms, func(i, j int) bool {
+			return dbms[i].docIDs.CompareNumKeys(dbms[j].docIDs) < 0
+		})
+		mergeFn = dbms[0].docIDs.AndConc
 	}
 
 	for i := 1; i < len(dbms); i++ {
-		mergeFn(dbms[i].docIDs)
+		mergeFn(dbms[i].docIDs, concurrency.SROAR_MERGE)
+		dbms[i].release()
 	}
-
-	return &docBitmap{
-		docIDs: roaringset.Condense(mergeRes),
-	}, nil
+	return dbms[0], nil
 }
 
 func (pv *propValuePair) getBucketName() string {

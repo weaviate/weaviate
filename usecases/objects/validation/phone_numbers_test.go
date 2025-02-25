@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -169,7 +170,13 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 			}
 			schema := testSchema()
 			err := validator.properties(context.Background(), schema.Objects.Classes[0], obj, nil)
-			assert.Equal(t, test.expectedErr, err)
+
+			if test.expectedErr != nil {
+				assert.Equal(t, test.expectedErr.Error(), err.Error())
+			} else {
+				assert.Equal(t, test.expectedErr, err)
+			}
+
 			if err != nil {
 				return
 			}

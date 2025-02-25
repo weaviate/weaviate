@@ -16,9 +16,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -28,6 +27,8 @@ const (
 	ROLE_NAME_PREFIX = "role:"
 	// USER_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
 	USER_NAME_PREFIX = "user:"
+	// GROUP_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
+	GROUP_NAME_PREFIX = "group:"
 
 	// CRUD allow all actions on a resource
 	// this is internal for casbin to handle admin actions
@@ -43,14 +44,16 @@ var (
 	BuiltInPolicies = map[string]string{
 		authorization.Viewer: authorization.READ,
 		authorization.Admin:  CRUD,
+		authorization.Root:   CRUD,
 	}
-	actions = map[string]string{
-		CRUD:                 "manage",
-		CRU:                  "manage",
-		authorization.CREATE: "create",
-		authorization.READ:   "read",
-		authorization.UPDATE: "update",
-		authorization.DELETE: "delete",
+	weaviate_actions_prefixes = map[string]string{
+		CRUD:                           "manage",
+		CRU:                            "manage",
+		authorization.ROLE_SCOPE_MATCH: "manage",
+		authorization.CREATE:           "create",
+		authorization.READ:             "read",
+		authorization.UPDATE:           "update",
+		authorization.DELETE:           "delete",
 	}
 )
 
@@ -155,50 +158,91 @@ func CasbinData(collection, shard, object string) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
 }
 
+func extractFromExtAction(inputAction string) (string, string, error) {
+	splits := strings.Split(inputAction, "_")
+	if len(splits) < 2 {
+		return "", "", fmt.Errorf("invalid action: %s", inputAction)
+	}
+	domain := splits[len(splits)-1]
+	verb := strings.ToUpper(splits[0][:1])
+	if verb == "M" {
+		verb = CRUD
+	}
+	if verb == "A" {
+		verb = authorization.UPDATE
+	}
+
+	if !validVerb(verb) {
+		return "", "", fmt.Errorf("invalid verb: %s", verb)
+	}
+
+	return verb, domain, nil
+}
+
+// casbinPolicyDomains decouples the endpoints domains
+// from the casbin internal domains.
+// e.g.
+// [create_collections, create_tenants] -> schema domain
+func casbinPolicyDomains(domain string) string {
+	switch domain {
+	case authorization.CollectionsDomain, authorization.TenantsDomain:
+		return authorization.SchemaDomain
+	default:
+		return domain
+	}
+}
+
 func policy(permission *models.Permission) (*authorization.Policy, error) {
 	if permission.Action == nil {
 		return &authorization.Policy{Resource: InternalPlaceHolder}, nil
 	}
-	action, domain, found := strings.Cut(*permission.Action, "_")
-	if !found {
-		return nil, fmt.Errorf("invalid action: %s", *permission.Action)
-	}
-	verb := strings.ToUpper(action[:1])
-	if verb == "M" {
-		verb = CRUD
-	}
 
-	if domain == "collections" {
-		// TODO-RBAC find better way to handle the internal vs external mapping
-		domain = authorization.SchemaDomain
-	}
-
-	if !validVerb(verb) {
-		return nil, fmt.Errorf("invalid verb: %s", verb)
+	verb, domain, err := extractFromExtAction(*permission.Action)
+	if err != nil {
+		return nil, err
 	}
 
 	var resource string
 	switch domain {
 	case authorization.UsersDomain:
-		// do nothing TODO-RBAC: to be handled when dynamic users management gets added
 		user := "*"
+		if permission.Users != nil && permission.Users.Users != nil {
+			user = *permission.Users.Users
+		}
 		resource = CasbinUsers(user)
 	case authorization.RolesDomain:
 		role := "*"
+		// default verb for role to handle cases where role is nil
+		origVerb := verb
+		verb = authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_MATCH)
 		if permission.Roles != nil && permission.Roles.Role != nil {
 			role = *permission.Roles.Role
+			if permission.Roles.Scope != nil {
+				verb = authorization.VerbWithScope(origVerb, strings.ToUpper(*permission.Roles.Scope))
+			}
 		}
 		resource = CasbinRoles(role)
 	case authorization.ClusterDomain:
 		resource = CasbinClusters()
-	case authorization.SchemaDomain:
+	case authorization.CollectionsDomain:
 		collection := "*"
-		tenant := "*"
+		tenant := "#"
 		if permission.Collections != nil && permission.Collections.Collection != nil {
 			collection = schema.UppercaseClassName(*permission.Collections.Collection)
 		}
-		if permission.Collections != nil && permission.Collections.Tenant != nil {
-			tenant = *permission.Collections.Tenant
+		resource = CasbinSchema(collection, tenant)
+
+	case authorization.TenantsDomain:
+		collection := "*"
+		tenant := "*"
+		if permission.Tenants != nil {
+			if permission.Tenants.Collection != nil {
+				collection = schema.UppercaseClassName(*permission.Tenants.Collection)
+			}
+
+			if permission.Tenants.Tenant != nil {
+				tenant = *permission.Tenants.Tenant
+			}
 		}
 		resource = CasbinSchema(collection, tenant)
 	case authorization.DataDomain:
@@ -246,11 +290,35 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	return &authorization.Policy{
 		Resource: resource,
 		Verb:     verb,
-		Domain:   domain,
+		Domain:   casbinPolicyDomains(domain),
 	}, nil
 }
 
-func permission(policy []string) (*models.Permission, error) {
+func weaviatePermissionAction(pathLastPart, verb, domain string) string {
+	action := fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], domain)
+	action = strings.ReplaceAll(action, "_*", "")
+	switch domain {
+	case authorization.SchemaDomain:
+		if pathLastPart == "#" {
+			// e.g
+			// schema/collections/ABC/shards/#    collection permission
+			// schema/collections/ABC/shards/*    tenant permission
+			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.CollectionsDomain)
+		} else {
+			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.TenantsDomain)
+		}
+		return action
+	case authorization.UsersDomain:
+		if verb == authorization.UPDATE {
+			action = authorization.AssignAndRevokeUsers
+		}
+		return action
+	default:
+		return action
+	}
+}
+
+func permission(policy []string, validatePath bool) (*models.Permission, error) {
 	mapped := newPolicy(policy)
 
 	if mapped.Resource == InternalPlaceHolder {
@@ -261,27 +329,26 @@ func permission(policy []string) (*models.Permission, error) {
 		return nil, fmt.Errorf("invalid verb: %s", mapped.Verb)
 	}
 
-	// TODO find better way to handle the internal vs external mapping
-	if mapped.Domain == authorization.SchemaDomain {
-		mapped.Domain = "collections"
-	}
-
-	action := fmt.Sprintf("%s_%s", actions[mapped.Verb], mapped.Domain)
-	action = strings.ReplaceAll(action, "_*", "")
-	permission := &models.Permission{
-		Action: &action,
-	}
+	permission := &models.Permission{}
 
 	splits := strings.Split(mapped.Resource, "/")
-	if !validResource(mapped.Resource) {
+
+	// validating the resource can be expensive (regexp!)
+	if validatePath && !validResource(mapped.Resource) {
 		return nil, fmt.Errorf("invalid resource: %s", mapped.Resource)
 	}
 
 	switch mapped.Domain {
-	case authorization.SchemaDomain, "collections":
-		permission.Collections = &models.PermissionCollections{
-			Collection: &splits[2],
-			Tenant:     &splits[4],
+	case authorization.SchemaDomain:
+		if splits[4] == "#" {
+			permission.Collections = &models.PermissionCollections{
+				Collection: &splits[2],
+			}
+		} else {
+			permission.Tenants = &models.PermissionTenants{
+				Collection: &splits[2],
+				Tenant:     &splits[4],
+			}
 		}
 	case authorization.DataDomain:
 		permission.Data = &models.PermissionData{
@@ -293,6 +360,12 @@ func permission(policy []string) (*models.Permission, error) {
 		permission.Roles = &models.PermissionRoles{
 			Role: &splits[1],
 		}
+
+		verbSplits := strings.Split(mapped.Verb, "_")
+		mapped.Verb = verbSplits[0]
+		scope := strings.ToLower(verbSplits[1])
+		permission.Roles.Scope = &scope
+
 	case authorization.NodesDomain:
 		verbosity := splits[2]
 		var collection *string
@@ -309,18 +382,25 @@ func permission(policy []string) (*models.Permission, error) {
 		permission.Backups = &models.PermissionBackups{
 			Collection: &splits[2],
 		}
+	case authorization.UsersDomain:
+		permission.Users = &models.PermissionUsers{
+			Users: &splits[1],
+		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
 		permission.Nodes = authorization.AllNodes
 		permission.Roles = authorization.AllRoles
 		permission.Collections = authorization.AllCollections
-	case authorization.ClusterDomain, authorization.UsersDomain:
+		permission.Tenants = authorization.AllTenants
+		permission.Users = authorization.AllUsers
+	case authorization.ClusterDomain:
 		// do nothing
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
 	}
 
+	permission.Action = authorization.String(weaviatePermissionAction(splits[len(splits)-1], mapped.Verb, mapped.Domain))
 	return permission, nil
 }
 
@@ -328,7 +408,6 @@ func validResource(input string) bool {
 	for _, pattern := range resourcePatterns {
 		matched, err := regexp.MatchString(pattern, input)
 		if err != nil {
-			fmt.Printf("Error matching pattern: %v\n", err)
 			return false
 		}
 		if matched {
@@ -354,6 +433,20 @@ func PrefixUserName(name string) string {
 		return name
 	}
 	return fmt.Sprintf("%s%s", USER_NAME_PREFIX, name)
+}
+
+func PrefixGroupName(name string) string {
+	if strings.HasPrefix(name, GROUP_NAME_PREFIX) {
+		return name
+	}
+	return fmt.Sprintf("%s%s", GROUP_NAME_PREFIX, name)
+}
+
+func PrefixDefaultToUser(name string) string {
+	if strings.HasPrefix(name, GROUP_NAME_PREFIX) {
+		return name
+	}
+	return PrefixUserName(name)
 }
 
 func TrimRoleNamePrefix(name string) string {

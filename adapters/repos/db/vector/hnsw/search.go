@@ -20,18 +20,26 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
-const defaultAcornMaxFilterPercentage = 0.4
+type FilterStrategy int
+
+const (
+	SWEEPING FilterStrategy = iota
+	ACORN
+	RRE
+)
 
 func (h *hnsw) searchTimeEF(k int) int {
 	// load atomically, so we can get away with concurrent updates of the
@@ -114,71 +122,25 @@ func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	var (
-		searchParams = newSearchByDistParams(maxLimit)
+	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
+		h.SearchByVector, h.logger)
+}
 
-		resultIDs  []uint64
-		resultDist []float32
-	)
-
-	recursiveSearch := func() (bool, error) {
-		shouldContinue := false
-
-		ids, dist, err := h.SearchByVector(ctx, vector, searchParams.totalLimit, allowList)
-		if err != nil {
-			return false, errors.Wrap(err, "vector search")
-		}
-
-		// ensures the indexers aren't out of range
-		offsetCap := searchParams.offsetCapacity(ids)
-		totalLimitCap := searchParams.totalLimitCapacity(ids)
-
-		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
-
-		if len(ids) == 0 {
-			return false, nil
-		}
-
-		lastFound := dist[len(dist)-1]
-		shouldContinue = lastFound <= targetDistance
-
-		for i := range ids {
-			if aboveThresh := dist[i] <= targetDistance; aboveThresh ||
-				floatcomp.InDelta(float64(dist[i]), float64(targetDistance), 1e-6) {
-				resultIDs = append(resultIDs, ids[i])
-				resultDist = append(resultDist, dist[i])
-			} else {
-				// as soon as we encounter a certainty which
-				// is below threshold, we can stop searching
-				break
-			}
-		}
-
-		return shouldContinue, nil
-	}
-
-	shouldContinue, err := recursiveSearch()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	for shouldContinue {
-		searchParams.iterate()
-		if searchParams.maxLimitReached() {
-			h.logger.
-				WithField("action", "unlimited_vector_search").
-				Warnf("maximum search limit of %d results has been reached",
-					searchParams.maximumSearchLimit)
-			break
-		}
-
-		shouldContinue, err = recursiveSearch()
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	return resultIDs, resultDist, nil
+// SearchByMultiVectorDistance wraps SearchByMultiVector, and calls it recursively until
+// the search results contain all vector within the threshold specified by the
+// target distance.
+//
+// The maxLimit param will place an upper bound on the number of search results
+// returned. This is used in situations where the results of the method are all
+// eventually turned into objects, for example, a Get query. If the caller just
+// needs ids for sake of something like aggregation, a maxLimit of -1 can be
+// passed in to truly obtain all results from the vector index.
+func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32,
+	targetDistance float32, maxLimit int64,
+	allowList helpers.AllowList,
+) ([]uint64, []float32, error) {
+	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
+		h.SearchByMultiVector, h.logger)
 }
 
 func (h *hnsw) shouldRescore() bool {
@@ -195,26 +157,37 @@ func (h *hnsw) cacheSize() int64 {
 	return size
 }
 
-func (h *hnsw) acornParams(allowList helpers.AllowList) (bool, int) {
-	useAcorn := h.acornSearch.Load()
-	var M int
-
-	if allowList != nil && useAcorn {
-		cacheSize := h.cacheSize()
-		allowListSize := allowList.Len()
-		if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > defaultAcornMaxFilterPercentage {
-			useAcorn = false
-		}
-		M = int(cacheSize / int64(max(1, allowListSize)))
-		M = min(M, 8)
+func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
+	if allowList == nil || !h.acornSearch.Load() {
+		return false
 	}
-	return useAcorn, M
+
+	cacheSize := h.cacheSize()
+	allowListSize := allowList.Len()
+	if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > float32(h.acornFilterRatio) {
+		return false
+	}
+
+	return true
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
-	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
+	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
+) (*priorityqueue.Queue[any], error,
+) {
+	if h.acornEnabled(allowList) {
+		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, ACORN)
+	}
+	return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, SWEEPING)
+}
+
+func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
+	queryVector []float32,
+	entrypoints *priorityqueue.Queue[any], ef int, level int,
+	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
+	strategy FilterStrategy) (*priorityqueue.Queue[any], error,
 ) {
 	start := time.Now()
 	defer func() {
@@ -225,8 +198,6 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	visited := h.pools.visitedLists.Borrow()
 	visitedExp := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.RUnlock()
-
-	useAcorn, M := h.acornParams(allowList)
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -255,13 +226,15 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 		return nil, errors.Wrapf(err, "calculate distance of current last result")
 	}
 	var connectionsReusable []uint64
-
 	var sliceConnectionsReusable *common.VectorUint64Slice
 	var slicePendingNextRound *common.VectorUint64Slice
 	var slicePendingThisRound *common.VectorUint64Slice
 
-	if allowList != nil && useAcorn {
-		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
+	if allowList == nil {
+		strategy = SWEEPING
+	}
+	if strategy == ACORN {
+		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(8 * h.maximumConnectionsLayerZero)
 		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 		slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 	} else {
@@ -305,7 +278,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 			continue
 		}
 
-		if allowList == nil || !useAcorn {
+		if strategy != ACORN {
 			if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
 				// How is it possible that we could ever have more connections than the
 				// allowed maximum? It is not anymore, but there was a bug that allowed
@@ -335,7 +308,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 			copy(pendingNextRound, candidateNode.connections[level])
 			hop := 1
 			maxHops := 2
-			for hop <= maxHops && realLen < M*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
+			for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
 				if cap(pendingThisRound) >= len(pendingNextRound) {
 					pendingThisRound = pendingThisRound[:len(pendingNextRound)]
 				} else {
@@ -344,7 +317,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 				}
 				copy(pendingThisRound, pendingNextRound)
 				pendingNextRound = pendingNextRound[:0]
-				for index < len(pendingThisRound) && realLen < M*h.maximumConnectionsLayerZero {
+				for index < len(pendingThisRound) && realLen < 8*h.maximumConnectionsLayerZero {
 					nodeId := pendingThisRound[index]
 					index++
 					if ok := visited.Visited(nodeId); ok {
@@ -379,7 +352,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 							continue
 						}
 
-						if realLen >= M*h.maximumConnectionsLayerZero {
+						if realLen >= 8*h.maximumConnectionsLayerZero {
 							break
 						}
 
@@ -408,6 +381,12 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 
 			// make sure we never visit this neighbor again
 			visited.Visit(neighborID)
+
+			if strategy == RRE && level == 0 {
+				if !allowList.Contains(neighborID) {
+					continue
+				}
+			}
 			var distance float32
 			var err error
 			if h.compressed.Load() {
@@ -431,7 +410,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
-				if !useAcorn && level == 0 && allowList != nil {
+				if strategy == SWEEPING && level == 0 && allowList != nil {
 					// we are on the lowest level containing the actual candidates and we
 					// have an allow list (i.e. the user has probably set some sort of a
 					// filter restricting this search further. As a result we have to
@@ -465,7 +444,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 		}
 	}
 
-	if allowList != nil && useAcorn {
+	if strategy == ACORN {
 		h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
 		h.pools.tempVectorsUint64.Put(slicePendingNextRound)
 		h.pools.tempVectorsUint64.Put(slicePendingThisRound)
@@ -566,7 +545,20 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, error) {
 	slice := h.pools.tempVectors.Get(int(h.dims))
 	defer h.pools.tempVectors.Put(slice)
-	vec, err := h.TempVectorForIDThunk(context.Background(), nodeID, slice)
+	var vec []float32
+	var err error
+	if !h.multivector.Load() {
+		vec, err = h.TempVectorForIDThunk(context.Background(), nodeID, slice)
+	} else {
+		docID, relativeID := h.cache.GetKeys(nodeID)
+		vecs, err := h.TempMultiVectorForIDThunk(context.Background(), docID, slice)
+		if err != nil {
+			return 0, err
+		} else if len(vecs) <= int(relativeID) {
+			return 0, errors.Errorf("relativeID %d is out of bounds for docID %d", relativeID, docID)
+		}
+		vec = vecs[relativeID]
+	}
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -612,108 +604,11 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 			"tombstone was added", docID)
 }
 
-type FastSet struct {
-	boolSet []bool
-	size    int
-}
-
-func NewFastSet(allow helpers.AllowList) *FastSet {
-	bools := make([]bool, allow.Max()+1)
-	it := allow.Iterator()
-	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		bools[docID] = true
-	}
-	return &FastSet{
-		boolSet: bools,
-		size:    allow.Len(),
-	}
-}
-
-func (s *FastSet) Contains(node uint64) bool {
-	return uint64(len(s.boolSet)) > node && s.boolSet[node]
-}
-
-func (s *FastSet) DeepCopy() helpers.AllowList {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Insert(ids ...uint64) {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) WrapOnWrite() helpers.AllowList {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Slice() []uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) IsEmpty() bool {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Len() int {
-	return s.size
-}
-
-func (s *FastSet) Min() uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Max() uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Size() uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Truncate(uint64) helpers.AllowList {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Iterator() helpers.AllowListIterator {
-	return &fastIterator{
-		source:  s,
-		current: 0,
-	}
-}
-
-func (s *FastSet) LimitedIterator(limit int) helpers.AllowListIterator {
-	panic("DeepCopy")
-}
-
-type fastIterator struct {
-	current uint64
-	source  *FastSet
-}
-
-func (s *fastIterator) Len() int {
-	return s.source.Len()
-}
-
-func (s *fastIterator) Next() (uint64, bool) {
-	index := s.current
-	size := uint64(len(s.source.boolSet))
-	for index < size && !s.source.boolSet[index] {
-		index++
-	}
-	s.current = index + 1
-	return index, index < size
-}
-
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	if h.isEmpty() {
 		return nil, nil, nil
-	}
-
-	useAcorn, _ := h.acornParams(allowList)
-
-	if allowList != nil && useAcorn {
-		allowList = NewFastSet(allowList)
 	}
 
 	if k < 0 {
@@ -790,24 +685,50 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 	eps := priorityqueue.NewMin[any](10)
 	eps.Insert(entryPointID, entryPointDistance)
-	if allowList != nil && useAcorn {
-		size := h.maximumConnectionsLayerZero
-		if size >= ef {
-			size = ef - 1
+	var strategy FilterStrategy
+	h.shardedNodeLocks.RLock(entryPointID)
+	entryPointNode := h.nodes[entryPointID]
+	h.shardedNodeLocks.RUnlock(entryPointID)
+	useAcorn := h.acornEnabled(allowList)
+	if useAcorn {
+		if entryPointNode == nil {
+			strategy = RRE
+		} else {
+			counter := float32(0)
+			entryPointNode.Lock()
+			if len(entryPointNode.connections) < 1 {
+				strategy = ACORN
+			} else {
+				for _, id := range entryPointNode.connections[0] {
+					if allowList.Contains(id) {
+						counter++
+					}
+				}
+				entryPointNode.Unlock()
+				if counter/float32(len(h.nodes[entryPointID].connections[0])) > float32(h.acornFilterRatio) {
+					strategy = RRE
+				} else {
+					strategy = ACORN
+				}
+			}
 		}
-		it := allowList.Iterator()
-		i := 0
-		seeds := make([]uint64, size)
-		for idx, ok := it.Next(); ok && i < size; idx, ok = it.Next() {
-			seeds[i] = idx
-			i++
-		}
-		for _, entryPoint := range seeds {
-			entryPointDistance, _ := h.distToNode(compressorDistancer, entryPoint, searchVec)
-			eps.Insert(entryPoint, entryPointDistance)
-		}
+	} else {
+		strategy = SWEEPING
 	}
-	res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer)
+
+	if allowList != nil && useAcorn {
+		it := allowList.Iterator()
+		idx, ok := it.Next()
+		h.shardedNodeLocks.RLockAll()
+		for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
+			idx, ok = it.Next()
+		}
+		h.shardedNodeLocks.RUnlockAll()
+
+		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
+		eps.Insert(idx, entryPointDistance)
+	}
+	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
@@ -847,7 +768,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	kPrime := k
-	candidateSet := make(map[uint64]bool)
+	candidateSet := make(map[uint64]struct{})
 	for _, vec := range queryVectors {
 		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
 		if err != nil {
@@ -860,14 +781,14 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 			} else {
 				docId, _ = h.compressor.GetKeys(id)
 			}
-			candidateSet[docId] = true
+			candidateSet[docId] = struct{}{}
 		}
 	}
 	return h.computeLateInteraction(queryVectors, k, candidateSet)
 }
 
-func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidateSet map[uint64]bool) ([]uint64, []float32, error) {
-	resultsQueue := priorityqueue.NewMin[any](1)
+func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidateSet map[uint64]struct{}) ([]uint64, []float32, error) {
+	resultsQueue := priorityqueue.NewMax[any](1)
 	for docID := range candidateSet {
 		sim, err := h.computeScore(queryVectors, docID)
 		if err != nil {
@@ -897,37 +818,38 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 	h.RLock()
 	vecIDs := h.docIDVectors[docID]
 	h.RUnlock()
-	docVecs := make([][]float32, len(vecIDs))
-	errs := make([]error, len(vecIDs))
+	var docVecs [][]float32
 	if h.compressed.Load() {
 		slice := h.pools.tempVectors.Get(int(h.dims))
-		for i, vecID := range vecIDs {
-			vec, err := h.TempVectorForIDThunk(context.Background(), vecID, slice)
-			if err != nil {
-				return 0.0, errors.Wrap(err, "get vector for docID")
-			}
-			docVecs[i] = make([]float32, len(vec))
-			copy(docVecs[i], vec)
+		var err error
+		docVecs, err = h.TempMultiVectorForIDThunk(context.Background(), docID, slice)
+		if err != nil {
+			return 0.0, errors.Wrap(err, "get vector for docID")
 		}
 		h.pools.tempVectors.Put(slice)
 	} else {
+		var errs []error
 		docVecs, errs = h.multiVectorForID(context.TODO(), vecIDs)
-	}
-
-	for _, err := range errs {
-		if err != nil {
-			return 0.0, errors.Wrap(err, "get vector for docID")
+		for _, err := range errs {
+			if err != nil {
+				return 0.0, errors.Wrap(err, "get vector for docID")
+			}
 		}
 	}
 
 	similarity := float32(0.0)
 
+	var distancer distancer.Distancer
 	for _, searchVec := range searchVecs {
-		maxSim := float32(-math.MaxFloat32)
+		maxSim := float32(math.MaxFloat32)
+		distancer = h.multiDistancerProvider.New(searchVec)
 
 		for _, docVec := range docVecs {
-			dist := h.distancerProvider.Step(searchVec, docVec)
-			if dist > maxSim {
+			dist, err := distancer.Distance(docVec)
+			if err != nil {
+				return 0.0, errors.Wrap(err, "calculate distance between candidate and query")
+			}
+			if dist < maxSim {
 				maxSim = dist
 			}
 		}
@@ -961,6 +883,20 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 		}
 		return common.QueryVectorDistancer{DistanceFunc: f}
 	}
+}
+
+func (h *hnsw) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
+	queryVector = h.normalizeVecs(queryVector)
+	f := func(docID uint64) (float32, error) {
+		h.RLock()
+		_, ok := h.docIDVectors[docID]
+		h.RUnlock()
+		if !ok {
+			return -1, fmt.Errorf("docID %v is not in the vector index", docID)
+		}
+		return h.computeScore(queryVector, docID)
+	}
+	return common.QueryVectorDistancer{DistanceFunc: f}
 }
 
 func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) error {
@@ -1088,4 +1024,77 @@ func (params *searchByDistParams) maxLimitReached() bool {
 	}
 
 	return int64(params.totalLimit) > params.maximumSearchLimit
+}
+
+func searchByVectorDistance[T dto.Embedding](ctx context.Context, vector T,
+	targetDistance float32, maxLimit int64,
+	allowList helpers.AllowList,
+	searchByVector func(context.Context, T, int, helpers.AllowList) ([]uint64, []float32, error),
+	logger logrus.FieldLogger,
+) ([]uint64, []float32, error) {
+	var (
+		searchParams = newSearchByDistParams(maxLimit)
+
+		resultIDs  []uint64
+		resultDist []float32
+	)
+
+	recursiveSearch := func() (bool, error) {
+		shouldContinue := false
+
+		ids, dist, err := searchByVector(ctx, vector, searchParams.totalLimit, allowList)
+		if err != nil {
+			return false, errors.Wrap(err, "vector search")
+		}
+
+		// ensures the indexers aren't out of range
+		offsetCap := searchParams.offsetCapacity(ids)
+		totalLimitCap := searchParams.totalLimitCapacity(ids)
+
+		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
+
+		if len(ids) == 0 {
+			return false, nil
+		}
+
+		lastFound := dist[len(dist)-1]
+		shouldContinue = lastFound <= targetDistance
+
+		for i := range ids {
+			if aboveThresh := dist[i] <= targetDistance; aboveThresh ||
+				floatcomp.InDelta(float64(dist[i]), float64(targetDistance), 1e-6) {
+				resultIDs = append(resultIDs, ids[i])
+				resultDist = append(resultDist, dist[i])
+			} else {
+				// as soon as we encounter a certainty which
+				// is below threshold, we can stop searching
+				break
+			}
+		}
+
+		return shouldContinue, nil
+	}
+
+	shouldContinue, err := recursiveSearch()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for shouldContinue {
+		searchParams.iterate()
+		if searchParams.maxLimitReached() {
+			logger.
+				WithField("action", "unlimited_vector_search").
+				Warnf("maximum search limit of %d results has been reached",
+					searchParams.maximumSearchLimit)
+			break
+		}
+
+		shouldContinue, err = recursiveSearch()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return resultIDs, resultDist, nil
 }

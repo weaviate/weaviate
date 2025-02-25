@@ -15,20 +15,20 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
-type Searcher[T types.Embedding] struct {
+type Searcher[T dto.Embedding] struct {
 	vectorizer bindVectorizer[T]
 }
 
-func NewSearcher[T types.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
+func NewSearcher[T dto.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
 	return &Searcher[T]{vectorizer}
 }
 
-type bindVectorizer[T types.Embedding] interface {
+type bindVectorizer[T dto.Embedding] interface {
 	VectorizeVideo(ctx context.Context, video string, cfg moduletools.ClassConfig) (T, error)
 }
 
@@ -38,7 +38,7 @@ func (s *Searcher[T]) VectorSearches() map[string]modulecapabilities.VectorForPa
 	return vectorSearches
 }
 
-type vectorForParams[T types.Embedding] struct {
+type vectorForParams[T dto.Embedding] struct {
 	vectorizer bindVectorizer[T]
 }
 

@@ -30,7 +30,7 @@ func ExtractFilters(args map[string]interface{}, rootClass string) (*filters.Loc
 		whereMap := where.(map[string]interface{}) // guaranteed by GraphQL to be a map.
 		filter, err := filterMapToModel(whereMap)
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract filters: %s", err)
+			return nil, fmt.Errorf("failed to extract filters: %w", err)
 		}
 
 		return filterext.Parse(filter, rootClass)
@@ -40,13 +40,13 @@ func ExtractFilters(args map[string]interface{}, rootClass string) (*filters.Loc
 func filterMapToModel(m map[string]interface{}) (*models.WhereFilter, error) {
 	b, err := json.Marshal(m)
 	if err != nil {
-		return nil, fmt.Errorf("failed convert map to models.WhereFilter: %s", err)
+		return nil, fmt.Errorf("failed convert map to models.WhereFilter: %w", err)
 	}
 
 	var filter WhereFilter
 	err = json.Unmarshal(b, &filter)
 	if err != nil {
-		return nil, fmt.Errorf("failed convert map to models.WhereFilter: %s", err)
+		return nil, fmt.Errorf("failed convert map to models.WhereFilter: %w", err)
 	}
 
 	return newConverter().do(&filter)

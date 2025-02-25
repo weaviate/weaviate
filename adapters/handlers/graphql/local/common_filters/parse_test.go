@@ -334,7 +334,7 @@ func TestExtractNearVector(t *testing.T) {
 
 		query := `{ SomeAction(nearVector: {vector: [1, 2, 3], certainty: 0.7})}`
 		expectedparams := searchparams.NearVector{
-			Vectors:   [][]float32{{1, 2, 3}},
+			Vectors:   []models.Vector{[]float32{1, 2, 3}},
 			Certainty: 0.7,
 		}
 
@@ -351,7 +351,7 @@ func TestExtractNearVector(t *testing.T) {
 
 		query := `{ SomeAction(nearVector: {vector: [1, 2, 3], distance: 0.4})}`
 		expectedparams := searchparams.NearVector{
-			Vectors:      [][]float32{{1, 2, 3}},
+			Vectors:      []models.Vector{[]float32{1, 2, 3}},
 			Distance:     0.4,
 			WithDistance: true,
 		}

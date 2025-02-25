@@ -18,9 +18,11 @@ import (
 	"io"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -82,7 +84,7 @@ type RemoteIndexClient interface {
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
-		searchVector [][]float32, targetVector []string, limit int, filters *filters.LocalFilter,
+		searchVector []models.Vector, targetVector []string, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
@@ -254,7 +256,7 @@ type ReplicasSearchResult struct {
 func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	log logrus.FieldLogger,
 	shard string,
-	queryVec [][]float32,
+	queryVec []models.Vector,
 	targetVector []string,
 	limit int,
 	filters *filters.LocalFilter,
@@ -280,7 +282,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 }
 
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
-	queryVec [][]float32,
+	queryVec []models.Vector,
 	targetVector []string,
 	limit int,
 	filters *filters.LocalFilter,
@@ -428,6 +430,8 @@ func (ri *RemoteIndex) queryAllReplicas(
 		return do(replica, host)
 	}
 
+	var queriesSent atomic.Int64
+
 	queryAll := func(replicas []string) (resp []ReplicasSearchResult, err error) {
 		var mu sync.Mutex // protect resp + errlist
 		var searchResult ReplicasSearchResult
@@ -452,6 +456,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 					return
 				}
 
+				queriesSent.Add(1)
 				if searchResult, err = queryOne(node); err != nil {
 					mu.Lock()
 					errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, err))
@@ -474,8 +479,8 @@ func (ri *RemoteIndex) queryAllReplicas(
 		if len(resp) == 0 {
 			return nil, errList
 		}
-		if len(resp) != len(replicas)-1 {
-			log.Warnf("full replicas search has less results than the count of replicas: have=%d want=%d", len(resp), len(replicas)-1)
+		if len(resp) != int(queriesSent.Load()) {
+			log.Warnf("full replicas search response does not match replica count: response=%d replicas=%d", len(resp), len(replicas))
 		}
 		return resp, nil
 	}

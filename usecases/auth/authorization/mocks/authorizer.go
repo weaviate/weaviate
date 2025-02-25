@@ -43,6 +43,17 @@ func (a *FakeAuthorizer) Authorize(principal *models.Principal, verb string, res
 	return nil
 }
 
+func (a *FakeAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
+	return a.Authorize(principal, verb, resources...)
+}
+
+func (a *FakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	if err := a.Authorize(principal, verb, resources...); err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+
 func (a *FakeAuthorizer) Calls() []AuthZReq {
 	return a.requests
 }

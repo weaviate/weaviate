@@ -20,13 +20,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -213,7 +213,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	//       See: https://github.com/weaviate/weaviate/issues/5241
 	forceCompaction := shouldForceCompaction()
 	if err := index.store.CreateOrLoadBucket(ctx, index.getBucketName(),
-		lsmkv.WithForceCompation(forceCompaction),
+		lsmkv.WithForceCompaction(forceCompaction),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
 
@@ -231,7 +231,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	}
 	if index.isBQ() {
 		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
-			lsmkv.WithForceCompation(forceCompaction),
+			lsmkv.WithForceCompaction(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
 			lsmkv.WithCalcCountNetAdditions(false),
 
@@ -721,6 +721,12 @@ func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
 	return resultIDs, resultDist, nil
 }
 
+func (index *flat) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32,
+	targetDistance float32, maxLimit int64, allow helpers.AllowList,
+) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("SearchByMultiVectorDistance is not supported for flat index")
+}
+
 func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(flatent.UserConfig)
 	if !ok {
@@ -848,21 +854,11 @@ func (index *flat) PostStartup() {
 	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 
-func (index *flat) Dump(labels ...string) {
-	if len(labels) > 0 {
-		fmt.Printf("--------------------------------------------------\n")
-		fmt.Printf("--  %s\n", strings.Join(labels, ", "))
-	}
-	fmt.Printf("--------------------------------------------------\n")
-	fmt.Printf("ID: %s\n", index.id)
-	fmt.Printf("--------------------------------------------------\n")
-}
-
 func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return index.distancerProvider.SingleDist(x, y)
 }
 
-func (index *flat) ContainsNode(id uint64) bool {
+func (index *flat) ContainsDoc(id uint64) bool {
 	var bucketName string
 
 	// logic modeled after SearchByVector which indicates that the PQ bucket is
@@ -880,14 +876,14 @@ func (index *flat) ContainsNode(id uint64) bool {
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
 	v, err := index.store.Bucket(bucketName).Get(idBytes)
-	if v == nil || err == entlsmkv.NotFound {
+	if v == nil || errors.Is(err, entlsmkv.NotFound) {
 		return false
 	}
 
 	return true
 }
 
-func (index *flat) Iterate(fn func(id uint64) bool) {
+func (index *flat) Iterate(fn func(docID uint64) bool) {
 	var bucketName string
 
 	// logic modeled after SearchByVector which indicates that the PQ bucket is
@@ -1037,6 +1033,10 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		}
 	}
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
+}
+
+func (index *flat) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
+	return common.QueryVectorDistancer{}
 }
 
 func (index *flat) Stats() (common.IndexStats, error) {

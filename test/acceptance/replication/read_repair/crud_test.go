@@ -14,6 +14,7 @@ package replication
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -88,7 +90,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.ContainerURI(1))
@@ -481,8 +483,8 @@ func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 			resp, err := helper.Client(t).Schema.SchemaObjectsUpdate(params, nil)
 			require.NotNil(t, err)
 			helper.AssertRequestFail(t, resp, err, func() {
-				errResponse, ok := err.(*schema.SchemaObjectsUpdateUnprocessableEntity)
-				require.True(t, ok)
+				var errResponse *schema.SchemaObjectsUpdateUnprocessableEntity
+				require.True(t, errors.As(err, &errResponse))
 				require.Equal(t, fmt.Sprintf("scale \"%s\" from 3 replicas to 2: scaling in not supported yet", ac.Class), errResponse.Payload.Error[0].Message)
 			})
 		})

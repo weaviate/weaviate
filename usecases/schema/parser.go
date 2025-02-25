@@ -151,6 +151,9 @@ func (p *Parser) parseVectorIndexConfig(class *models.Class,
 		if err != nil {
 			return err
 		}
+		if parsed.IsMultiVector() {
+			return fmt.Errorf("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
+		}
 		class.VectorIndexConfig = parsed
 		return nil
 	}
@@ -169,8 +172,7 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
 	cfg := shardingConfig.Config{} // cfg is empty in case of MT
 	if !schema.MultiTenancyEnabled(class) {
-		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig,
-			p.clusterState.NodeCount())
+		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig, p.clusterState.NodeCount())
 		if err != nil {
 			return err
 		}
@@ -183,14 +185,19 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
 	for targetVector, vectorConfig := range class.VectorConfig {
 		isMultiVector := false
+		vectorizerModuleName := ""
 		if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
 			for name := range vectorizer {
 				isMultiVector = p.modules.IsMultiVector(name)
+				vectorizerModuleName = name
 			}
 		}
 		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector)
 		if err != nil {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
+		}
+		if parsed.IsMultiVector() && vectorizerModuleName != "none" && !isMultiVector {
+			return fmt.Errorf("parse vector config for %s: multi vector index configured but vectorizer: %q doesn't support multi vectors", targetVector, vectorizerModuleName)
 		}
 		vectorConfig.VectorIndexConfig = parsed
 		class.VectorConfig[targetVector] = vectorConfig
@@ -204,6 +211,12 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC && vectorIndexType != vectorindex.VectorIndexTypeCUVS {
 		return nil, errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
+			vectorIndexType)
+	}
+
+	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && isMultiVector {
+		return nil, errors.Errorf(
+			"parse vector index config: multi vector index is not supported for vector index type: %q, only supported type is hnsw",
 			vectorIndexType)
 	}
 

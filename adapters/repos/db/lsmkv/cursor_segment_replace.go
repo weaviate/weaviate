@@ -32,6 +32,9 @@ func (s *segment) newCursor() *segmentCursorReplace {
 		segment: s,
 		index:   s.index,
 		firstOffsetFn: func() (uint64, error) {
+			if s.dataStartPos == s.dataEndPos {
+				return 0, lsmkv.NotFound
+			}
 			return s.dataStartPos, nil
 		},
 		currOffset: s.dataStartPos,
@@ -75,31 +78,82 @@ func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 			}
 			return next.Start, nil
 		},
-		reusableNode: &segmentReplaceNode{},
+		reusableNode: &segmentReplaceNode{
+			secondaryIndexCount: s.secondaryIndexCount,
+			secondaryKeys:       make([][]byte, s.secondaryIndexCount),
+		},
 		reusableBORW: byteops.NewReadWriter(nil),
 	}
 }
 
 func (sg *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
-	sg.maintenanceLock.RLock()
-	out := make([]innerCursorReplace, len(sg.segments))
+	segments, release := sg.getAndLockSegments()
 
-	for i, segment := range sg.segments {
+	out := make([]innerCursorReplace, len(segments))
+
+	for i, segment := range segments {
 		out[i] = segment.newCursor()
 	}
 
-	return out, sg.maintenanceLock.RUnlock
+	return out, release
+}
+
+func (sg *SegmentGroup) newCursorsWithFlushingSupport() ([]innerCursorReplace, func()) {
+	sg.cursorsLock.Lock()
+	defer sg.cursorsLock.Unlock()
+
+	sg.activeCursors++
+
+	sg.maintenanceLock.RLock()
+
+	var segments []*segment
+
+	if len(sg.enqueuedSegments) == 0 {
+		segments = sg.segments
+	} else {
+		segments = make([]*segment, 0, len(sg.segments)+len(sg.enqueuedSegments))
+		segments = append(segments, sg.segments...)
+		segments = append(segments, sg.enqueuedSegments...)
+	}
+
+	out := make([]innerCursorReplace, 0, len(segments))
+
+	for _, segment := range segments {
+		out = append(out, segment.newCursor())
+	}
+
+	release := func() {
+		sg.maintenanceLock.RUnlock()
+
+		sg.cursorsLock.Lock()
+		defer sg.cursorsLock.Unlock()
+
+		sg.activeCursors--
+
+		if sg.activeCursors == 0 && len(sg.enqueuedSegments) > 0 {
+			sg.maintenanceLock.Lock()
+			defer sg.maintenanceLock.Unlock()
+
+			sg.segments = append(sg.segments, sg.enqueuedSegments...)
+			sg.enqueuedSegments = nil
+		}
+	}
+
+	return out, release
 }
 
 func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorReplace, func()) {
-	sg.maintenanceLock.RLock()
-	out := make([]innerCursorReplace, len(sg.segments))
+	segments, release := sg.getAndLockSegments()
+	out := make([]innerCursorReplace, 0, len(segments))
 
-	for i, segment := range sg.segments {
-		out[i] = segment.newCursorWithSecondaryIndex(pos)
+	for _, segment := range segments {
+		if int(segment.secondaryIndexCount) <= pos {
+			continue
+		}
+		out = append(out, segment.newCursorWithSecondaryIndex(pos))
 	}
 
-	return out, sg.maintenanceLock.RUnlock
+	return out, release
 }
 
 func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {

@@ -18,7 +18,7 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 type VectorIndex interface {
@@ -61,13 +61,24 @@ func AddVectorsToIndex(ctx context.Context, vectors []VectorRecord, vectorIndex 
 	}
 }
 
-type Vector[T types.Embedding] struct {
+type Vector[T dto.Embedding] struct {
 	ID     uint64
 	Vector T
 }
 
 func (v *Vector[T]) Len() int {
-	return len(v.Vector)
+	switch any(v.Vector).(type) {
+	case []float32:
+		return len(v.Vector)
+	case [][]float32:
+		vec := any(v.Vector).([][]float32)
+		if len(vec) > 0 {
+			return len(vec[0])
+		}
+		return 0
+	default:
+		return 0
+	}
 }
 
 func (v *Vector[T]) Validate(vectorIndex VectorIndex) error {
@@ -98,9 +109,10 @@ type VectorUint64Slice struct {
 }
 
 type (
-	VectorForID[T []float32 | float32 | byte | uint64] func(ctx context.Context, id uint64) ([]T, error)
-	TempVectorForID[T []float32 | float32]             func(ctx context.Context, id uint64, container *VectorSlice) ([]T, error)
-	MultiVectorForID                                   func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	VectorForID[T []float32 | []uint64 | float32 | byte | uint64] func(ctx context.Context, id uint64) ([]T, error)
+	MultipleVectorForID[T float32 | uint64]                       func(ctx context.Context, id uint64, relativeID uint64) ([]T, error)
+	TempVectorForID[T []float32 | float32]                        func(ctx context.Context, id uint64, container *VectorSlice) ([]T, error)
+	MultiVectorForID                                              func(ctx context.Context, ids []uint64) ([][]float32, []error)
 )
 
 type TargetVectorForID[T []float32 | float32 | byte | uint64] struct {

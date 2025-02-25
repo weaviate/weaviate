@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -35,7 +36,8 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 
 	expectedUsers := []string{"user1", "user2"}
 
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Roles(params.ID)[0]).Return(nil)
+	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
+	authorizer.On("AuthorizeSilent", principal, authorization.READ, authorization.Users(expectedUsers...)[1]).Return(nil)
 	controller.On("GetUsersForRole", params.ID).Return(expectedUsers, nil)
 
 	h := &authZHandlers{
@@ -56,6 +58,7 @@ func TestGetUsersForRoleForbidden(t *testing.T) {
 		params        authz.GetUsersForRoleParams
 		principal     *models.Principal
 		authorizeErr  error
+		skipAuthZ     bool
 		expectedError string
 	}
 
@@ -69,6 +72,15 @@ func TestGetUsersForRoleForbidden(t *testing.T) {
 			authorizeErr:  fmt.Errorf("authorization error"),
 			expectedError: "authorization error",
 		},
+		{
+			name: "root",
+			params: authz.GetUsersForRoleParams{
+				ID: "root",
+			},
+			skipAuthZ:     true,
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "modifying 'root' role or changing its assignments is not allowed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -77,7 +89,12 @@ func TestGetUsersForRoleForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			if !tt.skipAuthZ {
+				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+				if tt.authorizeErr != nil {
+					authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+				}
+			}
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -122,7 +139,8 @@ func TestGetUsersForRoleInternalServerError(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
+
 			controller.On("GetUsersForRole", tt.params.ID).Return(nil, tt.getUsersErr)
 
 			h := &authZHandlers{

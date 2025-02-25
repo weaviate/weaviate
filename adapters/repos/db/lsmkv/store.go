@@ -44,8 +44,9 @@ type Store struct {
 
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
-	bucketAccessLock sync.RWMutex
-	bucketsByName    map[string]*Bucket
+	bucketAccessLock  sync.RWMutex
+	bucketsByName     map[string]*Bucket
+	bucketsByStrategy map[string]map[string]*Bucket // map[strategy][name]*Bucket
 
 	logger  logrus.FieldLogger
 	metrics *Metrics
@@ -68,13 +69,14 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
 	s := &Store{
-		dir:           dir,
-		rootDir:       rootDir,
-		bucketsByName: map[string]*Bucket{},
-		bucketsLocks:  wsync.NewKeyLocker(),
-		bcreator:      NewBucketCreator(),
-		logger:        logger,
-		metrics:       metrics,
+		dir:               dir,
+		rootDir:           rootDir,
+		bucketsByName:     map[string]*Bucket{},
+		bucketsByStrategy: map[string]map[string]*Bucket{},
+		bucketsLocks:      wsync.NewKeyLocker(),
+		bcreator:          NewBucketCreator(),
+		logger:            logger,
+		metrics:           metrics,
 	}
 	s.initCycleCallbacks(shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 
@@ -206,6 +208,10 @@ func (s *Store) setBucket(name string, b *Bucket) {
 	defer s.bucketAccessLock.Unlock()
 
 	s.bucketsByName[name] = b
+	if _, ok := s.bucketsByStrategy[b.strategy]; !ok {
+		s.bucketsByStrategy[b.strategy] = map[string]*Bucket{}
+	}
+	s.bucketsByStrategy[b.strategy][name] = b
 }
 
 func (s *Store) Shutdown(ctx context.Context) error {
@@ -372,6 +378,20 @@ func (s *Store) GetBucketsByName() map[string]*Bucket {
 	return newMap
 }
 
+func (s *Store) GetBucketsByStrategy(strategy string) map[string]*Bucket {
+	s.bucketAccessLock.RLock()
+	defer s.bucketAccessLock.RUnlock()
+
+	newMap := map[string]*Bucket{}
+	if bucketsByName, ok := s.bucketsByStrategy[strategy]; ok {
+		for name, bucket := range bucketsByName {
+			newMap[name] = bucket
+		}
+	}
+
+	return newMap
+}
+
 // Creates bucket, first removing any files if already exist
 // Bucket can not be registered in bucketsByName before removal
 func (s *Store) CreateBucket(ctx context.Context, bucketName string,
@@ -440,6 +460,12 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	}
 	s.bucketsByName[bucketName] = replacementBucket
 	delete(s.bucketsByName, replacementBucketName)
+	s.bucketsByStrategy[replacementBucket.strategy][bucketName] = replacementBucket
+	delete(s.bucketsByStrategy[bucket.strategy], bucketName)
+	delete(s.bucketsByStrategy[replacementBucket.strategy], replacementBucketName)
+	if len(s.bucketsByStrategy[bucket.strategy]) == 0 {
+		delete(s.bucketsByStrategy, bucket.strategy)
+	}
 
 	currBucketDir := bucket.dir
 	newBucketDir := bucket.dir + "___del"
@@ -487,6 +513,8 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	}
 	s.bucketsByName[newBucketName] = currBucket
 	delete(s.bucketsByName, bucketName)
+	s.bucketsByStrategy[currBucket.strategy][newBucketName] = currBucket
+	delete(s.bucketsByStrategy[currBucket.strategy], bucketName)
 
 	currBucketDir := currBucket.dir
 	newBucketDir := s.bucketDir(newBucketName)
@@ -516,10 +544,11 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 	}
 	bucket.flushLock.Unlock()
 
-	bucket.disk.maintenanceLock.Lock()
+	segments, release := bucket.disk.getAndLockSegments()
+	defer release()
+
 	bucket.disk.dir = newBucketDir
-	for _, segment := range bucket.disk.segments {
+	for _, segment := range segments {
 		segment.path = updatePath(segment.path)
 	}
-	bucket.disk.maintenanceLock.Unlock()
 }

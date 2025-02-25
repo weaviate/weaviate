@@ -29,6 +29,12 @@ const (
 	clientID     = "mock-oidc-test"
 )
 
+// This starts a mock OIDC server listening on 48001.
+// All codes to authenticate are hardcoded and the server returns tokens for two custom users:
+// - admin-user
+// - custom-user
+// afterwards the mockoidc default user is returned
+
 func main() {
 	rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	m, _ := mockoidc.NewServer(rsaKey)
@@ -47,7 +53,7 @@ func main() {
 	m.QueueUser(admin)
 	m.QueueCode(authCode)
 
-	custom := &mockoidc.MockUser{Subject: "custom-user"}
+	custom := &mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}}
 	m.QueueUser(custom)
 	m.QueueCode(authCode)
 

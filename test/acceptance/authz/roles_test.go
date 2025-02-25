@@ -13,60 +13,19 @@ package authz
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
-
-func TestAuthzGetOwnRole(t *testing.T) {
-	var err error
-
-	customUser := "custom-user"
-	customKey := "custom-key"
-	testingRole := "testingOwnRole"
-	adminKey := "admin-key"
-	adminUser := "admin-user"
-	adminAuth := helper.CreateAuth(adminKey)
-
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	defer down()
-
-	helper.Client(t).Authz.DeleteRole(
-		authz.NewDeleteRoleParams().WithID(testingRole),
-		adminAuth,
-	)
-
-	t.Run("Get own roles - empty", func(t *testing.T) {
-		roles := helper.GetRolesForOwnUser(t, customKey)
-		require.Len(t, roles, 0)
-	})
-
-	_, err = helper.Client(t).Authz.CreateRole(
-		authz.NewCreateRoleParams().WithBody(&models.Role{
-			Name: &testingRole,
-			Permissions: []*models.Permission{{
-				Action:      String(authorization.CreateCollections),
-				Collections: &models.PermissionCollections{Collection: String("*")},
-			}},
-		}),
-		adminAuth,
-	)
-	require.NoError(t, err)
-	helper.AssignRoleToUser(t, "admin-key", testingRole, customUser)
-
-	t.Run("Get own roles - existing role", func(t *testing.T) {
-		roles := helper.GetRolesForOwnUser(t, customKey)
-		require.Len(t, roles, 1)
-		require.Equal(t, testingRole, *roles[0].Name)
-	})
-}
 
 func TestUserWithSimilarBuiltInRoleName(t *testing.T) {
 	customUser := "custom-admin-user"
@@ -145,9 +104,9 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, failed := err.(*authz.CreateRoleBadRequest)
-		require.True(t, failed)
-		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+		var parsed *authz.CreateRoleBadRequest
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "built-in role")
 	})
 
 	t.Run("fail to delete builtin role", func(t *testing.T) {
@@ -156,9 +115,9 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, failed := err.(*authz.DeleteRoleBadRequest)
-		require.True(t, failed)
-		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+		var parsed *authz.DeleteRoleBadRequest
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "built-in role")
 	})
 
 	t.Run("add builtin role permission", func(t *testing.T) {
@@ -172,9 +131,9 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, failed := err.(*authz.AddPermissionsBadRequest)
-		require.True(t, failed)
-		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+		var parsed *authz.AddPermissionsBadRequest
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "built-in role")
 	})
 
 	t.Run("remove builtin role permission", func(t *testing.T) {
@@ -188,20 +147,20 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, failed := err.(*authz.RemovePermissionsBadRequest)
-		require.True(t, failed)
-		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+		var parsed *authz.RemovePermissionsBadRequest
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "built-in role")
 	})
 }
 
 func TestAuthzRolesJourney(t *testing.T) {
 	var err error
 
-	adminUser := "existing-user"
-	adminKey := "existing-key"
-	existingRole := "admin"
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	existingRole := "root"
 
-	testRoleName := "test-role"
+	testRoleName := "testRole"
 	createCollectionsAction := authorization.CreateCollections
 	deleteCollectionsAction := authorization.DeleteCollections
 	all := "*"
@@ -231,9 +190,9 @@ func TestAuthzRolesJourney(t *testing.T) {
 	t.Run("fail to create existing role", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(testRole1), clientAuth)
 		require.NotNil(t, err)
-		err, conflict := err.(*authz.CreateRoleConflict)
-		require.True(t, conflict)
-		require.Contains(t, err.Payload.Error[0].Message, "already exists")
+		var parsed *authz.CreateRoleConflict
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "already exists")
 	})
 
 	t.Run("get all roles after create", func(t *testing.T) {
@@ -353,7 +312,7 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
-	testRoleName := "test-role"
+	testRoleName := "testRole"
 	testUser := "test-user"
 	testKey := "test-key"
 
@@ -406,7 +365,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
-	testRole := "test-role"
+	testRole := "testRole"
 	createCollectionsAction := authorization.CreateCollections
 	deleteCollectionsAction := authorization.DeleteCollections
 	all := "*"
@@ -494,7 +453,7 @@ func TestAuthzRolesHasPermission(t *testing.T) {
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	testRole := "test-role"
+	testRole := "testRole"
 
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
@@ -541,8 +500,8 @@ func TestAuthzRolesHasPermission(t *testing.T) {
 			},
 		}), helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*authz.HasPermissionForbidden)
-		require.True(t, forbidden)
+		var parsed *authz.HasPermissionForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 }
@@ -551,7 +510,7 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
-	testRole := "test-role"
+	testRole := "testRole"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -719,5 +678,317 @@ func TestAuthzRoleRemoveToEmptyAndAddPermission(t *testing.T) {
 		require.Equal(t, customRole, *role.Name)
 		require.Equal(t, 1, len(role.Permissions))
 		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
+	})
+}
+
+func TestAuthzRoleScopeMatching(t *testing.T) {
+	var err error
+
+	// Setup users
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	adminAuth := helper.CreateAuth(adminKey)
+
+	limitedUser := "custom-user"
+	limitedKey := "custom-key"
+	limitedAuth := helper.CreateAuth(limitedKey)
+
+	// Setup test roles
+	limitedRole := "custom-role"
+	newRole := "new-role"
+	broaderRole := "broader-role"
+
+	// Start environment with admin and limited user
+	_, down := composeUp(t,
+		map[string]string{adminUser: adminKey},     // admin users
+		map[string]string{limitedUser: limitedKey}, // regular users
+		nil,
+	)
+	defer down()
+
+	// Clean up any existing test roles
+	helper.Client(t).Authz.DeleteRole(
+		authz.NewDeleteRoleParams().WithID(limitedRole),
+		adminAuth,
+	)
+	helper.Client(t).Authz.DeleteRole(
+		authz.NewDeleteRoleParams().WithID(newRole),
+		adminAuth,
+	)
+	helper.Client(t).Authz.DeleteRole(
+		authz.NewDeleteRoleParams().WithID(broaderRole),
+		adminAuth,
+	)
+
+	t.Run("setup limited user role", func(t *testing.T) {
+		// Create role with limited permissions
+		_, err = helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &limitedRole,
+				Permissions: []*models.Permission{
+					// Add role management permissions with scope matching
+					{
+						Action: String(authorization.CreateRoles),
+						Roles:  &models.PermissionRoles{Role: String("*"), Scope: String(models.PermissionRolesScopeMatch)},
+					},
+					{
+						Action: String(authorization.UpdateRoles),
+						Roles:  &models.PermissionRoles{Role: String("*"), Scope: String(models.PermissionRolesScopeMatch)},
+					},
+					{
+						Action: String(authorization.DeleteRoles),
+						Roles:  &models.PermissionRoles{Role: String("*"), Scope: String(models.PermissionRolesScopeMatch)},
+					},
+					// Add collection-specific permissions
+					{
+						Action: String(authorization.CreateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection1"),
+						},
+					},
+					{
+						Action: String(authorization.UpdateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection1"),
+						},
+					},
+				},
+			}),
+			adminAuth,
+		)
+		require.NoError(t, err)
+
+		// Assign role to limited user
+		helper.AssignRoleToUser(t, adminKey, limitedRole, limitedUser)
+
+		// Verify role assignment and permissions
+		roles := helper.GetRolesForUser(t, limitedUser, adminKey)
+		require.Equal(t, 1, len(roles))
+		require.Equal(t, limitedRole, *roles[0].Name)
+	})
+
+	t.Run("limited user can create role with equal permissions", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &newRole,
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.CreateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection1"),
+						},
+					},
+				},
+			}),
+			limitedAuth,
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("limited user cannot create role with broader permissions", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &broaderRole,
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.CreateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("*"),
+						},
+					},
+				},
+			}),
+			limitedAuth,
+		)
+		require.Error(t, err)
+		var parsed *authz.CreateRoleForbidden
+		require.True(t, errors.As(err, &parsed))
+	})
+
+	t.Run("limited user can update role within their scope", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.AddPermissions(
+			authz.NewAddPermissionsParams().WithID(newRole).WithBody(authz.AddPermissionsBody{
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.UpdateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection1"),
+						},
+					},
+				},
+			}),
+			limitedAuth,
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("limited user cannot update role beyond their scope(AddPermission)", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.AddPermissions(
+			authz.NewAddPermissionsParams().WithID(newRole).WithBody(authz.AddPermissionsBody{
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.CreateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection2"),
+						},
+					},
+				},
+			}),
+			limitedAuth,
+		)
+		require.Error(t, err)
+		var parsed *authz.AddPermissionsForbidden
+		require.True(t, errors.As(err, &parsed))
+	})
+
+	t.Run("limited user cannot update role beyond their scope(RemovePermission)", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.RemovePermissions(
+			authz.NewRemovePermissionsParams().WithID(newRole).WithBody(authz.RemovePermissionsBody{
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.UpdateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection2"),
+						},
+					},
+				},
+			}),
+			limitedAuth,
+		)
+		require.Error(t, err)
+		var parsed *authz.RemovePermissionsForbidden
+		require.True(t, errors.As(err, &parsed))
+	})
+
+	t.Run("limited user can remove permissions from role with their scope", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.RemovePermissions(
+			authz.NewRemovePermissionsParams().WithID(newRole).WithBody(authz.RemovePermissionsBody{
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.UpdateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection1"),
+						},
+					},
+				},
+			}),
+			limitedAuth,
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("limited user can delete role within their scope", func(t *testing.T) {
+		roleToDelete := "role-to-delete"
+		_, err = helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &roleToDelete,
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.CreateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection1"),
+						},
+					},
+				},
+			}),
+			limitedAuth,
+		)
+		require.NoError(t, err)
+
+		// Verify limited user can delete the role
+		_, err = helper.Client(t).Authz.DeleteRole(
+			authz.NewDeleteRoleParams().WithID(roleToDelete),
+			limitedAuth,
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("admin can still manage all roles", func(t *testing.T) {
+		// Admin can delete roles created by limited user
+		helper.DeleteRole(t, adminKey, newRole)
+		// Admin can delete the limited role itself
+		helper.DeleteRole(t, adminKey, limitedRole)
+		// Clean up broader role if it was created
+		helper.Client(t).Authz.DeleteRole(
+			authz.NewDeleteRoleParams().WithID(broaderRole),
+			adminAuth,
+		)
+	})
+}
+
+func TestAuthzRoleFilteredTenantPermissions(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	adminAuth := helper.CreateAuth(adminKey)
+
+	limitedUser := "custom-user"
+	limitedKey := "custom-key"
+	limitedAuth := helper.CreateAuth(limitedKey)
+
+	filteredRole := "filtered-role"
+	className := "FilteredTenantTestClass"
+	className2 := "FilteredTenantTestClass2"
+	allowedTenant := "tenant1"
+	restrictedTenant := "tenant2"
+
+	_, down := composeUp(t,
+		map[string]string{adminUser: adminKey},
+		map[string]string{limitedUser: limitedKey},
+		nil,
+	)
+	defer down()
+
+	t.Run("setup collection with tenants", func(t *testing.T) {
+		helper.CreateClassAuth(t, &models.Class{
+			Class: className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}, "admin-key")
+		helper.CreateClassAuth(t, &models.Class{
+			Class: className2,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}, "admin-key")
+
+		tenants := []*models.Tenant{
+			{Name: allowedTenant, ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: restrictedTenant, ActivityStatus: models.TenantActivityStatusHOT},
+		}
+		helper.CreateTenantsAuth(t, className, tenants, "admin-key")
+		helper.CreateTenantsAuth(t, className2, tenants, "admin-key")
+	})
+
+	defer func() {
+		helper.DeleteClassWithAuthz(t, className, adminAuth)
+	}()
+
+	t.Run("create filtered role", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &filteredRole,
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.ReadTenants),
+						Tenants: &models.PermissionTenants{
+							Collection: String(className),
+							Tenant:     String(allowedTenant),
+						},
+					},
+				},
+			}),
+			adminAuth,
+		)
+		require.NoError(t, err)
+
+		helper.AssignRoleToUser(t, adminKey, filteredRole, limitedUser)
+	})
+
+	t.Run("verify filtered tenant permissions", func(t *testing.T) {
+		tenants, err := helper.GetTenantsWithAuthz(t, className, limitedAuth)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(tenants.Payload))
+		require.Equal(t, allowedTenant, tenants.Payload[0].Name)
 	})
 }

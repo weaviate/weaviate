@@ -252,10 +252,10 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
-			bucket.disk.maintenanceLock.RLock()
-			defer bucket.disk.maintenanceLock.RUnlock()
+			segments, release := bucket.disk.getAndLockSegments()
+			defer release()
 
-			assert.Equal(t, 0, len(bucket.disk.segments))
+			assert.Equal(t, 0, len(segments))
 		})
 
 		t.Run("wait until dirty threshold has passed", func(t *testing.T) {
@@ -265,10 +265,10 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist even after passing the dirty threshold", func(t *testing.T) {
-			bucket.disk.maintenanceLock.RLock()
-			defer bucket.disk.maintenanceLock.RUnlock()
+			segments, release := bucket.disk.getAndLockSegments()
+			defer release()
 
-			assert.Equal(t, 0, len(bucket.disk.segments))
+			assert.Equal(t, 0, len(segments))
 		})
 
 		t.Run("shutdown bucket", func(t *testing.T) {
@@ -300,10 +300,10 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
-			bucket.disk.maintenanceLock.RLock()
-			defer bucket.disk.maintenanceLock.RUnlock()
+			segments, release := bucket.disk.getAndLockSegments()
+			defer release()
 
-			assert.Equal(t, 0, len(bucket.disk.segments))
+			assert.Equal(t, 0, len(segments))
 		})
 
 		t.Run("wait until dirty threshold has passed", func(t *testing.T) {
@@ -313,10 +313,10 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert that a flush has occurred (and one segment exists)", func(t *testing.T) {
-			bucket.disk.maintenanceLock.RLock()
-			defer bucket.disk.maintenanceLock.RUnlock()
+			segments, release := bucket.disk.getAndLockSegments()
+			defer release()
 
-			assert.Equal(t, 1, len(bucket.disk.segments))
+			assert.Equal(t, 1, len(segments))
 		})
 
 		t.Run("shutdown bucket", func(t *testing.T) {
@@ -348,10 +348,10 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
-			bucket.disk.maintenanceLock.RLock()
-			defer bucket.disk.maintenanceLock.RUnlock()
+			segments, release := bucket.disk.getAndLockSegments()
+			defer release()
 
-			assert.Equal(t, 0, len(bucket.disk.segments))
+			assert.Equal(t, 0, len(segments))
 		})
 
 		t.Run("keep importing crossing the dirty threshold", func(t *testing.T) {
@@ -368,11 +368,11 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert that flush has occurred in the meantime", func(t *testing.T) {
-			bucket.disk.maintenanceLock.RLock()
-			defer bucket.disk.maintenanceLock.RUnlock()
+			segments, release := bucket.disk.getAndLockSegments()
+			defer release()
 
 			// at least 2 segments should be created already
-			assert.GreaterOrEqual(t, len(bucket.disk.segments), 2)
+			assert.GreaterOrEqual(t, len(segments), 2)
 		})
 
 		t.Run("shutdown bucket", func(t *testing.T) {

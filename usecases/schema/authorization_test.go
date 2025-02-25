@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
@@ -37,17 +38,6 @@ func Test_Schema_Authorization(t *testing.T) {
 	}
 
 	tests := []testCase{
-		{
-			methodName:        "GetSchema",
-			expectedVerb:      authorization.READ,
-			expectedResources: authorization.CollectionsMetadata(),
-		},
-		{
-			methodName:        "GetConsistentSchema",
-			expectedVerb:      authorization.READ,
-			additionalArgs:    []interface{}{false},
-			expectedResources: authorization.CollectionsMetadata(),
-		},
 		{
 			methodName:        "GetClass",
 			additionalArgs:    []interface{}{"classname"},
@@ -112,7 +102,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			methodName:        "AddTenants",
 			additionalArgs:    []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
 			expectedVerb:      authorization.CREATE,
-			expectedResources: authorization.ShardsMetadata("className"),
+			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
 		{
 			methodName: "UpdateTenants",
@@ -129,22 +119,10 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
 		{
-			methodName:        "GetTenants",
-			additionalArgs:    []interface{}{"className"},
-			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("className"),
-		},
-		{
-			methodName:        "GetConsistentTenants",
-			additionalArgs:    []interface{}{"className", false, []string{}},
-			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("className"),
-		},
-		{
 			methodName:        "ConsistentTenantExists",
 			additionalArgs:    []interface{}{"className", false, "P1"},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("className"),
+			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
 	}
 
@@ -154,18 +132,21 @@ func Test_Schema_Authorization(t *testing.T) {
 			testedMethods[i] = test.methodName
 		}
 
-		for _, method := range allExportedMethods(&Handler{}) {
+		for _, method := range allExportedMethods(&Handler{classGetter: nil}) {
 			switch method {
 			case "RegisterSchemaUpdateCallback",
 				// introduced by sync.Mutex in go 1.18
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "RLock", "RUnlock", "Lock", "Unlock",
 				"TryLock", "RLocker", "TryRLock", "CopyShardingState", "TxManager", "RestoreClass",
 				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas",
+				"GetCachedClassNoAuth",
 				// internal methods to indicate readiness state
 				"StartServing", "Shutdown", "Statistics",
 				// Cluster/nodes related endpoint
 				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
-				// revert to schema v0 (non raft)
+				// revert to schema v0 (non raft),
+				"GetConsistentSchema", "GetConsistentTenants",
+				// ignored because it will check if schema has collections otherwise returns nothing
 				"StoreSchemaV1":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,

@@ -9,11 +9,44 @@ linters:
     - govet
     - unused
     - nolintlint
+    - errorlint
+    - forbidigo
 linters-settings:
+  forbidigo:
+    # Forbid the following identifiers (list of regexp).
+    # Default: ["^(fmt\\.Print(|f|ln)|print|println)$"]
+    forbid:
+      # Built-in bootstrapping functions.
+      - ^print(ln)?$
+      # Optional message that gets included in error reports.
+      - p: ^fmt\.Print.*$
+        msg: Do not commit print statements.      
+      # Forbid spew Dump, whether it is called as function or method.
+      # Depends on analyze-types below.
+      - ^spew\.(ConfigState\.)?Dump$
+    # Exclude godoc examples from forbidigo checks.
+    # Default: true
+    exclude-godoc-examples: true
+
+
   exhaustive:
     # Presence of "default" case in switch statements satisfies exhaustiveness,
     # even if all enum members are not listed.
     default-signifies-exhaustive: true
+  errorlint:
+    # Check whether fmt.Errorf uses the %w verb for formatting errors.
+    # See the https://github.com/polyfloyd/go-errorlint for caveats.
+    # Default: true
+    errorf: true
+    # Permit more than 1 %w verb, valid per Go 1.20 (Requires errorf:true)
+    # Default: true
+    errorf-multi: true
+    # Check for plain type assertions and type switches.
+    # Default: true
+    asserts: true
+    # Check for plain error comparisons.
+    # Default: true
+    comparison: true
 issues:
   exclude-rules:
     # Exclude some staticcheck messages
@@ -105,6 +138,19 @@ issues:
         - unused
       path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
       text: "func `l212FloatByte`"
+    - linters: # exclude tests
+        - forbidigo
+      path: test/*
+    - linters: # exclude tools
+        - forbidigo
+      path: tools/*
+    - linters: # exclude file
+        - forbidigo
+      path: adapters/repos/db/vector/hnsw/debug.go
+    - linters: # exclude file
+        - forbidigo
+      path: adapters/repos/db/vector/.*/dump.go
+
 
 run:
   timeout: 5m

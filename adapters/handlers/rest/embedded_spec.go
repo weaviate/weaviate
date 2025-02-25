@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.29.0-dev"
+    "version": "1.30.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -148,6 +148,140 @@ func init() {
             "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
           }
         }
+      }
+    },
+    "/authz/groups/{id}/assign": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Assign a role to a group",
+        "operationId": "assignRoleToGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "description": "the roles that assigned to group",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned successfully"
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role or group is not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.assign.role"
+        ]
+      }
+    },
+    "/authz/groups/{id}/revoke": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Revoke a role from a group",
+        "operationId": "revokeRoleFromGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "description": "the roles that revoked from group",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role revoked successfully"
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role or group is not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.revoke.role.group"
+        ]
       }
     },
     "/authz/roles": {
@@ -620,42 +754,13 @@ func init() {
         ]
       }
     },
-    "/authz/users/own-roles": {
-      "get": {
-        "tags": [
-          "authz"
-        ],
-        "summary": "get roles assigned to own user",
-        "operationId": "getRolesForOwnUser",
-        "responses": {
-          "200": {
-            "description": "Role assigned to own users",
-            "schema": {
-              "$ref": "#/definitions/RolesListResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.authz.get.users.own-roles"
-        ]
-      }
-    },
     "/authz/users/{id}/assign": {
       "post": {
         "tags": [
           "authz"
         ],
         "summary": "Assign a role to a user",
-        "operationId": "assignRole",
+        "operationId": "assignRoleToUser",
         "parameters": [
           {
             "type": "string",
@@ -669,6 +774,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to user",
@@ -701,7 +807,10 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found."
+            "description": "role or user is not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -711,7 +820,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.assign.role"
+          "weaviate.authz.assign.role.user"
         ]
       }
     },
@@ -721,7 +830,7 @@ func init() {
           "authz"
         ],
         "summary": "Revoke a role from a user",
-        "operationId": "revokeRole",
+        "operationId": "revokeRoleFromUser",
         "parameters": [
           {
             "type": "string",
@@ -735,6 +844,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from the key or user",
@@ -767,7 +877,10 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found."
+            "description": "role or user is not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -777,7 +890,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.revoke.role"
+          "weaviate.authz.revoke.role.user"
         ]
       }
     },
@@ -3961,6 +4074,35 @@ func init() {
           }
         }
       }
+    },
+    "/users/own-info": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "get info relevant to own user, e.g. username, roles",
+        "operationId": "getOwnInfo",
+        "responses": {
+          "200": {
+            "description": "Info about the user",
+            "schema": {
+              "$ref": "#/definitions/UserInfo"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.get.own-info"
+        ]
+      }
     }
   },
   "definitions": {
@@ -5074,24 +5216,6 @@ func init() {
         }
       }
     },
-    "MultiVector": {
-      "description": "A multi vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "array",
-        "items": {
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "MultiVectors": {
-      "description": "A map of named multi vectors for multi-vector representations.",
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/MultiVector"
-      }
-    },
     "MultipleRef": {
       "description": "Multiple instances of references to other objects.",
       "type": "array",
@@ -5289,10 +5413,6 @@ func init() {
           "description": "(Response only) Timestamp of the last object update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
-        },
-        "multiVectors": {
-          "description": "This field returns vectors associated with the Object.",
-          "$ref": "#/definitions/MultiVectors"
         },
         "properties": {
           "$ref": "#/definitions/PropertySchema"
@@ -5492,19 +5612,25 @@ func init() {
           "enum": [
             "manage_backups",
             "read_cluster",
-            "manage_data",
             "create_data",
             "read_data",
             "update_data",
             "delete_data",
             "read_nodes",
-            "manage_roles",
+            "create_roles",
             "read_roles",
-            "manage_collections",
+            "update_roles",
+            "delete_roles",
             "create_collections",
             "read_collections",
             "update_collections",
-            "delete_collections"
+            "delete_collections",
+            "assign_and_revoke_users",
+            "read_users",
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants"
           ]
         },
         "backups": {
@@ -5524,11 +5650,6 @@ func init() {
           "properties": {
             "collection": {
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -5581,6 +5702,42 @@ func init() {
           "properties": {
             "role": {
               "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "scope": {
+              "description": "set the scope for the manage role permission",
+              "type": "string",
+              "default": "match",
+              "enum": [
+                "all",
+                "match"
+              ]
+            }
+          }
+        },
+        "tenants": {
+          "description": "resources applicable for tenant actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
+        },
+        "users": {
+          "description": "resources applicable for user actions",
+          "type": "object",
+          "properties": {
+            "users": {
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -6148,13 +6305,36 @@ func init() {
         }
       ]
     },
+    "UserInfo": {
+      "type": "object",
+      "required": [
+        "username"
+      ],
+      "properties": {
+        "groups": {
+          "description": "The groups associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "description": "The roles assigned to own user",
+            "type": "object",
+            "$ref": "#/definitions/Role"
+          }
+        },
+        "username": {
+          "description": "The username associated with the provided key",
+          "type": "string"
+        }
+      }
+    },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "number",
-        "format": "float"
-      }
+      "type": "object"
     },
     "VectorConfig": {
       "type": "object",
@@ -6500,7 +6680,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.29.0-dev"
+    "version": "1.30.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -6600,6 +6780,140 @@ func init() {
             "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
           }
         }
+      }
+    },
+    "/authz/groups/{id}/assign": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Assign a role to a group",
+        "operationId": "assignRoleToGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "description": "the roles that assigned to group",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned successfully"
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role or group is not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.assign.role"
+        ]
+      }
+    },
+    "/authz/groups/{id}/revoke": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Revoke a role from a group",
+        "operationId": "revokeRoleFromGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "description": "the roles that revoked from group",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role revoked successfully"
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role or group is not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.revoke.role.group"
+        ]
       }
     },
     "/authz/roles": {
@@ -7072,42 +7386,13 @@ func init() {
         ]
       }
     },
-    "/authz/users/own-roles": {
-      "get": {
-        "tags": [
-          "authz"
-        ],
-        "summary": "get roles assigned to own user",
-        "operationId": "getRolesForOwnUser",
-        "responses": {
-          "200": {
-            "description": "Role assigned to own users",
-            "schema": {
-              "$ref": "#/definitions/RolesListResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.authz.get.users.own-roles"
-        ]
-      }
-    },
     "/authz/users/{id}/assign": {
       "post": {
         "tags": [
           "authz"
         ],
         "summary": "Assign a role to a user",
-        "operationId": "assignRole",
+        "operationId": "assignRoleToUser",
         "parameters": [
           {
             "type": "string",
@@ -7121,6 +7406,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to user",
@@ -7153,7 +7439,10 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found."
+            "description": "role or user is not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -7163,7 +7452,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.assign.role"
+          "weaviate.authz.assign.role.user"
         ]
       }
     },
@@ -7173,7 +7462,7 @@ func init() {
           "authz"
         ],
         "summary": "Revoke a role from a user",
-        "operationId": "revokeRole",
+        "operationId": "revokeRoleFromUser",
         "parameters": [
           {
             "type": "string",
@@ -7187,6 +7476,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from the key or user",
@@ -7219,7 +7509,10 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found."
+            "description": "role or user is not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -7229,7 +7522,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.revoke.role"
+          "weaviate.authz.revoke.role.user"
         ]
       }
     },
@@ -10535,6 +10828,35 @@ func init() {
           }
         }
       }
+    },
+    "/users/own-info": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "get info relevant to own user, e.g. username, roles",
+        "operationId": "getOwnInfo",
+        "responses": {
+          "200": {
+            "description": "Info about the user",
+            "schema": {
+              "$ref": "#/definitions/UserInfo"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.get.own-info"
+        ]
+      }
     }
   },
   "definitions": {
@@ -11809,24 +12131,6 @@ func init() {
         }
       }
     },
-    "MultiVector": {
-      "description": "A multi vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "array",
-        "items": {
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "MultiVectors": {
-      "description": "A map of named multi vectors for multi-vector representations.",
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/MultiVector"
-      }
-    },
     "MultipleRef": {
       "description": "Multiple instances of references to other objects.",
       "type": "array",
@@ -12024,10 +12328,6 @@ func init() {
           "description": "(Response only) Timestamp of the last object update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
-        },
-        "multiVectors": {
-          "description": "This field returns vectors associated with the Object.",
-          "$ref": "#/definitions/MultiVectors"
         },
         "properties": {
           "$ref": "#/definitions/PropertySchema"
@@ -12244,19 +12544,25 @@ func init() {
           "enum": [
             "manage_backups",
             "read_cluster",
-            "manage_data",
             "create_data",
             "read_data",
             "update_data",
             "delete_data",
             "read_nodes",
-            "manage_roles",
+            "create_roles",
             "read_roles",
-            "manage_collections",
+            "update_roles",
+            "delete_roles",
             "create_collections",
             "read_collections",
             "update_collections",
-            "delete_collections"
+            "delete_collections",
+            "assign_and_revoke_users",
+            "read_users",
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants"
           ]
         },
         "backups": {
@@ -12276,11 +12582,6 @@ func init() {
           "properties": {
             "collection": {
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -12335,6 +12636,42 @@ func init() {
               "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
+            },
+            "scope": {
+              "description": "set the scope for the manage role permission",
+              "type": "string",
+              "default": "match",
+              "enum": [
+                "all",
+                "match"
+              ]
+            }
+          }
+        },
+        "tenants": {
+          "description": "resources applicable for tenant actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
+        },
+        "users": {
+          "description": "resources applicable for user actions",
+          "type": "object",
+          "properties": {
+            "users": {
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
             }
           }
         }
@@ -12357,11 +12694,6 @@ func init() {
       "properties": {
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        },
-        "tenant": {
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
@@ -12414,6 +12746,42 @@ func init() {
       "properties": {
         "role": {
           "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "scope": {
+          "description": "set the scope for the manage role permission",
+          "type": "string",
+          "default": "match",
+          "enum": [
+            "all",
+            "match"
+          ]
+        }
+      }
+    },
+    "PermissionTenants": {
+      "description": "resources applicable for tenant actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "tenant": {
+          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
+    "PermissionUsers": {
+      "description": "resources applicable for user actions",
+      "type": "object",
+      "properties": {
+        "users": {
+          "description": "string or regex. if a specific name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
@@ -12979,13 +13347,36 @@ func init() {
         }
       ]
     },
+    "UserInfo": {
+      "type": "object",
+      "required": [
+        "username"
+      ],
+      "properties": {
+        "groups": {
+          "description": "The groups associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "description": "The roles assigned to own user",
+            "type": "object",
+            "$ref": "#/definitions/Role"
+          }
+        },
+        "username": {
+          "description": "The username associated with the provided key",
+          "type": "string"
+        }
+      }
+    },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "number",
-        "format": "float"
-      }
+      "type": "object"
     },
     "VectorConfig": {
       "type": "object",

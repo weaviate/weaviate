@@ -66,11 +66,11 @@ func (f *fakeRClient) FindUUIDs(ctx context.Context, host, index, shard string,
 	return args.Get(0).([]strfmt.UUID), args.Error(1)
 }
 
-func (f *fakeRClient) DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
-	initialToken, finalToken uint64, limit int,
-) ([]RepairResponse, uint64, error) {
-	args := f.Called(ctx, host, index, shard, initialToken, finalToken, limit)
-	return args.Get(0).([]RepairResponse), args.Get(1).(uint64), args.Error(2)
+func (f *fakeRClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
+	initialUUID, finalUUID strfmt.UUID, limit int,
+) ([]RepairResponse, error) {
+	args := f.Called(ctx, host, index, shard, initialUUID, finalUUID, limit)
+	return args.Get(0).([]RepairResponse), args.Error(1)
 }
 
 func (f *fakeRClient) HashTreeLevel(ctx context.Context,

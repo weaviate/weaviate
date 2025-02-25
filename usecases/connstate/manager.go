@@ -37,7 +37,7 @@ type Repo interface {
 func NewManager(repo Repo, logger logrus.FieldLogger) (*Manager, error) {
 	m := &Manager{repo: repo, logger: logger}
 	if err := m.loadOrInitialize(context.Background()); err != nil {
-		return nil, fmt.Errorf("could not load or initialize: %v", err)
+		return nil, fmt.Errorf("could not load or initialize: %w", err)
 	}
 
 	return m, nil
@@ -62,7 +62,7 @@ func (m *Manager) SetState(ctx context.Context, state json.RawMessage) error {
 func (m *Manager) loadOrInitialize(ctx context.Context) error {
 	state, err := m.repo.Load(ctx)
 	if err != nil {
-		return fmt.Errorf("could not load connector state: %v", err)
+		return fmt.Errorf("could not load connector state: %w", err)
 	}
 
 	if state == nil {
@@ -82,7 +82,7 @@ func (m *Manager) save(ctx context.Context) error {
 
 	err := m.repo.Save(ctx, m.state)
 	if err != nil {
-		return fmt.Errorf("could not save connector state: %v", err)
+		return fmt.Errorf("could not save connector state: %w", err)
 	}
 
 	return nil

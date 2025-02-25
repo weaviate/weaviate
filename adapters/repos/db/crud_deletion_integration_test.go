@@ -82,7 +82,7 @@ func TestDeleteJourney(t *testing.T) {
 					Limit: 100,
 				},
 				Properties: search.SelectProperties{{Name: "name"}},
-			}, []string{""}, [][]float32{searchVector})
+			}, []string{""}, []models.Vector{searchVector})
 
 			expectedOrder := []interface{}{
 				"element-0", "element-2", "element-3", "element-1",
@@ -147,7 +147,7 @@ func TestDeleteJourney(t *testing.T) {
 				Limit: 100,
 			},
 			Properties: search.SelectProperties{{Name: "name"}},
-		}, []string{""}, [][]float32{searchVector})
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedOrder := []interface{}{
 			"element-2", "element-3", "element-1",
@@ -189,7 +189,7 @@ func TestDeleteJourney(t *testing.T) {
 				Limit: 100,
 			},
 			Properties: search.SelectProperties{{Name: "name"}},
-		}, []string{""}, [][]float32{searchVector})
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedOrder := []interface{}{
 			"element-2", "element-3",
@@ -220,7 +220,7 @@ func TestDeleteJourney(t *testing.T) {
 				Limit: 100,
 			},
 			Properties: search.SelectProperties{{Name: "name"}},
-		}, []string{""}, [][]float32{searchVector})
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedOrder := []interface{}{
 			"element-2", "element-3",

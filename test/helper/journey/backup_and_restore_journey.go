@@ -12,11 +12,13 @@
 package journey
 
 import (
+	"errors"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
@@ -52,7 +54,14 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 
 		if namedVectors {
 			for name := range booksClass.VectorConfig {
-				vectors[name] = duneBook.Vectors[name]
+				switch vec := duneBook.Vectors[name].(type) {
+				case []float32:
+					vectors[name] = vec
+				case [][]float32:
+					// do nothing
+				default:
+					// do nothing
+				}
 			}
 		} else {
 			vectors["vector"] = duneBook.Vector
@@ -80,8 +89,8 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 		}, booksClass.Class, backend, backupID)
 
 		helper.AssertRequestFail(t, resp, err, func() {
-			_, ok := err.(*backups.BackupsCreateUnprocessableEntity)
-			require.True(t, ok, "not backups.BackupsCreateUnprocessableEntity")
+			var customErr *backups.BackupsCreateUnprocessableEntity
+			require.True(t, errors.As(err, &customErr), "not backups.BackupsCreateUnprocessableEntity")
 		})
 
 		// out of band cpu %
@@ -89,8 +98,8 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			CPUPercentage: 120,
 		}, booksClass.Class, backend, backupID)
 		helper.AssertRequestFail(t, resp, err, func() {
-			_, ok := err.(*backups.BackupsCreateUnprocessableEntity)
-			require.True(t, ok, "not backups.BackupsCreateUnprocessableEntity")
+			var customErr *backups.BackupsCreateUnprocessableEntity
+			require.True(t, errors.As(err, &customErr), "not backups.BackupsCreateUnprocessableEntity")
 		})
 
 		// out of band chunkSize
@@ -98,8 +107,8 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			ChunkSize: 1024,
 		}, booksClass.Class, backend, backupID)
 		helper.AssertRequestFail(t, resp, err, func() {
-			_, ok := err.(*backups.BackupsCreateUnprocessableEntity)
-			require.True(t, ok, "not backups.BackupsCreateUnprocessableEntity")
+			var customErr *backups.BackupsCreateUnprocessableEntity
+			require.True(t, errors.As(err, &customErr), "not backups.BackupsCreateUnprocessableEntity")
 		})
 	})
 
@@ -185,8 +194,8 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 		}, booksClass.Class, backend, backupID, map[string]string{})
 
 		helper.AssertRequestFail(t, resp, err, func() {
-			_, ok := err.(*backups.BackupsRestoreUnprocessableEntity)
-			require.True(t, ok, "not backups.BackupsRestoreUnprocessableEntity")
+			var customErr *backups.BackupsRestoreUnprocessableEntity
+			require.True(t, errors.As(err, &customErr), "not backups.BackupsRestoreUnprocessableEntity")
 		})
 	})
 

@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -142,6 +143,7 @@ type Config struct {
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string
 
+	// 	AuthzController to manage RBAC commands and apply it to casbin
 	AuthzController authorization.Controller
 }
 
@@ -195,7 +197,7 @@ type Store struct {
 	lastAppliedIndex atomic.Uint64
 }
 
-func NewFSM(cfg Config) Store {
+func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 	// We have different resolver in raft so that depending on the environment we can resolve a node-id to an IP using
 	// different methods.
 	var raftResolver types.RaftResolver
@@ -214,7 +216,7 @@ func NewFSM(cfg Config) Store {
 		})
 	}
 
-	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger)
+	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 
 	return Store{
 		cfg:           cfg,

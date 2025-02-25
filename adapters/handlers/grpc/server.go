@@ -39,13 +39,14 @@ import (
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
 )
 
-const maxMsgSize = 104858000 // 10mb, needs to be synchronized with clients
-
-func CreateGRPCServer(state *state.State) *GRPCServer {
+// CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
+func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Server {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 	}
+
+	o = append(o, options...)
 
 	// Add TLS creds for the GRPC connection, if defined.
 	if len(state.ServerConfig.Config.GRPC.CertFile) > 0 || len(state.ServerConfig.Config.GRPC.KeyFile) > 0 {
@@ -95,7 +96,7 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
-	return &GRPCServer{s}
+	return s
 }
 
 func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
@@ -148,7 +149,7 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-func StartAndListen(s *GRPCServer, state *state.State) error {
+func StartAndListen(s *grpc.Server, state *state.State) error {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
 		state.ServerConfig.Config.GRPC.Port))
 	if err != nil {
@@ -157,12 +158,8 @@ func StartAndListen(s *GRPCServer, state *state.State) error {
 	state.Logger.WithField("action", "grpc_startup").
 		Infof("grpc server listening at %v", lis.Addr())
 	if err := s.Serve(lis); err != nil {
-		return fmt.Errorf("failed to serve: %v", err)
+		return fmt.Errorf("failed to serve: %w", err)
 	}
 
 	return nil
-}
-
-type GRPCServer struct {
-	*grpc.Server
 }

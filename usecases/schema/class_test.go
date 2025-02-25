@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -33,17 +34,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
-
-func Test_GetSchema(t *testing.T) {
-	t.Parallel()
-	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-	fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
-
-	sch, err := handler.GetSchema(nil)
-	assert.Nil(t, err)
-	assert.NotNil(t, sch)
-	fakeSchemaManager.AssertExpectations(t)
-}
 
 func Test_AddClass(t *testing.T) {
 	t.Parallel()

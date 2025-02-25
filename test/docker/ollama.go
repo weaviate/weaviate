@@ -38,7 +38,7 @@ func startOllama(ctx context.Context, networkName, hostname, model string) (*Doc
 	port := nat.Port("11434/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:    "ollama/ollama:0.5.0",
+			Image:    "ollama/ollama:0.5.7",
 			Hostname: hostname,
 			Networks: []string{networkName},
 			NetworkAliases: map[string][]string{
@@ -59,11 +59,11 @@ func startOllama(ctx context.Context, networkName, hostname, model string) (*Doc
 		// pull a given model
 		_, _, err = container.Exec(ctx, []string{"ollama", "pull", model})
 		if err != nil {
-			return nil, fmt.Errorf("failed to pull model %s: %s", model, err)
+			return nil, fmt.Errorf("failed to pull model %s: %w", model, err)
 		}
 		_, _, err = container.Exec(ctx, []string{"ollama", "run", model})
 		if err != nil {
-			return nil, fmt.Errorf("failed to run model %s: %s", model, err)
+			return nil, fmt.Errorf("failed to run model %s: %w", model, err)
 		}
 	}
 	uri, err := container.PortEndpoint(ctx, port, "")

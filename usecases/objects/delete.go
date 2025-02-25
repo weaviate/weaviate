@@ -17,11 +17,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
+
+	"github.com/go-openapi/strfmt"
+
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -30,24 +33,14 @@ import (
 // if class == "" it will delete all object with same id regardless of the class name.
 // This is due to backward compatibility reasons and should be removed in the future
 func (m *Manager) DeleteObject(ctx context.Context,
-	principal *models.Principal, class string, id strfmt.UUID,
+	principal *models.Principal, className string, id strfmt.UUID,
 	repl *additional.ReplicationProperties, tenant string,
 ) error {
-	err := m.authorizer.Authorize(principal, authorization.DELETE, authorization.Objects(class, tenant, id))
+	err := m.authorizer.Authorize(principal, authorization.DELETE, authorization.Objects(className, tenant, id))
 	if err != nil {
 		return err
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
-		return err
-	}
-
 	ctx = classcache.ContextWithClassCache(ctx)
-
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
 
 	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectDeleteMemory()); err != nil {
 		m.logger.WithError(err).Errorf("memory pressure: cannot process delete object")
@@ -57,20 +50,21 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	m.metrics.DeleteObjectInc()
 	defer m.metrics.DeleteObjectDec()
 
-	if class == "" { // deprecated
+	if className == "" { // deprecated
 		return m.deleteObjectFromRepo(ctx, id, time.UnixMilli(m.timeSource.Now()))
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, class)
+	// we only use the schemaVersion in this endpoint
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
 	if err != nil {
-		return fmt.Errorf("could not get class %s: %w", class, err)
+		return fmt.Errorf("could not get class %s: %w", className, err)
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
-	if err := m.schemaManager.WaitForUpdate(ctx, vclasses[class].Version); err != nil {
-		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", vclasses[class].Version, err)
+	if err := m.schemaManager.WaitForUpdate(ctx, fetchedClasses[className].Version); err != nil {
+		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", fetchedClasses[className].Version, err)
 	}
-	if err = m.vectorRepo.DeleteObject(ctx, class, id, time.UnixMilli(m.timeSource.Now()), repl, tenant, vclasses[class].Version); err != nil {
+	if err = m.vectorRepo.DeleteObject(ctx, className, id, time.UnixMilli(m.timeSource.Now()), repl, tenant, fetchedClasses[className].Version); err != nil {
 		var e1 ErrMultiTenancy
 		if errors.As(err, &e1) {
 			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
@@ -78,6 +72,10 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		var e2 ErrInvalidUserInput
 		if errors.As(err, &e2) {
 			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
+		}
+		var e3 authzerrs.Forbidden
+		if errors.As(err, &e3) {
+			return fmt.Errorf("delete object from vector repo: %w", err)
 		}
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
@@ -97,8 +95,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID, dele
 	for {
 		objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil, "")
 		if err != nil {
-			_, ok := err.(ErrNotFound)
-			if ok {
+			if errors.As(err, &ErrNotFound{}) {
 				if deleteCounter == 0 {
 					return err
 				}

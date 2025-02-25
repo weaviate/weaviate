@@ -17,7 +17,9 @@ import (
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
@@ -77,7 +79,7 @@ func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) {
-	principal := principalFromContext(p.Context)
+	principal := restCtx.GetPrincipalFromContext(p.Context)
 
 	err := r.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData()...)
 	if err != nil {
@@ -94,7 +96,7 @@ func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) 
 	if param, ok := p.Args["nearVector"]; ok {
 		extracted, _, err := common_filters.ExtractNearVector(param.(map[string]interface{}), nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract nearVector params: %s", err)
+			return nil, fmt.Errorf("failed to extract nearVector params: %w", err)
 		}
 		params.NearVector = &extracted
 	}
@@ -102,7 +104,7 @@ func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) 
 	if param, ok := p.Args["nearObject"]; ok {
 		extracted, _, err := common_filters.ExtractNearObject(param.(map[string]interface{}))
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract nearObject params: %s", err)
+			return nil, fmt.Errorf("failed to extract nearObject params: %w", err)
 		}
 		params.NearObject = &extracted
 	}
@@ -127,15 +129,6 @@ func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) 
 	}
 
 	return resources.resolver.Explore(p.Context, principal, params)
-}
-
-func principalFromContext(ctx context.Context) *models.Principal {
-	principal := ctx.Value("principal")
-	if principal == nil {
-		return nil
-	}
-
-	return principal.(*models.Principal)
 }
 
 func containsCertaintyProperty(info graphql.ResolveInfo) bool {

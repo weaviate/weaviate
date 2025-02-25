@@ -19,16 +19,15 @@ import (
 	"reflect"
 	"strings"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/replication"
-
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -67,6 +66,9 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	return class, 0, err
 }
 
+// GetCachedClass will return the class from the cache if it exists. Note that the context cache
+// will likely be at the "request" or "operation" level and not be shared between requests.
+// Uses the Handler's getClassMethod to determine how to get the class data.
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
@@ -75,28 +77,16 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	}
 
 	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
-		vclasses, err := h.schemaManager.QueryReadOnlyClasses(names...)
-		if err != nil {
-			return nil, err
-		}
+		return h.classGetter.getClasses(names)
+	}, names...)
+}
 
-		if len(vclasses) == 0 {
-			return nil, nil
-		}
-
-		for _, vclass := range vclasses {
-			if err := h.parser.ParseClass(vclass.Class); err != nil {
-				// remove invalid classes
-				h.logger.WithFields(logrus.Fields{
-					"Class": vclass.Class.Class,
-					"Error": err,
-				}).Warn("parsing class error")
-				delete(vclasses, vclass.Class.Class)
-				continue
-			}
-		}
-
-		return vclasses, nil
+// GetCachedClassNoAuth will return the class from the cache if it exists. Note that the context cache
+// will likely be at the "request" or "operation" level and not be shared between requests.
+// Uses the Handler's getClassMethod to determine how to get the class data.
+func (h *Handler) GetCachedClassNoAuth(ctxWithClassCache context.Context, names ...string) (map[string]versioned.Class, error) {
+	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
+		return h.classGetter.getClasses(names)
 	}, names...)
 }
 
@@ -109,9 +99,6 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 	err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
 	if err != nil {
-		return nil, 0, err
-	}
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(cls.Class)...); err != nil {
 		return nil, 0, err
 	}
 
@@ -220,9 +207,6 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
 	err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
 	if err != nil {
-		return err
-	}
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
 		return err
 	}
 
@@ -572,7 +556,7 @@ func (h *Handler) validateProperty(
 		propertyDataType, err := schema.FindPropertyDataTypeWithRefsAndAuth(classGetterWithAuth, property.DataType,
 			relaxCrossRefValidation, schema.ClassName(class.Class))
 		if err != nil {
-			return errors.Wrapf(err, "property '%s': invalid dataType: %v", property.Name, property.DataType)
+			return fmt.Errorf("property '%s': invalid dataType: %v: %w", property.Name, property.DataType, err)
 		}
 
 		if propertyDataType.IsNested() {
@@ -761,6 +745,15 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 		}
 		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
+		}
+		if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
+			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer))
+			if err != nil {
+				return fmt.Errorf("class.VectorIndexConfig can not parse: %w", err)
+			}
+			if parsed.IsMultiVector() {
+				return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
+			}
 		}
 		return nil
 	}

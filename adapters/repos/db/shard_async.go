@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -90,7 +91,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 
 	if vectorIndex.Multivector() {
 		err = s.iterateOnLSMMultiVectors(ctx, from, targetVector, func(id uint64, vector [][]float32) error {
-			if vectorIndex.ContainsNode(id) {
+			if vectorIndex.ContainsDoc(id) {
 				return nil
 			}
 			if len(vector) == 0 {
@@ -122,7 +123,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 		}
 	} else {
 		err = s.iterateOnLSMVectors(ctx, from, targetVector, func(id uint64, vector []float32) error {
-			if vectorIndex.ContainsNode(id) {
+			if vectorIndex.ContainsDoc(id) {
 				return nil
 			}
 			if len(vector) == 0 {
@@ -173,6 +174,14 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 }
 
 func (s *Shard) iterateOnLSMVectors(ctx context.Context, fromID uint64, targetVector string, fn func(id uint64, vector []float32) error) error {
+	properties := additional.Properties{
+		NoProps: true,
+		Vector:  true,
+	}
+	if targetVector != "" {
+		properties.Vectors = []string{targetVector}
+	}
+
 	return s.iterateOnLSMObjects(ctx, fromID, func(obj *storobj.Object) error {
 		var vector []float32
 		if targetVector == "" {
@@ -183,20 +192,31 @@ func (s *Shard) iterateOnLSMVectors(ctx context.Context, fromID uint64, targetVe
 			}
 		}
 		return fn(obj.DocID, vector)
-	})
+	}, properties, nil)
 }
 
 func (s *Shard) iterateOnLSMMultiVectors(ctx context.Context, fromID uint64, targetVector string, fn func(id uint64, vector [][]float32) error) error {
+	properties := additional.Properties{
+		NoProps: true,
+		Vectors: []string{targetVector},
+	}
+
 	return s.iterateOnLSMObjects(ctx, fromID, func(obj *storobj.Object) error {
 		var vector [][]float32
 		if len(obj.MultiVectors) > 0 {
 			vector = obj.MultiVectors[targetVector]
 		}
 		return fn(obj.DocID, vector)
-	})
+	}, properties, nil)
 }
 
-func (s *Shard) iterateOnLSMObjects(ctx context.Context, fromID uint64, fn func(obj *storobj.Object) error) error {
+func (s *Shard) iterateOnLSMObjects(
+	ctx context.Context,
+	fromID uint64,
+	fn func(obj *storobj.Object) error,
+	addProps additional.Properties,
+	properties *storobj.PropertyExtraction,
+) error {
 	maxDocID := s.Counter().Get()
 	bucket := s.Store().Bucket(helpers.ObjectsBucketLSM)
 
@@ -215,7 +235,7 @@ func (s *Shard) iterateOnLSMObjects(ctx context.Context, fromID uint64, fn func(
 		if v == nil {
 			continue
 		}
-		obj, err := storobj.FromBinary(v)
+		obj, err := storobj.FromBinaryOptional(v, addProps, properties)
 		if err != nil {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
@@ -277,10 +297,10 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 	if vectorIndex.Multivector() {
 		// add non-indexed multi vectors to the queue
-		err = s.iterateOnLSMMultiVectors(ctx, 0, targetVector, func(id uint64, vector [][]float32) error {
-			visited.Visit(id)
+		err = s.iterateOnLSMMultiVectors(ctx, 0, targetVector, func(docID uint64, vector [][]float32) error {
+			visited.Visit(docID)
 
-			if vectorIndex.ContainsNode(id) {
+			if vectorIndex.ContainsDoc(docID) {
 				return nil
 			}
 			if len(vector) == 0 {
@@ -288,7 +308,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 			}
 
 			rec := &common.Vector[[][]float32]{
-				ID:     id,
+				ID:     docID,
 				Vector: vector,
 			}
 			added++
@@ -312,10 +332,10 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		}
 	} else {
 		// add non-indexed vectors to the queue
-		err = s.iterateOnLSMVectors(ctx, 0, targetVector, func(id uint64, vector []float32) error {
-			visited.Visit(id)
+		err = s.iterateOnLSMVectors(ctx, 0, targetVector, func(docID uint64, vector []float32) error {
+			visited.Visit(docID)
 
-			if vectorIndex.ContainsNode(id) {
+			if vectorIndex.ContainsDoc(docID) {
 				return nil
 			}
 			if len(vector) == 0 {
@@ -323,7 +343,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 			}
 
 			rec := &common.Vector[[]float32]{
-				ID:     id,
+				ID:     docID,
 				Vector: vector,
 			}
 			added++
@@ -363,15 +383,20 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 	}
 
 	// remove any indexed vector that is not in the LSM store
-	vectorIndex.Iterate(func(id uint64) bool {
-		if visited.Visited(id) {
+	vectorIndex.Iterate(func(docID uint64) bool {
+		if visited.Visited(docID) {
 			return true
 		}
 
 		deleted++
-		err := vectorIndex.Delete(id)
-		if err != nil {
-			s.index.logger.WithError(err).WithField("id", id).Warn("delete vector from queue")
+		if vectorIndex.Multivector() {
+			if err := vectorIndex.DeleteMulti(docID); err != nil {
+				s.index.logger.WithError(err).WithField("id", docID).Warn("delete multi-vector from queue")
+			}
+		} else {
+			if err := vectorIndex.Delete(docID); err != nil {
+				s.index.logger.WithError(err).WithField("id", docID).Warn("delete vector from queue")
+			}
 		}
 
 		return true

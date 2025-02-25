@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -201,25 +203,28 @@ func NewManager(validator validator,
 	schemaManager SchemaManager,
 	schemaReader SchemaReader,
 	repo SchemaStore,
-	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, managerConfig config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
+	parser Parser,
+	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
 		schemaManager,
 		validator,
 		logger, authorizer,
-		config, configParser, vectorizerValidator, invertedConfigValidator,
-		moduleConfig, clusterState, scaleoutManager, cloud)
+		managerConfig, configParser, vectorizerValidator, invertedConfigValidator,
+		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
 	m := &Manager{
-		config:       config,
+		config:       managerConfig,
 		validator:    validator,
 		repo:         repo,
 		logger:       logger,
@@ -404,10 +409,12 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		ClusterNodes: m.schemaManager.StorageCandidates(),
 	}
 
+	inactiveTenants := make([]string, 0, len(status))
 	for tenant, s := range status {
 		if s != models.TenantActivityStatusHOT {
 			req.Tenants = append(req.Tenants,
 				&api.Tenant{Name: tenant, Status: models.TenantActivityStatusHOT})
+			inactiveTenants = append(inactiveTenants, tenant)
 		}
 	}
 
@@ -416,7 +423,14 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		return status, nil
 	}
 
-	_, err := m.schemaManager.UpdateTenants(ctx, class, req)
+	principal := restCtx.GetPrincipalFromContext(ctx)
+	resources := authorization.ShardsMetadata(class, inactiveTenants...)
+	err := m.Authorizer.Authorize(principal, authorization.UPDATE, resources...)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = m.schemaManager.UpdateTenants(ctx, class, req)
 	if err != nil {
 		names := make([]string, len(req.Tenants))
 		for i, t := range req.Tenants {

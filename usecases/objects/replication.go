@@ -34,9 +34,9 @@ type VObject struct {
 	// LatestObject is to most up-to-date version of an object
 	LatestObject *models.Object `json:"object,omitempty"`
 
-	Vector       []float32           `json:"vector"`
-	Vectors      models.Vectors      `json:"vectors"`
-	MultiVectors models.MultiVectors `json:"multiVectors"`
+	Vector       []float32              `json:"vector"`
+	Vectors      map[string][]float32   `json:"vectors"`
+	MultiVectors map[string][][]float32 `json:"multiVectors"`
 
 	// StaleUpdateTime is the LastUpdateTimeUnix of the stale object sent to the coordinator
 	StaleUpdateTime int64 `json:"updateTime,omitempty"`
@@ -57,7 +57,8 @@ type vobjectMarshaler struct {
 	StaleUpdateTime         int64
 	Version                 uint64
 	Vector                  []float32
-	Vectors                 models.Vectors
+	Vectors                 map[string][]float32
+	MultiVectors            map[string][][]float32
 	LatestObject            []byte
 }
 
@@ -69,6 +70,7 @@ func (vo *VObject) MarshalBinary() ([]byte, error) {
 		StaleUpdateTime:         vo.StaleUpdateTime,
 		Vector:                  vo.Vector,
 		Vectors:                 vo.Vectors,
+		MultiVectors:            vo.MultiVectors,
 		Version:                 vo.Version,
 	}
 	if vo.LatestObject != nil {
@@ -96,6 +98,7 @@ func (vo *VObject) UnmarshalBinary(data []byte) error {
 	vo.StaleUpdateTime = b.StaleUpdateTime
 	vo.Vector = b.Vector
 	vo.Vectors = b.Vectors
+	vo.MultiVectors = b.MultiVectors
 	vo.Version = b.Version
 
 	if b.LatestObject != nil {

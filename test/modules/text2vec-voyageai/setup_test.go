@@ -31,15 +31,17 @@ func TestText2VecVoyageAI(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	rest := compose.GetWeaviate().URI()
+	grpc := compose.GetWeaviate().GrpcURI()
 
-	t.Run("text2vec-voyageai", testText2VecVoyageAI(endpoint))
+	t.Run("text2vec-voyageai", testText2VecVoyageAI(rest, grpc))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, apiKey string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(apiKey).
 		WithWeaviate().
+		WithWeaviateWithGRPC().
 		Start(ctx)
 	return
 }

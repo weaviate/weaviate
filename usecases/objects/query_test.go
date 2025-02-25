@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -44,7 +45,6 @@ func TestQuery(t *testing.T) {
 		param             QueryParams
 		mockedErr         *Error
 		authErr           error
-		lockErr           error
 		wantCode          int
 		mockedDBResponse  []search.Result
 		wantResponse      []*models.Object
@@ -65,14 +65,6 @@ func TestQuery(t *testing.T) {
 			param:          params,
 			authErr:        errAny,
 			wantCode:       StatusForbidden,
-			wantQueryInput: inputs,
-		},
-		{
-			name:           "internal error",
-			class:          cls,
-			param:          params,
-			lockErr:        errAny,
-			wantCode:       StatusInternalServerError,
 			wantQueryInput: inputs,
 		},
 		{
@@ -140,15 +132,16 @@ func TestQuery(t *testing.T) {
 	for i, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m.authorizer.SetErr(tc.authErr)
-			m.locks.Err = tc.lockErr
-			if tc.authErr == nil && tc.lockErr == nil {
+			if tc.authErr == nil {
 				m.repo.On("Query", &tc.wantQueryInput).Return(tc.mockedDBResponse, tc.mockedErr).Once()
 			}
 			if tc.wantUsageTracking {
 				m.metrics.On("AddUsageDimensions", cls, "get_rest", "list_include_vector",
 					tc.mockedDBResponse[0].Dims)
 			}
-			res, err := m.Manager.Query(context.Background(), nil, &tc.param)
+			res, err := m.Manager.Query(context.Background(), &models.Principal{
+				Username: "testuser",
+			}, &tc.param)
 			code := 0
 			if err != nil {
 				code = err.Code

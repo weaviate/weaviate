@@ -63,6 +63,15 @@ func byteVector(vec []float32) []byte {
 	return vector
 }
 
+func byteVectorMulti(mat [][]float32) []byte {
+	matrix := make([]byte, 2)
+	binary.LittleEndian.PutUint16(matrix, uint16(len(mat[0])))
+	for _, vec := range mat {
+		matrix = append(matrix, byteVector(vec)...)
+	}
+	return matrix
+}
+
 func idByte(id string) []byte {
 	hexInteger, _ := new(big.Int).SetString(strings.Replace(id, "-", "", -1), 16)
 	return hexInteger.Bytes()
@@ -217,14 +226,14 @@ func TestGRPCReply(t *testing.T) {
 			name: "named vector only",
 			res: []interface{}{
 				map[string]interface{}{
-					"_additional": map[string]interface{}{"vectors": map[string][]float32{"custom": {1}, "first": {2}}},
+					"_additional": map[string]interface{}{"vectors": map[string]models.Vector{"custom": []float32{1}, "first": []float32{2}}},
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}}},
 			outSearch: []*pb.SearchResult{
 				{Metadata: &pb.MetadataResult{Vectors: []*pb.Vectors{
-					{Name: "custom", VectorBytes: byteVector([]float32{1})},
-					{Name: "first", VectorBytes: byteVector([]float32{2})},
+					{Name: "custom", VectorBytes: byteVector([]float32{1}), Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32},
+					{Name: "first", VectorBytes: byteVector([]float32{2}), Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32},
 				}}, Properties: &pb.PropertiesResult{}},
 			},
 			usesWeaviateStruct: true,

@@ -53,3 +53,7 @@ func (d *DockerContainer) GetEndpoint(name EndpointName) string {
 	}
 	return ""
 }
+
+func (d *DockerContainer) Container() testcontainers.Container {
+	return d.container
+}

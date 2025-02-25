@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"sync/atomic"
@@ -45,13 +46,22 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 
 	// no vectors exist
 	if dims == 0 {
+		vecDimensions := make(map[int]struct{})
+		for i := range vector {
+			vecDimensions[len(vector[i])] = struct{}{}
+		}
+		if len(vecDimensions) > 1 {
+			return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
+		}
 		return nil
 	}
 
 	// check if vector length is the same as existing nodes
-	if dims != len(vector) {
-		return fmt.Errorf("new node has a multi vector with length %v. "+
-			"Existing nodes have vectors with length %v", len(vector), dims)
+	for i := range vector {
+		if dims != len(vector[i]) {
+			return fmt.Errorf("new node has a multi vector with length %v at position %v. "+
+				"Existing nodes have vectors with length %v", len(vector[i]), i, dims)
+		}
 	}
 
 	return nil
@@ -70,9 +80,25 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	if len(ids) == 0 {
 		return errors.Errorf("insertBatch called with empty lists")
 	}
+
+	var err error
 	h.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+		dims := len(vectors[0])
+		for _, vec := range vectors {
+			if len(vec) != dims {
+				err = errors.Errorf("addBatch called with vectors of different lengths")
+				return
+			}
+		}
+		if err == nil {
+			atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+		}
 	})
+
+	if err != nil {
+		return err
+	}
+
 	levels := make([]int, len(ids))
 	maxId := uint64(0)
 	for i, id := range ids {
@@ -130,18 +156,34 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		return err
 	}
 	if !h.multivector.Load() {
-		return errors.Errorf("AddMultiBatch called on non-multivector index")
+		return errors.Errorf("addMultiBatch called on non-multivector index")
 	}
 	if len(docIDs) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
 	if len(docIDs) == 0 {
-		return errors.Errorf("insertBatch called with empty lists")
+		return errors.Errorf("addMultiBatch called with empty lists")
 	}
 
+	var err error
 	h.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&h.dims, int32(len(vectors[0][0])))
+		dim := len(vectors[0][0])
+		for _, doc := range vectors {
+			for _, vec := range doc {
+				if len(vec) != dim {
+					err = errors.Errorf("addMultiBatch called with vectors of different lengths")
+					return
+				}
+			}
+		}
+		if err == nil {
+			atomic.StoreInt32(&h.dims, int32(len(vectors[0][0])))
+		}
 	})
+
+	if err != nil {
+		return err
+	}
 
 	for i, docID := range docIDs {
 		numVectors := len(vectors[i])
@@ -227,7 +269,16 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
 			h.Unlock()
 
-			err := h.addOne(ctx, vector, node)
+			nodeIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(nodeIDBytes, nodeId)
+			docIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(docIDBytes, docID)
+			err := h.store.Bucket(h.id+"_mv_mappings").Put(nodeIDBytes, docIDBytes)
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("failed to put %s_mv_mappings into the bucket", h.id))
+			}
+
+			err = h.addOne(ctx, vector, node)
 			if err != nil {
 				return err
 			}

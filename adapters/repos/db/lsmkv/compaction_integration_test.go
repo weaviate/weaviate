@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func testCtx() context.Context {
@@ -41,6 +42,7 @@ type bucketIntegrationTests []bucketIntegrationTest
 func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			test.opts = append(test.opts, WithSegmentsChecksumValidationEnabled(false))
 			t.Run("mmap", func(t *testing.T) {
 				test.f(ctx, t, test.opts)
 			})
@@ -404,7 +406,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionInvertedStrategy_KeepTombstones",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				compactionInvertedStrategy(ctx, t, opts, 8931, 8931)
+				compactionInvertedStrategy(ctx, t, opts, 9059, 9059)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyInverted),
@@ -471,7 +473,7 @@ func assertSingleSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 	fi, err := os.Stat(dbFiles[0])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, expectedMinSize, fi.Size())
-	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
+	assert.GreaterOrEqual(t, expectedMaxSize+segmentindex.ChecksumSize, fi.Size())
 }
 
 func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, expectedMaxSize int64) {
@@ -489,5 +491,5 @@ func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 	fi, err := os.Stat(dbFiles[1])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, expectedMinSize, fi.Size())
-	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
+	assert.GreaterOrEqual(t, expectedMaxSize+segmentindex.ChecksumSize, fi.Size())
 }

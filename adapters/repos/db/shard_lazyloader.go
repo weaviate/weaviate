@@ -248,7 +248,7 @@ func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *fi
 	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
 }
 
-func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, nil, err
 	}
@@ -269,11 +269,11 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) UpdateAsyncReplication(ctx context.Context, enabled bool) error {
+func (l *LazyLoadShard) updateAsyncReplicationConfig(ctx context.Context, enabled bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.UpdateAsyncReplication(ctx, enabled)
+	return l.shard.updateAsyncReplicationConfig(ctx, enabled)
 }
 
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
@@ -302,13 +302,14 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 	return l.shard.MultiObjectByID(ctx, query)
 }
 
-func (l *LazyLoadShard) ObjectDigestsByTokenRange(ctx context.Context,
-	initialToken, finalToken uint64, limit int,
-) (objs []replica.RepairResponse, lastTokenRead uint64, err error) {
-	if err := l.Load(ctx); err != nil {
-		return nil, 0, err
+func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
+	initialUUID, finalUUID strfmt.UUID, limit int,
+) (objs []replica.RepairResponse, err error) {
+	if !l.isLoaded() {
+		return nil, err
 	}
-	return l.shard.ObjectDigestsByTokenRange(ctx, initialToken, finalToken, limit)
+
+	return l.shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
 }
 
 func (l *LazyLoadShard) ID() string {
@@ -368,11 +369,11 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 	l.shard.initPropertyBuckets(ctx, eg, props...)
 }
 
-func (l *LazyLoadShard) HaltForTransfer(ctx context.Context) error {
+func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.HaltForTransfer(ctx)
+	return l.shard.HaltForTransfer(ctx, offloading)
 }
 
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
@@ -414,6 +415,11 @@ func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
 	l.shard.publishDimensionMetrics(ctx)
 }
 
+func (l *LazyLoadShard) resetDimensionsLSM() error {
+	l.mustLoad()
+	return l.shard.resetDimensionsLSM()
+}
+
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
@@ -438,7 +444,7 @@ func (l *LazyLoadShard) Queues() map[string]*VectorIndexQueue {
 	return l.shard.Queues()
 }
 
-func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error) {
+func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}

@@ -27,7 +27,7 @@ func RolesToPolicies(roles ...*models.Role) (map[string][]authorization.Policy, 
 		for _, permission := range roles[idx].Permissions {
 			policy, err := policy(permission)
 			if err != nil {
-				return rolesmap, err
+				return rolesmap, fmt.Errorf("policy: %w", err)
 			}
 			rolesmap[*roles[idx].Name] = append(rolesmap[*roles[idx].Name], *policy)
 		}
@@ -41,7 +41,7 @@ func PermissionToPolicies(permissions ...*models.Permission) ([]*authorization.P
 	for idx := range permissions {
 		policy, err := policy(permissions[idx])
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("policy: %w", err)
 		}
 		policies = append(policies, policy)
 	}
@@ -55,7 +55,7 @@ func PathToPermission(verb, path string) (*models.Permission, error) {
 		return nil, fmt.Errorf("invalid path")
 	}
 
-	return permission([]string{"", path, verb, parts[0]})
+	return permission([]string{"", path, verb, parts[0]}, false)
 }
 
 func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permission, error) {
@@ -64,7 +64,7 @@ func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permissio
 		// 1st empty string to replace casbin pattern of having policy name as 1st place
 		// e.g.  tester, roles/.*, (C)|(R)|(U)|(D), roles
 		// see newPolicy()
-		perm, err := permission([]string{"", policies[idx].Resource, policies[idx].Verb, policies[idx].Domain})
+		perm, err := permission([]string{"", policies[idx].Resource, policies[idx].Verb, policies[idx].Domain}, true)
 		if err != nil {
 			return nil, err
 		}
@@ -86,18 +86,18 @@ func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Po
 				for _, p := range perms {
 					perm, err := policy(p)
 					if err != nil {
-						return nil, err
+						return nil, fmt.Errorf("policy: %w", err)
 					}
 					rolesPermissions[name] = append(rolesPermissions[name], *perm)
 				}
 			} else {
-				perm, err := permission(policyParts)
+				perm, err := permission(policyParts, true)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("permission: %w", err)
 				}
 				weaviatePerm, err := policy(perm)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("policy: %w", err)
 				}
 				rolesPermissions[name] = append(rolesPermissions[name], *weaviatePerm)
 			}

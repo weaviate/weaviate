@@ -15,12 +15,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
+	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func CreateRole(t *testing.T, key string, role *models.Role) {
+	t.Helper()
 	resp, err := Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(role), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
@@ -34,14 +37,15 @@ func GetRoles(t *testing.T, key string) []*models.Role {
 }
 
 func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
+	t.Helper()
 	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload
 }
 
-func GetRolesForOwnUser(t *testing.T, key string) []*models.Role {
-	resp, err := Client(t).Authz.GetRolesForOwnUser(authz.NewGetRolesForOwnUserParams(), CreateAuth(key))
+func GetInfoForOwnUser(t *testing.T, key string) *models.UserInfo {
+	resp, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload
@@ -62,8 +66,36 @@ func GetRoleByName(t *testing.T, key, role string) *models.Role {
 }
 
 func AssignRoleToUser(t *testing.T, key, role, user string) {
-	resp, err := Client(t).Authz.AssignRole(
-		authz.NewAssignRoleParams().WithID(user).WithBody(authz.AssignRoleBody{Roles: []string{role}}),
+	t.Helper()
+	resp, err := Client(t).Authz.AssignRoleToUser(
+		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+func RevokeRoleFromUser(t *testing.T, key, role, user string) {
+	resp, err := Client(t).Authz.RevokeRoleFromUser(
+		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+func AssignRoleToGroup(t *testing.T, key, role, group string) {
+	resp, err := Client(t).Authz.AssignRoleToGroup(
+		authz.NewAssignRoleToGroupParams().WithID(group).WithBody(authz.AssignRoleToGroupBody{Roles: []string{role}}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+func RevokeRoleFromGroup(t *testing.T, key, role, group string) {
+	resp, err := Client(t).Authz.RevokeRoleFromGroup(
+		authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{role}}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -124,15 +156,39 @@ func (p *CollectionsPermission) WithCollection(collection string) *CollectionsPe
 	return p
 }
 
-func (p *CollectionsPermission) WithTenant(tenant string) *CollectionsPermission {
-	if p.Collections == nil {
-		p.Collections = &models.PermissionCollections{}
-	}
-	p.Collections.Tenant = authorization.String(tenant)
+func (p *CollectionsPermission) Permission() *models.Permission {
+	perm := models.Permission(*p)
+	return &perm
+}
+
+type TenantsPermission models.Permission
+
+func NewTenantsPermission() *TenantsPermission {
+	return &TenantsPermission{}
+}
+
+func (p *TenantsPermission) WithAction(action string) *TenantsPermission {
+	p.Action = authorization.String(action)
 	return p
 }
 
-func (p *CollectionsPermission) Permission() *models.Permission {
+func (p *TenantsPermission) WithCollection(collection string) *TenantsPermission {
+	if p.Tenants == nil {
+		p.Tenants = &models.PermissionTenants{}
+	}
+	p.Tenants.Collection = authorization.String(collection)
+	return p
+}
+
+func (p *TenantsPermission) WithTenant(tenant string) *TenantsPermission {
+	if p.Tenants == nil {
+		p.Tenants = &models.PermissionTenants{}
+	}
+	p.Tenants.Tenant = authorization.String(tenant)
+	return p
+}
+
+func (p *TenantsPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
 }

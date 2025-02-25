@@ -17,16 +17,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pkg/errors"
-
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
-
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	casbinutil "github.com/casbin/casbin/v2/util"
+	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
 const (
@@ -46,7 +45,7 @@ const (
 	e = some(where (p.eft == allow))
 
 	[matchers]
-	m = g(r.sub, p.sub) && keyMatch5(r.obj, p.obj) && regexMatch(r.act, p.act)
+	m = g(r.sub, p.sub) && weaviateMatcher(r.obj, p.obj) && regexMatch(r.act, p.act)
 `
 )
 
@@ -101,8 +100,17 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	}
 
 	// docs: https://casbin.org/docs/function/
-	enforcer.AddNamedMatchingFunc("g", "keyMatch5", casbinutil.KeyMatch5)
-	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
+	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
+
+	// remove preexisting root role including assignments
+	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
+	if err != nil {
+		return nil, err
+	}
+	_, err = enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(authorization.Root))
+	if err != nil {
+		return nil, err
+	}
 
 	// add pre existing roles
 	for name, verb := range conv.BuiltInPolicies {
@@ -114,21 +122,30 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		}
 	}
 
-	for i := range conf.Admins {
-		if strings.TrimSpace(conf.Admins[i]) == "" {
+	for i := range conf.RootUsers {
+		if strings.TrimSpace(conf.RootUsers[i]) == "" {
 			continue
 		}
-		if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(conf.Admins[i]), conv.PrefixRoleName(authorization.Admin)); err != nil {
+		if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(conf.RootUsers[i]), conv.PrefixRoleName(authorization.Root)); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}
 
-	for i := range conf.Viewers {
-		if strings.TrimSpace(conf.Viewers[i]) == "" {
+	for _, group := range conf.RootGroups {
+		if strings.TrimSpace(group) == "" {
 			continue
 		}
-		if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(conf.Viewers[i]), conv.PrefixRoleName(authorization.Viewer)); err != nil {
-			return nil, fmt.Errorf("add role for user: %w", err)
+		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(group), conv.PrefixRoleName(authorization.Root)); err != nil {
+			return nil, fmt.Errorf("add role for group %s: %w", group, err)
+		}
+	}
+
+	for _, viewerGroup := range conf.ViewerRootGroups {
+		if strings.TrimSpace(viewerGroup) == "" {
+			continue
+		}
+		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(viewerGroup), conv.PrefixRoleName(authorization.Viewer)); err != nil {
+			return nil, fmt.Errorf("add viewer role for group %s: %w", viewerGroup, err)
 		}
 	}
 
@@ -137,4 +154,23 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	}
 
 	return enforcer, nil
+}
+
+func WeaviateMatcher(key1 string, key2 string) bool {
+	// If we're dealing with a tenant-specific path (matches /shards/#$)
+	if strings.HasSuffix(key1, "/shards/#") {
+		// Don't allow matching with wildcard patterns
+		if strings.HasSuffix(key2, "/shards/.*") {
+			return false
+		}
+	}
+	// For all other cases, use standard KeyMatch5
+	return casbinutil.KeyMatch5(key1, key2)
+}
+
+func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
+	name1 := args[0].(string)
+	name2 := args[1].(string)
+
+	return (bool)(WeaviateMatcher(name1, name2)), nil
 }

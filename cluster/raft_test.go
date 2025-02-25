@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -112,6 +113,11 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, readOnlyVClass[cls.Class].Class)
 	assert.Equal(t, cls, readOnlyVClass[cls.Class].Class)
+
+	// QueryClassVersions
+	classVersions, err := srv.QueryClassVersions(cls.Class)
+	assert.NoError(t, err)
+	assert.Equal(t, readOnlyVClass[cls.Class].Version, classVersions[cls.Class])
 
 	// QuerySchema
 	getSchema, err := srv.QuerySchema()
@@ -291,7 +297,7 @@ func TestRaftEndpoints(t *testing.T) {
 	// restore from snapshot
 	assert.Nil(t, srv.Close(ctx))
 
-	s := NewFSM(m.cfg)
+	s := NewFSM(m.cfg, prometheus.NewPedanticRegistry())
 	m.store = &s
 	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	assert.Nil(t, srv.Open(ctx, m.indexer))
@@ -333,7 +339,7 @@ func TestRaftClose(t *testing.T) {
 	ctx := context.Background()
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
-	s := NewFSM(m.cfg)
+	s := NewFSM(m.cfg, prometheus.NewPedanticRegistry())
 	m.store = &s
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	m.indexer.On("Open", mock.Anything).Return(nil)

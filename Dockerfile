@@ -4,7 +4,9 @@
 
 ###############################################################################
 # Base build image
-FROM golang:1.22-alpine AS build_base
+# NOTE using 1.22-alpine3.20 because of error similar to: https://github.com/docker/buildx/issues/2028
+# please update tag when this issue is fixed
+FROM golang:1.22-alpine3.20 AS build_base
 RUN apk add bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 ENV GO111MODULE=on
@@ -40,15 +42,11 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 
 ###############################################################################
 # This image gets grpc health check probe
-FROM golang:1.23-alpine AS grpc_health_probe_builder
-WORKDIR /app
-RUN apk add git
-RUN git clone https://github.com/grpc-ecosystem/grpc-health-probe.git 
-WORKDIR /app/grpc-health-probe
-RUN git checkout v0.4.36
-RUN go get -v -u golang.org/x/net@v0.33.0
-RUN go mod tidy
-RUN go build -o /bin/grpc_health_probe .
+FROM build_base AS grpc_health_probe_builder
+ARG TARGETARCH
+RUN GRPC_HEALTH_PROBE_VERSION=v0.4.37 && \
+      wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-${TARGETARCH} && \
+      chmod +x /bin/grpc_health_probe
 
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)

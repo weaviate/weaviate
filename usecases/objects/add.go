@@ -13,18 +13,23 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -33,43 +38,33 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	var (
-		class  = "*"
-		tenant = "*"
-	)
-	if object != nil {
-		class = object.Class
-		tenant = object.Tenant
-	}
+	className := schema.UppercaseClassName(object.Class)
+	object.Class = className
 
-	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
 		return nil, err
 	}
-
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
-		return nil, err
-	}
-
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
 
 	m.metrics.AddObjectInc()
 	defer m.metrics.AddObjectDec()
+
+	ctx = classcache.ContextWithClassCache(ctx)
+	// we don't reveal any info that the end users cannot get through the structure of the data anyway
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(object)); err != nil {
 		m.logger.WithError(err).Errorf("memory pressure: cannot process add object")
 		return nil, fmt.Errorf("cannot process add object: %w", err)
 	}
 
-	ctx = classcache.ContextWithClassCache(ctx)
-	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl)
+	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object, repl *additional.ReplicationProperties,
+	object *models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (*models.Object, error) {
 	id, err := m.checkIDOrAssignNew(ctx, principal, object.Class, object.ID, repl, object.Tenant)
 	if err != nil {
@@ -77,16 +72,18 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, object)
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, object)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid object")
+		return nil, fmt.Errorf("invalid object: %w", err)
 	}
 
-	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
+	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, fetchedClasses); err != nil {
 		return nil, err
 	}
 
-	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil)
+	class := fetchedClasses[object.Class].Class
+
+	err = m.validateObjectAndNormalizeNames(ctx, repl, object, nil, fetchedClasses)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -98,11 +95,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
-	if err != nil {
-		return nil, err
-	}
-	err = m.modulesProvider.UpdateVector(ctx, object, vclasses[object.Class].Class, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, object, class, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +104,11 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
-	err = m.vectorRepo.PutObject(ctx, object, object.Vector, object.Vectors, object.MultiVectors, repl, schemaVersion)
+	vectors, multiVectors, err := dto.GetVectors(object.Vectors)
+	if err != nil {
+		return nil, fmt.Errorf("put object: cannot get vectors: %w", err)
+	}
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector, vectors, multiVectors, repl, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}
@@ -141,10 +138,10 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	if exists {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
-		switch err.(type) {
-		case ErrInvalidUserInput:
+		switch {
+		case errors.As(err, &ErrInvalidUserInput{}):
 			return "", err
-		case ErrMultiTenancy:
+		case errors.As(err, &ErrMultiTenancy{}):
 			// This may be fine, the class is configured to create non-existing tenants.
 			// A non-existing tenant will still be detected later on
 			if enterrors.IsTenantNotFound(err) {
@@ -152,6 +149,9 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 			}
 			return "", err
 		default:
+			if errors.As(err, &authzerrs.Forbidden{}) {
+				return "", err
+			}
 			return "", NewErrInternal("%v", err)
 		}
 	}
@@ -160,34 +160,25 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 }
 
 func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
-	principal *models.Principal, repl *additional.ReplicationProperties,
-	incoming *models.Object, existing *models.Object,
+	repl *additional.ReplicationProperties,
+	incoming *models.Object, existing *models.Object, fetchedClasses map[string]versioned.Class,
 ) error {
-	class, err := m.validateSchema(ctx, principal, incoming)
+	err := m.validateUUID(incoming)
 	if err != nil {
 		return err
 	}
+
+	if _, ok := fetchedClasses[incoming.Class]; !ok || fetchedClasses[incoming.Class].Class == nil {
+		return fmt.Errorf("class %q not found in schema", incoming.Class)
+	}
+	class := fetchedClasses[incoming.Class].Class
 
 	return validation.New(m.vectorRepo.Exists, m.config, repl).
 		Object(ctx, class, incoming, existing)
 }
 
-func (m *Manager) validateSchema(ctx context.Context,
-	principal *models.Principal, obj *models.Object,
-) (*models.Class, error) {
+func (m *Manager) validateUUID(obj *models.Object) error {
 	// Validate schema given in body with the weaviate schema
-	if _, err := uuid.Parse(obj.ID.String()); err != nil {
-		return nil, err
-	}
-
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, obj.Class)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(vclasses) == 0 || vclasses[obj.Class].Class == nil {
-		return nil, fmt.Errorf("class %q not found in schema", obj.Class)
-	}
-
-	return vclasses[obj.Class].Class, nil
+	_, err := uuid.Parse(obj.ID.String())
+	return err
 }

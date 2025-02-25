@@ -200,14 +200,14 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    []float32
+		want    models.Vector
 		wantErr bool
 	}{
 		{
 			name: "Should get vector from nearVector",
 			args: args{
 				nearVector: &searchparams.NearVector{
-					Vectors: [][]float32{{1.1, 1.0, 0.1}},
+					Vectors: []models.Vector{[]float32{1.1, 1.0, 0.1}},
 				},
 			},
 			want:    []float32{1.1, 1.0, 0.1},
@@ -294,7 +294,7 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 	tests := []struct {
 		name             string
 		args             args
-		want             []float32
+		want             models.Vector
 		returnVec        bool
 		wantErr          bool
 		wantTargetVector string

@@ -47,8 +47,8 @@ type RemoteIndexIncomingRepo interface {
 	FetchObject(ctx context.Context, shardName string, id strfmt.UUID) (objects.Replica, error)
 	FetchObjects(ctx context.Context, shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, shardName string, ids []strfmt.UUID) (result []RepairResponse, err error)
-	DigestObjectsInTokenRange(ctx context.Context, shardName string,
-		initialToken, finalToken uint64, limit int) (result []RepairResponse, lastTokenRead uint64, err error)
+	DigestObjectsInRange(ctx context.Context, shardName string,
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []RepairResponse, err error)
 	HashTreeLevel(ctx context.Context, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
@@ -206,14 +206,14 @@ func (rri *RemoteReplicaIncoming) indexForIncomingWrite(ctx context.Context, ind
 	return index, nil
 }
 
-func (rri *RemoteReplicaIncoming) DigestObjectsInTokenRange(ctx context.Context,
-	indexName, shardName string, initialToken, finalToken uint64, limit int,
-) (result []RepairResponse, lastTokenRead uint64, err error) {
+func (rri *RemoteReplicaIncoming) DigestObjectsInRange(ctx context.Context,
+	indexName, shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
+) (result []RepairResponse, err error) {
 	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
 	if simpleResp != nil {
-		return []RepairResponse{}, 0, simpleResp.Errors[0].Err
+		return []RepairResponse{}, simpleResp.Errors[0].Err
 	}
-	return index.DigestObjectsInTokenRange(ctx, shardName, initialToken, finalToken, limit)
+	return index.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
 func (rri *RemoteReplicaIncoming) HashTreeLevel(ctx context.Context,

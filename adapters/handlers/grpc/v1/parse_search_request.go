@@ -13,6 +13,7 @@ package v1
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -55,7 +57,9 @@ type Parser struct {
 	authorizedGetClass func(string) (*models.Class, error)
 }
 
-func NewParser(uses127Api bool, authorizedGetClass func(string) (*models.Class, error)) *Parser {
+func NewParser(uses127Api bool,
+	authorizedGetClass func(string) (*models.Class, error),
+) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
@@ -101,7 +105,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if nv := req.NearVector; nv != nil {
-		out.NearVector, err = parseNearVec(nv, targetVectors)
+		out.NearVector, out.TargetVectorCombination, err = parseNearVec(nv, targetVectors, class, out.TargetVectorCombination)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -236,10 +240,20 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
 
-		var vector []float32
-		// bytes vector has precedent for being more efficient
-		if len(hs.VectorBytes) > 0 {
-			vector = byteops.Float32FromByteVector(hs.VectorBytes)
+		var vector models.Vector
+		// vectors has precedent for being more efficient
+		if len(hs.Vectors) > 0 {
+			switch len(hs.Vectors) {
+			case 1:
+				vector, err = extractVector(hs.Vectors[0])
+				if err != nil {
+					return dto.GetParams{}, fmt.Errorf("hybrid: %w", err)
+				}
+			default:
+				return dto.GetParams{}, fmt.Errorf("hybrid: only 1 vector supported, found %d vectors", len(hs.Vectors))
+			}
+		} else if len(hs.VectorBytes) > 0 {
+			vector = byteops.Fp32SliceFromBytes(hs.VectorBytes)
 		} else if len(hs.Vector) > 0 {
 			vector = hs.Vector
 		}
@@ -274,11 +288,12 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		}
 
 		if nearVec != nil {
-			out.HybridSearch.NearVectorParams, err = parseNearVec(nearVec, targetVectors)
+			out.HybridSearch.NearVectorParams, out.TargetVectorCombination, err = parseNearVec(nearVec, targetVectors, class, out.TargetVectorCombination)
 			if err != nil {
 				return dto.GetParams{}, err
 			}
 
+			out.HybridSearch.TargetVectors = out.HybridSearch.NearVectorParams.TargetVectors
 			if nearVec.Distance != nil {
 				out.HybridSearch.NearVectorParams.Distance = *nearVec.Distance
 				out.HybridSearch.NearVectorParams.WithDistance = true
@@ -479,7 +494,11 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 	if vectorSearch {
 		for _, target := range targetVectors {
 			if _, ok := class.VectorConfig[target]; !ok {
-				return nil, nil, false, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, class.VectorConfig)
+				configuredNamedVectors := make([]string, 0, len(class.VectorConfig))
+				for key := range class.VectorConfig {
+					configuredNamedVectors = append(configuredNamedVectors, key)
+				}
+				return nil, nil, false, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, configuredNamedVectors)
 			}
 		}
 	}
@@ -497,14 +516,10 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 	switch in.Combination {
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE:
 		combinationType = dto.Average
-		for i := range in.TargetVectors {
-			weights[i] = 1.0 / float32(len(in.TargetVectors))
-		}
+		weights = extractTargetCombinationAverageWeights(in.TargetVectors)
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM:
 		combinationType = dto.Sum
-		for i := range in.TargetVectors {
-			weights[i] = 1.0
-		}
+		weights = extractTargetCombinationSumWeights(in.TargetVectors)
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN:
 		combinationType = dto.Minimum
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL:
@@ -523,6 +538,22 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 		return nil, fmt.Errorf("unknown combination method %v", in.Combination)
 	}
 	return &dto.TargetCombination{Weights: weights, Type: combinationType}, nil
+}
+
+func extractTargetCombinationAverageWeights(targetVectors []string) []float32 {
+	weights := make([]float32, len(targetVectors))
+	for i := range targetVectors {
+		weights[i] = 1.0 / float32(len(targetVectors))
+	}
+	return weights
+}
+
+func extractTargetCombinationSumWeights(targetVectors []string) []float32 {
+	weights := make([]float32, len(targetVectors))
+	for i := range targetVectors {
+		weights[i] = 1.0
+	}
+	return weights
 }
 
 func extractWeights(in *pb.Targets, weights []float32) error {
@@ -1135,17 +1166,30 @@ func parseNearIMU(n *pb.NearIMUSearch, targetVectors []string) (*nearImu.NearIMU
 	return out, nil
 }
 
-func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.NearVector, error) {
-	var vector []float32
-	// bytes vector has precedent for being more efficient
-	if len(nv.VectorBytes) > 0 {
-		vector = byteops.Float32FromByteVector(nv.VectorBytes)
+func parseNearVec(nv *pb.NearVector, targetVectors []string,
+	class *models.Class, targetCombination *dto.TargetCombination,
+) (*searchparams.NearVector, *dto.TargetCombination, error) {
+	var vector models.Vector
+	var err error
+	// vectors has precedent for being more efficient
+	if len(nv.Vectors) > 0 {
+		switch len(nv.Vectors) {
+		case 1:
+			vector, err = extractVector(nv.Vectors[0])
+			if err != nil {
+				return nil, nil, fmt.Errorf("near_vector: %w", err)
+			}
+		default:
+			return nil, nil, fmt.Errorf("near_vector: only 1 vector supported, found %d vectors", len(nv.Vectors))
+		}
+	} else if len(nv.VectorBytes) > 0 {
+		vector = byteops.Fp32SliceFromBytes(nv.VectorBytes)
 	} else if len(nv.Vector) > 0 {
 		vector = nv.Vector
 	}
 
 	if vector != nil && nv.VectorPerTarget != nil {
-		return nil, fmt.Errorf("near_vector: either vector or VectorPerTarget must be provided, not both")
+		return nil, nil, fmt.Errorf("near_vector: either vector or VectorPerTarget must be provided, not both")
 	}
 
 	targetVectorsTmp := targetVectors
@@ -1153,14 +1197,43 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 		targetVectorsTmp = []string{""}
 	}
 
-	vectors := make([][]float32, len(targetVectorsTmp))
+	detectCombinationWeights := false
+	vectors := make([]models.Vector, len(targetVectorsTmp))
 	if vector != nil {
 		for i := range targetVectorsTmp {
-			vectors[i] = vector
+			_, isMultiVec := vector.([][]float32)
+			supportsMultiVector := isTargetVectorMultiVector(class, targetVectorsTmp[i])
+			if (isMultiVec && supportsMultiVector) || (!isMultiVec && !supportsMultiVector) {
+				vectors[i] = vector
+			} else {
+				if isMultiVec {
+					return nil, nil, fmt.Errorf("near_vector: provided vector is a multi vector but vector index supports regular vectors")
+				} else {
+					return nil, nil, fmt.Errorf("near_vector: provided vector is a regular vector but vector index supports multi vectors")
+				}
+			}
 		}
 	} else if nv.VectorForTargets != nil {
+		if len(nv.VectorForTargets) > 0 && len(nv.VectorForTargets[0].Vectors) > 0 {
+			var deduplicatedTargetVectorsTmp []string
+			for _, targetVector := range targetVectorsTmp {
+				if !slices.Contains(deduplicatedTargetVectorsTmp, targetVector) {
+					deduplicatedTargetVectorsTmp = append(deduplicatedTargetVectorsTmp, targetVector)
+				}
+			}
+			targetVectorsTmp = deduplicatedTargetVectorsTmp
+			vectors = make([]models.Vector, len(targetVectorsTmp))
+
+			switch targetCombination.Type {
+			case dto.ManualWeights, dto.RelativeScore:
+				// do nothing, Manual and Relative Scores don't need adjustment
+			default:
+				detectCombinationWeights = true
+			}
+		}
+
 		if len(nv.VectorForTargets) != len(targetVectorsTmp) {
-			return nil, fmt.Errorf("near_vector: vector for target must have the same lengths as target vectors")
+			return nil, nil, fmt.Errorf("near_vector: vector for target must have the same lengths as target vectors")
 		}
 
 		for i := range nv.VectorForTargets {
@@ -1169,34 +1242,99 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 				for k := range nv.VectorForTargets {
 					allNames = append(allNames, nv.VectorForTargets[k].Name)
 				}
-				return nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
+				return nil, nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
 			}
-			vectors[i] = byteops.Float32FromByteVector(nv.VectorForTargets[i].VectorBytes)
+			if len(nv.VectorForTargets[i].Vectors) > 0 {
+				vectors[i], err = extractVectors(nv.VectorForTargets[i].Vectors)
+				if err != nil {
+					return nil, nil, fmt.Errorf("near_vector: vector for targets: extract vectors[%v]: %w", i, err)
+				}
+			} else {
+				vectors[i] = byteops.Fp32SliceFromBytes(nv.VectorForTargets[i].VectorBytes)
+			}
 		}
-
 	} else if nv.VectorPerTarget != nil {
 		if len(nv.VectorPerTarget) != len(targetVectorsTmp) {
-			return nil, fmt.Errorf("near_vector: vector per target must be provided for all targets")
+			return nil, nil, fmt.Errorf("near_vector: vector per target must be provided for all targets")
 		}
 		for i, target := range targetVectorsTmp {
 			if vec, ok := nv.VectorPerTarget[target]; ok {
-				vectors[i] = byteops.Float32FromByteVector(vec)
+				vectors[i] = byteops.Fp32SliceFromBytes(vec)
 			} else {
 				var allNames []string
 				for k := range nv.VectorPerTarget {
 					allNames = append(allNames, k)
 				}
-				return nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
+				return nil, nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
 			}
 		}
 	} else {
-		return nil, fmt.Errorf("near_vector: vector is required")
+		return nil, nil, fmt.Errorf("near_vector: vector is required")
+	}
+
+	if len(targetVectors) > 0 {
+		var detectedVectors []models.Vector
+		var detectedTargetVectorNames []string
+		adjustedTargetCombination := targetCombination
+		for i, targetVector := range targetVectorsTmp {
+			switch vectorsArray := vectors[i].(type) {
+			case [][][]float32:
+				for _, multiVec := range vectorsArray {
+					if isTargetVectorMultiVector(class, targetVector) {
+						detectedVectors = append(detectedVectors, multiVec)
+						detectedTargetVectorNames = append(detectedTargetVectorNames, targetVector)
+					} else {
+						for _, vec := range multiVec {
+							detectedVectors = append(detectedVectors, vec)
+							detectedTargetVectorNames = append(detectedTargetVectorNames, targetVector)
+						}
+					}
+				}
+			case [][]float32:
+				if isTargetVectorMultiVector(class, targetVector) {
+					detectedVectors = append(detectedVectors, vectorsArray)
+					detectedTargetVectorNames = append(detectedTargetVectorNames, targetVector)
+				} else {
+					for _, vec := range vectorsArray {
+						detectedVectors = append(detectedVectors, vec)
+						detectedTargetVectorNames = append(detectedTargetVectorNames, targetVector)
+					}
+				}
+			default:
+				detectedVectors = append(detectedVectors, vectorsArray)
+				detectedTargetVectorNames = append(detectedTargetVectorNames, targetVector)
+			}
+		}
+
+		if detectCombinationWeights {
+			switch targetCombination.Type {
+			case dto.Average:
+				fixedWeights := extractTargetCombinationAverageWeights(detectedTargetVectorNames)
+				adjustedTargetCombination = &dto.TargetCombination{
+					Type: dto.Average, Weights: fixedWeights,
+				}
+			case dto.Sum:
+				fixedWeights := extractTargetCombinationSumWeights(detectedTargetVectorNames)
+				adjustedTargetCombination = &dto.TargetCombination{
+					Type: dto.Sum, Weights: fixedWeights,
+				}
+			default:
+				adjustedTargetCombination = &dto.TargetCombination{
+					Type: targetCombination.Type, Weights: make([]float32, len(detectedTargetVectorNames)),
+				}
+			}
+		}
+
+		return &searchparams.NearVector{
+			Vectors:       detectedVectors,
+			TargetVectors: detectedTargetVectorNames,
+		}, adjustedTargetCombination, nil
 	}
 
 	return &searchparams.NearVector{
 		Vectors:       vectors,
 		TargetVectors: targetVectors,
-	}, nil
+	}, targetCombination, nil
 }
 
 func indexOf(slice []string, value string) int {
@@ -1231,5 +1369,63 @@ OUTER:
 	params.Properties = append(params.Properties, propsToAdd...)
 	if len(params.Properties) > 0 {
 		params.AdditionalProperties.NoProps = false
+	}
+}
+
+func extractVectors(vectors []*pb.Vectors) (interface{}, error) {
+	var vecs [][]float32
+	var multiVecs [][][]float32
+	for i := range vectors {
+		vec, err := extractVector(vectors[i])
+		if err != nil {
+			return nil, fmt.Errorf("vectors[%d]: %w", i, err)
+		}
+		switch v := vec.(type) {
+		case []float32:
+			vecs = append(vecs, v)
+		case [][]float32:
+			multiVecs = append(multiVecs, v)
+		default:
+			return nil, fmt.Errorf("vectors[%d]: unrecognized vector type: %T", i, vec)
+		}
+	}
+	if len(multiVecs) > 0 {
+		return multiVecs, nil
+	}
+	return vecs, nil
+}
+
+func extractVector(vector *pb.Vectors) (models.Vector, error) {
+	if vector != nil {
+		switch vector.Type {
+		case *pb.Vectors_VECTOR_TYPE_UNSPECIFIED.Enum(), *pb.Vectors_VECTOR_TYPE_SINGLE_FP32.Enum():
+			return byteops.Fp32SliceFromBytes(vector.VectorBytes), nil
+		case *pb.Vectors_VECTOR_TYPE_MULTI_FP32.Enum():
+			out, err := byteops.Fp32SliceOfSlicesFromBytes(vector.VectorBytes)
+			if err != nil {
+				return nil, fmt.Errorf("extract vector: %w", err)
+			}
+			return out, nil
+		default:
+			return nil, fmt.Errorf("cannot extract vector: unknown vector type: %T", vector.Type)
+		}
+	}
+	return nil, fmt.Errorf("cannot extract vector: empty vectors")
+}
+
+func isTargetVectorMultiVector(class *models.Class, targetVector string) bool {
+	switch targetVector {
+	case "":
+		if vc, ok := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+			return vc.IsMultiVector()
+		}
+		return false
+	default:
+		if vectorConfig, ok := class.VectorConfig[targetVector]; ok {
+			if vc, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+				return vc.IsMultiVector()
+			}
+		}
+		return false
 	}
 }

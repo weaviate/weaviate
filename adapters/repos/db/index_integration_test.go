@@ -118,7 +118,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -176,7 +176,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	index, err = NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema:     fakeSchema,
@@ -289,7 +289,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -444,7 +444,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -502,7 +502,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 		RootPath:              rootDir,
 		ClassName:             schema.ClassName(class.Class),
 		DisableLazyLoadShards: true,
-		ReplicationFactor:     NewAtomicInt64(1),
+		ReplicationFactor:     1,
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			shardState: shardState,
@@ -587,7 +587,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -608,7 +608,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -679,7 +679,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	// make sure the new index contains all the objects
 	vidx := shard.VectorIndexes()["foo"]
 	for _, obj := range objs {
-		if !vidx.ContainsNode(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -702,7 +702,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	// make sure the new index contains all the objects
 	vidx = shard.VectorIndexes()["foo"]
 	for _, obj := range objs {
-		if !vidx.ContainsNode(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -797,7 +797,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -885,7 +885,7 @@ func TestIndex_ConvertQueue(t *testing.T) {
 
 	// make sure the index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -951,7 +951,7 @@ func TestIndex_ConvertQueueTargetVector(t *testing.T) {
 
 	// make sure the index contains all the objects
 	for _, obj := range objs {
-		if !vectorIndex.ContainsNode(obj.DocID) {
+		if !vectorIndex.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}

@@ -41,6 +41,10 @@ type CommitLogger interface {
 	AddSQCompression(SQData) error
 }
 
+type CompressionStats interface {
+	CompressionType() string
+}
+
 type VectorCompressor interface {
 	Drop() error
 	GrowCache(size uint64)
@@ -51,6 +55,7 @@ type VectorCompressor interface {
 	Preload(id uint64, vector []float32)
 	PreloadMulti(docID uint64, ids []uint64, vecs [][]float32)
 	GetKeys(id uint64) (uint64, uint64)
+	SetKeys(id uint64, docID uint64, relativeID uint64)
 	Prefetch(id uint64)
 	CountVectors() int64
 	PrefillCache()
@@ -61,6 +66,7 @@ type VectorCompressor interface {
 	NewBag() CompressionDistanceBag
 
 	PersistCompression(CommitLogger)
+	Stats() CompressionStats
 }
 
 type quantizedVectorsCompressor[T byte | uint64] struct {
@@ -137,8 +143,16 @@ func (compressor *quantizedVectorsCompressor[T]) GetKeys(id uint64) (uint64, uin
 	return compressor.cache.GetKeys(id)
 }
 
+func (compressor *quantizedVectorsCompressor[T]) SetKeys(id, docID, relativeID uint64) {
+	compressor.cache.SetKeys(id, docID, relativeID)
+}
+
 func (compressor *quantizedVectorsCompressor[T]) Prefetch(id uint64) {
 	compressor.cache.Prefetch(id)
+}
+
+func (compressor *quantizedVectorsCompressor[T]) Stats() CompressionStats {
+	return compressor.quantizer.Stats()
 }
 
 func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVectors(x, y []T) (float32, error) {
@@ -462,4 +476,10 @@ func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (flo
 
 func (distancer *quantizedCompressorDistancer[T]) DistanceToFloat(vector []float32) (float32, error) {
 	return distancer.distancer.DistanceToFloat(vector)
+}
+
+type UncompressedStats struct{}
+
+func (u UncompressedStats) CompressionType() string {
+	return "none"
 }

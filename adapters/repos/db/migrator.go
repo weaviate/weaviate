@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	cuvs_index "github.com/weaviate/weaviate/adapters/repos/db/vector/cuvs"
@@ -106,30 +107,33 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 
 	idx, err := NewIndex(ctx,
 		IndexConfig{
-			ClassName:                      schema.ClassName(class.Class),
-			RootPath:                       m.db.config.RootPath,
-			ResourceUsage:                  m.db.config.ResourceUsage,
-			QueryMaximumResults:            m.db.config.QueryMaximumResults,
-			QueryNestedRefLimit:            m.db.config.QueryNestedRefLimit,
-			MemtablesFlushDirtyAfter:       m.db.config.MemtablesFlushDirtyAfter,
-			MemtablesInitialSizeMB:         m.db.config.MemtablesInitialSizeMB,
-			MemtablesMaxSizeMB:             m.db.config.MemtablesMaxSizeMB,
-			MemtablesMinActiveSeconds:      m.db.config.MemtablesMinActiveSeconds,
-			MemtablesMaxActiveSeconds:      m.db.config.MemtablesMaxActiveSeconds,
-			SegmentsCleanupIntervalSeconds: m.db.config.SegmentsCleanupIntervalSeconds,
-			SeparateObjectsCompactions:     m.db.config.SeparateObjectsCompactions,
-			MaxSegmentSize:                 m.db.config.MaxSegmentSize,
-			HNSWMaxLogSize:                 m.db.config.HNSWMaxLogSize,
-			HNSWWaitForCachePrefill:        m.db.config.HNSWWaitForCachePrefill,
-			HNSWFlatSearchConcurrency:      m.db.config.HNSWFlatSearchConcurrency,
-			VisitedListPoolMaxSize:         m.db.config.VisitedListPoolMaxSize,
-			TrackVectorDimensions:          m.db.config.TrackVectorDimensions,
-			AvoidMMap:                      m.db.config.AvoidMMap,
-			DisableLazyLoadShards:          m.db.config.DisableLazyLoadShards,
-			ForceFullReplicasSearch:        m.db.config.ForceFullReplicasSearch,
-			ReplicationFactor:              NewAtomicInt64(class.ReplicationConfig.Factor),
-			AsyncReplicationEnabled:        class.ReplicationConfig.AsyncEnabled,
-			DeletionStrategy:               class.ReplicationConfig.DeletionStrategy,
+			ClassName:                           schema.ClassName(class.Class),
+			RootPath:                            m.db.config.RootPath,
+			ResourceUsage:                       m.db.config.ResourceUsage,
+			QueryMaximumResults:                 m.db.config.QueryMaximumResults,
+			QueryNestedRefLimit:                 m.db.config.QueryNestedRefLimit,
+			MemtablesFlushDirtyAfter:            m.db.config.MemtablesFlushDirtyAfter,
+			MemtablesInitialSizeMB:              m.db.config.MemtablesInitialSizeMB,
+			MemtablesMaxSizeMB:                  m.db.config.MemtablesMaxSizeMB,
+			MemtablesMinActiveSeconds:           m.db.config.MemtablesMinActiveSeconds,
+			MemtablesMaxActiveSeconds:           m.db.config.MemtablesMaxActiveSeconds,
+			SegmentsCleanupIntervalSeconds:      m.db.config.SegmentsCleanupIntervalSeconds,
+			SeparateObjectsCompactions:          m.db.config.SeparateObjectsCompactions,
+			CycleManagerRoutinesFactor:          m.db.config.CycleManagerRoutinesFactor,
+			MaxSegmentSize:                      m.db.config.MaxSegmentSize,
+			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
+			HNSWWaitForCachePrefill:             m.db.config.HNSWWaitForCachePrefill,
+			HNSWFlatSearchConcurrency:           m.db.config.HNSWFlatSearchConcurrency,
+			HNSWAcornFilterRatio:                m.db.config.HNSWAcornFilterRatio,
+			VisitedListPoolMaxSize:              m.db.config.VisitedListPoolMaxSize,
+			TrackVectorDimensions:               m.db.config.TrackVectorDimensions,
+			AvoidMMap:                           m.db.config.AvoidMMap,
+			DisableLazyLoadShards:               m.db.config.DisableLazyLoadShards,
+			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
+			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
+			ReplicationFactor:                   class.ReplicationConfig.Factor,
+			AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
+			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -541,7 +545,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 // DeleteTenants deletes tenants
 // CAUTION: will not delete inactive tenants (shard files will not be removed)
-func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []string) error {
+func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
 	indexID := indexID(schema.ClassName(class))
 
 	m.classLocks.Lock(indexID)
@@ -552,15 +556,25 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []st
 		return nil
 	}
 
-	if err := idx.dropShards(tenants); err != nil {
+	// Collect tenant names and frozen tenant names
+	allTenantNames := make([]string, 0, len(tenants))
+	frozenTenants := make([]string, 0, len(tenants))
+
+	for _, tenant := range tenants {
+		allTenantNames = append(allTenantNames, tenant.Name)
+		if tenant.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			tenant.ActivityStatus == models.TenantActivityStatusFREEZING {
+			frozenTenants = append(frozenTenants, tenant.Name)
+		}
+	}
+
+	if err := idx.dropShards(allTenantNames); err != nil {
 		return err
 	}
 
-	if m.cloud != nil {
-		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
-		// better to filter the passed shards and get the frozen only
-		if err := idx.dropCloudShards(ctx, m.cloud, tenants, m.nodeId); err != nil {
-			return fmt.Errorf("drop tenant shards %v during update index: %w", tenants, err)
+	if m.cloud != nil && len(frozenTenants) > 0 {
+		if err := idx.dropCloudShards(ctx, m.cloud, frozenTenants, m.nodeId); err != nil {
+			return fmt.Errorf("drop tenant shards %v during update index: %w", frozenTenants, err)
 		}
 	}
 
@@ -667,12 +681,8 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 		return errors.Errorf("cannot update replication factor of non-existing index for %s", className)
 	}
 
-	{
-		idx.Config.ReplicationFactor.Store(cfg.Factor)
-
-		if err := idx.updateAsyncReplication(ctx, cfg.AsyncEnabled); err != nil {
-			return fmt.Errorf("update async replication for class %q: %w", className, err)
-		}
+	if err := idx.updateReplicationConfig(ctx, cfg); err != nil {
+		return fmt.Errorf("update replication config for class %q: %w", className, err)
 	}
 
 	return nil
@@ -689,12 +699,30 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
+		err := index.ForEachShard(func(name string, shard ShardLike) error {
+			return shard.resetDimensionsLSM()
+		})
+		if err != nil {
+			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
+			return err
+		}
+
 		// Iterate over all shards
-		if err := index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
+		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
 			if shard.hasTargetVectors() {
 				for vecName, vec := range object.Vectors {
 					if err := shard.extendDimensionTrackerForVecLSM(len(vec), object.DocID, vecName); err != nil {
+						return err
+					}
+				}
+				var dims int
+				for vecName, vec := range object.MultiVectors {
+					dims = 0
+					for _, v := range vec {
+						dims += len(v)
+					}
+					if err := shard.extendDimensionTrackerForVecLSM(dims, object.DocID, vecName); err != nil {
 						return err
 					}
 				}
@@ -704,7 +732,9 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 				}
 			}
 			return nil
-		}); err != nil {
+		})
+		if err != nil {
+			m.logger.WithField("action", "reindex").WithError(err).Warn("could not extend vector dimensions")
 			return err
 		}
 	}

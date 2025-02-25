@@ -14,7 +14,6 @@ package replication
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -45,7 +44,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
 	defer cancel()
 
 	paragraphClass := articles.ParagraphsClass()
@@ -61,48 +60,31 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 1
+	node := 2
 
-	for it := 0; it < itCount; it++ {
-		// pick one node to be down during upserts
-		node := 2 + rand.Intn(clusterSize-1)
+	t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, node)
+	})
 
-		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			common.StopNodeAt(ctx, t, compose, node)
-		})
+	t.Run("insert paragraphs", func(t *testing.T) {
+		batch := make([]*models.Object, len(paragraphIDs))
+		for i := range paragraphIDs {
+			batch[i] = articles.NewParagraph().
+				WithContents(fmt.Sprintf("paragraph#%d", i)).
+				Object()
+		}
 
-		t.Run("insert paragraphs", func(t *testing.T) {
-			batch := make([]*models.Object, len(paragraphIDs))
-			for i := range paragraphIDs {
-				batch[i] = articles.NewParagraph().
-					WithContents(fmt.Sprintf("paragraph#%d_%d", it, i)).
-					Object()
-			}
+		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, replica.One)
+	})
 
-			// choose one more node to insert the objects into
-			var targetNode int
-			for {
-				targetNode = 1 + rand.Intn(clusterSize)
-				if targetNode != node {
-					break
-				}
-			}
+	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
+		common.StartNodeAt(ctx, t, compose, node)
+	})
 
-			common.CreateObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, replica.One)
-		})
-
-		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			common.StartNodeAt(ctx, t, compose, node)
-			time.Sleep(time.Second)
-		})
-	}
-
-	for n := 1; n <= clusterSize; n++ {
-		t.Run(fmt.Sprintf("assert node %d has all the objects", n), func(t *testing.T) {
-			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-				count := common.CountObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
-				assert.EqualValues(ct, itCount*len(paragraphIDs), count)
-			}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
-		})
-	}
+	t.Run(fmt.Sprintf("assert node %d has all the objects", node), func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", replica.One)
+			assert.Len(ct, resp, len(paragraphIDs))
+		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
+	})
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
@@ -31,7 +32,6 @@ import (
 	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 	text2vecadditionalprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
 	text2vecneartext "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
-
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -223,7 +223,7 @@ func (fmp *fakeModulesProvider) ExtractAdditionalField(className, name string, p
 }
 
 func (fmp *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32,
+	moduleParams map[string]interface{}, searchVector models.Vector,
 	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return fmp.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams, nil)
@@ -231,7 +231,7 @@ func (fmp *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, 
 
 func (fmp *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
-	searchVector []float32, capability string, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
+	searchVector models.Vector, capability string, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) (search.Results, error) {
 	txt2vec := &mockText2vecContextionaryModule{}
 	additionalProperties := txt2vec.AdditionalProperties()
@@ -239,8 +239,8 @@ func (fmp *fakeModulesProvider) additionalExtend(ctx context.Context,
 		additionalPropertyFn := fmp.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn != nil && value != nil {
 			searchValue := value
-			if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
-				searchVectorValue.SetSearchVector(searchVector)
+			if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector[[]float32]); ok {
+				searchVectorValue.SetSearchVector(searchVector.([]float32))
 				searchValue = searchVectorValue
 			}
 			resArray, err := additionalPropertyFn(ctx, in, searchValue, nil, nil, nil)
@@ -327,6 +327,14 @@ type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
 	return nil
+}
+
+func (f *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
+
+func (a *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	return resources, nil
 }
 
 func getFakeAuthorizer() *fakeAuthorizer {
