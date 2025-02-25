@@ -102,6 +102,7 @@ func (db *DB) init(ctx context.Context) error {
 				ForceFullReplicasSearch:        db.config.ForceFullReplicasSearch,
 				ReplicationFactor:              NewAtomicInt64(class.ReplicationConfig.Factor),
 				DeletionStrategy:               class.ReplicationConfig.DeletionStrategy,
+				ShardLoadLimiter:               db.shardLoadLimiter,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
