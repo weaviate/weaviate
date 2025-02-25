@@ -71,6 +71,7 @@ DeleteUserParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type DeleteUserParams struct {
+
 	/* UserID.
 
 	   user name
@@ -143,6 +144,7 @@ func (o *DeleteUserParams) SetUserID(userID string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *DeleteUserParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

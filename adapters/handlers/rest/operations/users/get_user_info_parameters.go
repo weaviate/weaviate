@@ -28,6 +28,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewGetUserInfoParams() GetUserInfoParams {
+
 	return GetUserInfoParams{}
 }
 
@@ -36,6 +37,7 @@ func NewGetUserInfoParams() GetUserInfoParams {
 //
 // swagger:parameters getUserInfo
 type GetUserInfoParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

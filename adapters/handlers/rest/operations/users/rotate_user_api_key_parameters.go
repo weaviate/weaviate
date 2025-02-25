@@ -28,6 +28,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewRotateUserAPIKeyParams() RotateUserAPIKeyParams {
+
 	return RotateUserAPIKeyParams{}
 }
 
@@ -36,6 +37,7 @@ func NewRotateUserAPIKeyParams() RotateUserAPIKeyParams {
 //
 // swagger:parameters rotateUserApiKey
 type RotateUserAPIKeyParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

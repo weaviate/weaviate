@@ -28,6 +28,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewCreateUserParams() CreateUserParams {
+
 	return CreateUserParams{}
 }
 
@@ -36,6 +37,7 @@ func NewCreateUserParams() CreateUserParams {
 //
 // swagger:parameters createUser
 type CreateUserParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

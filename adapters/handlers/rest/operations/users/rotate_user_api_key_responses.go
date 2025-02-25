@@ -33,6 +33,7 @@ RotateUserAPIKeyOK ApiKey successfully changed
 swagger:response rotateUserApiKeyOK
 */
 type RotateUserAPIKeyOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type RotateUserAPIKeyOK struct {
 
 // NewRotateUserAPIKeyOK creates RotateUserAPIKeyOK with default headers values
 func NewRotateUserAPIKeyOK() *RotateUserAPIKeyOK {
+
 	return &RotateUserAPIKeyOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *RotateUserAPIKeyOK) SetPayload(payload *models.UserAPIKey) {
 
 // WriteResponse to the client
 func (o *RotateUserAPIKeyOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -75,6 +78,7 @@ RotateUserAPIKeyBadRequest Malformed request.
 swagger:response rotateUserApiKeyBadRequest
 */
 type RotateUserAPIKeyBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -83,6 +87,7 @@ type RotateUserAPIKeyBadRequest struct {
 
 // NewRotateUserAPIKeyBadRequest creates RotateUserAPIKeyBadRequest with default headers values
 func NewRotateUserAPIKeyBadRequest() *RotateUserAPIKeyBadRequest {
+
 	return &RotateUserAPIKeyBadRequest{}
 }
 
@@ -99,6 +104,7 @@ func (o *RotateUserAPIKeyBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *RotateUserAPIKeyBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -116,16 +122,19 @@ RotateUserAPIKeyUnauthorized Unauthorized or invalid credentials.
 
 swagger:response rotateUserApiKeyUnauthorized
 */
-type RotateUserAPIKeyUnauthorized struct{}
+type RotateUserAPIKeyUnauthorized struct {
+}
 
 // NewRotateUserAPIKeyUnauthorized creates RotateUserAPIKeyUnauthorized with default headers values
 func NewRotateUserAPIKeyUnauthorized() *RotateUserAPIKeyUnauthorized {
+
 	return &RotateUserAPIKeyUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *RotateUserAPIKeyUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -139,6 +148,7 @@ RotateUserAPIKeyForbidden Forbidden
 swagger:response rotateUserApiKeyForbidden
 */
 type RotateUserAPIKeyForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type RotateUserAPIKeyForbidden struct {
 
 // NewRotateUserAPIKeyForbidden creates RotateUserAPIKeyForbidden with default headers values
 func NewRotateUserAPIKeyForbidden() *RotateUserAPIKeyForbidden {
+
 	return &RotateUserAPIKeyForbidden{}
 }
 
@@ -163,6 +174,7 @@ func (o *RotateUserAPIKeyForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *RotateUserAPIKeyForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -180,16 +192,19 @@ RotateUserAPIKeyNotFound user not found
 
 swagger:response rotateUserApiKeyNotFound
 */
-type RotateUserAPIKeyNotFound struct{}
+type RotateUserAPIKeyNotFound struct {
+}
 
 // NewRotateUserAPIKeyNotFound creates RotateUserAPIKeyNotFound with default headers values
 func NewRotateUserAPIKeyNotFound() *RotateUserAPIKeyNotFound {
+
 	return &RotateUserAPIKeyNotFound{}
 }
 
 // WriteResponse to the client
 func (o *RotateUserAPIKeyNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -203,6 +218,7 @@ RotateUserAPIKeyUnprocessableEntity Request body is well-formed (i.e., syntactic
 swagger:response rotateUserApiKeyUnprocessableEntity
 */
 type RotateUserAPIKeyUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -211,6 +227,7 @@ type RotateUserAPIKeyUnprocessableEntity struct {
 
 // NewRotateUserAPIKeyUnprocessableEntity creates RotateUserAPIKeyUnprocessableEntity with default headers values
 func NewRotateUserAPIKeyUnprocessableEntity() *RotateUserAPIKeyUnprocessableEntity {
+
 	return &RotateUserAPIKeyUnprocessableEntity{}
 }
 
@@ -227,6 +244,7 @@ func (o *RotateUserAPIKeyUnprocessableEntity) SetPayload(payload *models.ErrorRe
 
 // WriteResponse to the client
 func (o *RotateUserAPIKeyUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -245,6 +263,7 @@ RotateUserAPIKeyInternalServerError An error has occurred while trying to fulfil
 swagger:response rotateUserApiKeyInternalServerError
 */
 type RotateUserAPIKeyInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -253,6 +272,7 @@ type RotateUserAPIKeyInternalServerError struct {
 
 // NewRotateUserAPIKeyInternalServerError creates RotateUserAPIKeyInternalServerError with default headers values
 func NewRotateUserAPIKeyInternalServerError() *RotateUserAPIKeyInternalServerError {
+
 	return &RotateUserAPIKeyInternalServerError{}
 }
 
@@ -269,6 +289,7 @@ func (o *RotateUserAPIKeyInternalServerError) SetPayload(payload *models.ErrorRe
 
 // WriteResponse to the client
 func (o *RotateUserAPIKeyInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

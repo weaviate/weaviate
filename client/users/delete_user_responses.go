@@ -73,7 +73,8 @@ DeleteUserNoContent describes a response with status code 204, with default head
 
 Successfully deleted.
 */
-type DeleteUserNoContent struct{}
+type DeleteUserNoContent struct {
+}
 
 // IsSuccess returns true when this delete user no content response has a 2xx status code
 func (o *DeleteUserNoContent) IsSuccess() bool {
@@ -114,6 +115,7 @@ func (o *DeleteUserNoContent) String() string {
 }
 
 func (o *DeleteUserNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -127,7 +129,8 @@ DeleteUserUnauthorized describes a response with status code 401, with default h
 
 Unauthorized or invalid credentials.
 */
-type DeleteUserUnauthorized struct{}
+type DeleteUserUnauthorized struct {
+}
 
 // IsSuccess returns true when this delete user unauthorized response has a 2xx status code
 func (o *DeleteUserUnauthorized) IsSuccess() bool {
@@ -168,6 +171,7 @@ func (o *DeleteUserUnauthorized) String() string {
 }
 
 func (o *DeleteUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -228,6 +232,7 @@ func (o *DeleteUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeleteUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -295,6 +300,7 @@ func (o *DeleteUserInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeleteUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

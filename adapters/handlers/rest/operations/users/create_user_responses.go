@@ -33,6 +33,7 @@ CreateUserCreated User created successfully
 swagger:response createUserCreated
 */
 type CreateUserCreated struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type CreateUserCreated struct {
 
 // NewCreateUserCreated creates CreateUserCreated with default headers values
 func NewCreateUserCreated() *CreateUserCreated {
+
 	return &CreateUserCreated{}
 }
 
@@ -57,6 +59,7 @@ func (o *CreateUserCreated) SetPayload(payload *models.UserAPIKey) {
 
 // WriteResponse to the client
 func (o *CreateUserCreated) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(201)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -75,6 +78,7 @@ CreateUserBadRequest Malformed request.
 swagger:response createUserBadRequest
 */
 type CreateUserBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -83,6 +87,7 @@ type CreateUserBadRequest struct {
 
 // NewCreateUserBadRequest creates CreateUserBadRequest with default headers values
 func NewCreateUserBadRequest() *CreateUserBadRequest {
+
 	return &CreateUserBadRequest{}
 }
 
@@ -99,6 +104,7 @@ func (o *CreateUserBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *CreateUserBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -116,16 +122,19 @@ CreateUserUnauthorized Unauthorized or invalid credentials.
 
 swagger:response createUserUnauthorized
 */
-type CreateUserUnauthorized struct{}
+type CreateUserUnauthorized struct {
+}
 
 // NewCreateUserUnauthorized creates CreateUserUnauthorized with default headers values
 func NewCreateUserUnauthorized() *CreateUserUnauthorized {
+
 	return &CreateUserUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *CreateUserUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -139,6 +148,7 @@ CreateUserForbidden Forbidden
 swagger:response createUserForbidden
 */
 type CreateUserForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type CreateUserForbidden struct {
 
 // NewCreateUserForbidden creates CreateUserForbidden with default headers values
 func NewCreateUserForbidden() *CreateUserForbidden {
+
 	return &CreateUserForbidden{}
 }
 
@@ -163,6 +174,7 @@ func (o *CreateUserForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *CreateUserForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -181,6 +193,7 @@ CreateUserConflict User already exists
 swagger:response createUserConflict
 */
 type CreateUserConflict struct {
+
 	/*
 	  In: Body
 	*/
@@ -189,6 +202,7 @@ type CreateUserConflict struct {
 
 // NewCreateUserConflict creates CreateUserConflict with default headers values
 func NewCreateUserConflict() *CreateUserConflict {
+
 	return &CreateUserConflict{}
 }
 
@@ -205,6 +219,7 @@ func (o *CreateUserConflict) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *CreateUserConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(409)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -223,6 +238,7 @@ CreateUserUnprocessableEntity Request body is well-formed (i.e., syntactically c
 swagger:response createUserUnprocessableEntity
 */
 type CreateUserUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -231,6 +247,7 @@ type CreateUserUnprocessableEntity struct {
 
 // NewCreateUserUnprocessableEntity creates CreateUserUnprocessableEntity with default headers values
 func NewCreateUserUnprocessableEntity() *CreateUserUnprocessableEntity {
+
 	return &CreateUserUnprocessableEntity{}
 }
 
@@ -247,6 +264,7 @@ func (o *CreateUserUnprocessableEntity) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *CreateUserUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -265,6 +283,7 @@ CreateUserInternalServerError An error has occurred while trying to fulfill the 
 swagger:response createUserInternalServerError
 */
 type CreateUserInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -273,6 +292,7 @@ type CreateUserInternalServerError struct {
 
 // NewCreateUserInternalServerError creates CreateUserInternalServerError with default headers values
 func NewCreateUserInternalServerError() *CreateUserInternalServerError {
+
 	return &CreateUserInternalServerError{}
 }
 
@@ -289,6 +309,7 @@ func (o *CreateUserInternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *CreateUserInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

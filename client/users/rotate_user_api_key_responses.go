@@ -138,6 +138,7 @@ func (o *RotateUserAPIKeyOK) GetPayload() *models.UserAPIKey {
 }
 
 func (o *RotateUserAPIKeyOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.UserAPIKey)
 
 	// response payload
@@ -205,6 +206,7 @@ func (o *RotateUserAPIKeyBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RotateUserAPIKeyBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -225,7 +227,8 @@ RotateUserAPIKeyUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type RotateUserAPIKeyUnauthorized struct{}
+type RotateUserAPIKeyUnauthorized struct {
+}
 
 // IsSuccess returns true when this rotate user Api key unauthorized response has a 2xx status code
 func (o *RotateUserAPIKeyUnauthorized) IsSuccess() bool {
@@ -266,6 +269,7 @@ func (o *RotateUserAPIKeyUnauthorized) String() string {
 }
 
 func (o *RotateUserAPIKeyUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -326,6 +330,7 @@ func (o *RotateUserAPIKeyForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RotateUserAPIKeyForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -346,7 +351,8 @@ RotateUserAPIKeyNotFound describes a response with status code 404, with default
 
 user not found
 */
-type RotateUserAPIKeyNotFound struct{}
+type RotateUserAPIKeyNotFound struct {
+}
 
 // IsSuccess returns true when this rotate user Api key not found response has a 2xx status code
 func (o *RotateUserAPIKeyNotFound) IsSuccess() bool {
@@ -387,6 +393,7 @@ func (o *RotateUserAPIKeyNotFound) String() string {
 }
 
 func (o *RotateUserAPIKeyNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -447,6 +454,7 @@ func (o *RotateUserAPIKeyUnprocessableEntity) GetPayload() *models.ErrorResponse
 }
 
 func (o *RotateUserAPIKeyUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -514,6 +522,7 @@ func (o *RotateUserAPIKeyInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *RotateUserAPIKeyInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

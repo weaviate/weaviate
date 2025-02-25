@@ -51,7 +51,7 @@ func (o *RotateUserAPIKeyURL) SetBasePath(bp string) {
 func (o *RotateUserAPIKeyURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/users/{user_id}/rotate-key"
+	var _path = "/users/{user_id}/rotate-key"
 
 	userID := o.UserID
 	if userID != "" {

@@ -29,6 +29,7 @@ import (
 //
 // swagger:model UserApiKey
 type UserAPIKey struct {
+
 	// The apikey
 	// Required: true
 	Apikey *string `json:"apikey"`
@@ -49,6 +50,7 @@ func (m *UserAPIKey) Validate(formats strfmt.Registry) error {
 }
 
 func (m *UserAPIKey) validateApikey(formats strfmt.Registry) error {
+
 	if err := validate.Required("apikey", "body", m.Apikey); err != nil {
 		return err
 	}

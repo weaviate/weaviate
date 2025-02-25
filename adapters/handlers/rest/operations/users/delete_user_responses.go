@@ -32,16 +32,19 @@ DeleteUserNoContent Successfully deleted.
 
 swagger:response deleteUserNoContent
 */
-type DeleteUserNoContent struct{}
+type DeleteUserNoContent struct {
+}
 
 // NewDeleteUserNoContent creates DeleteUserNoContent with default headers values
 func NewDeleteUserNoContent() *DeleteUserNoContent {
+
 	return &DeleteUserNoContent{}
 }
 
 // WriteResponse to the client
 func (o *DeleteUserNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -54,16 +57,19 @@ DeleteUserUnauthorized Unauthorized or invalid credentials.
 
 swagger:response deleteUserUnauthorized
 */
-type DeleteUserUnauthorized struct{}
+type DeleteUserUnauthorized struct {
+}
 
 // NewDeleteUserUnauthorized creates DeleteUserUnauthorized with default headers values
 func NewDeleteUserUnauthorized() *DeleteUserUnauthorized {
+
 	return &DeleteUserUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *DeleteUserUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -77,6 +83,7 @@ DeleteUserForbidden Forbidden
 swagger:response deleteUserForbidden
 */
 type DeleteUserForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -85,6 +92,7 @@ type DeleteUserForbidden struct {
 
 // NewDeleteUserForbidden creates DeleteUserForbidden with default headers values
 func NewDeleteUserForbidden() *DeleteUserForbidden {
+
 	return &DeleteUserForbidden{}
 }
 
@@ -101,6 +109,7 @@ func (o *DeleteUserForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *DeleteUserForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -119,6 +128,7 @@ DeleteUserInternalServerError An error has occurred while trying to fulfill the 
 swagger:response deleteUserInternalServerError
 */
 type DeleteUserInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -127,6 +137,7 @@ type DeleteUserInternalServerError struct {
 
 // NewDeleteUserInternalServerError creates DeleteUserInternalServerError with default headers values
 func NewDeleteUserInternalServerError() *DeleteUserInternalServerError {
+
 	return &DeleteUserInternalServerError{}
 }
 
@@ -143,6 +154,7 @@ func (o *DeleteUserInternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *DeleteUserInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

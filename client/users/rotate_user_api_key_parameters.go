@@ -71,6 +71,7 @@ RotateUserAPIKeyParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type RotateUserAPIKeyParams struct {
+
 	/* UserID.
 
 	   user id
@@ -143,6 +144,7 @@ func (o *RotateUserAPIKeyParams) SetUserID(userID string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *RotateUserAPIKeyParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
