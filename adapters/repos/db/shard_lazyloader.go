@@ -46,16 +46,18 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts  *deferredShardOpts
-	shard      *Shard
-	loaded     bool
-	mutex      sync.Mutex
-	memMonitor memwatch.AllocChecker
+	shardOpts        *deferredShardOpts
+	shard            *Shard
+	loaded           bool
+	mutex            sync.Mutex
+	memMonitor       memwatch.AllocChecker
+	shardLoadLimiter ShardLoadLimiter
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
+	shardLoadLimiter ShardLoadLimiter,
 ) *LazyLoadShard {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -70,7 +72,8 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			jobQueueCh:       jobQueueCh,
 			indexCheckpoints: indexCheckpoints,
 		},
-		memMonitor: memMonitor,
+		memMonitor:       memMonitor,
+		shardLoadLimiter: shardLoadLimiter,
 	}
 }
 
@@ -104,6 +107,11 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 		return errors.Wrap(err, "memory pressure: cannot load shard")
 	}
+
+	if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
+		return fmt.Errorf("acquiring permit to load shard: %w", err)
+	}
+	defer l.shardLoadLimiter.Release()
 
 	if l.shardOpts.class == nil {
 		l.shardOpts.promMetrics.StartLoadingShard("unknown class")
