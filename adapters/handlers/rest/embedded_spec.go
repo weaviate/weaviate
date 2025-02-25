@@ -4130,6 +4130,12 @@ func init() {
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "404": {
             "description": "user not found"
           },
@@ -11113,6 +11119,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "user not found"

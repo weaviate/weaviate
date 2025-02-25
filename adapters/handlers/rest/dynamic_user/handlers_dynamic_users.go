@@ -60,6 +60,10 @@ func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesG
 }
 
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
+		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
 	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
 	if err != nil {
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
@@ -85,6 +89,11 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
 	if err := validateUserName(params.UserID); err != nil {
 		return users.NewCreateUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	// DynUser-Todo: Switch to correct verb when added
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
+		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
@@ -131,6 +140,11 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 }
 
 func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principal *models.Principal) middleware.Responder {
+	// DynUser-Todo: Switch to correct verb when added
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
+		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
 	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
 	if err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
@@ -153,6 +167,11 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 }
 
 func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
+	// DynUser-Todo: Switch to correct verb when added
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
+		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
 	err := h.dynamicUser.DeleteUser(params.UserID)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))

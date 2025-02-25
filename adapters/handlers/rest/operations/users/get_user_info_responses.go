@@ -94,6 +94,51 @@ func (o *GetUserInfoUnauthorized) WriteResponse(rw http.ResponseWriter, producer
 	rw.WriteHeader(401)
 }
 
+// GetUserInfoForbiddenCode is the HTTP code returned for type GetUserInfoForbidden
+const GetUserInfoForbiddenCode int = 403
+
+/*
+GetUserInfoForbidden Forbidden
+
+swagger:response getUserInfoForbidden
+*/
+type GetUserInfoForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetUserInfoForbidden creates GetUserInfoForbidden with default headers values
+func NewGetUserInfoForbidden() *GetUserInfoForbidden {
+
+	return &GetUserInfoForbidden{}
+}
+
+// WithPayload adds the payload to the get user info forbidden response
+func (o *GetUserInfoForbidden) WithPayload(payload *models.ErrorResponse) *GetUserInfoForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get user info forbidden response
+func (o *GetUserInfoForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetUserInfoForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // GetUserInfoNotFoundCode is the HTTP code returned for type GetUserInfoNotFound
 const GetUserInfoNotFoundCode int = 404
 
