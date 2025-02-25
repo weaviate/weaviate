@@ -408,7 +408,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 		sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.convertToInverted)
 	} else {
-		sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
+		// stop all other compactions
+		// sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 	}
 
 	return sg, nil
