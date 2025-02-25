@@ -348,15 +348,12 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	}
 	sg.segmentCleaner = sc
 
-	// TODO AL: use separate cycle callback for cleanup?
-	id := "segmentgroup/compaction/" + sg.dir
-	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
-
+	ogStrategy := sg.strategy
 	// if a segment exists of the map collection strategy, we need to
 	// convert the inverted strategy to a map collection strategy
 	// as it is done on the bucket level
-	if sg.strategy == StrategyInverted && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+	if sg.strategy == StrategyInverted && (len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyMapCollection) || os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") != "true" {
 		sg.strategy = StrategyMapCollection
 	}
 
@@ -386,6 +383,32 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			}
 			tombstonesCurrent.Or(tombstonesNext)
 		}
+	}
+
+	// TODO AL: use separate cycle callback for cleanup?
+	id := "segmentgroup/compaction/" + sg.dir
+
+	if ogStrategy == StrategyInverted && os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") == "true" && len(sg.segments) > 0 {
+		prop := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-1]
+		shardName := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-2]
+		indexName := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-4]
+		sg.logger.WithField("action", "lsm_conversion").
+			WithField("path", sg.dir).
+			WithField("prop", prop).
+			WithField("shard", shardName).
+			WithField("index", indexName).
+			WithField("finished", false).
+			Errorf("conversion process started for " + prop + " in " + shardName + " in " + indexName)
+		segmentStats.lock.Lock()
+		defer segmentStats.lock.Unlock()
+		segmentStats.total++
+		if segmentStats.done == segmentStats.total {
+			sg.logger.WithField("action", "lsm_conversion").
+				Errorf("conversion process is finished for all segments")
+		}
+		sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.convertToInverted)
+	} else {
+		sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 	}
 
 	return sg, nil
@@ -732,6 +755,71 @@ func fileExists(path string) (bool, error) {
 	}
 
 	return false, err
+}
+
+var segmentStats struct {
+	total int
+	done  int
+	lock  sync.Mutex
+}
+
+func (sg *SegmentGroup) convertToInverted(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	sg.monitorSegments()
+
+	convert := func() bool {
+		converted, isLast, err := sg.convertOnce()
+
+		prop := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-1]
+		shardName := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-2]
+		indexName := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-4]
+
+		if err != nil {
+			sg.logger.WithField("action", "lsm_conversion").
+				WithField("path", sg.dir).
+				WithField("prop", prop).
+				WithField("shard", shardName).
+				WithField("index", indexName).
+				WithError(err).
+				Errorf("conversion failed")
+		} else if converted {
+			sg.logger.WithField("action", "lsm_conversion").
+				WithField("path", sg.dir).
+				WithField("prop", prop).
+				WithField("shard", shardName).
+				WithField("index", indexName).
+				WithField("finished", !isLast).
+				Errorf("file converted to inverted")
+			if isLast {
+				sg.logger.WithField("action", "lsm_conversion").
+					WithField("path", sg.dir).
+					WithField("prop", prop).
+					WithField("shard", shardName).
+					WithField("index", indexName).
+					WithField("finished", true).
+					Errorf("conversion process is finished for " + prop + " in " + shardName + " in " + indexName)
+				segmentStats.lock.Lock()
+				defer segmentStats.lock.Unlock()
+				segmentStats.done++
+				if segmentStats.done == segmentStats.total {
+					sg.logger.WithField("action", "lsm_conversion").
+						Errorf("conversion process is finished for all segments")
+				}
+			}
+			// nothing to convert
+		} else if !converted && isLast {
+			segmentStats.lock.Lock()
+			defer segmentStats.lock.Unlock()
+			segmentStats.done++
+			if segmentStats.done == segmentStats.total {
+				sg.logger.WithField("action", "lsm_conversion").
+					Errorf("conversion process is finished for all segments")
+			}
+		}
+
+		return converted
+	}
+
+	return convert()
 }
 
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {

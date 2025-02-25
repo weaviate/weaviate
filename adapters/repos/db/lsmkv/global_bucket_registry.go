@@ -18,13 +18,13 @@ import (
 )
 
 type globalBucketRegistry struct {
-	buckets map[string]struct{}
+	buckets map[string]*Bucket
 	mu      sync.Mutex
 }
 
 func newGlobalBucketRegistry() *globalBucketRegistry {
 	return &globalBucketRegistry{
-		buckets: make(map[string]struct{}),
+		buckets: make(map[string]*Bucket),
 	}
 }
 
@@ -36,7 +36,7 @@ func init() {
 
 var ErrBucketAlreadyRegistered = errors.New("bucket already registered")
 
-func (r *globalBucketRegistry) TryAdd(absoluteBucketPath string) error {
+func (r *globalBucketRegistry) TryAdd(absoluteBucketPath string, bucket *Bucket) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -44,7 +44,7 @@ func (r *globalBucketRegistry) TryAdd(absoluteBucketPath string) error {
 		return fmt.Errorf("bucket %q: %w", absoluteBucketPath, ErrBucketAlreadyRegistered)
 	}
 
-	r.buckets[absoluteBucketPath] = struct{}{}
+	r.buckets[absoluteBucketPath] = bucket
 	return nil
 }
 
@@ -53,4 +53,12 @@ func (r *globalBucketRegistry) Remove(absoluteBucketPath string) {
 	defer r.mu.Unlock()
 
 	delete(r.buckets, absoluteBucketPath)
+}
+
+func (r *globalBucketRegistry) Get(absoluteBucketPath string) (*Bucket, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	bucket, ok := r.buckets[absoluteBucketPath]
+	return bucket, ok
 }
