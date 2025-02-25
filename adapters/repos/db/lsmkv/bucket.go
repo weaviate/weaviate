@@ -178,11 +178,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		haltedFlushTimer:      interval.NewBackoffTimer(),
 	}
 
-	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
-		// prevent accidentally trying to register the same bucket twice
-		return nil, err
-	}
-
 	if b.strategy == StrategyInverted && os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") == "true" {
 		b.forceCompaction = true
 		b.segmentsCleanupInterval = 1 * time.Second
@@ -280,6 +275,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	b.flushCallbackCtrl = flushCallbacks.Register(id, b.flushAndSwitchIfThresholdsMet)
 
 	b.metrics.TrackStartupBucket(beforeAll)
+
+	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
+		// prevent accidentally trying to register the same bucket twice
+		return nil, err
+	}
 
 	return b, nil
 }
