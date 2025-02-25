@@ -768,7 +768,9 @@ func (sg *SegmentGroup) convertToInverted(shouldAbort cyclemanager.ShouldAbortCa
 	sg.monitorSegments()
 
 	convert := func() bool {
-		converted, isLast, err := sg.convertOnce()
+		startTime := time.Now()
+		converted, isLast, path, err := sg.convertOnce()
+		took := time.Since(startTime)
 
 		prop := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-1]
 		shardName := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-2]
@@ -776,23 +778,26 @@ func (sg *SegmentGroup) convertToInverted(shouldAbort cyclemanager.ShouldAbortCa
 
 		if err != nil {
 			sg.logger.WithField("action", "lsm_conversion").
-				WithField("path", sg.dir).
-				WithField("prop", prop).
-				WithField("shard", shardName).
-				WithField("index", indexName).
-				WithError(err).
-				Errorf("conversion failed")
-		} else if converted {
-			sg.logger.WithField("action", "lsm_conversion").
-				WithField("path", sg.dir).
+				WithField("path", path).
 				WithField("prop", prop).
 				WithField("shard", shardName).
 				WithField("index", indexName).
 				WithField("finished", !isLast).
+				WithField("duration", took).
+				WithError(err).
+				Errorf("conversion failed")
+		} else if converted {
+			sg.logger.WithField("action", "lsm_conversion").
+				WithField("path", path).
+				WithField("prop", prop).
+				WithField("shard", shardName).
+				WithField("index", indexName).
+				WithField("finished", !isLast).
+				WithField("duration", took).
 				Errorf("file converted to inverted")
 			if isLast {
 				sg.logger.WithField("action", "lsm_conversion").
-					WithField("path", sg.dir).
+					WithField("path", path).
 					WithField("prop", prop).
 					WithField("shard", shardName).
 					WithField("index", indexName).

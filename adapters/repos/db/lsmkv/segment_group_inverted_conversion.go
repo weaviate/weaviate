@@ -62,20 +62,20 @@ func (sg *SegmentGroup) findInvertedConvertionCandidats() (*segment, *sroar.Bitm
 	return nil, nil, 0, nil
 }
 
-func (sg *SegmentGroup) convertOnce() (bool, bool, error) {
+func (sg *SegmentGroup) convertOnce() (bool, bool, string, error) {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 	if len(sg.segments) == 0 {
-		return true, true, nil
+		return true, true, "", nil
 	}
 
 	segment, tombstones, index, err := sg.findInvertedConvertionCandidats()
 	if err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
 
 	if segment == nil {
-		return false, true, nil
+		return false, true, "", nil
 	}
 
 	path2 := sg.segments[0].path
@@ -85,7 +85,7 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, error) {
 	propName := strings.Split(pathSplit[len(pathSplit)-1], "_")[1]
 	propTokenization := "word"
 	if err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
 
 	if sg.allocChecker != nil {
@@ -104,7 +104,7 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, error) {
 			}).WithError(err).
 				Warnf("skipping conversion due to memory pressure")
 
-			return false, false, fmt.Errorf("skipping conversion due to memory pressure: %w", err)
+			return false, false, segment.path, fmt.Errorf("skipping conversion due to memory pressure: %w", err)
 		}
 	}
 
@@ -112,7 +112,7 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, error) {
 
 	f, err := os.Create(path)
 	if err != nil {
-		return false, false, err
+		return false, false, segment.path, err
 	}
 
 	scratchSpacePath := segment.path + "compaction.scratch.d"
@@ -142,17 +142,17 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, error) {
 	}
 	start := time.Now()
 	if err := c.do(); err != nil {
-		return false, false, err
+		return false, false, segment.path, err
 	}
 
 	if err := f.Sync(); err != nil {
-		return false, false, errors.Wrap(err, "fsync converted segment file")
+		return false, false, segment.path, errors.Wrap(err, "fsync converted segment file")
 	}
 
 	end := time.Now()
 
 	if err := f.Close(); err != nil {
-		return false, false, errors.Wrap(err, "close converted segment file")
+		return false, false, segment.path, errors.Wrap(err, "close converted segment file")
 	}
 
 	sg.logger.WithFields(logrus.Fields{
@@ -166,10 +166,10 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, error) {
 	// fmt.Println("Converted segment: ", segment.path, size, newSize.Size(), end.Sub(start).Seconds(), c.statsWrittenDocs, c.statsDeletedDocs, c.statsUpdatedDocs, c.statsWrittenKeys, c.statsDeletedKeys, c.statsUpdatedKeys, c.statsDeletedDocsLaterSegment, c.statsDeletedDocsObjectBucket, c.statsDeletedDocsIdBucket, c.statsDeletedDocsNoData, c.statsDeletedDocsNoProp, c.statsDeletedDocsNoText)
 
 	if err := sg.replaceCompactedSegment(index, path); err != nil {
-		return false, false, errors.Wrap(err, "replace converted segments")
+		return false, false, segment.path, errors.Wrap(err, "replace converted segments")
 	}
 
-	return true, index == 0, nil
+	return true, index == 0, segment.path, nil
 }
 
 func (sg *SegmentGroup) replaceCompactedSegment(old int,

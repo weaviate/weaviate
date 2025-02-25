@@ -70,12 +70,15 @@ func ConvertSegments(path string) error {
 	}
 
 	for {
-		ok, last, err := sg.convertOnce()
+		ok, last, path, err := sg.convertOnce()
 		if err != nil {
 			return fmt.Errorf("error during conversion: %w", err)
 		}
 		if !ok {
 			break
+		}
+		if ok {
+			sg.logger.WithField("action", "segment_conversion").Infof("Segment %q converted successfully", path)
 		}
 		if last {
 			sg.logger.WithField("action", "segment_conversion").Info("All segments converted successfully")
