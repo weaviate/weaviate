@@ -178,7 +178,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		haltedFlushTimer:      interval.NewBackoffTimer(),
 	}
 
-	if err := GlobalBucketRegistry.TryAdd(dir, b); err != nil {
+	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
 		// prevent accidentally trying to register the same bucket twice
 		return nil, err
 	}
