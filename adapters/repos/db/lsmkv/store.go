@@ -427,10 +427,8 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return fmt.Errorf("%w: replacing bucket %q for %q in store %q", ErrAlreadyClosed, bucketName, replacementBucketName, s.dir)
 	}
 
-	//fmt.Println("Taking bucketAccessLock")
 	s.bucketAccessLock.Lock()
-	defer func () {
-		//fmt.Println("Releasing bucketAccessLock")
+	defer func() {
 		s.bucketAccessLock.Unlock()
 	}()
 
@@ -445,7 +443,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	}
 	s.bucketsByName[bucketName] = replacementBucket
 	delete(s.bucketsByName, replacementBucketName)
-	//fmt.Println("Taking maintenanceLock")
+
 	replacementBucket.disk.maintenanceLock.Lock()
 
 	currBucketDir := bucket.dir
@@ -454,7 +452,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	newReplacementBucketDir := currBucketDir
 
 	if err := bucket.Shutdown(ctx); err != nil {
-		//fmt.Println("Releasing maintenanceLock")
+
 		replacementBucket.disk.maintenanceLock.Lock()
 		return errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
 	}
@@ -465,25 +463,24 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		WithField("dir", s.dir).
 		Info("replacing bucket")
 
-	//fmt.Println("Taking flushLock")
 	replacementBucket.flushLock.Lock()
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
-		//fmt.Println("Releasing maintenanceLock")
+
 		replacementBucket.disk.maintenanceLock.Unlock()
-		//fmt.Println("Releasing flushLock")
+
 		replacementBucket.flushLock.Unlock()
 		return errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
 	}
 	if err := os.Rename(currReplacementBucketDir, newReplacementBucketDir); err != nil {
-		//fmt.Println("Releasing maintenanceLock")
+
 		replacementBucket.disk.maintenanceLock.Unlock()
-		//fmt.Println("Releasing flushLock")
+
 		replacementBucket.flushLock.Unlock()
 		return errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
 	}
-	//fmt.Println("Releasing flushLock")
+
 	replacementBucket.flushLock.Unlock()
-	//fmt.Println("Releasing maintenanceLock")
+
 	replacementBucket.disk.maintenanceLock.Unlock()
 
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
