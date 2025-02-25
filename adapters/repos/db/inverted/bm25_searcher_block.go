@@ -31,7 +31,7 @@ import (
 
 // var metrics = lsmkv.BlockMetrics{}
 
-func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, func(), error) {
+func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
 	bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 	return bucket.CreateDiskTerm(N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, averagePropLength, config, ctx)
 }
@@ -67,9 +67,16 @@ func (b *BM25Searcher) wandBlock(
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
+			lenAllResults := len(allResults)
 			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
+			duplicateBoostsByTerm := make(map[string]int, len(duplicateBoosts))
+			for i, term := range queryTerms {
+				duplicateBoostsByTerm[term] = duplicateBoosts[i]
+			}
+			globalIdfCounts := make(map[string]uint64, len(queryTerms))
+			nonZeroTerms := make(map[string]uint64, len(queryTerms))
 			for _, propName := range propNames {
-				results, release, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, averagePropLength, b.config, ctx)
+				results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, averagePropLength, b.config, ctx)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -80,6 +87,36 @@ func (b *BM25Searcher) wandBlock(
 
 				allResults = append(allResults, results)
 				termCounts = append(termCounts, queryTerms)
+				for _, term := range queryTerms {
+					globalIdfCounts[term] += idfCounts[term]
+					if idfCounts[term] > 0 {
+						nonZeroTerms[term]++
+					}
+				}
+			}
+			globalIdfs := make(map[string]float64, len(queryTerms))
+			for term := range globalIdfCounts {
+				if nonZeroTerms[term] == 0 {
+					continue
+				}
+				n := globalIdfCounts[term] / nonZeroTerms[term]
+
+				globalIdfs[term] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateBoostsByTerm[term])
+			}
+			for _, result := range allResults[lenAllResults:] {
+				if len(result) == 0 {
+					continue
+				}
+				for j := range result {
+					if len(result[j]) == 0 {
+						continue
+					}
+					for k := range result[j] {
+						if result[j][k] != nil {
+							result[j][k].SetIdf(globalIdfs[result[j][k].QueryTerm()])
+						}
+					}
+				}
 			}
 
 		}
@@ -254,6 +291,10 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 	// try to get docs up to the limit
 	// if there are not enough docs, get limit more docs until we've exhausted the list of ids
 	for len(objs) < limit && startAt < len(ids) {
+		// storobj.ObjectsByDocID may return fewer than limit objects
+		// notFoundCount keeps track of the number of objects that were not found,
+		// so we can keep matching scores and explanations to the correct object
+		notFoundCount := 0
 		objsBatch, err := storobj.ObjectsByDocID(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
 		if err != nil {
 			return objs, nil, errors.Errorf("objects loading")
@@ -262,13 +303,16 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 			if obj == nil {
 				continue
 			}
-			if obj.DocID != ids[startAt+i] {
-				continue
+			// move forward the notFoundCount until we find the next object
+			// if we enter the loop, it means that doc at ids[startAt+notFoundCount+i]
+			// was not found, so we need to skip it
+			for obj.DocID != ids[startAt+notFoundCount+i] {
+				notFoundCount++
 			}
 			objs = append(objs, obj)
-			scoresResult = append(scoresResult, scores[startAt+i])
+			scoresResult = append(scoresResult, scores[startAt+notFoundCount+i])
 			if explanations != nil {
-				explanationsResults = append(explanationsResults, explanations[startAt+i])
+				explanationsResults = append(explanationsResults, explanations[startAt+notFoundCount+i])
 			}
 		}
 		startAt = endAt

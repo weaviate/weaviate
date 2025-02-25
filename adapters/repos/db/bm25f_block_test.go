@@ -228,8 +228,8 @@ func TestBM25FJourneyBlock(t *testing.T) {
 			require.Nil(t, err)
 
 			require.Equal(t, uint64(9), res[0].DocID)
-			require.Equal(t, uint64(8), res[1].DocID)
-			require.Equal(t, uint64(0), res[2].DocID)
+			require.Equal(t, uint64(0), res[1].DocID)
+			require.Equal(t, uint64(8), res[2].DocID)
 			require.Len(t, res, 3)
 		})
 
@@ -562,7 +562,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 
 			// Check scores
 			EqualFloats(t, float32(0.98), scores[0], 2)
-			EqualFloats(t, float32(0.63), scores[1], 2)
+			EqualFloats(t, float32(0.59), scores[1], 2)
 		})
 
 		for _, index := range repo.indices {
