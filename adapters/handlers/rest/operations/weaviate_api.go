@@ -231,6 +231,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzRevokeRoleFromUserHandler: authz.RevokeRoleFromUserHandlerFunc(func(params authz.RevokeRoleFromUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.RevokeRoleFromUser has not yet been implemented")
 		}),
+		UsersRotateUserAPIKeyHandler: users.RotateUserAPIKeyHandlerFunc(func(params users.RotateUserAPIKeyParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.RotateUserAPIKey has not yet been implemented")
+		}),
 		SchemaSchemaDumpHandler: schema.SchemaDumpHandlerFunc(func(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaDump has not yet been implemented")
 		}),
@@ -457,6 +460,8 @@ type WeaviateAPI struct {
 	AuthzRevokeRoleFromGroupHandler authz.RevokeRoleFromGroupHandler
 	// AuthzRevokeRoleFromUserHandler sets the operation handler for the revoke role from user operation
 	AuthzRevokeRoleFromUserHandler authz.RevokeRoleFromUserHandler
+	// UsersRotateUserAPIKeyHandler sets the operation handler for the rotate user Api key operation
+	UsersRotateUserAPIKeyHandler users.RotateUserAPIKeyHandler
 	// SchemaSchemaDumpHandler sets the operation handler for the schema dump operation
 	SchemaSchemaDumpHandler schema.SchemaDumpHandler
 	// SchemaSchemaObjectsCreateHandler sets the operation handler for the schema objects create operation
@@ -736,6 +741,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzRevokeRoleFromUserHandler == nil {
 		unregistered = append(unregistered, "authz.RevokeRoleFromUserHandler")
+	}
+	if o.UsersRotateUserAPIKeyHandler == nil {
+		unregistered = append(unregistered, "users.RotateUserAPIKeyHandler")
 	}
 	if o.SchemaSchemaDumpHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaDumpHandler")
@@ -1103,6 +1111,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/authz/users/{id}/revoke"] = authz.NewRevokeRoleFromUser(o.context, o.AuthzRevokeRoleFromUserHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/users/{user_id}/rotate-key"] = users.NewRotateUserAPIKey(o.context, o.UsersRotateUserAPIKeyHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

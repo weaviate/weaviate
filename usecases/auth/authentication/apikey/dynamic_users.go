@@ -26,27 +26,31 @@ type DynamicUser interface {
 	CreateUser(userId, secureHash, userIdentifier string) error
 	DeleteUser(userId string) error
 	GetUsers(userIds ...string) (map[string]*User, error)
+	RotateKey(userId, secureHash string) error
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
 }
 
 type User struct {
-	Id     string
-	Active bool
+	Id                 string
+	Active             bool
+	InternalIdentifier string
 }
 
 type DynamicApiKey struct {
 	sync.RWMutex
-	weakKeyStorage       map[string][sha256.Size]byte
+	weakKeyStorageById   map[string][sha256.Size]byte
 	secureKeyStorageById map[string]string
 	identifierToId       map[string]string
+	IdToIdentifier       map[string]string
 	users                map[string]*User
 }
 
 func NewDynamicApiKey() *DynamicApiKey {
 	return &DynamicApiKey{
-		weakKeyStorage:       make(map[string][sha256.Size]byte),
+		weakKeyStorageById:   make(map[string][sha256.Size]byte),
 		secureKeyStorageById: make(map[string]string),
 		identifierToId:       make(map[string]string),
+		IdToIdentifier:       make(map[string]string),
 		users:                make(map[string]*User),
 	}
 }
@@ -64,7 +68,17 @@ func (c *DynamicApiKey) CreateUser(userId, secureHash, userIdentifier string) er
 	}
 	c.secureKeyStorageById[userId] = secureHash
 	c.identifierToId[userIdentifier] = userId
-	c.users[userId] = &User{Id: userId, Active: true}
+	c.IdToIdentifier[userId] = userIdentifier
+	c.users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier}
+	return nil
+}
+
+func (c *DynamicApiKey) RotateKey(userId, secureHash string) error {
+	c.Lock()
+	defer c.Unlock()
+
+	c.secureKeyStorageById[userId] = secureHash
+	delete(c.weakKeyStorageById, userId)
 	return nil
 }
 
@@ -75,7 +89,7 @@ func (c *DynamicApiKey) DeleteUser(userId string) error {
 	delete(c.secureKeyStorageById, userId)
 	delete(c.identifierToId, userId)
 	delete(c.users, userId)
-	delete(c.weakKeyStorage, userId)
+	delete(c.weakKeyStorageById, userId)
 	return nil
 }
 
@@ -114,7 +128,7 @@ func (c *DynamicApiKey) ValidateAndExtract(key, userIdentifier string) (*models.
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
-	weakHash, ok := c.weakKeyStorage[userId]
+	weakHash, ok := c.weakKeyStorageById[userId]
 	if ok {
 		// use the secureHash as salt for the computation of the weaker in-memory
 		return c.validateWeakHash([]byte(key+secureHash), weakHash, userId)
@@ -141,7 +155,7 @@ func (c *DynamicApiKey) validateStrongHash(key, secureHash, userId string) (*mod
 		return nil, fmt.Errorf("invalid token")
 	}
 	token := []byte(key + secureHash)
-	c.weakKeyStorage[userId] = sha256.Sum256(token)
+	c.weakKeyStorageById[userId] = sha256.Sum256(token)
 
 	return &models.Principal{Username: userId}, nil
 }

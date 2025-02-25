@@ -144,6 +144,24 @@ func (_m *DynamicUserAndRolesGetter) GetUsers(userIds ...string) (map[string]*ap
 	return r0, r1
 }
 
+// RotateKey provides a mock function with given fields: userId, secureHash
+func (_m *DynamicUserAndRolesGetter) RotateKey(userId string, secureHash string) error {
+	ret := _m.Called(userId, secureHash)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RotateKey")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string) error); ok {
+		r0 = rf(userId, secureHash)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // NewDynamicUserAndRolesGetter creates a new instance of DynamicUserAndRolesGetter. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewDynamicUserAndRolesGetter(t interface {

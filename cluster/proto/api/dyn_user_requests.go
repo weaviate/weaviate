@@ -27,6 +27,12 @@ type CreateUsersRequest struct {
 	Version        int
 }
 
+type RotateUserApiKeyRequest struct {
+	UserId     string
+	SecureHash string
+	Version    int
+}
+
 type DeleteUsersRequest struct {
 	UserId  string
 	Version int

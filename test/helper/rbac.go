@@ -58,6 +58,28 @@ func DeleteUser(t *testing.T, userId, key string) {
 	require.Nil(t, err)
 }
 
+func CreateUser(t *testing.T, userId, key string) string {
+	t.Helper()
+	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
+	require.NotNil(t, resp.Payload.Apikey)
+	return *resp.Payload.Apikey
+}
+
+func RotateKey(t *testing.T, userId, key string) string {
+	t.Helper()
+	resp, err := Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(userId), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
+	require.NotNil(t, resp.Payload.Apikey)
+	return *resp.Payload.Apikey
+}
+
 func DeleteRole(t *testing.T, key, role string) {
 	resp, err := Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID(role), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)

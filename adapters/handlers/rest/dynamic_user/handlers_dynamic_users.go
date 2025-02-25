@@ -56,6 +56,7 @@ func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesG
 	api.UsersCreateUserHandler = users.CreateUserHandlerFunc(h.createUser)
 	api.UsersDeleteUserHandler = users.DeleteUserHandlerFunc(h.deleteUser)
 	api.UsersGetUserInfoHandler = users.GetUserInfoHandlerFunc(h.getUser)
+	api.UsersRotateUserAPIKeyHandler = users.RotateUserAPIKeyHandlerFunc(h.rotateKey)
 }
 
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
@@ -95,7 +96,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v already exists", params.UserID)))
 	}
 
-	apiKey, hash, userIdentifier, err := keys.CreateApiKeyAndHash()
+	apiKey, hash, userIdentifier, err := keys.CreateApiKeyAndHash("")
 	if err != nil {
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -125,6 +126,28 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
+}
+
+func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principal *models.Principal) middleware.Responder {
+	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
+	if err != nil {
+		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
+	}
+
+	if len(existingUser) == 0 {
+		return users.NewRotateUserAPIKeyNotFound()
+	}
+
+	apiKey, hash, _, err := keys.CreateApiKeyAndHash(existingUser[params.UserID].InternalIdentifier)
+	if err != nil {
+		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("generating key: %w", err)))
+	}
+
+	if err := h.dynamicUser.RotateKey(params.UserID, hash); err != nil {
+		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("rotate key: %w", err)))
+	}
+
+	return users.NewRotateUserAPIKeyOK().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
 }
 
 func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {

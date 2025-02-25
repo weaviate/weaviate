@@ -40,6 +40,26 @@ func (s *Raft) CreateUser(userId, secureHash, userIdentifier string) error {
 	return nil
 }
 
+func (s *Raft) RotateKey(userId, secureHash string) error {
+	req := cmd.RotateUserApiKeyRequest{
+		UserId:     userId,
+		SecureHash: secureHash,
+		Version:    cmd.DynUserLatestCommandPolicyVersion,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_ROTATE_USER_API_KEY,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Raft) DeleteUser(userId string) error {
 	req := cmd.DeleteUsersRequest{
 		UserId:  userId,

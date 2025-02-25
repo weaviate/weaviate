@@ -24,7 +24,7 @@ func TestCreateUser(t *testing.T) {
 	adminKey := "admin-key"
 
 	helper.SetupClient("127.0.0.1:8081")
-	// defer helper.ResetClient()
+	defer helper.ResetClient()
 
 	userName := "CreateUserTestUser"
 
@@ -52,5 +52,24 @@ func TestCreateUser(t *testing.T) {
 		var parsed *users.GetOwnInfoUnauthorized
 		require.True(t, errors.As(err, &parsed))
 		require.Equal(t, 401, parsed.Code())
+	})
+
+	t.Run("create and rotate key", func(t *testing.T) {
+		helper.DeleteUser(t, userName, adminKey)
+		oldKey := helper.CreateUser(t, userName, adminKey)
+
+		// login works after user creation
+		info := helper.GetInfoForOwnUser(t, oldKey)
+		require.Equal(t, userName, *info.Username)
+
+		// rotate key and test that old key is not working anymore
+		newKey := helper.RotateKey(t, userName, adminKey)
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(oldKey))
+		require.Error(t, err)
+
+		infoNew := helper.GetInfoForOwnUser(t, newKey)
+		require.Equal(t, userName, *infoNew.Username)
+
+		helper.DeleteUser(t, userName, adminKey)
 	})
 }
