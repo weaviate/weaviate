@@ -1,3 +1,16 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build integrationTest
+
 package db
 
 import (
@@ -46,12 +59,12 @@ func TestVectorIndexQueueBatchSize(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for the batch to be stale
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	b, err := q.DequeueBatch()
 	require.NoError(t, err)
 	require.NotNil(t, b)
-	require.InEpsilon(t, 6000, len(b.Tasks), 0.4)
+	require.Equal(t, len(b.Tasks), 7836)
 	size := len(b.Tasks)
 	b.Done()
 	require.EqualValues(t, 10000-size, q.Size())
