@@ -217,14 +217,11 @@ func tokenizeGSE(in string) []string {
 
 	terms = removeEmptyStrings(terms)
 
-
-
 	ret := append(terms, alpha...)
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("gse").Observe(float64(time.Since(startTime).Microseconds()))
 	monitoring.GetMetrics().TokenCount.WithLabelValues("gse").Add(float64(len(ret)))
 	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("gse").Observe(float64(len(ret)))
 	return ret
-
 }
 
 type KagomeTokenizers struct {
