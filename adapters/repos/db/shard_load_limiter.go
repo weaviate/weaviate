@@ -66,6 +66,6 @@ func (l *ShardLoadLimiter) Acquire(ctx context.Context) error {
 }
 
 func (l *ShardLoadLimiter) Release() {
-	l.shardsLoading.Dec()
 	l.sema.Release(1)
+	l.shardsLoading.Dec()
 }
