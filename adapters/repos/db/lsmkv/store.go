@@ -531,7 +531,6 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 		return strings.Replace(src, bucketDir, newBucketDir, 1)
 	}
 
-	fmt.Printf("Taking flushLock\n")
 	bucket.flushLock.Lock()
 	bucket.dir = newBucketDir
 	if bucket.active != nil {
@@ -542,15 +541,11 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 		bucket.flushing.path = updatePath(bucket.flushing.path)
 		bucket.flushing.commitlog.path = updatePath(bucket.flushing.commitlog.path)
 	}
-	fmt.Printf("Releasing flushLock\n")
 	bucket.flushLock.Unlock()
-
-	fmt.Println("Taking maintenanceLock")
 	bucket.disk.maintenanceLock.Lock()
 	bucket.disk.dir = newBucketDir
 	for _, segment := range bucket.disk.segments {
 		segment.path = updatePath(segment.path)
 	}
-	fmt.Println("Releasing maintenanceLock")
 	bucket.disk.maintenanceLock.Unlock()
 }
