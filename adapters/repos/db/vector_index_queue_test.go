@@ -55,11 +55,14 @@ func TestVectorIndexQueueBatchSize(t *testing.T) {
 	}
 
 	q := shd.Queue()
+	// ensure the queue doesn't get scheduled
+	q.Pause()
+
 	err := q.Insert(ctx, vectors...)
 	require.NoError(t, err)
 
 	// wait for the batch to be stale
-	time.Sleep(1 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 
 	b, err := q.DequeueBatch()
 	require.NoError(t, err)
