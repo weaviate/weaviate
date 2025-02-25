@@ -96,16 +96,18 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v already exists", params.UserID)))
 	}
 
-	apiKey, hash, userIdentifier, err := keys.CreateApiKeyAndHash("")
-	if err != nil {
-		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	}
+	var apiKey, hash, userIdentifier string
 
 	// the user identifier is random, and we need to be sure that there is no reuse. Otherwise, an existing apikey would
 	// become invalid. The chances are minimal, but with a lot of users it can happen (birthday paradox!).
 	// If we happen to have a collision by chance, simply generate a new key
 	count := 0
 	for {
+		apiKey, hash, userIdentifier, err = keys.CreateApiKeyAndHash("")
+		if err != nil {
+			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+
 		exists, err := h.dynamicUser.CheckUserIdentifierExists(userIdentifier)
 		if err != nil {
 			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
