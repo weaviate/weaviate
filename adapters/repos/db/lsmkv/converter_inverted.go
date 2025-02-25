@@ -21,12 +21,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type convertedInverted struct {
@@ -56,21 +53,13 @@ type convertedInverted struct {
 
 	invertedHeader *segmentindex.HeaderInverted
 
-	objectBucket     *Bucket
-	currentBucket    *Bucket
-	idBucket         *Bucket
 	propName         string
 	propTokenization string
 
 	statsWrittenDocs uint64
 	statsWrittenKeys uint64
 
-	statsUpdatedDocs uint64
-	statsUpdatedKeys uint64
-
-	statsDeletedDocs uint64
-	statsDeletedKeys uint64
-
+	statsDeletedDocs             uint64
 	statsDeletedDocsLaterSegment uint64
 	statsDeletedDocsObjectBucket uint64
 	statsDeletedDocsIdBucket     uint64
@@ -78,16 +67,16 @@ type convertedInverted struct {
 	statsDeletedDocsNoProp       uint64
 	statsDeletedDocsNoText       uint64
 
-	documentsToUpdate *sroar.Bitmap
-	docIdEncoder      varenc.VarEncEncoder[uint64]
-	tfEncoder         varenc.VarEncEncoder[uint64]
+	statsDeletedKeys uint64
+
+	docIdEncoder varenc.VarEncEncoder[uint64]
+	tfEncoder    varenc.VarEncEncoder[uint64]
 }
 
 func newConvertedInverted(w io.WriteSeeker,
 	c1 *segmentCursorMap, level, secondaryIndexCount uint16,
-	scratchSpacePath string, cleanupTombstones bool, allTombstones *sroar.Bitmap, objectBucket *Bucket, currentBucket *Bucket, idBucket *Bucket, propName string, propTokenization string,
+	scratchSpacePath string, cleanupTombstones bool, allTombstones *sroar.Bitmap, propName string, propTokenization string,
 ) *convertedInverted {
-	documentsToUpdate := sroar.NewBitmap()
 	return &convertedInverted{
 		c1:                  c1,
 		w:                   w,
@@ -98,12 +87,8 @@ func newConvertedInverted(w io.WriteSeeker,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
 		offset:              0,
-		objectBucket:        objectBucket,
-		documentsToUpdate:   documentsToUpdate,
-		currentBucket:       currentBucket,
 		propName:            propName,
 		propTokenization:    propTokenization,
-		idBucket:            idBucket,
 	}
 }
 
@@ -349,6 +334,17 @@ func (c *convertedInverted) writeInvertedHeader(tombstoneOffset, propertyLengths
 	return nil
 }
 
+func (b *Bucket) SecKeyExists(key []byte) bool {
+	for i := len(b.disk.segments) - 1; i >= 0; i-- {
+		seg := b.disk.segments[i]
+		found := seg.secondaryBloomFilters[0].Test(key)
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
 // Removes values with tombstone set from input slice. Output slice may be smaller than input one.
 // Returned skip of true means there are no values left (key can be omitted in segment)
 // WARN: method can alter input slice by swapping its elements and reducing length (not capacity)
@@ -357,15 +353,15 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 	// Rearrange slice in a way that tombstoned values are moved to the end
 	// and reduce slice's length.
 	last := 0
+
 	for i := 0; i < len(values); i++ {
 		docId := binary.BigEndian.Uint64(values[i].Key)
 		_, ok := c.propertyLengthsToWrite[docId]
-		obj := &storobj.Object{}
-		if values[i].Tombstone {
+		if values[i].Tombstone || len(values[i].Value) == 0 {
 			c.statsDeletedKeys++
 
 			// already tombstoned or updated in the current segment
-			if c.tombstonesToWrite.Contains(docId) || c.documentsToUpdate.Contains(docId) {
+			if c.tombstonesToWrite.Contains(docId) {
 				continue
 			}
 
@@ -377,120 +373,14 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 				continue
 			}
 
-			// check if the object is still in the object bucket
-			objs, err := storobj.ObjectsByDocID(c.objectBucket, []uint64{docId}, additional.Properties{}, []string{c.propName}, c.objectBucket.logger)
-			if err != nil {
-				continue
-			}
-
-			// deleted in the object bucket
-			if len(objs) == 0 {
-				c.statsDeletedDocs++
-				c.statsDeletedDocsObjectBucket++
-				c.tombstonesToWrite.Set(docId)
-				continue
-			}
-
-			// check if the object is still in the id bucket
-			allInternalIdBytes, err := c.idBucket.SetList([]byte(objs[0].ID().String()))
-			if err != nil {
-				continue
-			}
-
-			matched := false
-			for _, internalIdBytes := range allInternalIdBytes {
-				internalId := binary.BigEndian.Uint64(internalIdBytes)
-				if internalId == docId {
-					matched = true
-					break
-				}
-			}
-
-			// deleted in the id bucket
-			if !matched {
-				c.statsDeletedDocs++
-				c.statsDeletedDocsIdBucket++
-				c.tombstonesToWrite.Set(docId)
-				continue
-			}
-
-			// check if the object has data in the property
-			textData, ok := objs[0].Properties().(map[string]interface{})
-
-			if !ok || textData == nil || len(textData) == 0 {
-				c.statsDeletedDocs++
-				c.statsDeletedDocsNoData++
-				c.tombstonesToWrite.Set(docId)
-				continue
-			}
-
-			texts, ok := textData[c.propName]
-
-			// no data in the property
-			if !ok {
-				c.statsDeletedDocs++
-				c.statsDeletedDocsNoProp++
-				c.tombstonesToWrite.Set(docId)
-				continue
-			}
-
-			textsArr, ok := texts.([]string)
-
-			if !ok {
-				textsArr = []string{texts.(string)}
-			}
-
-			// no data in the property
-			if len(textsArr) == 0 {
-				c.statsDeletedDocs++
-				c.statsDeletedDocsNoText++
-				c.tombstonesToWrite.Set(docId)
-				continue
-			}
-
-			c.statsUpdatedDocs++
-			c.documentsToUpdate.Set(docId)
-
 			c.statsDeletedDocs++
+			c.statsDeletedDocsObjectBucket++
 			c.tombstonesToWrite.Set(docId)
-
-			// check if it is a string or []string prop
-			obj = objs[0]
-			textsParsed, ok := obj.Properties().(map[string]interface{})[c.propName].([]string)
-			if !ok {
-				text, ok := obj.Properties().(map[string]interface{})[c.propName].(string)
-				if ok {
-					textsParsed = []string{text}
-				}
-			}
-
-			// Analyse the text
-			analysed := AnalyseTextArray(c.propTokenization, textsParsed)
-			propLen := float32(0)
-
-			for _, item := range analysed {
-				propLen += item.TermFrequency
-			}
-			keyForDelete := []byte("dummy")
-			if len(analysed) > 0 {
-				keyForDelete = analysed[0].Data
-			}
-			// delete on most recent bucket to ensure all previous values are invalidated
-			c.currentBucket.MapDeleteKey(keyForDelete, values[i].Key)
-			for _, item := range analysed {
-				c.statsUpdatedKeys++
-				key := item.Data
-				mp := NewMapPairFromDocIdAndTf2(docId, item.TermFrequency, propLen, false)
-
-				if err := c.currentBucket.MapSet(key, mp); err != nil {
-					continue
-				}
-			}
 			continue
 
 		}
 
-		if !c.documentsToUpdate.Contains(docId) && !c.tombstonesToClean.Contains(docId) && !c.tombstonesToWrite.Contains(docId) {
+		if !c.tombstonesToClean.Contains(docId) && !c.tombstonesToWrite.Contains(docId) {
 			// if docId in propertyLengthsToWrite
 			// then add propertyLengthsToWrite[docId] to propertyLengthsSum
 			c.statsWrittenKeys++
@@ -546,32 +436,4 @@ func NewMapPairFromDocIdAndTf2(docId uint64, tf float32, propLength float32, isT
 		Value:     value,
 		Tombstone: isTombstone,
 	}
-}
-
-type Countable struct {
-	Data          []byte
-	TermFrequency float32
-}
-
-func AnalyseTextArray(tokenization string, inArr []string) []Countable {
-	var terms []string
-	for _, in := range inArr {
-		terms = append(terms, helpers.Tokenize(tokenization, in)...)
-	}
-
-	counts := map[string]uint64{}
-	for _, term := range terms {
-		counts[term]++
-	}
-
-	countable := make([]Countable, len(counts))
-	i := 0
-	for term, count := range counts {
-		countable[i] = Countable{
-			Data:          []byte(term),
-			TermFrequency: float32(count),
-		}
-		i++
-	}
-	return countable
 }

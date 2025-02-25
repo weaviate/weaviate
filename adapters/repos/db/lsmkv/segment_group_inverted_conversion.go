@@ -62,38 +62,6 @@ func (sg *SegmentGroup) findInvertedConvertionCandidats() (*segment, *sroar.Bitm
 	return nil, nil, 0, nil
 }
 
-func (sg *SegmentGroup) getNecessaryInfo() (*Bucket, *Bucket, *Bucket, string, string, error) {
-	// get dir by first splitting the path to get the parent
-	path := sg.segments[0].path
-	path = filepath.Dir(path)
-	pathSplit := strings.Split(path, "/")
-	// get parent dir
-	objectParent := strings.Join(pathSplit[:len(pathSplit)-1], "/")
-	propName := strings.Split(pathSplit[len(pathSplit)-1], "_")[1]
-
-	currBucket, ok := GlobalBucketRegistry.Get(path)
-	if !ok {
-		return nil, nil, nil, "", "", fmt.Errorf("currBucket not found for path: %v", path)
-	}
-
-	objectBucketDir := filepath.Join(objectParent, "objects")
-
-	objectBucket, ok := GlobalBucketRegistry.Get(objectBucketDir)
-	if !ok {
-		return nil, nil, nil, "", "", fmt.Errorf("objectBucket not found for path: %v", objectBucketDir)
-	}
-
-	idBucketDir := filepath.Join(objectParent, "property__id")
-
-	idBucket, ok := GlobalBucketRegistry.Get(idBucketDir)
-	if !ok {
-		return nil, nil, nil, "", "", fmt.Errorf("idBucket not found for path: %v", idBucketDir)
-	}
-
-	propTokenization := "word"
-	return objectBucket, idBucket, currBucket, propName, propTokenization, nil
-}
-
 func (sg *SegmentGroup) convertOnce() (bool, bool, error) {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
@@ -110,7 +78,12 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, error) {
 		return false, true, nil
 	}
 
-	objectBucket, idBucket, currentBucket, propName, propTokenization, err := sg.getNecessaryInfo()
+	path2 := sg.segments[0].path
+	path2 = filepath.Dir(path2)
+	pathSplit := strings.Split(path2, "/")
+	// get parent dir
+	propName := strings.Split(pathSplit[len(pathSplit)-1], "_")[1]
+	propTokenization := "word"
 	if err != nil {
 		return false, false, err
 	}
@@ -161,7 +134,7 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, error) {
 
 	c := newConvertedInverted(f,
 		segment.newMapCursor(),
-		segment.level, secondaryIndices, scratchSpacePath, cleanupTombstones, tombstones, objectBucket, currentBucket, idBucket, propName, propTokenization)
+		segment.level, secondaryIndices, scratchSpacePath, cleanupTombstones, tombstones, propName, propTokenization)
 
 	if sg.metrics != nil {
 		sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
