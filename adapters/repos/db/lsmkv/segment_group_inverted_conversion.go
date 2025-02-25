@@ -129,9 +129,9 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, error) {
 				"event":  "compaction_skipped_oom",
 				"path":   sg.dir,
 			}).WithError(err).
-				Warnf("skipping convertion due to memory pressure")
+				Warnf("skipping conversion due to memory pressure")
 
-			return false, false, fmt.Errorf("skipping convertion due to memory pressure: %w", err)
+			return false, false, fmt.Errorf("skipping conversion due to memory pressure: %w", err)
 		}
 	}
 

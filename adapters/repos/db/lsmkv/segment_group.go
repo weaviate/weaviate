@@ -398,7 +398,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			WithField("shard", shardName).
 			WithField("index", indexName).
 			WithField("finished", false).
-			Errorf("conversion process started for " + prop + " in " + shardName + " in " + indexName)
+			Errorf("conversion process started for %s in %s in %s", prop, shardName, indexName)
 		segmentStats.lock.Lock()
 		defer segmentStats.lock.Unlock()
 		segmentStats.total++
@@ -796,7 +796,7 @@ func (sg *SegmentGroup) convertToInverted(shouldAbort cyclemanager.ShouldAbortCa
 					WithField("shard", shardName).
 					WithField("index", indexName).
 					WithField("finished", true).
-					Errorf("conversion process is finished for " + prop + " in " + shardName + " in " + indexName)
+					Errorf("conversion process is finished for %s in %s in %s", prop, shardName, indexName)
 				segmentStats.lock.Lock()
 				defer segmentStats.lock.Unlock()
 				segmentStats.done++
