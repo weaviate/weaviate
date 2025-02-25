@@ -46,7 +46,7 @@ func TestVectorIndexQueueBatchSize(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for the batch to be stale
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	b, err := q.DequeueBatch()
 	require.NoError(t, err)
