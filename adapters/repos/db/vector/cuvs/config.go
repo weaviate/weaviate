@@ -12,7 +12,6 @@
 package cuvs_index
 
 import (
-	"github.com/rapidsai/cuvs/go/cagra"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
@@ -23,9 +22,7 @@ type Config struct {
 	Logger       logrus.FieldLogger
 	RootPath     string
 
-	CuvsIndexParams  *cagra.IndexParams
-	CuvsSearchParams *cagra.SearchParams
-	CuvsPoolMemory   int
+	CuvsPoolMemory int
 }
 
 func (c Config) Validate() error {

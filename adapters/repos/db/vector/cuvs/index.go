@@ -76,6 +76,43 @@ type cuvs_index struct {
 	count           uint64
 }
 
+func CreateParams(uc cuvsEnt.UserConfig) (*cagra.IndexParams, *cagra.SearchParams, error) {
+	cuvsIndexParams, err := cagra.CreateIndexParams()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cuvsIndexParams.SetGraphDegree(uintptr(uc.GraphDegree))
+	cuvsIndexParams.SetIntermediateGraphDegree(uintptr(uc.IntermediateGraphDegree))
+	if uc.BuildAlgo == "nn_descent" {
+		cuvsIndexParams.SetBuildAlgo(cagra.NnDescent)
+	} else if uc.BuildAlgo == "ivf_pq" {
+		cuvsIndexParams.SetBuildAlgo(cagra.IvfPq)
+	} else if uc.BuildAlgo == "auto_select" {
+		cuvsIndexParams.SetBuildAlgo(cagra.AutoSelect)
+	} else {
+		return nil, nil, fmt.Errorf("invalid buildAlgo")
+	}
+
+	cuvsSearchParams, err := cagra.CreateSearchParams()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if uc.SearchAlgo == "multi_cta" {
+		cuvsSearchParams.SetAlgo(cagra.SearchAlgoMultiCta)
+	} else if uc.SearchAlgo == "single_cta" {
+		cuvsSearchParams.SetAlgo(cagra.SearchAlgoSingleCta)
+	} else {
+		return nil, nil, fmt.Errorf("invalid searchAlgo")
+	}
+
+	cuvsSearchParams.SetItopkSize(uintptr(uc.ItopKSize))
+	cuvsSearchParams.SetSearchWidth(uintptr(uc.SearchWidth))
+
+	return cuvsIndexParams, cuvsSearchParams, nil
+}
+
 func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
@@ -93,36 +130,7 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		return nil, err
 	}
 
-	if cfg.CuvsIndexParams == nil {
-		cuvsIndexParams, err := cagra.CreateIndexParams()
-
-		cuvsIndexParams.SetGraphDegree(32)
-		cuvsIndexParams.SetIntermediateGraphDegree(32)
-		cuvsIndexParams.SetBuildAlgo(cagra.NnDescent)
-
-		if err != nil {
-			return nil, err
-		}
-
-		cfg.CuvsIndexParams = cuvsIndexParams
-
-	}
-
-	if cfg.CuvsSearchParams == nil {
-
-		cuvsSearchParams, err := cagra.CreateSearchParams()
-		if err != nil {
-			return nil, err
-		}
-
-		cuvsSearchParams.SetAlgo(cagra.SearchAlgoMultiCta)
-		cuvsSearchParams.SetItopkSize(256)
-		cuvsSearchParams.SetSearchWidth(1)
-
-		cfg.CuvsSearchParams = cuvsSearchParams
-
-	}
-
+	cuvsIndexParams, cuvsSearchParams, err := CreateParams(uc)
 	if err != nil {
 		return nil, err
 	}
@@ -134,8 +142,8 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 
 	internals := cuvs_internals{
 		cuvsIndex:        cuvsIndex,
-		cuvsIndexParams:  cfg.CuvsIndexParams,
-		cuvsSearchParams: cfg.CuvsSearchParams,
+		cuvsIndexParams:  cuvsIndexParams,
+		cuvsSearchParams: cuvsSearchParams,
 		cuvsResource:     &res,
 		dlpackTensor:     nil,
 	}
@@ -250,6 +258,8 @@ func (index *cuvs_index) Add(ctx context.Context, id uint64, vector []float32) e
 }
 
 func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vectors [][]float32) error {
+	println("ADD VECTORS")
+	fmt.Println("num vectors: ", len(vectors))
 	index.Lock()
 	defer index.Unlock()
 
@@ -596,9 +606,9 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 	for i := range neighborsSlice[0] {
 		// neighborsResultSlice[i] = index.idCuvsIdMap[neighborsSlice[0][i]]
 		exists := false
-		// println("neighborsSlice[0][i]:", neighborsSlice[0][i])
+		println("neighborsSlice[0][i]:", neighborsSlice[0][i])
 		// t_id, _ := index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i])
-		// println("index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i]):", t_id)
+
 		neighborsResultSlice[i], exists = index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i])
 		if !exists {
 			return nil, nil, errors.Errorf("idCuvsIdMap does not contain id %d", neighborsSlice[0][i])
