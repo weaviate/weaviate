@@ -422,7 +422,7 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	newReplacementBucketDir := currBucketDir
 
 	if err := bucket.Shutdown(ctx); err != nil {
-		return "", "", "", ""	, errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
+		return "", "", "", "", errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
 	}
 
 	s.logger.WithField("action", "lsm_replace_bucket").
