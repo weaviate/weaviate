@@ -12,7 +12,6 @@
 package rest
 
 import (
-	"fmt"
 	"net/http"
 	"testing"
 
@@ -62,9 +61,7 @@ func Test_staticRoute(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fmt.Println("api.Context", api.Context())
 			_, got := staticRoute(ctx)(tc.req)
-			fmt.Println("got", got)
 			assert.Equal(t, tc.expected, got)
 		})
 	}

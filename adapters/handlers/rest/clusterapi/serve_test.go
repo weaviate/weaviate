@@ -60,7 +60,6 @@ func Test_staticRoute(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, got := staticRoute(mux)(tc.req)
-			fmt.Println("got", got)
 			assert.Equal(t, tc.expected, got)
 		})
 	}
