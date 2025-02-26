@@ -86,9 +86,9 @@ func (s *Shard) drop() (err error) {
 		return errors.Wrapf(err, "remove version at %s", s.path())
 	}
 
-	err = s.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Drop(); err != nil {
-			return fmt.Errorf("close queue of vector %q at %s: %w", name, s.path(), err)
+			return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
 		}
 		return nil
 	})
@@ -96,9 +96,9 @@ func (s *Shard) drop() (err error) {
 		return err
 	}
 
-	err = s.ForEachVectorIndex(func(name string, index VectorIndex) error {
+	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		if err = index.Drop(ctx); err != nil {
-			return fmt.Errorf("remove vector index of vector %q at %s: %w", name, s.path(), err)
+			return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
 		}
 		return nil
 	})

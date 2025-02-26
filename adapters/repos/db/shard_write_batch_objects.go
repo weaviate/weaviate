@@ -247,10 +247,10 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		return
 	}
 
-	_ = ob.shard.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+	_ = ob.shard.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err := queue.Delete(docIDsToDelete...); err != nil {
 			for _, pos := range positions {
-				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", name, err), pos)
+				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), pos)
 			}
 		}
 		return nil
@@ -505,10 +505,10 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	_ = ob.shard.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+	_ = ob.shard.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err := queue.Flush(); err != nil {
 			for i := range ob.objects {
-				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", name, err), i)
+				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
 			}
 		}
 		return nil

@@ -333,10 +333,10 @@ func (b *referencesBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	_ = b.shard.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+	_ = b.shard.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err := queue.Flush(); err != nil {
 			for i := range b.refs {
-				b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", name, err), i)
+				b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
 			}
 		}
 		return nil

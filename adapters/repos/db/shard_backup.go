@@ -57,9 +57,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool) (err error
 		return nil
 	})
 
-	err = s.ForEachVectorIndex(func(name string, index VectorIndex) error {
+	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		if err = index.SwitchCommitLogs(ctx); err != nil {
-			return fmt.Errorf("switch commit logs of vector %q: %w", name, err)
+			return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})
@@ -80,10 +80,10 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 		return err
 	}
 
-	return s.ForEachVectorIndex(func(name string, idx VectorIndex) error {
+	return s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
 		files, err := idx.ListFiles(ctx, s.index.Config.RootPath)
 		if err != nil {
-			return fmt.Errorf("list files of vector %q: %w", name, err)
+			return fmt.Errorf("list files of vector %q: %w", targetVector, err)
 		}
 		ret.Files = append(ret.Files, files...)
 		return nil
@@ -104,7 +104,7 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	})
 
 	g.Go(func() error {
-		return s.ForEachVectorQueue(func(name string, q *VectorIndexQueue) error {
+		return s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 			q.Resume()
 			return nil
 		})

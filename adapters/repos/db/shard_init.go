@@ -122,9 +122,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	if asyncEnabled() {
 		f := func() {
-			_ = s.ForEachVectorQueue(func(name string, _ *VectorIndexQueue) error {
-				if err := s.ConvertQueue(name); err != nil {
-					index.logger.WithError(err).Errorf("preload shard for target vector: %s", name)
+			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
+				if err := s.ConvertQueue(targetVector); err != nil {
+					index.logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
 				}
 				return nil
 			})

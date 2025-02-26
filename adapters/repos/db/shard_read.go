@@ -739,9 +739,9 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
-	err = s.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Delete(docID); err != nil {
-			return fmt.Errorf("delete from vector index queue of vector %q: %w", name, err)
+			return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})

@@ -332,17 +332,17 @@ func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
 			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(), false, true, tt.setConfigs)
 
 			capturedIndexes := make(map[string]any)
-			err := shard.ForEachVectorIndex(func(name string, index VectorIndex) error {
+			err := shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 				require.NotNil(t, index)
-				capturedIndexes[name] = index
+				capturedIndexes[targetVector] = index
 				return nil
 			})
 			require.NoError(t, err)
 
 			capturedQueues := make(map[string]any)
-			err = shard.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+			err = shard.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 				require.NotNil(t, queue)
-				capturedQueues[name] = queue
+				capturedQueues[targetVector] = queue
 				return nil
 			})
 			require.NoError(t, err)

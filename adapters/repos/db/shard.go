@@ -112,8 +112,8 @@ type ShardLike interface {
 	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) // Check if an object was deleted
 	VectorIndex() VectorIndex                                                // Get the vector index
 	VectorIndexes() map[string]VectorIndex                                   // Get the vector indexes
-	ForEachVectorIndex(f func(name string, index VectorIndex) error) error
-	ForEachVectorQueue(f func(name string, queue *VectorIndexQueue) error) error
+	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
+	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
 	hasTargetVectors() bool
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
@@ -359,7 +359,7 @@ func (s *Shard) ObjectCountAsync() int {
 
 // ForEachVectorIndex iterates through each vector index configured in the shard (named and legacy).
 // Iteration stops at the first return of non-nil error.
-func (s *Shard) ForEachVectorIndex(f func(name string, index VectorIndex) error) error {
+func (s *Shard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
 	for name, idx := range s.vectorIndexes {
 		if idx == nil {
 			continue
@@ -379,7 +379,7 @@ func (s *Shard) ForEachVectorIndex(f func(name string, index VectorIndex) error)
 
 // ForEachVectorQueue iterates through each vector index queue configured in the shard (named and legacy).
 // Iteration stops at the first return of non-nil error.
-func (s *Shard) ForEachVectorQueue(f func(name string, queue *VectorIndexQueue) error) error {
+func (s *Shard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
 	for name, q := range s.queues {
 		if q == nil {
 			continue

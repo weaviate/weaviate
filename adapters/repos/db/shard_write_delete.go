@@ -70,9 +70,9 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	err = s.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Delete(docID); err != nil {
-			return fmt.Errorf("delete from vector index of vector %q: %w", name, err)
+			return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})
@@ -80,9 +80,9 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return err
 	}
 
-	err = s.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
-			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", name, err)
+			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})
@@ -146,9 +146,9 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	err = s.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Delete(docID); err != nil {
-			return fmt.Errorf("delete from vector index of vector %q: %w", name, err)
+			return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})
@@ -156,9 +156,9 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		return err
 	}
 
-	err = s.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
-			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", name, err)
+			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})
