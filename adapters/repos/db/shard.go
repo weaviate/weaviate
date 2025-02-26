@@ -359,7 +359,6 @@ func (s *Shard) ObjectCountAsync() int {
 
 // ForEachVectorIndex iterates through each vector index configured in the shard (named and legacy).
 // Iteration stops at the first return of non-nil error.
-// TODO: add tests
 func (s *Shard) ForEachVectorIndex(f func(name string, index VectorIndex) error) error {
 	for name, idx := range s.vectorIndexes {
 		if idx == nil {
@@ -380,7 +379,6 @@ func (s *Shard) ForEachVectorIndex(f func(name string, index VectorIndex) error)
 
 // ForEachVectorQueue iterates through each vector index queue configured in the shard (named and legacy).
 // Iteration stops at the first return of non-nil error.
-// TODO: add tests
 func (s *Shard) ForEachVectorQueue(f func(name string, queue *VectorIndexQueue) error) error {
 	for name, q := range s.queues {
 		if q == nil {
