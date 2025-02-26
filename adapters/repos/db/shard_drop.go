@@ -86,27 +86,24 @@ func (s *Shard) drop() (err error) {
 		return errors.Wrapf(err, "remove version at %s", s.path())
 	}
 
-	if s.hasTargetVectors() {
-		// TODO run in parallel?
-		for targetVector, queue := range s.queues {
-			if err = queue.Drop(); err != nil {
-				return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
-			}
+	err = s.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+		if err = queue.Drop(); err != nil {
+			return fmt.Errorf("close queue of vector %q at %s: %w", name, s.path(), err)
 		}
-		for targetVector, vectorIndex := range s.vectorIndexes {
-			if err = vectorIndex.Drop(ctx); err != nil {
-				return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
-			}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.ForEachVectorIndex(func(name string, index VectorIndex) error {
+		if err = index.Drop(ctx); err != nil {
+			return fmt.Errorf("remove vector index of vector %q at %s: %w", name, s.path(), err)
 		}
-	} else {
-		// delete queue cursor
-		if err = s.queue.Drop(); err != nil {
-			return errors.Wrapf(err, "close queue at %s", s.path())
-		}
-		// remove vector index
-		if err = s.vectorIndex.Drop(ctx); err != nil {
-			return errors.Wrapf(err, "remove vector index at %s", s.path())
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	// delete property length tracker

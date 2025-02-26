@@ -291,6 +291,77 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
+func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		setConfigs    func(idx *Index)
+		expectIndexes []string
+	}{
+		{
+			name: "only legacy vector",
+			setConfigs: func(idx *Index) {
+				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+			},
+			expectIndexes: []string{""},
+		},
+		{
+			name: "only named vector",
+			setConfigs: func(idx *Index) {
+				idx.vectorIndexUserConfig = nil
+				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+					"vector1": hnsw.NewDefaultUserConfig(),
+					"vector2": flat.NewDefaultUserConfig(),
+				}
+			},
+			expectIndexes: []string{"vector1", "vector2"},
+		},
+		// TODO(faustas): uncomment this test once mixed vector support is added
+		//{
+		//	name: "legacy and named vectors",
+		//	setConfigs: func(idx *Index) {
+		//		idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+		//		idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+		//			"vector1": hnsw.NewDefaultUserConfig(),
+		//			"vector2": flat.NewDefaultUserConfig(),
+		//		}
+		//	},
+		//	expectIndexes: []string{"", "vector1", "vector2"},
+		//},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(), false, true, tt.setConfigs)
+
+			capturedIndexes := make(map[string]any)
+			err := shard.ForEachVectorIndex(func(name string, index VectorIndex) error {
+				require.NotNil(t, index)
+				capturedIndexes[name] = index
+				return nil
+			})
+			require.NoError(t, err)
+
+			capturedQueues := make(map[string]any)
+			err = shard.ForEachVectorQueue(func(name string, queue *VectorIndexQueue) error {
+				require.NotNil(t, queue)
+				capturedQueues[name] = queue
+				return nil
+			})
+			require.NoError(t, err)
+
+			require.Len(t, capturedIndexes, len(tt.expectIndexes))
+			for _, name := range tt.expectIndexes {
+				_, ok := capturedIndexes[name]
+				require.True(t, ok)
+			}
+
+			require.Len(t, capturedQueues, len(tt.expectIndexes))
+			for _, name := range tt.expectIndexes {
+				_, ok := capturedQueues[name]
+				require.True(t, ok)
+			}
+		})
+	}
+}
+
 func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")

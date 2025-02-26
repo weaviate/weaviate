@@ -444,6 +444,16 @@ func (l *LazyLoadShard) Queues() map[string]*VectorIndexQueue {
 	return l.shard.Queues()
 }
 
+func (l *LazyLoadShard) ForEachVectorIndex(f func(name string, index VectorIndex) error) error {
+	l.mustLoad()
+	return l.shard.ForEachVectorIndex(f)
+}
+
+func (l *LazyLoadShard) ForEachVectorQueue(f func(name string, queue *VectorIndexQueue) error) error {
+	l.mustLoad()
+	return l.shard.ForEachVectorQueue(f)
+}
+
 func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
