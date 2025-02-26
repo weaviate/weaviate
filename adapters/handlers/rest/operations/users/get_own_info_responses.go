@@ -33,7 +33,6 @@ GetOwnInfoOK Info about the user
 swagger:response getOwnInfoOK
 */
 type GetOwnInfoOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type GetOwnInfoOK struct {
 
 // NewGetOwnInfoOK creates GetOwnInfoOK with default headers values
 func NewGetOwnInfoOK() *GetOwnInfoOK {
-
 	return &GetOwnInfoOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *GetOwnInfoOK) SetPayload(payload *models.UserOwnInfo) {
 
 // WriteResponse to the client
 func (o *GetOwnInfoOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ GetOwnInfoUnauthorized Unauthorized or invalid credentials.
 
 swagger:response getOwnInfoUnauthorized
 */
-type GetOwnInfoUnauthorized struct {
-}
+type GetOwnInfoUnauthorized struct{}
 
 // NewGetOwnInfoUnauthorized creates GetOwnInfoUnauthorized with default headers values
 func NewGetOwnInfoUnauthorized() *GetOwnInfoUnauthorized {
-
 	return &GetOwnInfoUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GetOwnInfoUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ GetOwnInfoInternalServerError An error has occurred while trying to fulfill the 
 swagger:response getOwnInfoInternalServerError
 */
 type GetOwnInfoInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type GetOwnInfoInternalServerError struct {
 
 // NewGetOwnInfoInternalServerError creates GetOwnInfoInternalServerError with default headers values
 func NewGetOwnInfoInternalServerError() *GetOwnInfoInternalServerError {
-
 	return &GetOwnInfoInternalServerError{}
 }
 
@@ -129,7 +121,6 @@ func (o *GetOwnInfoInternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *GetOwnInfoInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

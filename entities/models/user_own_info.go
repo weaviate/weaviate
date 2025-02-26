@@ -30,7 +30,6 @@ import (
 //
 // swagger:model UserOwnInfo
 type UserOwnInfo struct {
-
 	// The groups associated to the user
 	Groups []string `json:"groups"`
 
@@ -87,7 +86,6 @@ func (m *UserOwnInfo) validateRoles(formats strfmt.Registry) error {
 }
 
 func (m *UserOwnInfo) validateUsername(formats strfmt.Registry) error {
-
 	if err := validate.Required("username", "body", m.Username); err != nil {
 		return err
 	}
@@ -110,9 +108,7 @@ func (m *UserOwnInfo) ContextValidate(ctx context.Context, formats strfmt.Regist
 }
 
 func (m *UserOwnInfo) contextValidateRoles(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Roles); i++ {
-
 		if m.Roles[i] != nil {
 			if err := m.Roles[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -123,7 +119,6 @@ func (m *UserOwnInfo) contextValidateRoles(ctx context.Context, formats strfmt.R
 				return err
 			}
 		}
-
 	}
 
 	return nil
