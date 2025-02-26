@@ -28,7 +28,7 @@ import (
 const HasPermissionOKCode int = 200
 
 /*
-HasPermissionOK Permission check was successful
+HasPermissionOK Permission check was successful.
 
 swagger:response hasPermissionOK
 */

@@ -28,7 +28,7 @@ import (
 const RemovePermissionsOKCode int = 200
 
 /*
-RemovePermissionsOK Permissions removed successfully
+RemovePermissionsOK Permissions removed successfully.
 
 swagger:response removePermissionsOK
 */
@@ -168,7 +168,7 @@ func (o *RemovePermissionsForbidden) WriteResponse(rw http.ResponseWriter, produ
 const RemovePermissionsNotFoundCode int = 404
 
 /*
-RemovePermissionsNotFound no role found
+RemovePermissionsNotFound Role not found.
 
 swagger:response removePermissionsNotFound
 */

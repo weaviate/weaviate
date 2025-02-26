@@ -188,7 +188,7 @@ func (o *GetRoleForbidden) WriteResponse(rw http.ResponseWriter, producer runtim
 const GetRoleNotFoundCode int = 404
 
 /*
-GetRoleNotFound no role found
+GetRoleNotFound Role not found.
 
 swagger:response getRoleNotFound
 */

@@ -45,7 +45,9 @@ func NewGetOwnInfo(ctx *middleware.Context, handler GetOwnInfoHandler) *GetOwnIn
 /*
 	GetOwnInfo swagger:route GET /users/own-info users getOwnInfo
 
-get info relevant to own user, e.g. username, roles
+# Get info relevant to own user
+
+Get information about the current user (e.g. username, roles).
 */
 type GetOwnInfo struct {
 	Context *middleware.Context

@@ -28,7 +28,7 @@ import (
 const AddPermissionsOKCode int = 200
 
 /*
-AddPermissionsOK Permissions added successfully
+AddPermissionsOK Permissions added successfully.
 
 swagger:response addPermissionsOK
 */
@@ -168,7 +168,7 @@ func (o *AddPermissionsForbidden) WriteResponse(rw http.ResponseWriter, producer
 const AddPermissionsNotFoundCode int = 404
 
 /*
-AddPermissionsNotFound no role found
+AddPermissionsNotFound Role not found.
 
 swagger:response addPermissionsNotFound
 */

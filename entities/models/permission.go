@@ -26,12 +26,12 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// Permission permissions attached to a role.
+// Permission Permissions attached to a role:
 //
 // swagger:model Permission
 type Permission struct {
 
-	// allowed actions in weaviate.
+	// Allowed actions in weaviate.
 	// Required: true
 	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users read_users create_tenants read_tenants update_tenants delete_tenants]
 	Action *string `json:"action"`
@@ -501,7 +501,7 @@ func (m *Permission) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionBackups resources applicable for backup actions
+// PermissionBackups Resources applicable for backup actions.
 //
 // swagger:model PermissionBackups
 type PermissionBackups struct {
@@ -575,7 +575,7 @@ func (m *PermissionCollections) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionData resources applicable for data actions
+// PermissionData Resources applicable for data actions.
 //
 // swagger:model PermissionData
 type PermissionData struct {
@@ -618,7 +618,7 @@ func (m *PermissionData) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionNodes resources applicable for cluster actions
+// PermissionNodes Resources applicable for cluster actions.
 //
 // swagger:model PermissionNodes
 type PermissionNodes struct {
@@ -626,7 +626,7 @@ type PermissionNodes struct {
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
 
-	// whether to allow (verbose) returning shards and stats data in the response
+	// Whether to allow (verbose) returning shards and stats data in the response.
 	// Enum: [verbose minimal]
 	Verbosity *string `json:"verbosity,omitempty"`
 }
@@ -802,7 +802,7 @@ func (m *PermissionRoles) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionTenants resources applicable for tenant actions
+// PermissionTenants Resources applicable for tenant actions.
 //
 // swagger:model PermissionTenants
 type PermissionTenants struct {
@@ -842,12 +842,12 @@ func (m *PermissionTenants) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionUsers resources applicable for user actions
+// PermissionUsers Resources applicable for user actions.
 //
 // swagger:model PermissionUsers
 type PermissionUsers struct {
 
-	// string or regex. if a specific name, if left empty it will be ALL or *
+	// string or regex. if a specific user name, if left empty it will be ALL or *
 	Users *string `json:"users,omitempty"`
 }
 

@@ -45,7 +45,9 @@ func NewCreateRole(ctx *middleware.Context, handler CreateRoleHandler) *CreateRo
 /*
 	CreateRole swagger:route POST /authz/roles authz createRole
 
-create new role
+# Create a new role
+
+Create a new role with the scpecified permissions.
 */
 type CreateRole struct {
 	Context *middleware.Context
