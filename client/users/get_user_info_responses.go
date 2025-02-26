@@ -126,6 +126,7 @@ func (o *GetUserInfoOK) GetPayload() *models.UserInfo {
 }
 
 func (o *GetUserInfoOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.UserInfo)
 
 	// response payload
@@ -146,7 +147,8 @@ GetUserInfoUnauthorized describes a response with status code 401, with default 
 
 Unauthorized or invalid credentials.
 */
-type GetUserInfoUnauthorized struct{}
+type GetUserInfoUnauthorized struct {
+}
 
 // IsSuccess returns true when this get user info unauthorized response has a 2xx status code
 func (o *GetUserInfoUnauthorized) IsSuccess() bool {
@@ -187,6 +189,7 @@ func (o *GetUserInfoUnauthorized) String() string {
 }
 
 func (o *GetUserInfoUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -247,6 +250,7 @@ func (o *GetUserInfoForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetUserInfoForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -267,7 +271,8 @@ GetUserInfoNotFound describes a response with status code 404, with default head
 
 user not found
 */
-type GetUserInfoNotFound struct{}
+type GetUserInfoNotFound struct {
+}
 
 // IsSuccess returns true when this get user info not found response has a 2xx status code
 func (o *GetUserInfoNotFound) IsSuccess() bool {
@@ -308,6 +313,7 @@ func (o *GetUserInfoNotFound) String() string {
 }
 
 func (o *GetUserInfoNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -368,6 +374,7 @@ func (o *GetUserInfoInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetUserInfoInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

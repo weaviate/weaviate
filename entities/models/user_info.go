@@ -29,6 +29,7 @@ import (
 //
 // swagger:model UserInfo
 type UserInfo struct {
+
 	// The role names associated to the user
 	Roles []string `json:"roles"`
 
@@ -52,6 +53,7 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 }
 
 func (m *UserInfo) validateUserID(formats strfmt.Registry) error {
+
 	if err := validate.Required("user_id", "body", m.UserID); err != nil {
 		return err
 	}
