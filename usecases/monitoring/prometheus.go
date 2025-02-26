@@ -36,6 +36,8 @@ type Config struct {
 // NOTE: Do not add any new metrics to this global `PrometheusMetrics` struct.
 // Instead add your metrics close the corresponding component.
 type PrometheusMetrics struct {
+	Registerer prometheus.Registerer
+
 	BatchTime                           *prometheus.HistogramVec
 	BatchSizeBytes                      *prometheus.SummaryVec
 	BatchSizeObjects                    prometheus.Summary
