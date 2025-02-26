@@ -438,3 +438,32 @@ func TestUserEndpoint(t *testing.T) {
 		assert.True(t, errors.As(err, &getUserNotFound))
 	})
 }
+
+func TestUserPermissionReturns(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	all := "*"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
+	defer down()
+
+	roleName := "testingUserPermissionReturns"
+	defer helper.DeleteRole(t, adminKey, roleName)
+	for _, action := range []string{authorization.ReadUsers, authorization.CreateUsers, authorization.UpdateUsers, authorization.DeleteUsers, authorization.AssignAndRevokeUsers} {
+		helper.DeleteRole(t, adminKey, roleName)
+
+		role := &models.Role{
+			Name: &roleName,
+			Permissions: []*models.Permission{{
+				Action: &action,
+				Users:  &models.PermissionUsers{Users: &all},
+			}},
+		}
+
+		helper.CreateRole(t, adminKey, role)
+		roleRet := helper.GetRoleByName(t, adminKey, roleName)
+		require.NotNil(t, roleRet)
+		require.Equal(t, *roleRet.Permissions[0].Users.Users, all)
+		require.Equal(t, *roleRet.Permissions[0].Action, action)
+	}
+}
