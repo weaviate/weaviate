@@ -36,7 +36,7 @@ func fakeBuildUrl(serverURL string) (string, error) {
 }
 
 func TestGetAnswer(t *testing.T) {
-	textProperties := []map[string]string{{"prop": "My name is john"}}
+	props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
 		handler := &testAnswerHandler{
 			t: t,
@@ -62,7 +62,7 @@ func TestGetAnswer(t *testing.T) {
 			Result: ptString("John"),
 		}
 
-		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
+		res, err := c.GenerateAllResults(context.Background(), props, "What is my name?", nil, false, nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, *res)
@@ -119,7 +119,7 @@ func TestGetAnswer(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-User-Agent", []string{userAgent})
 
-		res, err := c.GenerateAllResults(ctxWithValue, textProperties, "What is my name?", nil, false, nil)
+		res, err := c.GenerateAllResults(ctxWithValue, props, "What is my name?", nil, false, nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, *res)
