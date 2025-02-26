@@ -334,8 +334,13 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			})
 		}
 
-		// use empty string for legacy vector, downstream code will handle that appropriately
-		targetVectors[""] = append(targetVectors[""], &common.Vector[[][]float32]{})
+		if len(object.Vector) > 0 {
+			// use empty string for legacy vector, downstream code will handle that appropriately
+			targetVectors[""] = append(targetVectors[""], &common.Vector[[]float32]{
+				ID:     status.docID,
+				Vector: object.Vector,
+			})
+		}
 	}
 
 	for targetVector, vectors := range targetVectors {
