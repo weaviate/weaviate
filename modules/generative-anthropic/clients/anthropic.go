@@ -19,11 +19,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -32,8 +31,6 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-anthropic/config"
 	anthropicparams "github.com/weaviate/weaviate/modules/generative-anthropic/parameters"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type anthropic struct {
 	apiKey     string
@@ -51,24 +48,25 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *anthr
 	}
 }
 
-func (a *anthropic) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := a.generateForPrompt(textProperties, prompt)
+func (a *anthropic) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return a.generate(ctx, cfg, forPrompt, textProperties, options, debug)
+	return a.generate(ctx, cfg, forPrompt, generative.Blobs([]*modulecapabilities.GenerateProperties{properties}), options, debug)
 }
 
-func (a *anthropic) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forTask, err := a.generatePromptForTask(textProperties, task)
+func (a *anthropic) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	texts := generative.Texts(properties)
+	forTask, err := generative.MakeTaskPrompt(texts, task)
 	if err != nil {
 		return nil, err
 	}
-	return a.generate(ctx, cfg, forTask, nil, options, debug)
+	return a.generate(ctx, cfg, forTask, generative.Blobs(properties), options, debug)
 }
 
-func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, textProperties map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	params := a.getParameters(cfg, options, textProperties)
+func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := a.getParameters(cfg, options, imageProperties)
 	debugInformation := a.getDebugInformation(debug, prompt)
 
 	anthropicURL, err := a.getAnthropicURL(ctx, params.BaseURL)
@@ -167,7 +165,7 @@ func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, p
 	}, nil
 }
 
-func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface{}, textProperties map[string]string) anthropicparams.Params {
+func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]string) anthropicparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params anthropicparams.Params
@@ -201,17 +199,7 @@ func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface
 		params.MaxTokens = &maxTokens
 	}
 
-	if len(params.Images) > 0 && len(textProperties) > 0 {
-		images := make([]string, len(params.Images))
-		for i, imageProperty := range params.Images {
-			if image, ok := textProperties[imageProperty]; ok {
-				images[i] = image
-			} else {
-				images[i] = imageProperty
-			}
-		}
-		params.Images = images
-	}
+	params.Images = generative.ParseImageProperties(params.Images, imagePropertiesArray)
 
 	return params
 }
@@ -247,38 +235,6 @@ func (a *anthropic) getAnthropicURL(ctx context.Context, baseURL string) (string
 		passedBaseURL = headerBaseURL
 	}
 	return url.JoinPath(passedBaseURL, "/v1/messages")
-}
-
-func (a *anthropic) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", errors.Wrap(err, "marshal text properties")
-	}
-	task = compile.ReplaceAllStringFunc(task, func(match string) string {
-		match = strings.Trim(match, "{}")
-		for _, textProperty := range textProperties {
-			if val, ok := textProperty[match]; ok {
-				return val
-			}
-		}
-		return match
-	})
-	return fmt.Sprintf(task, marshal), nil
-}
-
-func (a *anthropic) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
 }
 
 func (a *anthropic) getAPIKey(ctx context.Context) (string, error) {
