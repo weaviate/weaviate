@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -59,6 +60,15 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 
 			if p == nil {
 				// already deleted, ignore
+				continue
+			}
+
+			if len(p) != int(h.dims) {
+				h.logger.WithFields(logrus.Fields{
+					"action": "PQ_Compression",
+					"vec_id": uint64(*sampledIndex),
+					"vector": p,
+				}).Error("Inconsistent vector size")
 				continue
 			}
 
