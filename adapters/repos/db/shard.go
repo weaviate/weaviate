@@ -100,7 +100,6 @@ type ShardLike interface {
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	Queue() *VectorIndexQueue
 	Queues() map[string]*VectorIndexQueue
-	GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool)
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error)
 	ConvertQueue(targetVector string) error
 	FillQueue(targetVector string, from uint64) error
@@ -115,6 +114,8 @@ type ShardLike interface {
 	VectorIndexes() map[string]VectorIndex                                   // Get the vector indexes
 	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
+	GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool)
+	GetVectorIndex(targetVector string) (VectorIndex, bool)
 	hasTargetVectors() bool
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
