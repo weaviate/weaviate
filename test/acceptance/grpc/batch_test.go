@@ -70,8 +70,8 @@ func TestGRPCBatchStreaming(t *testing.T) {
 		// send objs
 		for _, object := range books.BatchObjects() {
 			err = batching.Send(&pb.BatchMessage{
-				Message: &pb.BatchMessage_Object{
-					Object: object,
+				Message: &pb.BatchMessage_Request{
+					Request: &pb.BatchObjectsRequest{Objects: []*pb.BatchObject{object}},
 				},
 			})
 			require.NoError(t, err)
@@ -132,8 +132,8 @@ func TestGRPCBatchStreaming(t *testing.T) {
 				object.Collection = "invalid"
 			}
 			err = batching.Send(&pb.BatchMessage{
-				Message: &pb.BatchMessage_Object{
-					Object: object,
+				Message: &pb.BatchMessage_Request{
+					Request: &pb.BatchObjectsRequest{Objects: []*pb.BatchObject{object}},
 				},
 			})
 			require.NoError(t, err)

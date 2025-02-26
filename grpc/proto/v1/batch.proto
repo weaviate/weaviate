@@ -25,7 +25,7 @@ message BatchStop {
 message BatchMessage {
   oneof message {
     BatchStart init = 1;
-    BatchObject object = 2;
+    BatchObjectsRequest request = 2;
     BatchStop sentinel = 3;
   }
 }

@@ -156,7 +156,6 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 				Index: int32(index),
 				Error: err.Error(),
 			})
-			index++
 			continue
 		}
 
@@ -168,17 +167,21 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 			break
 		}
 
-		object := req.GetObject()
-		if object == nil {
+		request := req.GetRequest()
+		if request == nil {
 			stream.Send(&pb.BatchError{
 				Index: int32(index),
 				Error: fmt.Errorf("object must be message object, got %T", req).Error(),
 			})
-			index++
 			continue
 		}
-		queue <- queueObject{Index: index, Object: object}
-		index++
+		for _, object := range request.Objects {
+			if index%1000 == 0 {
+				h.logger.Infof("There are %d objects in the queue at index %d", len(queue), index)
+			}
+			queue <- queueObject{Index: index, Object: object}
+			index++
+		}
 	}
 	eg.Wait()
 	return nil
