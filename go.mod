@@ -55,6 +55,7 @@ require (
 	github.com/edsrzf/mmap-go v1.1.0
 	github.com/getsentry/sentry-go v0.29.0
 	github.com/go-ego/gse v0.80.2
+	github.com/go-jose/go-jose/v4 v4.0.5
 	github.com/googleapis/gax-go/v2 v2.13.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/hashicorp/go-hclog v1.6.3
@@ -116,7 +117,6 @@ require (
 	github.com/fatih/color v1.17.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
