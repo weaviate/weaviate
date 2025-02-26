@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -205,7 +206,7 @@ type Config struct {
 	GitHash                             string
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
-	ForceFullReplicasSearch             bool
+	ForceFullReplicasSearch             *configRuntime.FeatureFlag[bool]
 	LSMEnableSegmentsChecksumValidation bool
 	Replication                         replication.GlobalConfig
 	CycleManagerRoutinesFactor          int
