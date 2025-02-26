@@ -452,6 +452,11 @@ func (l *LazyLoadShard) Queues() map[string]*VectorIndexQueue {
 	return l.shard.Queues()
 }
 
+func (l *LazyLoadShard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
+	l.mustLoad()
+	return l.shard.GetVectorIndexQueue(targetVector)
+}
+
 func (l *LazyLoadShard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
 	l.mustLoad()
 	return l.shard.ForEachVectorIndex(f)

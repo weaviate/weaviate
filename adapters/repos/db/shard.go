@@ -100,6 +100,7 @@ type ShardLike interface {
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	Queue() *VectorIndexQueue
 	Queues() map[string]*VectorIndexQueue
+	GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool)
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error)
 	ConvertQueue(targetVector string) error
 	FillQueue(targetVector string, from uint64) error

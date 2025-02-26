@@ -296,15 +296,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 	ob.batchStartTime = time.Now()
 	shouldGeoIndex := ob.shard.hasGeoIndex()
 
-	var vectors []common.VectorRecord
-	var targetVectors map[string][]common.VectorRecord
-	hasTargetVectors := ob.shard.hasTargetVectors()
-	if hasTargetVectors {
-		targetVectors = make(map[string][]common.VectorRecord)
-	} else {
-		vectors = make([]common.VectorRecord, 0, len(ob.objects))
-	}
-
+	targetVectors := make(map[string][]common.VectorRecord)
 	for i, object := range ob.objects {
 		status := ob.statuses[object.ID()]
 
@@ -329,45 +321,32 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			continue
 		}
 
-		if hasTargetVectors {
-			for targetVector, vector := range object.Vectors {
-				targetVectors[targetVector] = append(targetVectors[targetVector], &common.Vector[[]float32]{
-					ID:     status.docID,
-					Vector: vector,
-				})
-			}
-			for targetVector, vector := range object.MultiVectors {
-				targetVectors[targetVector] = append(targetVectors[targetVector], &common.Vector[[][]float32]{
-					ID:     status.docID,
-					Vector: vector,
-				})
-			}
-		} else {
-			if len(object.Vector) > 0 {
-				vectors = append(vectors, &common.Vector[[]float32]{
-					ID:     status.docID,
-					Vector: object.Vector,
-				})
-			}
+		for targetVector, vector := range object.Vectors {
+			targetVectors[targetVector] = append(targetVectors[targetVector], &common.Vector[[]float32]{
+				ID:     status.docID,
+				Vector: vector,
+			})
 		}
+		for targetVector, vector := range object.MultiVectors {
+			targetVectors[targetVector] = append(targetVectors[targetVector], &common.Vector[[][]float32]{
+				ID:     status.docID,
+				Vector: vector,
+			})
+		}
+
+		// use empty string for legacy vector, downstream code will handle that appropriately
+		targetVectors[""] = append(targetVectors[""], &common.Vector[[][]float32]{})
 	}
 
-	if hasTargetVectors {
-		for targetVector, vectors := range targetVectors {
-			queue, ok := ob.shard.Queues()[targetVector]
-			if !ok {
-				ob.setErrorAtIndex(fmt.Errorf("queue not found for target vector %s", targetVector), 0)
-			} else {
-				err := queue.Insert(ctx, vectors...)
-				if err != nil {
-					ob.setErrorAtIndex(err, 0)
-				}
+	for targetVector, vectors := range targetVectors {
+		queue, ok := ob.shard.GetVectorIndexQueue(targetVector)
+		if !ok {
+			ob.setErrorAtIndex(fmt.Errorf("queue not found for target vector %s", targetVector), 0)
+		} else {
+			err := queue.Insert(ctx, vectors...)
+			if err != nil {
+				ob.setErrorAtIndex(err, 0)
 			}
-		}
-	} else {
-		err := ob.shard.Queue().Insert(ctx, vectors...)
-		if err != nil {
-			ob.setErrorAtIndex(err, 0)
 		}
 	}
 }

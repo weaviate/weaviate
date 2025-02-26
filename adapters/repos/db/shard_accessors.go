@@ -28,6 +28,28 @@ func (s *Shard) Queues() map[string]*VectorIndexQueue {
 	return s.queues
 }
 
+// GetVectorIndexQueue retrieves a vector index queue associated with the targetVector.
+// Empty targetVector is treated as a request to access a queue for the legacy vector index.
+func (s *Shard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
+	if targetVector == "" {
+		return s.queue, s.queue != nil
+	}
+
+	queue, ok := s.queues[targetVector]
+	return queue, ok
+}
+
+// GetVectorIndex retrieves a vector index queue associated with the targetVector.
+// Empty targetVector is treated as a request to access a queue for the legacy vector index.
+func (s *Shard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
+	if targetVector == "" {
+		return s.vectorIndex, s.vectorIndex != nil
+	}
+
+	index, ok := s.vectorIndexes[targetVector]
+	return index, ok
+}
+
 func (s *Shard) QueueForName(targetVector string) *VectorIndexQueue {
 	return s.queues[targetVector]
 }
