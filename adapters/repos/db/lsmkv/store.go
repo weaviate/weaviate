@@ -422,8 +422,6 @@ func (s *Store) doRename(ctx context.Context,replacementBucket *Bucket, replacem
 	newReplacementBucketDir := currBucketDir
 
 	if err := bucket.Shutdown(ctx); err != nil {
-
-		replacementBucket.disk.maintenanceLock.Unlock()
 		return "","", "", errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
 	}
 
