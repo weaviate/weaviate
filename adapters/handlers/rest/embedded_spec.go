@@ -4086,7 +4086,7 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/UserOwnInfo"
             }
           },
           "401": {
@@ -6305,7 +6305,7 @@ func init() {
         }
       ]
     },
-    "UserInfo": {
+    "UserOwnInfo": {
       "type": "object",
       "required": [
         "username"
@@ -10844,7 +10844,7 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/UserOwnInfo"
             }
           },
           "401": {
@@ -13351,7 +13351,7 @@ func init() {
         }
       ]
     },
-    "UserInfo": {
+    "UserOwnInfo": {
       "type": "object",
       "required": [
         "username"

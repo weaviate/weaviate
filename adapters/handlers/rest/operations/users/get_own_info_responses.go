@@ -37,7 +37,7 @@ type GetOwnInfoOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.UserInfo `json:"body,omitempty"`
+	Payload *models.UserOwnInfo `json:"body,omitempty"`
 }
 
 // NewGetOwnInfoOK creates GetOwnInfoOK with default headers values
@@ -47,13 +47,13 @@ func NewGetOwnInfoOK() *GetOwnInfoOK {
 }
 
 // WithPayload adds the payload to the get own info o k response
-func (o *GetOwnInfoOK) WithPayload(payload *models.UserInfo) *GetOwnInfoOK {
+func (o *GetOwnInfoOK) WithPayload(payload *models.UserOwnInfo) *GetOwnInfoOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the get own info o k response
-func (o *GetOwnInfoOK) SetPayload(payload *models.UserInfo) {
+func (o *GetOwnInfoOK) SetPayload(payload *models.UserOwnInfo) {
 	o.Payload = payload
 }
 
