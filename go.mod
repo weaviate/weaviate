@@ -35,8 +35,8 @@ require (
 	go.opentelemetry.io/otel v1.32.0 // indirect
 	golang.org/x/net v0.33.0
 	golang.org/x/oauth2 v0.23.0
-	golang.org/x/sync v0.10.0
-	golang.org/x/sys v0.28.0
+	golang.org/x/sync v0.11.0
+	golang.org/x/sys v0.30.0
 	gonum.org/v1/gonum v0.12.0
 	google.golang.org/api v0.198.0
 	google.golang.org/grpc v1.66.2
@@ -78,7 +78,7 @@ require (
 	github.com/weaviate/sroar v0.0.9
 	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa
-	golang.org/x/text v0.21.0
+	golang.org/x/text v0.22.0
 	golang.org/x/time v0.6.0
 	google.golang.org/protobuf v1.34.2
 )
@@ -127,7 +127,7 @@ require (
 	github.com/fatih/color v1.17.0 // indirect
 	github.com/frankban/quicktest v1.14.6 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.0.1 // indirect
+	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -218,11 +218,13 @@ require (
 	go.opentelemetry.io/otel/trace v1.32.0 // indirect
 	go.uber.org/goleak v1.2.1 // indirect
 	go.uber.org/mock v0.4.0 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
 	google.golang.org/genproto v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240827150818-7e3bb234dfed // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-go 1.22
+go 1.23.0
+
+toolchain go1.24.0
