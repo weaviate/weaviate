@@ -116,6 +116,11 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				name:            "meta.llama3-70b-instruct-v1:0",
 				generativeModel: "meta.llama3-70b-instruct-v1:0",
 			},
+			{
+				name:               "absent module config",
+				generativeModel:    "meta.llama3-70b-instruct-v1:0",
+				absentModuleConfig: true,
+			},
 			// Mistral AI
 			{
 				name:            "mistral.mistral-7b-instruct-v0:2",
@@ -128,11 +133,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			{
 				name:            "mistral.mistral-large-2402-v1:0",
 				generativeModel: "mistral.mistral-large-2402-v1:0",
-			},
-			{
-				name:               "absent module config",
-				generativeModel:    "ai21.j2-mid-v1",
-				absentModuleConfig: true,
 			},
 		}
 		for _, tt := range tests {
@@ -211,7 +211,8 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
 						})
 						t.Run("grpc", func(t *testing.T) {
-							prompt := "Describe image"
+							singlePrompt := "Describe image"
+							groupPrompt := "Describe the images"
 							aws := &pb.GenerativeAWS{
 								Model:       grpchelper.ToPtr(tt.generativeModel),
 								Temperature: grpchelper.ToPtr(0.9),
@@ -221,7 +222,7 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 								aws.Region = grpchelper.ToPtr(region)
 								aws.Service = grpchelper.ToPtr("bedrock")
 							}
-							planets.CreatePromptTestWithParamsGRPC(t, class.Class, prompt, &pb.GenerativeProvider{
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
 								ReturnMetadata: false, // no metadata for aws
 								Kind:           &pb.GenerativeProvider_Aws{Aws: aws},
 							})

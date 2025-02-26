@@ -69,7 +69,7 @@ func TestBuildUrlFn(t *testing.T) {
 }
 
 func TestGetAnswer(t *testing.T) {
-	textProperties := []map[string]string{{"prop": "My name is john"}}
+	props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
 		handler := &testAnswerHandler{
 			t: t,
@@ -94,7 +94,7 @@ func TestGetAnswer(t *testing.T) {
 			Result: ptString("John"),
 		}
 
-		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
+		res, err := c.GenerateAllResults(context.Background(), props, "What is my name?", nil, false, nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, *res)
@@ -116,7 +116,7 @@ func TestGetAnswer(t *testing.T) {
 			return fakeBuildUrl(server.URL, isAzure, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
 
-		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
+		_, err := c.GenerateAllResults(context.Background(), props, "What is my name?", nil, false, nil)
 
 		require.NotNil(t, err)
 		assert.Error(t, err, "connection to OpenAI failed with status: 500 error: some error from the server")
@@ -139,7 +139,7 @@ func TestGetAnswer(t *testing.T) {
 			return fakeBuildUrl(server.URL, isAzure, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
 
-		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
+		_, err := c.GenerateAllResults(context.Background(), props, "What is my name?", nil, false, nil)
 
 		require.NotNil(t, err)
 		assert.Error(t, err, "connection to OpenAI failed with status: 500 request-id: some-request-id error: some error from the server")

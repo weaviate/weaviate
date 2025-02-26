@@ -80,10 +80,71 @@ func (p *Parser) extractDeprecated(req *pb.GenerativeSearch, class *models.Class
 	return &generative
 }
 
+func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.GenerativeProvider) map[string]any {
+	if len(queries) == 0 {
+		return nil
+	}
+	var options map[string]any
+	query := queries[0]
+	p.returnMetadata = query.ReturnMetadata
+	switch query.Kind.(type) {
+	case *pb.GenerativeProvider_Anthropic:
+		opts := query.GetAnthropic()
+		if opts.GetImages() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImages().Values...)
+		}
+		generative.Options = p.anthropic(opts)
+		p.providerName = anthropicParams.Name
+	case *pb.GenerativeProvider_Anyscale:
+		generative.Options = p.anyscale(query.GetAnyscale())
+		p.providerName = anyscaleParams.Name
+	case *pb.GenerativeProvider_Aws:
+		opts := query.GetAws()
+		if opts.GetImages() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImages().Values...)
+		}
+		generative.Options = p.aws(opts)
+		p.providerName = awsParams.Name
+	case *pb.GenerativeProvider_Cohere:
+		generative.Options = p.cohere(query.GetCohere())
+		p.providerName = cohereParams.Name
+	case *pb.GenerativeProvider_Mistral:
+		generative.Options = p.mistral(query.GetMistral())
+		p.providerName = mistralParams.Name
+	case *pb.GenerativeProvider_Ollama:
+		generative.Options = p.ollama(query.GetOllama())
+		p.providerName = ollamaParams.Name
+	case *pb.GenerativeProvider_Openai:
+		opts := query.GetOpenai()
+		if opts.GetImages() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImages().Values...)
+		}
+		generative.Options = p.openai(opts)
+		p.providerName = openaiParams.Name
+	case *pb.GenerativeProvider_Google:
+		opts := query.GetGoogle()
+		if opts.GetImages() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImages().Values...)
+		}
+		generative.Options = p.google(opts)
+		p.providerName = googleParams.Name
+	case *pb.GenerativeProvider_Databricks:
+		generative.Options = p.databricks(query.GetDatabricks())
+		p.providerName = databricksParams.Name
+	case *pb.GenerativeProvider_Friendliai:
+		generative.Options = p.friendliai(query.GetFriendliai())
+		p.providerName = friendliaiParams.Name
+	default:
+		// do nothing
+	}
+	return options
+}
+
 func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generate.Params {
 	generative := generate.Params{}
 	if req.Single != nil {
 		generative.Prompt = &req.Single.Prompt
+		p.extractFromQuery(&generative, req.Single.Queries)
 		singleResultPrompts := generate.ExtractPropsFromPrompt(generative.Prompt)
 		generative.PropertiesToExtract = append(generative.PropertiesToExtract, singleResultPrompts...)
 		if len(req.Single.Queries) > 0 {
@@ -134,12 +195,13 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 	}
 	if req.Grouped != nil {
 		generative.Task = &req.Grouped.Task
-		if req.Grouped.GetProperties() != nil {
-			generative.Properties = req.Grouped.Properties.GetValues()
-			generative.PropertiesToExtract = append(generative.PropertiesToExtract, generative.Properties...)
-		} else {
+		p.extractFromQuery(&generative, req.Grouped.Queries) // populates generative.Properties with any values in provider.Images (if supported)
+		if len(generative.Properties) == 0 && len(req.Grouped.GetProperties().GetValues()) == 0 {
 			// if users do not supply a properties, all properties need to be extracted
 			generative.PropertiesToExtract = append(generative.PropertiesToExtract, schema.GetPropertyNamesFromClass(class, false)...)
+		} else {
+			generative.Properties = append(generative.Properties, req.Grouped.Properties.GetValues()...)
+			generative.PropertiesToExtract = append(generative.PropertiesToExtract, generative.Properties...)
 		}
 	}
 	return &generative

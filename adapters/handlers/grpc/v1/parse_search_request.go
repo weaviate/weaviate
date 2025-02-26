@@ -382,7 +382,9 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	if out.HybridSearch != nil && out.HybridSearch.NearVectorParams != nil && out.HybridSearch.Vector != nil {
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
 	}
-	extractPropertiesForModules(&out)
+	if err := p.extractPropertiesForModules(&out); err != nil {
+		return dto.GetParams{}, err
+	}
 	return out, nil
 }
 
@@ -1347,7 +1349,7 @@ func indexOf(slice []string, value string) int {
 }
 
 // extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user
-func extractPropertiesForModules(params *dto.GetParams) {
+func (p *Parser) extractPropertiesForModules(params *dto.GetParams) error {
 	var additionalProps []string
 	for _, value := range params.AdditionalProperties.ModuleParams {
 		extractor, ok := value.(additional2.PropertyExtractor)
@@ -1355,7 +1357,15 @@ func extractPropertiesForModules(params *dto.GetParams) {
 			additionalProps = append(additionalProps, extractor.GetPropertiesToExtract()...)
 		}
 	}
-
+	class, err := p.authorizedGetClass(params.ClassName)
+	if err != nil {
+		return err
+	}
+	schemaProps := class.Properties
+	propDataTypes := make(map[string]schema.DataType)
+	for _, prop := range schemaProps {
+		propDataTypes[prop.Name] = schema.DataType(prop.DataType[0])
+	}
 	propsToAdd := make([]search.SelectProperty, 0)
 OUTER:
 	for _, additionalProp := range additionalProps {
@@ -1364,12 +1374,18 @@ OUTER:
 				continue OUTER
 			}
 		}
-		propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: true})
+		if propDataTypes[additionalProp] == schema.DataTypeBlob {
+			// make sure that blobs aren't added to the response payload by accident
+			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: false})
+		} else {
+			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: true})
+		}
 	}
 	params.Properties = append(params.Properties, propsToAdd...)
 	if len(params.Properties) > 0 {
 		params.AdditionalProperties.NoProps = false
 	}
+	return nil
 }
 
 func extractVectors(vectors []*pb.Vectors) (interface{}, error) {
