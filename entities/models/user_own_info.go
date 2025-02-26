@@ -26,10 +26,10 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// UserInfo user info
+// UserOwnInfo user own info
 //
-// swagger:model UserInfo
-type UserInfo struct {
+// swagger:model UserOwnInfo
+type UserOwnInfo struct {
 
 	// The groups associated to the user
 	Groups []string `json:"groups"`
@@ -42,8 +42,8 @@ type UserInfo struct {
 	Username *string `json:"username"`
 }
 
-// Validate validates this user info
-func (m *UserInfo) Validate(formats strfmt.Registry) error {
+// Validate validates this user own info
+func (m *UserOwnInfo) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateRoles(formats); err != nil {
@@ -60,7 +60,7 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
+func (m *UserOwnInfo) validateRoles(formats strfmt.Registry) error {
 	if swag.IsZero(m.Roles) { // not required
 		return nil
 	}
@@ -86,7 +86,7 @@ func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *UserInfo) validateUsername(formats strfmt.Registry) error {
+func (m *UserOwnInfo) validateUsername(formats strfmt.Registry) error {
 
 	if err := validate.Required("username", "body", m.Username); err != nil {
 		return err
@@ -95,8 +95,8 @@ func (m *UserInfo) validateUsername(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validate this user info based on the context it is used
-func (m *UserInfo) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validate this user own info based on the context it is used
+func (m *UserOwnInfo) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.contextValidateRoles(ctx, formats); err != nil {
@@ -109,7 +109,7 @@ func (m *UserInfo) ContextValidate(ctx context.Context, formats strfmt.Registry)
 	return nil
 }
 
-func (m *UserInfo) contextValidateRoles(ctx context.Context, formats strfmt.Registry) error {
+func (m *UserOwnInfo) contextValidateRoles(ctx context.Context, formats strfmt.Registry) error {
 
 	for i := 0; i < len(m.Roles); i++ {
 
@@ -130,7 +130,7 @@ func (m *UserInfo) contextValidateRoles(ctx context.Context, formats strfmt.Regi
 }
 
 // MarshalBinary interface implementation
-func (m *UserInfo) MarshalBinary() ([]byte, error) {
+func (m *UserOwnInfo) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -138,8 +138,8 @@ func (m *UserInfo) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *UserInfo) UnmarshalBinary(b []byte) error {
-	var res UserInfo
+func (m *UserOwnInfo) UnmarshalBinary(b []byte) error {
+	var res UserOwnInfo
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
