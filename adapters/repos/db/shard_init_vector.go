@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
+	cuvs_index "github.com/weaviate/weaviate/adapters/repos/db/vector/cuvs"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -25,6 +26,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	cuvsent "github.com/weaviate/weaviate/entities/vectorindex/cuvs"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -197,9 +199,34 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
 		}
 		vectorIndex = vi
+	case vectorindex.VectorIndexTypeCUVS:
+		cuvsUserConfig, ok := vectorIndexUserConfig.(cuvsent.UserConfig)
+		if !ok {
+			return nil, errors.Errorf("cuvs vector index: config is not cuvs.UserConfig: %T",
+				vectorIndexUserConfig)
+		}
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+
+		// a shard can actually have multiple vector indexes:
+		// - the main index, which is used for all normal object vectors
+		// - a geo property index for each geo prop in the schema
+		//
+		// here we label the main vector index as such.
+		vecIdxID := s.vectorIndexID(targetVector)
+
+		vi, err := cuvs_index.New(cuvs_index.Config{
+			ID:           vecIdxID,
+			TargetVector: targetVector,
+			Logger:       s.index.logger,
+			RootPath:     s.path(),
+		}, cuvsUserConfig, s.store)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
+		}
+		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC)
+		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\"]",
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeCUVS)
 	}
 	defer vectorIndex.PostStartup()
 	return vectorIndex, nil

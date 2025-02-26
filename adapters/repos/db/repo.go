@@ -178,9 +178,14 @@ func New(logger logrus.FieldLogger, config Config,
 		logger.Info("async indexing enabled")
 
 		db.shutDownWg.Add(1)
+		// db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
+		// 	Logger:  logger,
+		// 	OnClose: db.shutDownWg.Done,
+		// })
 		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
 			Logger:  logger,
 			OnClose: db.shutDownWg.Done,
+			Workers: 1, // add this
 		})
 
 		db.scheduler.Start()

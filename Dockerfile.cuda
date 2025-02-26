@@ -1,0 +1,81 @@
+# Dockerfile for development purposes.
+# Read docs/development.md for more information
+# vi: ft=dockerfile
+
+################################################################################
+# Weaviate CUDA builder
+# Build stage
+FROM nvcr.io/nvidia/cuda:12.5.1-devel-ubuntu22.04 AS cuvs_server_builder
+
+# For local binary case, directly copy the files from named context
+# COPY --from=libs /lib /opt/cuvs/lib/
+# COPY --from=libs /include /opt/cuvs/include/
+
+RUN apt-get update && apt-get install -y wget
+
+# Install the library using mamba if build context files aren't present
+RUN wget -O Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+
+RUN bash Miniforge3.sh -b -p /opt/conda
+
+ENV PATH="/opt/conda/bin:$PATH"
+RUN conda create --name cuvs python=3.12
+
+RUN conda install -n cuvs -c conda-forge -c nvidia -c rapidsai cuvs=25.02.00=cuda12_py312_250213_g09c9f19_0 conda-forge::dlpack
+
+RUN conda env list
+
+
+# Install Go 1.22.4
+RUN apt-get update && apt-get install -y wget && \
+    wget https://go.dev/dl/go1.22.4.linux-amd64.tar.gz && \
+    rm -rf /usr/local/go && \
+    tar -C /usr/local -xzf go1.22.4.linux-amd64.tar.gz && \
+    rm go1.22.4.linux-amd64.tar.gz
+
+# Add Go to PATH
+ENV PATH=$PATH:/usr/local/go/bin
+
+COPY . .
+
+# install cgo-related dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential
+
+ENV CGO_CFLAGS="-I/usr/local/cuda/include -I/opt/conda/envs/cuvs/include"
+ENV CGO_LDFLAGS="-L/usr/local/cuda/lib64 -L/opt/conda/envs/cuvs/lib -lcudart -lcuvs -lcuvs_c"
+
+# RUN sed -i '/#include <time.h>/a #include <asm-generic/errno.h>' /usr/local/go/src/runtime/cgo/gcc_libinit.c
+# ENV CC=x86_64-linux-gnu-gcc
+
+ARG TARGETARCH
+ARG GIT_BRANCH="unknown"
+ARG GIT_REVISION="unknown"
+ARG BUILD_USER="unknown"
+ARG BUILD_DATE="unknown"
+ARG EXTRA_BUILD_ARGS=""
+
+RUN  GOOS=linux GOARCH=$TARGETARCH CGO_ENABLED=1 go build $EXTRA_BUILD_ARGS \
+    -tags cuvs \
+    -ldflags "-w \
+    -X github.com/weaviate/weaviate/usecases/build.Branch=$GIT_BRANCH \
+    -X github.com/weaviate/weaviate/usecases/build.Revision=$GIT_REVISION \
+    -X github.com/weaviate/weaviate/usecases/build.BuildUser=$BUILD_USER \
+    -X github.com/weaviate/weaviate/usecases/build.BuildDate=$BUILD_DATE" \
+    -o /weaviate /cmd/weaviate-server
+
+################################################################################
+# Weaviate CUDA runner (no differentiation between dev/test/prod - 12 factor!)
+FROM nvcr.io/nvidia/cuda:12.5.1-runtime-ubuntu22.04 as weaviate_cuvs
+
+COPY --from=cuvs_server_builder /weaviate /bin/weaviate
+COPY --from=cuvs_server_builder /opt/conda/envs/cuvs/lib /opt/conda/envs/cuvs/lib
+
+ENV LD_LIBRARY_PATH=/opt/conda/envs/cuvs/lib:$LD_LIBRARY_PATH
+
+RUN apt-get update && apt-get install -y ca-certificates openssl
+
+EXPOSE 8080
+
+ENTRYPOINT ["/bin/weaviate"]
+CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]

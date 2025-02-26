@@ -573,6 +573,8 @@ github.com/prometheus/procfs v0.1.3/go.mod h1:lV6e/gmhEcM9IjHGsFOCxxuZ+z1YqCvr4O
 github.com/prometheus/procfs v0.6.0/go.mod h1:cz+aTbrPOrUb4q7XlbU9ygM+/jj0fzG6c1xBZuNvfVA=
 github.com/prometheus/procfs v0.15.1 h1:YagwOFzUgYfKKHX6Dr+sHT7km/hxC76UB0learggepc=
 github.com/prometheus/procfs v0.15.1/go.mod h1:fB45yRUv8NstnjriLhBQLuOUt+WW4BsoGhij/e3PBqk=
+github.com/rapidsai/cuvs/go v0.0.0-20250221203641-a1e0cc06d666 h1:pVnG2YsJcepaJW3tQ+Ix8cH4LPw9o7DC+wjSP0ADP/U=
+github.com/rapidsai/cuvs/go v0.0.0-20250221203641-a1e0cc06d666/go.mod h1:qQPopaJ6Z5DXM+HqtP8TzatknrfiCE7vBf/p1+lVFr8=
 github.com/rivo/uniseg v0.2.0 h1:S1pD9weZBuJdFmowNwbpi7BJ8TNftyUImj/0WQi72jY=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rogpeppe/go-internal v1.1.0/go.mod h1:M8bDsm7K2OlrFYOpmOWEs/qY81heoFRclV5y23lUDJ4=
@@ -651,6 +653,8 @@ github.com/weaviate/contextionary v1.2.1 h1:mmxHVc1mWpqivLHEA/ITHUiAOZziIDluYfKy
 github.com/weaviate/contextionary v1.2.1/go.mod h1:nIEM3Gq1BzTZLuY+Pl7t8hD3eR6VAU43fRdZTEZ9LRY=
 github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa h1:yavIOSoUOUfmYlESRiyT4mqVI/thhNm10pS9LDdf62c=
 github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa/go.mod h1:2REGzzHg/U0Olsn/1ok6QfqAE/vDuKvb/j2eLrOIP8A=
+github.com/weaviate/hdf5 v0.0.0-20230911114900-3cd888ffadcd h1:I2WJ4TPa4ngF3a0m3XtlV4DdyJBuGJzM+9olvkDZTxM=
+github.com/weaviate/hdf5 v0.0.0-20230911114900-3cd888ffadcd/go.mod h1:7IHygf+QCR1KkP64KC167pb7H4JAjcNrYDjSW7stYQ8=
 github.com/weaviate/s5cmd/v2 v2.0.1 h1:NLsBemDEeUa1pcqVAGl5Y2quKH8EFpkz/Z8n4s620hg=
 github.com/weaviate/s5cmd/v2 v2.0.1/go.mod h1:JEoBF8SXVwK8qoaRKi0fPA4qi4OFmr+iVgc4XO3l/Zs=
 github.com/weaviate/sroar v0.0.9 h1:S0WLyz7XxN8Kl1WxA08htpNE+vV66kdyFQ/UndL6Z60=
