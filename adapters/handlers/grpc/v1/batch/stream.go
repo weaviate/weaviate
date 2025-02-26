@@ -145,6 +145,11 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 
 	index := 0
 	for {
+		select {
+		case <-stream.Context().Done():
+			return nil
+		default:
+		}
 		req, err := stream.Recv()
 		if err != nil {
 			stream.Send(&pb.BatchError{
