@@ -20,13 +20,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/cluster/utils"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -86,6 +85,8 @@ type DB struct {
 	// in the case of metrics grouping we need to observe some metrics
 	// node-centric, rather than shard-centric
 	metricsObserver *nodeWideMetricsObserver
+
+	shardLoadLimiter ShardLoadLimiter
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -130,6 +131,11 @@ func New(logger logrus.FieldLogger, config Config,
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
 	}
+	metricsRegisterer := monitoring.NoopRegisterer
+	if promMetrics != nil && promMetrics.Registerer != nil {
+		metricsRegisterer = promMetrics.Registerer
+	}
+
 	db := &DB{
 		logger:                  logger,
 		config:                  config,
@@ -144,6 +150,7 @@ func New(logger logrus.FieldLogger, config Config,
 		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:       newResourceScanState(),
 		memMonitor:              memMonitor,
+		shardLoadLimiter:        NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -198,6 +205,7 @@ type Config struct {
 	ForceFullReplicasSearch             bool
 	LSMEnableSegmentsChecksumValidation bool
 	Replication                         replication.GlobalConfig
+	MaximumConcurrentShardLoads         int
 	CycleManagerRoutinesFactor          int
 }
 
