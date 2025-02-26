@@ -780,7 +780,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		defer cancel()
 
 		if err := appState.ClusterService.Close(ctx); err != nil {
-			panic(err)
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown").
+				Errorf("failed to gracefully shutdown")
 		}
 	}
 
