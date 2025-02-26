@@ -4086,7 +4086,7 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/UserOwnInfo"
             }
           },
           "401": {
@@ -6522,7 +6522,26 @@ func init() {
         }
       }
     },
-    "UserInfo": {
+    "UserInfoOnlyNames": {
+      "type": "object",
+      "required": [
+        "user_id"
+      ],
+      "properties": {
+        "roles": {
+          "description": "The role names associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "user_id": {
+          "description": "The user id of the given user",
+          "type": "string"
+        }
+      }
+    },
+    "UserOwnInfo": {
       "type": "object",
       "required": [
         "username"
@@ -6545,25 +6564,6 @@ func init() {
         },
         "username": {
           "description": "The username associated with the provided key",
-          "type": "string"
-        }
-      }
-    },
-    "UserInfoOnlyNames": {
-      "type": "object",
-      "required": [
-        "user_id"
-      ],
-      "properties": {
-        "roles": {
-          "description": "The role names associated to the user",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "user_id": {
-          "description": "The user id of the given user",
           "type": "string"
         }
       }
@@ -11076,7 +11076,7 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/UserOwnInfo"
             }
           },
           "401": {
@@ -13800,7 +13800,26 @@ func init() {
         }
       }
     },
-    "UserInfo": {
+    "UserInfoOnlyNames": {
+      "type": "object",
+      "required": [
+        "user_id"
+      ],
+      "properties": {
+        "roles": {
+          "description": "The role names associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "user_id": {
+          "description": "The user id of the given user",
+          "type": "string"
+        }
+      }
+    },
+    "UserOwnInfo": {
       "type": "object",
       "required": [
         "username"
@@ -13823,25 +13842,6 @@ func init() {
         },
         "username": {
           "description": "The username associated with the provided key",
-          "type": "string"
-        }
-      }
-    },
-    "UserInfoOnlyNames": {
-      "type": "object",
-      "required": [
-        "user_id"
-      ],
-      "properties": {
-        "roles": {
-          "description": "The role names associated to the user",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "user_id": {
-          "description": "The user id of the given user",
           "type": "string"
         }
       }
