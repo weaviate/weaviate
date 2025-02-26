@@ -360,12 +360,12 @@ func (s *Shard) ObjectCountAsync() int {
 // ForEachVectorIndex iterates through each vector index configured in the shard (named and legacy).
 // Iteration stops at the first return of non-nil error.
 func (s *Shard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
-	for name, idx := range s.vectorIndexes {
+	for targetVector, idx := range s.vectorIndexes {
 		if idx == nil {
 			continue
 		}
 
-		if err := f(name, idx); err != nil {
+		if err := f(targetVector, idx); err != nil {
 			return err
 		}
 	}
@@ -380,12 +380,12 @@ func (s *Shard) ForEachVectorIndex(f func(targetVector string, index VectorIndex
 // ForEachVectorQueue iterates through each vector index queue configured in the shard (named and legacy).
 // Iteration stops at the first return of non-nil error.
 func (s *Shard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
-	for name, q := range s.queues {
+	for targetVector, q := range s.queues {
 		if q == nil {
 			continue
 		}
 
-		if err := f(name, q); err != nil {
+		if err := f(targetVector, q); err != nil {
 			return err
 		}
 	}
