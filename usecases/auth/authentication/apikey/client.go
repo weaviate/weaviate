@@ -115,12 +115,3 @@ func (c *StaticApiKey) getUser(pos int) string {
 
 	return c.config.Users[pos]
 }
-
-func (c *StaticApiKey) Create(pos int) string {
-	// passed validation guarantees that one of those options will work
-	if pos >= len(c.config.Users) {
-		return c.config.Users[0]
-	}
-
-	return c.config.Users[pos]
-}

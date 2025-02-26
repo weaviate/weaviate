@@ -41,7 +41,7 @@ type DynamicApiKey struct {
 	weakKeyStorageById   map[string][sha256.Size]byte
 	secureKeyStorageById map[string]string
 	identifierToId       map[string]string
-	IdToIdentifier       map[string]string
+	idToIdentifier       map[string]string
 	users                map[string]*User
 }
 
@@ -50,7 +50,7 @@ func NewDynamicApiKey() *DynamicApiKey {
 		weakKeyStorageById:   make(map[string][sha256.Size]byte),
 		secureKeyStorageById: make(map[string]string),
 		identifierToId:       make(map[string]string),
-		IdToIdentifier:       make(map[string]string),
+		idToIdentifier:       make(map[string]string),
 		users:                make(map[string]*User),
 	}
 }
@@ -68,7 +68,7 @@ func (c *DynamicApiKey) CreateUser(userId, secureHash, userIdentifier string) er
 	}
 	c.secureKeyStorageById[userId] = secureHash
 	c.identifierToId[userIdentifier] = userId
-	c.IdToIdentifier[userId] = userIdentifier
+	c.idToIdentifier[userId] = userIdentifier
 	c.users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier}
 	return nil
 }
@@ -139,11 +139,11 @@ func (c *DynamicApiKey) ValidateAndExtract(key, userIdentifier string) (*models.
 
 func (c *DynamicApiKey) validateWeakHash(key []byte, weakHash [32]byte, userId string) (*models.Principal, error) {
 	keyHash := sha256.Sum256(key)
-	if subtle.ConstantTimeCompare(keyHash[:], weakHash[:]) == 1 {
-		return &models.Principal{Username: userId}, nil
+	if subtle.ConstantTimeCompare(keyHash[:], weakHash[:]) != 1 {
+		return nil, fmt.Errorf("invalid token")
 	}
 
-	return nil, fmt.Errorf("invalid token")
+	return &models.Principal{Username: userId}, nil
 }
 
 func (c *DynamicApiKey) validateStrongHash(key, secureHash, userId string) (*models.Principal, error) {
