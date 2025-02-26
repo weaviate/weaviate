@@ -121,7 +121,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	cmd.Version = l.Index
 	// Report only when not ready the progress made on applying log entries. This help users with big schema and long
 	// startup time to keep track of progress.
-	if !st.Ready() {
+	// We check for ready state and index <= lastAppliedIndexToDB because just checking ready state would mean this log line
+	// would keep printing if the node has caught up but there's no leader in the cluster.
+	// This can happen for example if quorum is lost briefly.
+	// By checking lastAppliedIndexToDB we ensure that we never print past that index
+	if !st.Ready() && l.Index <= st.lastAppliedIndexToDB.Load() {
 		st.log.Infof("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
 	}
 	st.log.WithFields(logrus.Fields{

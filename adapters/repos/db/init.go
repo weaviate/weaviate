@@ -104,6 +104,7 @@ func (db *DB) init(ctx context.Context) error {
 				ReplicationFactor:                   NewAtomicInt64(class.ReplicationConfig.Factor),
 				AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
+				ShardLoadLimiter:                    db.shardLoadLimiter,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
