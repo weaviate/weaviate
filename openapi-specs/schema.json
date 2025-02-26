@@ -2763,7 +2763,7 @@
     "/authz/roles/{id}/remove-permissions":{
       "post": {
         "summary": "Remove permissions from a role",
-        "description": "Permissions can be revoked from a specified role. Removing all permissions from a role will delete the role itself.",
+        "description": "Permissions can be revoked from a specified role. Removing all the permissions from a role will delete the role itself.",
         "operationId": "removePermissions",
         "x-serviceIds": [
           "weaviate.authz.remove.role.permissions"
