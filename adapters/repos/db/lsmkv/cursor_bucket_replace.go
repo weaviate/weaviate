@@ -195,21 +195,31 @@ func (c *CursorReplace) seekAll(target []byte) {
 }
 
 func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
-	id, err := c.cursorWithLowestKey()
-	if err != nil {
-		if errors.Is(err, lsmkv.NotFound) {
-			return nil, nil
+	for {
+		id, err := c.cursorWithLowestKey()
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				return nil, nil
+			}
 		}
-	}
 
-	// check if this is a duplicate key before checking for the remaining errors,
-	// as cases such as 'entities.Deleted' can be better handled inside
-	// mergeDuplicatesInCurrentStateAndAdvance where we can be sure to act on
-	// segments in the correct order
-	if ids, ok := c.haveDuplicatesInState(id); ok {
-		return c.mergeDuplicatesInCurrentStateAndAdvance(ids)
-	} else {
-		return c.mergeDuplicatesInCurrentStateAndAdvance([]int{id})
+		ids, _ := c.haveDuplicatesInState(id)
+
+		c.copyStateIntoServeCache(ids[len(ids)-1])
+
+		// with a replace strategy only the highest will be returned, but still all
+		// need to be advanced - or we would just encounter them again in the next
+		// round
+		for _, id := range ids {
+			c.advanceInner(id)
+		}
+
+		if errors.Is(c.serveCache.err, lsmkv.Deleted) {
+			// element was deleted, proceed with next round
+			continue
+		}
+
+		return c.serveCache.key, c.serveCache.value
 	}
 }
 
@@ -230,26 +240,6 @@ func (c *CursorReplace) haveDuplicatesInState(idWithLowestKey int) ([]int, bool)
 	}
 
 	return c.reusableIDList, len(c.reusableIDList) > 1
-}
-
-// if there are no duplicates present it will still work as returning the
-// latest result is the same as returning the only result
-func (c *CursorReplace) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, []byte) {
-	c.copyStateIntoServeCache(ids[len(ids)-1])
-
-	// with a replace strategy only the highest will be returned, but still all
-	// need to be advanced - or we would just encounter them again in the next
-	// round
-	for _, id := range ids {
-		c.advanceInner(id)
-	}
-
-	if errors.Is(c.serveCache.err, lsmkv.Deleted) {
-		// element was deleted, proceed with next round
-		return c.Next()
-	}
-
-	return c.serveCache.key, c.serveCache.value
 }
 
 func (c *CursorReplace) copyStateIntoServeCache(pos int) {

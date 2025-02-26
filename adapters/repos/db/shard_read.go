@@ -739,16 +739,14 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, queue := range s.queues {
-			if err = queue.Delete(docID); err != nil {
-				return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
-			}
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
 		}
-	} else {
-		if err = s.queue.Delete(docID); err != nil {
-			return errors.Wrap(err, "delete from vector index queue")
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {

@@ -2396,13 +2396,10 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 			if shard != nil {
 				func() {
 					defer release()
-					if shard.hasTargetVectors() {
-						for _, queue := range shard.Queues() {
-							size += queue.Size()
-						}
-					} else {
-						size = shard.Queue().Size()
-					}
+					_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+						size += queue.Size()
+						return nil
+					})
 				}()
 			} else {
 				size, err = i.remote.GetShardQueueSize(ctx, shardName)
@@ -2429,13 +2426,11 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
-	if !shard.hasTargetVectors() {
-		return shard.Queue().Size(), nil
-	}
-	size := int64(0)
-	for _, queue := range shard.Queues() {
+	var size int64
+	_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
 		size += queue.Size()
-	}
+		return nil
+	})
 	return size, nil
 }
 
