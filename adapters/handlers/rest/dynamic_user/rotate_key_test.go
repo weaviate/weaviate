@@ -98,3 +98,20 @@ func TestRotateNotFound(t *testing.T) {
 	_, ok := res.(*users.RotateUserAPIKeyNotFound)
 	assert.True(t, ok)
 }
+
+func TestRotateForbidden(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(errors.New("some error"))
+
+	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+
+	h := dynUserHandler{
+		dynamicUser: dynUser,
+		authorizer:  authorizer,
+	}
+
+	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
+	_, ok := res.(*users.RotateUserAPIKeyForbidden)
+	assert.True(t, ok)
+}

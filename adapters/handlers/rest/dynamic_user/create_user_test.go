@@ -137,3 +137,20 @@ func TestSuccess(t *testing.T) {
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
 }
+
+func TestCreateForbidden(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(errors.New("some error"))
+
+	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+
+	h := dynUserHandler{
+		dynamicUser: dynUser,
+		authorizer:  authorizer,
+	}
+
+	res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
+	_, ok := res.(*users.CreateUserForbidden)
+	assert.True(t, ok)
+}
