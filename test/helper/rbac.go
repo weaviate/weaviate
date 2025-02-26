@@ -44,11 +44,40 @@ func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
 	return resp.Payload
 }
 
-func GetInfoForOwnUser(t *testing.T, key string) *models.UserInfo {
+func GetInfoForOwnUser(t *testing.T, key string) *models.UserOwnInfo {
 	resp, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload
+}
+
+func DeleteUser(t *testing.T, userId, key string) {
+	t.Helper()
+	resp, err := Client(t).Users.DeleteUser(users.NewDeleteUserParams().WithUserID(userId), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+func CreateUser(t *testing.T, userId, key string) string {
+	t.Helper()
+	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
+	require.NotNil(t, resp.Payload.Apikey)
+	return *resp.Payload.Apikey
+}
+
+func RotateKey(t *testing.T, userId, key string) string {
+	t.Helper()
+	resp, err := Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(userId), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
+	require.NotNil(t, resp.Payload.Apikey)
+	return *resp.Payload.Apikey
 }
 
 func DeleteRole(t *testing.T, key, role string) {

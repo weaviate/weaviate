@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic
+package keys
 
 import (
 	"crypto/rand"
@@ -52,24 +52,26 @@ var argonParameters = &argon2id.Params{
 //   - decode the key into the 3 parts mentioned above using DecodeApiKey
 //   - fetch the saved hash based on the returned user identifier
 //   - compare the returned randomKey with the fetched hash using argon2id.ComparePasswordAndHash
-func CreateApiKeyAndHash() (string, string, string, error) {
+func CreateApiKeyAndHash(existingIdentifier string) (string, string, string, error) {
 	randomBytesKey, err := generateRandomBytes(RandomBytesLength)
 	if err != nil {
 		return "", "", "", err
 	}
 	randomKey := base64.StdEncoding.EncodeToString(randomBytesKey)
 
-	randomBytesIdentifier, err := generateRandomBytes(UserIdentifierBytesLength)
-	if err != nil {
-		return "", "", "", err
+	if existingIdentifier == "" {
+		randomBytesIdentifier, err := generateRandomBytes(UserIdentifierBytesLength)
+		if err != nil {
+			return "", "", "", err
+		}
+		existingIdentifier = base64.StdEncoding.EncodeToString(randomBytesIdentifier)
 	}
-	userIdentifier := base64.StdEncoding.EncodeToString(randomBytesIdentifier)
 
-	fullApiKey := generateApiKey(randomKey, userIdentifier)
+	fullApiKey := generateApiKey(randomKey, existingIdentifier)
 
 	hash, err := argon2id.CreateHash(randomKey, argonParameters)
 
-	return fullApiKey, hash, userIdentifier, err
+	return fullApiKey, hash, existingIdentifier, err
 }
 
 func generateApiKey(randomKey, userIdentifier string) string {

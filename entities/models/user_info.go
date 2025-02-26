@@ -18,7 +18,6 @@ package models
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -31,26 +30,19 @@ import (
 // swagger:model UserInfo
 type UserInfo struct {
 
-	// The groups associated to the user
-	Groups []string `json:"groups"`
+	// The role names associated to the user
+	Roles []string `json:"roles"`
 
-	// roles
-	Roles []*Role `json:"roles"`
-
-	// The username associated with the provided key
+	// The user id of the given user
 	// Required: true
-	Username *string `json:"username"`
+	UserID *string `json:"user_id"`
 }
 
 // Validate validates this user info
 func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateRoles(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateUsername(formats); err != nil {
+	if err := m.validateUserID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -60,72 +52,17 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
-	if swag.IsZero(m.Roles) { // not required
-		return nil
-	}
+func (m *UserInfo) validateUserID(formats strfmt.Registry) error {
 
-	for i := 0; i < len(m.Roles); i++ {
-		if swag.IsZero(m.Roles[i]) { // not required
-			continue
-		}
-
-		if m.Roles[i] != nil {
-			if err := m.Roles[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("roles" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("roles" + "." + strconv.Itoa(i))
-				}
-				return err
-			}
-		}
-
-	}
-
-	return nil
-}
-
-func (m *UserInfo) validateUsername(formats strfmt.Registry) error {
-
-	if err := validate.Required("username", "body", m.Username); err != nil {
+	if err := validate.Required("user_id", "body", m.UserID); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// ContextValidate validate this user info based on the context it is used
+// ContextValidate validates this user info based on context it is used
 func (m *UserInfo) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.contextValidateRoles(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *UserInfo) contextValidateRoles(ctx context.Context, formats strfmt.Registry) error {
-
-	for i := 0; i < len(m.Roles); i++ {
-
-		if m.Roles[i] != nil {
-			if err := m.Roles[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("roles" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("roles" + "." + strconv.Itoa(i))
-				}
-				return err
-			}
-		}
-
-	}
-
 	return nil
 }
 
