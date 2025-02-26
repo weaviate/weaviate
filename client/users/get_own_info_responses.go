@@ -114,6 +114,7 @@ func (o *GetOwnInfoOK) GetPayload() *models.UserOwnInfo {
 }
 
 func (o *GetOwnInfoOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.UserOwnInfo)
 
 	// response payload
@@ -134,7 +135,8 @@ GetOwnInfoUnauthorized describes a response with status code 401, with default h
 
 Unauthorized or invalid credentials.
 */
-type GetOwnInfoUnauthorized struct{}
+type GetOwnInfoUnauthorized struct {
+}
 
 // IsSuccess returns true when this get own info unauthorized response has a 2xx status code
 func (o *GetOwnInfoUnauthorized) IsSuccess() bool {
@@ -175,6 +177,7 @@ func (o *GetOwnInfoUnauthorized) String() string {
 }
 
 func (o *GetOwnInfoUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -235,6 +238,7 @@ func (o *GetOwnInfoInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetOwnInfoInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
