@@ -334,17 +334,6 @@ func (c *convertedInverted) writeInvertedHeader(tombstoneOffset, propertyLengths
 	return nil
 }
 
-func (b *Bucket) SecKeyExists(key []byte) bool {
-	for i := len(b.disk.segments) - 1; i >= 0; i-- {
-		seg := b.disk.segments[i]
-		found := seg.secondaryBloomFilters[0].Test(key)
-		if found {
-			return true
-		}
-	}
-	return false
-}
-
 // Removes values with tombstone set from input slice. Output slice may be smaller than input one.
 // Returned skip of true means there are no values left (key can be omitted in segment)
 // WARN: method can alter input slice by swapping its elements and reducing length (not capacity)
@@ -421,19 +410,4 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 		return nil, true
 	}
 	return values[:last], false
-}
-
-func NewMapPairFromDocIdAndTf2(docId uint64, tf float32, propLength float32, isTombstone bool) MapPair {
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, docId)
-
-	value := make([]byte, 8)
-	binary.LittleEndian.PutUint32(value[0:4], math.Float32bits(tf))
-	binary.LittleEndian.PutUint32(value[4:8], math.Float32bits(propLength))
-
-	return MapPair{
-		Key:       key,
-		Value:     value,
-		Tombstone: isTombstone,
-	}
 }
