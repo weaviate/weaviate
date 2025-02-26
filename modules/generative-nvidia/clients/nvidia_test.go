@@ -24,6 +24,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestGetAnswer(t *testing.T) {
@@ -71,8 +73,8 @@ func TestGetAnswer(t *testing.T) {
 			c := New("apiKey", tt.timeout, nullLogger())
 
 			settings := &fakeClassConfig{baseURL: server.URL}
-			textProperties := []map[string]string{{"prop": "My name is john"}}
-			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, settings)
+			props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
+			res, err := c.GenerateAllResults(context.Background(), props, "What is my name?", nil, false, settings)
 
 			if tt.errorResponse != nil {
 				assert.Contains(t, err.Error(), tt.errorResponse.Title, tt.errorResponse.Detail)
@@ -155,6 +157,10 @@ func (cfg *fakeClassConfig) Property(propName string) map[string]interface{} {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
 }
 
 func nullLogger() logrus.FieldLogger {
