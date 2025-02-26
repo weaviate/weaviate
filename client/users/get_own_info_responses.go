@@ -68,7 +68,7 @@ GetOwnInfoOK describes a response with status code 200, with default header valu
 Info about the user
 */
 type GetOwnInfoOK struct {
-	Payload *models.UserInfo
+	Payload *models.UserOwnInfo
 }
 
 // IsSuccess returns true when this get own info o k response has a 2xx status code
@@ -109,13 +109,13 @@ func (o *GetOwnInfoOK) String() string {
 	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoOK  %+v", 200, o.Payload)
 }
 
-func (o *GetOwnInfoOK) GetPayload() *models.UserInfo {
+func (o *GetOwnInfoOK) GetPayload() *models.UserOwnInfo {
 	return o.Payload
 }
 
 func (o *GetOwnInfoOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.UserInfo)
+	o.Payload = new(models.UserOwnInfo)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
