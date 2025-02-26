@@ -412,7 +412,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	return nil
 }
 
-func (s *Store) doRename(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, error) {
+func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, error) {
 	replacementBucket.disk.maintenanceLock.Lock()
 	defer replacementBucket.disk.maintenanceLock.Unlock()
 
@@ -422,7 +422,7 @@ func (s *Store) doRename(ctx context.Context, replacementBucket *Bucket, replace
 	newReplacementBucketDir := currBucketDir
 
 	if err := bucket.Shutdown(ctx); err != nil {
-		return "", "", "", errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
+		return "", "", ""	, errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
 	}
 
 	s.logger.WithField("action", "lsm_replace_bucket").
@@ -475,7 +475,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 
 	var currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir string
 	var err error
-	currBucketDir, newBucketDir, currReplacementBucketDir, err = s.doRename(ctx, replacementBucket, replacementBucketName, bucket, bucketName)
+	currBucketDir, newBucketDir, currReplacementBucketDir, err = s.replaceBucket(ctx, replacementBucket, replacementBucketName, bucket, bucketName)
 	if err != nil {
 		return errors.Wrapf(err, "failed renaming bucket '%s' to '%s'", bucketName, replacementBucketName)
 	}
