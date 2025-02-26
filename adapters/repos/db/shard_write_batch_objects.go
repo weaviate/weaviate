@@ -247,21 +247,14 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		return
 	}
 
-	if ob.shard.hasTargetVectors() {
-		for targetVector, queue := range ob.shard.Queues() {
-			if err := queue.Delete(docIDsToDelete...); err != nil {
-				for _, pos := range positions {
-					ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), pos)
-				}
-			}
-		}
-	} else {
-		if err := ob.shard.Queue().Delete(docIDsToDelete...); err != nil {
+	_ = ob.shard.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err := queue.Delete(docIDsToDelete...); err != nil {
 			for _, pos := range positions {
-				ob.setErrorAtIndex(err, pos)
+				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), pos)
 			}
 		}
-	}
+		return nil
+	})
 }
 
 // storeAdditionalStorageWithWorkers stores the object in all non-key-value
@@ -512,21 +505,14 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	if ob.shard.hasTargetVectors() {
-		for targetVector, queue := range ob.shard.Queues() {
-			if err := queue.Flush(); err != nil {
-				for i := range ob.objects {
-					ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
-				}
-			}
-		}
-	} else {
-		if err := ob.shard.Queue().Flush(); err != nil {
+	_ = ob.shard.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
 			for i := range ob.objects {
-				ob.setErrorAtIndex(err, i)
+				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
 			}
 		}
-	}
+		return nil
+	})
 
 	if err := ob.shard.GetPropertyLengthTracker().Flush(); err != nil {
 		for i := range ob.objects {

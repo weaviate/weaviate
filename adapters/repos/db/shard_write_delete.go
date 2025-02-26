@@ -70,24 +70,24 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, queue := range s.queues {
-			if err = queue.Delete(docID); err != nil {
-				return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
-			}
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
 		}
-		for targetVector, queue := range s.Queues() {
-			if err = queue.Flush(); err != nil {
-				return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
-			}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Flush(); err != nil {
+			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
 		}
-	} else {
-		if err = s.queue.Delete(docID); err != nil {
-			return fmt.Errorf("delete from vector index: %w", err)
-		}
-		if err = s.queue.Flush(); err != nil {
-			return fmt.Errorf("flush all vector index buffered WALs: %w", err)
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
@@ -146,24 +146,24 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, queue := range s.queues {
-			if err = queue.Delete(docID); err != nil {
-				return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
-			}
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
 		}
-		for targetVector, queue := range s.queues {
-			if err = queue.Flush(); err != nil {
-				return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
-			}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Flush(); err != nil {
+			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
 		}
-	} else {
-		if err = s.queue.Delete(docID); err != nil {
-			return fmt.Errorf("delete from vector index: %w", err)
-		}
-		if err = s.queue.Flush(); err != nil {
-			return fmt.Errorf("flush all vector index buffered WALs: %w", err)
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	if err = s.mayDeleteObjectHashTree(idBytes, currentUpdateTime); err != nil {
