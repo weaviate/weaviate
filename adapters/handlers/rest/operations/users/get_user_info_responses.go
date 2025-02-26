@@ -33,33 +33,30 @@ GetUserInfoOK Info about the user
 swagger:response getUserInfoOK
 */
 type GetUserInfoOK struct {
-
 	/*
 	  In: Body
 	*/
-	Payload *models.UserInfoOnlyNames `json:"body,omitempty"`
+	Payload *models.UserInfo `json:"body,omitempty"`
 }
 
 // NewGetUserInfoOK creates GetUserInfoOK with default headers values
 func NewGetUserInfoOK() *GetUserInfoOK {
-
 	return &GetUserInfoOK{}
 }
 
 // WithPayload adds the payload to the get user info o k response
-func (o *GetUserInfoOK) WithPayload(payload *models.UserInfoOnlyNames) *GetUserInfoOK {
+func (o *GetUserInfoOK) WithPayload(payload *models.UserInfo) *GetUserInfoOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the get user info o k response
-func (o *GetUserInfoOK) SetPayload(payload *models.UserInfoOnlyNames) {
+func (o *GetUserInfoOK) SetPayload(payload *models.UserInfo) {
 	o.Payload = payload
 }
 
 // WriteResponse to the client
 func (o *GetUserInfoOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ GetUserInfoUnauthorized Unauthorized or invalid credentials.
 
 swagger:response getUserInfoUnauthorized
 */
-type GetUserInfoUnauthorized struct {
-}
+type GetUserInfoUnauthorized struct{}
 
 // NewGetUserInfoUnauthorized creates GetUserInfoUnauthorized with default headers values
 func NewGetUserInfoUnauthorized() *GetUserInfoUnauthorized {
-
 	return &GetUserInfoUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GetUserInfoUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ GetUserInfoForbidden Forbidden
 swagger:response getUserInfoForbidden
 */
 type GetUserInfoForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type GetUserInfoForbidden struct {
 
 // NewGetUserInfoForbidden creates GetUserInfoForbidden with default headers values
 func NewGetUserInfoForbidden() *GetUserInfoForbidden {
-
 	return &GetUserInfoForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *GetUserInfoForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetUserInfoForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -147,19 +138,16 @@ GetUserInfoNotFound user not found
 
 swagger:response getUserInfoNotFound
 */
-type GetUserInfoNotFound struct {
-}
+type GetUserInfoNotFound struct{}
 
 // NewGetUserInfoNotFound creates GetUserInfoNotFound with default headers values
 func NewGetUserInfoNotFound() *GetUserInfoNotFound {
-
 	return &GetUserInfoNotFound{}
 }
 
 // WriteResponse to the client
 func (o *GetUserInfoNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -173,7 +161,6 @@ GetUserInfoInternalServerError An error has occurred while trying to fulfill the
 swagger:response getUserInfoInternalServerError
 */
 type GetUserInfoInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -182,7 +169,6 @@ type GetUserInfoInternalServerError struct {
 
 // NewGetUserInfoInternalServerError creates GetUserInfoInternalServerError with default headers values
 func NewGetUserInfoInternalServerError() *GetUserInfoInternalServerError {
-
 	return &GetUserInfoInternalServerError{}
 }
 
@@ -199,7 +185,6 @@ func (o *GetUserInfoInternalServerError) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *GetUserInfoInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

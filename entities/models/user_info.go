@@ -25,11 +25,10 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// UserInfoOnlyNames user info only names
+// UserInfo user info
 //
-// swagger:model UserInfoOnlyNames
-type UserInfoOnlyNames struct {
-
+// swagger:model UserInfo
+type UserInfo struct {
 	// The role names associated to the user
 	Roles []string `json:"roles"`
 
@@ -38,8 +37,8 @@ type UserInfoOnlyNames struct {
 	UserID *string `json:"user_id"`
 }
 
-// Validate validates this user info only names
-func (m *UserInfoOnlyNames) Validate(formats strfmt.Registry) error {
+// Validate validates this user info
+func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateUserID(formats); err != nil {
@@ -52,8 +51,7 @@ func (m *UserInfoOnlyNames) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *UserInfoOnlyNames) validateUserID(formats strfmt.Registry) error {
-
+func (m *UserInfo) validateUserID(formats strfmt.Registry) error {
 	if err := validate.Required("user_id", "body", m.UserID); err != nil {
 		return err
 	}
@@ -61,13 +59,13 @@ func (m *UserInfoOnlyNames) validateUserID(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this user info only names based on context it is used
-func (m *UserInfoOnlyNames) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this user info based on context it is used
+func (m *UserInfo) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *UserInfoOnlyNames) MarshalBinary() ([]byte, error) {
+func (m *UserInfo) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -75,8 +73,8 @@ func (m *UserInfoOnlyNames) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *UserInfoOnlyNames) UnmarshalBinary(b []byte) error {
-	var res UserInfoOnlyNames
+func (m *UserInfo) UnmarshalBinary(b []byte) error {
+	var res UserInfo
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

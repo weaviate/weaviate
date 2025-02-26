@@ -83,7 +83,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		roles = append(roles, roleName)
 	}
 
-	return users.NewGetUserInfoOK().WithPayload(&models.UserInfoOnlyNames{UserID: &params.UserID, Roles: roles})
+	return users.NewGetUserInfoOK().WithPayload(&models.UserInfo{UserID: &params.UserID, Roles: roles})
 }
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {

@@ -30,7 +30,7 @@
       },
       "required": ["username"]
     },
-    "UserInfoOnlyNames": {
+    "UserInfo": {
       "type": "object",
       "properties": {
         "roles": {
@@ -2717,7 +2717,7 @@
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfoOnlyNames"
+              "$ref": "#/definitions/UserInfo"
             }
           },
           "401": {

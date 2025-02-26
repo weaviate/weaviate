@@ -4124,7 +4124,7 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfoOnlyNames"
+              "$ref": "#/definitions/UserInfo"
             }
           },
           "401": {
@@ -6522,7 +6522,7 @@ func init() {
         }
       }
     },
-    "UserInfoOnlyNames": {
+    "UserInfo": {
       "type": "object",
       "required": [
         "user_id"
@@ -11114,7 +11114,7 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfoOnlyNames"
+              "$ref": "#/definitions/UserInfo"
             }
           },
           "401": {
@@ -13800,7 +13800,7 @@ func init() {
         }
       }
     },
-    "UserInfoOnlyNames": {
+    "UserInfo": {
       "type": "object",
       "required": [
         "user_id"
