@@ -24,7 +24,7 @@ repos:
         language: golang
         # Please make sure to update the version in the .github/workflows/linter.yml file when updating this version.
         additional_dependencies:
-          - github.com/golangci/golangci-lint/cmd/golangci-lint@v1.61.0
+          - github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
         require_serial: true
         pass_filenames: false
   - repo: https://github.com/psf/black

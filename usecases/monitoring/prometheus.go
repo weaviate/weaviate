@@ -34,6 +34,8 @@ type Config struct {
 }
 
 type PrometheusMetrics struct {
+	Registerer prometheus.Registerer
+
 	BatchTime                           *prometheus.HistogramVec
 	BatchSizeBytes                      *prometheus.SummaryVec
 	BatchSizeObjects                    prometheus.Summary
