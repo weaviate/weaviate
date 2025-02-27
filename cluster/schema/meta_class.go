@@ -13,6 +13,7 @@ package schema
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -22,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"golang.org/x/exp/slices"
 )
 
 type (
