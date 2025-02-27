@@ -102,15 +102,6 @@ func NewConfigManager[T any](
 // Meaning, cancelling the passed `ctx` stops the actor.
 func (cm *ConfigManager[T]) Run(ctx context.Context) error {
 	return cm.loop(ctx)
-	// cm.log.Info("starting runtime config manager")
-
-	// // Cancelling the passed in context is graceful shutdown
-	// if err := cm.loop(ctx); !errors.Is(err, context.Canceled) {
-	// 	cm.log.Error("stopping runtime config manager due to error", "msg", err.Error())
-	// }
-
-	// cm.log.Info("stopping runtime config manager")
-	// return nil
 }
 
 // Config returns the current valid config if available. Once the config manager
@@ -129,9 +120,6 @@ func (cm *ConfigManager[T]) Config() (*T, error) {
 
 // loadConfig reads and unmarshal the config from the file location.
 func (cm *ConfigManager[T]) loadConfig() error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
 	f, err := os.Open(cm.path)
 	if err != nil {
 		cm.lastLoadSuccess.Set(0)
@@ -157,14 +145,21 @@ func (cm *ConfigManager[T]) loadConfig() error {
 		return errors.Join(ErrFailedToParseConfig, err)
 	}
 
+	cm.updateConfig(cfg, hash)
+
+	return nil
+}
+
+func (cm *ConfigManager[T]) updateConfig(cfg *T, hash string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
 	cm.currentConfig = cfg
 	cm.currentHash = hash
 
 	cm.lastLoadSuccess.Set(1)
 	cm.configHash.Reset()
 	cm.configHash.WithLabelValues(hash).Set(1)
-
-	return nil
 }
 
 // loop is a actor loop that runs forever till config manager is stopped.
