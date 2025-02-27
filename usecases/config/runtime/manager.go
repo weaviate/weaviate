@@ -147,19 +147,20 @@ func (cm *ConfigManager[T]) loadConfig() error {
 
 	cm.updateConfig(cfg, hash)
 
+	cm.lastLoadSuccess.Set(1)
+	cm.configHash.Reset()
+	cm.configHash.WithLabelValues(hash).Set(1)
+
 	return nil
 }
 
+// updateConfig mutates the shared config
 func (cm *ConfigManager[T]) updateConfig(cfg *T, hash string) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	cm.currentConfig = cfg
 	cm.currentHash = hash
-
-	cm.lastLoadSuccess.Set(1)
-	cm.configHash.Reset()
-	cm.configHash.WithLabelValues(hash).Set(1)
 }
 
 // loop is a actor loop that runs forever till config manager is stopped.
