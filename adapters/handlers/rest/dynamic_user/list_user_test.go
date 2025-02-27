@@ -98,3 +98,20 @@ func TestGetUserInternalServerError(t *testing.T) {
 		})
 	}
 }
+
+func TestListForbidden(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(errors.New("some error"))
+
+	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+
+	h := dynUserHandler{
+		dynamicUser: dynUser,
+		authorizer:  authorizer,
+	}
+
+	res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)
+	_, ok := res.(*users.GetUserInfoForbidden)
+	assert.True(t, ok)
+}

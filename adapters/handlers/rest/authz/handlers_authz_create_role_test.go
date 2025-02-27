@@ -21,11 +21,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/authz/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	authZmocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	schemaMocks "github.com/weaviate/weaviate/usecases/schema/mocks"
 )
 
@@ -108,8 +109,8 @@ func TestCreateRoleSuccess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authZmocks.NewAuthorizer(t)
+			controller := mocks.NewControllerAndGetUsers(t)
 			schemaReader := schemaMocks.NewSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
 
@@ -132,8 +133,8 @@ func TestCreateRoleSuccess(t *testing.T) {
 }
 
 func TestCreateRoleConflict(t *testing.T) {
-	authorizer := mocks.NewAuthorizer(t)
-	controller := mocks.NewController(t)
+	authorizer := authZmocks.NewAuthorizer(t)
+	controller := mocks.NewControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "user1"}
@@ -234,8 +235,8 @@ func TestCreateRoleBadRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authZmocks.NewAuthorizer(t)
+			controller := mocks.NewControllerAndGetUsers(t)
 			schemaReader := schemaMocks.NewSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
 
@@ -293,8 +294,8 @@ func TestCreateRoleForbidden(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authZmocks.NewAuthorizer(t)
+			controller := mocks.NewControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
@@ -349,8 +350,8 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authZmocks.NewAuthorizer(t)
+			controller := mocks.NewControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			policies, err := conv.RolesToPolicies(tt.params.Body)

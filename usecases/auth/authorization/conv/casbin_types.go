@@ -35,7 +35,8 @@ const (
 	CRUD = "(C)|(R)|(U)|(D)"
 	// CRU allow all actions on a resource except DELETE
 	// this is internal for casbin to handle editor actions
-	CRU = "(C)|(R)|(U)"
+	CRU         = "(C)|(R)|(U)"
+	VALID_VERBS = "(C)|(R)|(U)|(D)|(A)"
 	// InternalPlaceHolder is a place holder to mark empty roles
 	InternalPlaceHolder = "wv_internal_empty"
 )
@@ -43,17 +44,18 @@ const (
 var (
 	BuiltInPolicies = map[string]string{
 		authorization.Viewer: authorization.READ,
-		authorization.Admin:  CRUD,
-		authorization.Root:   CRUD,
+		authorization.Admin:  VALID_VERBS,
+		authorization.Root:   VALID_VERBS,
 	}
 	weaviate_actions_prefixes = map[string]string{
-		CRUD:                           "manage",
-		CRU:                            "manage",
-		authorization.ROLE_SCOPE_MATCH: "manage",
-		authorization.CREATE:           "create",
-		authorization.READ:             "read",
-		authorization.UPDATE:           "update",
-		authorization.DELETE:           "delete",
+		CRUD:                                 "manage",
+		CRU:                                  "manage",
+		authorization.ROLE_SCOPE_MATCH:       "manage",
+		authorization.CREATE:                 "create",
+		authorization.READ:                   "read",
+		authorization.UPDATE:                 "update",
+		authorization.DELETE:                 "delete",
+		authorization.USER_ASSIGN_AND_REVOKE: "assign_and_revoke",
 	}
 )
 
@@ -167,9 +169,6 @@ func extractFromExtAction(inputAction string) (string, string, error) {
 	verb := strings.ToUpper(splits[0][:1])
 	if verb == "M" {
 		verb = CRUD
-	}
-	if verb == "A" {
-		verb = authorization.UPDATE
 	}
 
 	if !validVerb(verb) {
@@ -308,11 +307,6 @@ func weaviatePermissionAction(pathLastPart, verb, domain string) string {
 			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.TenantsDomain)
 		}
 		return action
-	case authorization.UsersDomain:
-		if verb == authorization.UPDATE {
-			action = authorization.AssignAndRevokeUsers
-		}
-		return action
 	default:
 		return action
 	}
@@ -418,7 +412,7 @@ func validResource(input string) bool {
 }
 
 func validVerb(input string) bool {
-	return regexp.MustCompile(CRUD).MatchString(input)
+	return regexp.MustCompile(VALID_VERBS).MatchString(input)
 }
 
 func PrefixRoleName(name string) string {

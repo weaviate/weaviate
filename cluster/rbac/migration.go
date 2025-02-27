@@ -53,6 +53,8 @@ UPDATE_LOOP:
 			}
 		case cmd.RBACCommandPolicyVersionV2:
 			req.Roles = migrateUpsertRolesPermissionsV2(req.Roles)
+		case cmd.RBACCommandPolicyVersionV3:
+			req.Roles = migrateUpsertRolesPermissionsV3(req.Roles)
 		case cmd.RBACLatestCommandPolicyVersion:
 			break UPDATE_LOOP
 		default:
@@ -110,6 +112,24 @@ func migrateUpsertRolesPermissionsV2(roles map[string][]authorization.Policy) ma
 	return roles
 }
 
+func migrateUpsertRolesPermissionsV3(roles map[string][]authorization.Policy) map[string][]authorization.Policy {
+	for roleName, policies := range roles {
+		for idx := range policies {
+			if roles[roleName][idx].Domain != authorization.UsersDomain {
+				continue
+			}
+
+			if roles[roleName][idx].Verb != authorization.UPDATE {
+				continue
+			}
+
+			roles[roleName][idx].Verb = authorization.USER_ASSIGN_AND_REVOKE
+
+		}
+	}
+	return roles
+}
+
 func migrateRemovePermissions(req *cmd.RemovePermissionsRequest) (*cmd.RemovePermissionsRequest, error) {
 	// loop through updates until current version is reached
 UPDATE_LOOP:
@@ -131,6 +151,8 @@ UPDATE_LOOP:
 			req.Permissions = migrateRemoveRolesPermissionsV1(req.Permissions)
 		case cmd.RBACCommandPolicyVersionV2:
 			req.Permissions = migrateRemoveRolesPermissionsV2(req.Permissions)
+		case cmd.RBACCommandPolicyVersionV3:
+			req.Permissions = migrateRemoveRolesPermissionsV3(req.Permissions)
 		case cmd.RBACLatestCommandPolicyVersion:
 			break UPDATE_LOOP
 		default:
@@ -190,6 +212,22 @@ func migrateRemoveRolesPermissionsV2(permissions []*authorization.Policy) []*aut
 		case authorization.READ:
 			permissions[idx].Verb = authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH)
 		}
+	}
+	return permissions
+}
+
+func migrateRemoveRolesPermissionsV3(permissions []*authorization.Policy) []*authorization.Policy {
+	initialPerms := len(permissions)
+	for idx := 0; idx < initialPerms; idx++ {
+		if permissions[idx].Domain != authorization.UsersDomain {
+			continue
+		}
+
+		if permissions[idx].Verb != authorization.UPDATE {
+			continue
+		}
+
+		permissions[idx].Verb = authorization.USER_ASSIGN_AND_REVOKE
 	}
 	return permissions
 }

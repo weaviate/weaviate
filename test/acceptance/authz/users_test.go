@@ -15,6 +15,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/client/users"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/authz"
@@ -294,4 +297,173 @@ func TestReadUserPermissions(t *testing.T) {
 
 		helper.RevokeRoleFromUser(t, adminKey, roleNameReadUsers, customUser)
 	})
+}
+
+func TestUserEndpoint(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
+	defer down()
+
+	testUser := "test-user"
+	helper.DeleteUser(t, testUser, adminKey)
+	testKey := helper.CreateUser(t, testUser, adminKey)
+
+	// create roles for later
+	readUserAction := authorization.ReadUsers
+	createUsersAction := authorization.CreateUsers
+	updateUsersAction := authorization.UpdateUsers
+	deleteUsersAction := authorization.DeleteUsers
+
+	all := "*"
+	readUserRoleName := "userRead"
+	createUserRoleName := "userCreate"
+	updateUserRoleName := "userUpdate"
+	deleteUserRoleName := "userDel"
+
+	createUserRole := &models.Role{
+		Name: &createUserRoleName,
+		Permissions: []*models.Permission{{
+			Action: &createUsersAction,
+			Users:  &models.PermissionUsers{Users: &all},
+		}},
+	}
+	readUserRole := &models.Role{
+		Name: &readUserRoleName,
+		Permissions: []*models.Permission{{
+			Action: &readUserAction,
+			Users:  &models.PermissionUsers{Users: &all},
+		}},
+	}
+	updateUserRole := &models.Role{
+		Name: &updateUserRoleName,
+		Permissions: []*models.Permission{{
+			Action: &updateUsersAction,
+			Users:  &models.PermissionUsers{Users: &all},
+		}},
+	}
+	deleteUserRole := &models.Role{
+		Name: &deleteUserRoleName,
+		Permissions: []*models.Permission{{
+			Action: &deleteUsersAction,
+			Users:  &models.PermissionUsers{Users: &all},
+		}},
+	}
+
+	roles := []*models.Role{deleteUserRole, createUserRole, updateUserRole, readUserRole}
+	for _, role := range roles {
+		helper.DeleteRole(t, adminKey, *role.Name)
+		helper.CreateRole(t, adminKey, role)
+	}
+	defer func() {
+		for _, role := range roles {
+			helper.DeleteRole(t, adminKey, *role.Name)
+		}
+	}()
+
+	t.Run("Create User", func(t *testing.T) {
+		otherTestUser := "otherTestUser"
+		defer helper.DeleteUser(t, otherTestUser, adminKey)
+		_, err := helper.Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(otherTestUser), helper.CreateAuth(testKey))
+		require.Error(t, err)
+		var createUserForbidden *users.CreateUserForbidden
+		ok := errors.As(err, &createUserForbidden)
+		assert.True(t, ok)
+
+		helper.AssignRoleToUser(t, adminKey, createUserRoleName, testUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, createUserRoleName, testUser)
+
+		otherTestUserApiKey := helper.CreateUser(t, otherTestUser, testKey)
+		require.Greater(t, len(otherTestUserApiKey), 10)
+	})
+
+	t.Run("Read User", func(t *testing.T) {
+		otherTestUserName := "otherTestUser"
+		helper.DeleteUser(t, otherTestUserName, adminKey)
+		defer helper.DeleteUser(t, otherTestUserName, adminKey)
+		helper.CreateUser(t, otherTestUserName, adminKey)
+
+		_, err := helper.Client(t).Users.GetUserInfo(users.NewGetUserInfoParams().WithUserID(otherTestUserName), helper.CreateAuth(testKey))
+		require.Error(t, err)
+		var getUserForbidden *users.GetUserInfoForbidden
+		ok := errors.As(err, &getUserForbidden)
+		assert.True(t, ok)
+
+		helper.AssignRoleToUser(t, adminKey, readUserRoleName, testUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, readUserRoleName, testUser)
+
+		otherTestUser := helper.GetUser(t, otherTestUserName, testKey)
+		require.Equal(t, *otherTestUser.UserID, otherTestUserName)
+	})
+
+	t.Run("Rotate user key", func(t *testing.T) {
+		otherTestUser := "otherTestUser"
+		helper.DeleteUser(t, otherTestUser, adminKey)
+		defer helper.DeleteUser(t, otherTestUser, adminKey)
+		helper.CreateUser(t, otherTestUser, adminKey)
+		_, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(otherTestUser), helper.CreateAuth(testKey))
+		require.Error(t, err)
+		var createUserForbidden *users.RotateUserAPIKeyForbidden
+		ok := errors.As(err, &createUserForbidden)
+		assert.True(t, ok)
+
+		helper.AssignRoleToUser(t, adminKey, updateUserRoleName, testUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, updateUserRoleName, testUser)
+
+		otherTestUserApiKey := helper.RotateKey(t, otherTestUser, testKey)
+		require.Greater(t, len(otherTestUserApiKey), 10)
+	})
+
+	t.Run("Delete user", func(t *testing.T) {
+		otherTestUser := "otherTestUser"
+		helper.DeleteUser(t, otherTestUser, adminKey)
+		defer helper.DeleteUser(t, otherTestUser, adminKey)
+		helper.CreateUser(t, otherTestUser, adminKey)
+
+		_, err := helper.Client(t).Users.DeleteUser(users.NewDeleteUserParams().WithUserID(otherTestUser), helper.CreateAuth(testKey))
+		require.Error(t, err)
+		var createUserForbidden *users.DeleteUserForbidden
+		assert.True(t, errors.As(err, &createUserForbidden))
+
+		helper.AssignRoleToUser(t, adminKey, deleteUserRoleName, testUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, deleteUserRoleName, testUser)
+
+		helper.DeleteUser(t, otherTestUser, testKey)
+		// user does not exist after deleting
+		resp, err := helper.Client(t).Users.GetUserInfo(users.NewGetUserInfoParams().WithUserID(otherTestUser), helper.CreateAuth(adminKey))
+		require.Nil(t, resp)
+		require.Error(t, err)
+		var getUserNotFound *users.GetUserInfoNotFound
+		assert.True(t, errors.As(err, &getUserNotFound))
+	})
+}
+
+func TestUserPermissionReturns(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	all := "*"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
+	defer down()
+
+	roleName := "testingUserPermissionReturns"
+	defer helper.DeleteRole(t, adminKey, roleName)
+	for _, action := range []string{authorization.ReadUsers, authorization.CreateUsers, authorization.UpdateUsers, authorization.DeleteUsers, authorization.AssignAndRevokeUsers} {
+		helper.DeleteRole(t, adminKey, roleName)
+
+		role := &models.Role{
+			Name: &roleName,
+			Permissions: []*models.Permission{{
+				Action: &action,
+				Users:  &models.PermissionUsers{Users: &all},
+			}},
+		}
+
+		helper.CreateRole(t, adminKey, role)
+		roleRet := helper.GetRoleByName(t, adminKey, roleName)
+		require.NotNil(t, roleRet)
+		require.Equal(t, *roleRet.Permissions[0].Users.Users, all)
+		require.Equal(t, *roleRet.Permissions[0].Action, action)
+	}
 }

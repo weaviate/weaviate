@@ -38,11 +38,12 @@ var (
 	deleteDesc = "delete"
 	manageDesc = "manage"
 
-	createVerb = authorization.CREATE
-	readVerb   = authorization.READ
-	updateVerb = authorization.UPDATE
-	deleteVerb = authorization.DELETE
-	manageVerb = CRUD
+	createVerb              = authorization.CREATE
+	readVerb                = authorization.READ
+	updateVerb              = authorization.UPDATE
+	deleteVerb              = authorization.DELETE
+	assignAndRevokeUserVerb = authorization.USER_ASSIGN_AND_REVOKE
+	manageVerb              = CRUD
 
 	rolesTestsR = []innerTest{
 		{permissionAction: authorization.ReadRoles, testDescription: readDesc, policyVerb: authorization.VerbWithScope(readVerb, authorization.ROLE_SCOPE_MATCH)},
@@ -80,8 +81,11 @@ var (
 		{permissionAction: authorization.DeleteTenants, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 	userTests = []innerTest{
-		{permissionAction: authorization.AssignAndRevokeUsers, testDescription: manageDesc, policyVerb: updateVerb},
+		{permissionAction: authorization.AssignAndRevokeUsers, testDescription: manageDesc, policyVerb: assignAndRevokeUserVerb},
+		{permissionAction: authorization.CreateUsers, testDescription: createDesc, policyVerb: createVerb},
 		{permissionAction: authorization.ReadUsers, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.UpdateUsers, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: authorization.DeleteUsers, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 )
 

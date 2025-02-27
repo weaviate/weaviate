@@ -15,19 +15,22 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/authz/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	authZmocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 func TestGetRolesForUserSuccess(t *testing.T) {
-	authorizer := mocks.NewAuthorizer(t)
-	controller := mocks.NewController(t)
+	authorizer := authZmocks.NewAuthorizer(t)
+	controller := mocks.NewControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "user1"}
@@ -74,6 +77,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(nil)
 			}
 			controller.On("GetRolesForUser", tt.params.ID).Return(returnedPolices, nil)
+			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{"testUser": {}}, nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -123,8 +127,8 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authZmocks.NewAuthorizer(t)
+			controller := mocks.NewControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			returnedPolices := map[string][]authorization.Policy{
@@ -143,7 +147,7 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
 			}
 			controller.On("GetRolesForUser", tt.params.ID).Return(returnedPolices, nil)
-
+			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{tt.params.ID: {}}, nil)
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
@@ -183,13 +187,13 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authZmocks.NewAuthorizer(t)
+			controller := mocks.NewControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
-
 			controller.On("GetRolesForUser", tt.params.ID).Return(nil, tt.getRolesErr)
+			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{tt.params.ID: {}}, nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,

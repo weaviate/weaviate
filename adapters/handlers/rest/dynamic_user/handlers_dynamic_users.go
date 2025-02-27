@@ -91,9 +91,8 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	// DynUser-Todo: Switch to correct verb when added
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
-		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Users(params.UserID)...); err != nil {
+		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
@@ -140,9 +139,8 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 }
 
 func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principal *models.Principal) middleware.Responder {
-	// DynUser-Todo: Switch to correct verb when added
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
-		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
@@ -167,9 +165,8 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 }
 
 func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
-	// DynUser-Todo: Switch to correct verb when added
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
-		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Users(params.UserID)...); err != nil {
+		return users.NewDeleteUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	err := h.dynamicUser.DeleteUser(params.UserID)

@@ -31,6 +31,9 @@ const (
 
 	// this version was needed because we did flatten manage_roles to C+U+D_roles
 	RBACCommandPolicyVersionV2
+	// this version was needed because assign_and_revoke_users was saved with verb UPDATE. However with dynamic user
+	// management we need a special permission to update users
+	RBACCommandPolicyVersionV3
 
 	// RBACLatestCommandPolicyVersion represents the latest version of RBAC commands policies
 	// It's used to migrate policy changes. if we end up with a cluster having different version
