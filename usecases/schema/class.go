@@ -145,7 +145,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, fmt.Errorf(
 			"cannot create collection: maximum number of collections (%d) reached - "+
 				"please consider switching to multi-tenancy or increasing the collection count limit - "+
-				"see https://weaviate.io/developers/weaviate/starter-guides/schema to learn about available options and best practices "+
+				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
 				"when working with multiple collections and tenants",
 			h.config.MaximumAllowedCollectionsCount)
 	}
