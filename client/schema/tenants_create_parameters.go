@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -79,6 +80,9 @@ type TenantsCreateParams struct {
 
 	// ClassName.
 	ClassName string
+
+	// StorageNodes.
+	StorageNodes []string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -155,6 +159,17 @@ func (o *TenantsCreateParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithStorageNodes adds the storageNodes to the tenants create params
+func (o *TenantsCreateParams) WithStorageNodes(storageNodes []string) *TenantsCreateParams {
+	o.SetStorageNodes(storageNodes)
+	return o
+}
+
+// SetStorageNodes adds the storageNodes to the tenants create params
+func (o *TenantsCreateParams) SetStorageNodes(storageNodes []string) {
+	o.StorageNodes = storageNodes
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *TenantsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -173,8 +188,36 @@ func (o *TenantsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 		return err
 	}
 
+	if o.StorageNodes != nil {
+
+		// binding items for storageNodes
+		joinedStorageNodes := o.bindParamStorageNodes(reg)
+
+		// query array param storageNodes
+		if err := r.SetQueryParam("storageNodes", joinedStorageNodes...); err != nil {
+			return err
+		}
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
 	return nil
+}
+
+// bindParamTenantsCreate binds the parameter storageNodes
+func (o *TenantsCreateParams) bindParamStorageNodes(formats strfmt.Registry) []string {
+	storageNodesIR := o.StorageNodes
+
+	var storageNodesIC []string
+	for _, storageNodesIIR := range storageNodesIR { // explode []string
+
+		storageNodesIIV := storageNodesIIR // string as string
+		storageNodesIC = append(storageNodesIC, storageNodesIIV)
+	}
+
+	// items.CollectionFormat: "csv"
+	storageNodesIS := swag.JoinByFormat(storageNodesIC, "csv")
+
+	return storageNodesIS
 }

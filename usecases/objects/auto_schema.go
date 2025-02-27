@@ -560,7 +560,7 @@ func (m *autoSchemaManager) addTenants(ctx context.Context, principal *models.Pr
 		return fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
-	if _, err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
+	if _, err := m.schemaManager.AddTenants(ctx, principal, class, tenants, nil); err != nil {
 		return err
 	}
 	return nil

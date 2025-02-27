@@ -210,7 +210,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	_, err := s.manager.AddTenants(
-		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
+		params.HTTPRequest.Context(), principal, params.ClassName, params.Body, params.StorageNodes)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {

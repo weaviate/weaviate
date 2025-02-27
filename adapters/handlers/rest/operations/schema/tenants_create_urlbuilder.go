@@ -21,11 +21,15 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/swag"
 )
 
 // TenantsCreateURL generates an URL for the tenants create operation
 type TenantsCreateURL struct {
 	ClassName string
+
+	StorageNodes []string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -65,6 +69,27 @@ func (o *TenantsCreateURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var storageNodesIR []string
+	for _, storageNodesI := range o.StorageNodes {
+		storageNodesIS := storageNodesI
+		if storageNodesIS != "" {
+			storageNodesIR = append(storageNodesIR, storageNodesIS)
+		}
+	}
+
+	storageNodes := swag.JoinByFormat(storageNodesIR, "csv")
+
+	if len(storageNodes) > 0 {
+		qsv := storageNodes[0]
+		if qsv != "" {
+			qs.Set("storageNodes", qsv)
+		}
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

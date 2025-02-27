@@ -4540,6 +4540,16 @@
                 "$ref": "#/definitions/Tenant"
               }
             }
+          },
+          {
+            "name": "storageNodes",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "csv"
           }
         ],
         "responses": {

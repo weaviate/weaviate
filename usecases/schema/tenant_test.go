@@ -144,7 +144,7 @@ func TestAddTenants(t *testing.T) {
 
 			test.mockCalls(fakeSchemaManager)
 
-			_, err := handler.AddTenants(ctx, nil, test.class, test.tenants)
+			_, err := handler.AddTenants(ctx, nil, test.class, test.tenants, nil)
 
 			fakeSchemaManager.AssertExpectations(t)
 

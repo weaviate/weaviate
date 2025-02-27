@@ -43,6 +43,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	principal *models.Principal,
 	class string,
 	tenants []*models.Tenant,
+	storageNodes []string,
 ) (uint64, error) {
 	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
 		return 0, err
@@ -58,7 +59,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	}
 
 	request := api.AddTenantsRequest{
-		ClusterNodes: h.schemaManager.StorageCandidates(),
+		ClusterNodes: h.storageCandidates(storageNodes),
 		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
 	for i, tenant := range validated {
@@ -69,6 +70,28 @@ func (h *Handler) AddTenants(ctx context.Context,
 	}
 
 	return h.schemaManager.AddTenants(ctx, class, &request)
+}
+
+func (h *Handler) storageCandidates(storageNodes []string) []string {
+	if len(storageNodes) == 0 {
+		return h.schemaManager.StorageCandidates()
+	}
+
+	allowedNodes := make(map[string]struct{}, len(storageNodes))
+	for _, n := range storageNodes {
+		allowedNodes[n] = struct{}{}
+	}
+
+	clusterNodes := make([]string, 0, len(allowedNodes))
+
+	for _, n := range h.schemaManager.StorageCandidates() {
+		_, ok := allowedNodes[n]
+		if ok {
+			clusterNodes = append(clusterNodes, n)
+		}
+	}
+
+	return clusterNodes
 }
 
 func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated []*models.Tenant, err error) {

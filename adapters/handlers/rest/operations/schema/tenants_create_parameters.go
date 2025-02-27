@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -55,6 +56,11 @@ type TenantsCreateParams struct {
 	  In: path
 	*/
 	ClassName string
+	/*
+	  In: query
+	  Collection Format: csv
+	*/
+	StorageNodes []string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -65,6 +71,8 @@ func (o *TenantsCreateParams) BindRequest(r *http.Request, route *middleware.Mat
 	var res []error
 
 	o.HTTPRequest = r
+
+	qs := runtime.Values(r.URL.Query())
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
@@ -100,6 +108,11 @@ func (o *TenantsCreateParams) BindRequest(r *http.Request, route *middleware.Mat
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
 		res = append(res, err)
 	}
+
+	qStorageNodes, qhkStorageNodes, _ := qs.GetOK("storageNodes")
+	if err := o.bindStorageNodes(qStorageNodes, qhkStorageNodes, route.Formats); err != nil {
+		res = append(res, err)
+	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -116,6 +129,33 @@ func (o *TenantsCreateParams) bindClassName(rawData []string, hasKey bool, forma
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.ClassName = raw
+
+	return nil
+}
+
+// bindStorageNodes binds and validates array parameter StorageNodes from query.
+//
+// Arrays are parsed according to CollectionFormat: "csv" (defaults to "csv" when empty).
+func (o *TenantsCreateParams) bindStorageNodes(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var qvStorageNodes string
+	if len(rawData) > 0 {
+		qvStorageNodes = rawData[len(rawData)-1]
+	}
+
+	// CollectionFormat: csv
+	storageNodesIC := swag.SplitByFormat(qvStorageNodes, "csv")
+	if len(storageNodesIC) == 0 {
+		return nil
+	}
+
+	var storageNodesIR []string
+	for _, storageNodesIV := range storageNodesIC {
+		storageNodesI := storageNodesIV
+
+		storageNodesIR = append(storageNodesIR, storageNodesI)
+	}
+
+	o.StorageNodes = storageNodesIR
 
 	return nil
 }

@@ -3013,6 +3013,15 @@ func init() {
                 "$ref": "#/definitions/Tenant"
               }
             }
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "csv",
+            "name": "storageNodes",
+            "in": "query"
           }
         ],
         "responses": {
@@ -8569,6 +8578,15 @@ func init() {
                 "$ref": "#/definitions/Tenant"
               }
             }
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "csv",
+            "name": "storageNodes",
+            "in": "query"
           }
         ],
         "responses": {
