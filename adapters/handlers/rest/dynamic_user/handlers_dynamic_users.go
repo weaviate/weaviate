@@ -37,6 +37,7 @@ type dynUserHandler struct {
 type DynamicUserAndRolesGetter interface {
 	apikey.DynamicUser
 	GetRolesForUser(user string) (map[string][]authorization.Policy, error)
+	RevokeRolesForUser(userName string, roles ...string) error
 }
 
 const (
@@ -169,8 +170,22 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	err := h.dynamicUser.DeleteUser(params.UserID)
+	roles, err := h.dynamicUser.GetRolesForUser(params.UserID)
 	if err != nil {
+		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+	if len(roles) > 0 {
+		roleNames := make([]string, 0, len(roles))
+		for name := range roles {
+			roleNames = append(roleNames, name)
+		}
+
+		if err := h.dynamicUser.RevokeRolesForUser(params.UserID, roleNames...); err != nil {
+			return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+	}
+
+	if err := h.dynamicUser.DeleteUser(params.UserID); err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 	return users.NewDeleteUserNoContent()

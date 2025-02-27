@@ -32,10 +32,10 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
 	defer down()
 
-	var endpointStats endpointStatsSlice
-
 	containers := compose.Containers()
 	require.Len(t, containers, 1) // started only one node
+
+	var endpointStats endpointStatsSlice
 
 	className := "ABC"
 	tenantNames := []string{
@@ -67,7 +67,7 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{id}", "someId")
 		url = strings.ReplaceAll(url, "{backend}", "filesystem")
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
-		url = strings.ReplaceAll(url, "{user_id}", "admin-user")
+		url = strings.ReplaceAll(url, "{user_id}", "random-user")
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
 			require.NotContains(t, url, "{")

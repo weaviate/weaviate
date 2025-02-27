@@ -300,8 +300,8 @@ func TestReadUserPermissions(t *testing.T) {
 }
 
 func TestUserEndpoint(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
+	adminUser := "admin-user"
 
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
 	defer down()
@@ -436,6 +436,23 @@ func TestUserEndpoint(t *testing.T) {
 		require.Error(t, err)
 		var getUserNotFound *users.GetUserInfoNotFound
 		assert.True(t, errors.As(err, &getUserNotFound))
+	})
+
+	t.Run("delete user revokes roles", func(t *testing.T) {
+		testUserName := "DeleteUserTestUser"
+		helper.DeleteUser(t, testUserName, adminKey)
+
+		// create user and assign roles
+		helper.CreateUser(t, testUserName, adminKey)
+		helper.AssignRoleToUser(t, adminKey, deleteUserRoleName, testUserName)
+		testUserRoles := helper.GetRolesForUser(t, testUserName, adminKey)
+		require.Len(t, testUserRoles, 1)
+
+		// delete user and recreate with same name => role assignment should be gone
+		helper.DeleteUser(t, testUserName, adminKey)
+		helper.CreateUser(t, testUserName, adminKey)
+		testUserRolesNew := helper.GetRolesForUser(t, testUserName, adminKey)
+		require.Len(t, testUserRolesNew, 0)
 	})
 }
 
