@@ -27,15 +27,14 @@ import (
 
 func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	adminKey := "admin-key"
-	// adminUser := "admin-user"
+	adminUser := "admin-user"
 
-	// compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
-	// defer down()
+	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	defer down()
 
-	// containers := compose.Containers()
-	// require.Len(t, containers, 1) // started only one node
+	containers := compose.Containers()
+	require.Len(t, containers, 1) // started only one node
 
-	helper.SetupClient("127.0.0.1:8081")
 	var endpointStats endpointStatsSlice
 
 	className := "ABC"
@@ -55,11 +54,11 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	require.Nil(t, err)
 
 	endpoints := col.allEndpoints()
-	// ls := newLogScanner(containers[0].Container())
-	// ls.GetAuthzLogs(t) // startup logs that are irrelevant
+	ls := newLogScanner(containers[0].Container())
+	ls.GetAuthzLogs(t) // startup logs that are irrelevant
 
 	for _, endpoint := range endpoints {
-		url := fmt.Sprintf("http://%s/v1%s", "127.0.0.1:8081", endpoint.path)
+		url := fmt.Sprintf("http://%s/v1%s", compose.GetWeaviate().URI(), endpoint.path)
 		url = strings.ReplaceAll(url, "/objects/{className}/{id}", fmt.Sprintf("/objects/%s/%s", className, UUID1.String()))
 		url = strings.ReplaceAll(url, "/objects/{id}", fmt.Sprintf("/objects/%s", UUID1.String()))
 		url = strings.ReplaceAll(url, "{className}", className)
@@ -97,13 +96,13 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 
 			require.NotEqual(t, http.StatusForbidden, resp.StatusCode)
 
-			//authZlogs := ls.GetAuthzLogs(t)
-			//endpointStats = append(endpointStats, endpointStat{
-			//	Count:    len(authZlogs),
-			//	Method:   endpoint.method,
-			//	Logs:     authZlogs,
-			//	Endpoint: url,
-			//})
+			authZlogs := ls.GetAuthzLogs(t)
+			endpointStats = append(endpointStats, endpointStat{
+				Count:    len(authZlogs),
+				Method:   endpoint.method,
+				Logs:     authZlogs,
+				Endpoint: url,
+			})
 		})
 	}
 
