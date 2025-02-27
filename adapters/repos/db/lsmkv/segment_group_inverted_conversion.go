@@ -43,7 +43,7 @@ func (sg *SegmentGroup) findInvertedConversionCandidates() (*segment, *sroar.Bit
 			tombstones, err := sg.segments[id].GetTombstones()
 			if err != nil {
 				sg.logger.WithError(err).WithFields(logrus.Fields{
-					"action": "lsm_conversion",
+					"action": "lsm_conversion_mapcollection_inverted",
 					"event":  "get_tombstones",
 					"path":   sg.segments[id].path,
 				}).Error("failed to get tombstones")
@@ -124,7 +124,7 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, string, *convertedInvertedSta
 	// size := segment.size
 	// fmt.Println("Converting segment: ", segment.path, size)
 	sg.logger.WithFields(logrus.Fields{
-		"action": "lsm_conversion",
+		"action": "lsm_conversion_mapcollection_inverted",
 		"event":  "conversion_started",
 		"path":   path,
 	}).Debug("conversion started")
@@ -153,7 +153,7 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, string, *convertedInvertedSta
 	}
 
 	sg.logger.WithFields(logrus.Fields{
-		"action": "lsm_conversion",
+		"action": "lsm_conversion_mapcollection_inverted",
 		"event":  "conversion_done",
 		"path":   path,
 		"took":   end.Sub(start),

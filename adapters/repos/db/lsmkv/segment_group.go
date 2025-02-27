@@ -404,7 +404,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		indexName := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-4]
 		if atLeastOneMapCollection {
 
-			sg.logger.WithField("action", "lsm_conversion").
+			sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
 				WithField("path", sg.dir).
 				WithField("prop", prop).
 				WithField("shard", shardName).
@@ -415,13 +415,16 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			segmentStats.total++
 			sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.convertToInverted)
 		} else {
-			sg.logger.WithField("action", "lsm_conversion").
+			sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
 				WithField("path", sg.dir).
 				WithField("prop", prop).
 				WithField("shard", shardName).
 				WithField("index", indexName).
 				Errorf("nothing to convert for %s in %s in %s", prop, shardName, indexName)
+			sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 		}
+	} else {
+		sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 	}
 
 	return sg, nil
@@ -789,7 +792,7 @@ func (sg *SegmentGroup) convertToInverted(shouldAbort cyclemanager.ShouldAbortCa
 		indexName := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-4]
 
 		if err != nil {
-			sg.logger.WithField("action", "lsm_conversion").
+			sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
 				WithField("path", path).
 				WithField("prop", prop).
 				WithField("shard", shardName).
@@ -798,7 +801,7 @@ func (sg *SegmentGroup) convertToInverted(shouldAbort cyclemanager.ShouldAbortCa
 				WithError(err).
 				Errorf("conversion failed")
 		} else if converted {
-			sg.logger.WithField("action", "lsm_conversion").
+			sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
 				WithField("path", path).
 				WithField("prop", prop).
 				WithField("shard", shardName).
@@ -813,7 +816,7 @@ func (sg *SegmentGroup) convertToInverted(shouldAbort cyclemanager.ShouldAbortCa
 				segmentStats.lock.Lock()
 				segmentStats.done++
 				segmentStats.lock.Unlock()
-				sg.logger.WithField("action", "lsm_conversion").
+				sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
 					WithField("prop", prop).
 					WithField("shard", shardName).
 					WithField("index", indexName).
@@ -821,7 +824,7 @@ func (sg *SegmentGroup) convertToInverted(shouldAbort cyclemanager.ShouldAbortCa
 
 			}
 			if segmentStats.done == segmentStats.total {
-				sg.logger.WithField("action", "lsm_conversion").
+				sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
 					Errorf("conversion process is finished for all properties %v out of %v", segmentStats.done, segmentStats.total)
 				segmentStats.lock.Lock()
 				// stop double logging
