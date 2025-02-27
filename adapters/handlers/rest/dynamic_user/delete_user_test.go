@@ -13,6 +13,7 @@ package dynamic_user
 
 import (
 	"errors"
+	"github.com/weaviate/weaviate/usecases/config"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,5 +59,23 @@ func TestDeleteForbidden(t *testing.T) {
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
 	_, ok := res.(*users.DeleteUserForbidden)
+	assert.True(t, ok)
+}
+
+func TestDeleteBadRequest(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
+
+	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+
+	h := dynUserHandler{
+		dynamicUser:          dynUser,
+		authorizer:           authorizer,
+		staticApiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
+	}
+
+	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
+	_, ok := res.(*users.DeleteUserBadRequest)
 	assert.True(t, ok)
 }
