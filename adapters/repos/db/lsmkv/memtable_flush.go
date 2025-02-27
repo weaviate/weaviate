@@ -54,6 +54,40 @@ func (m *Memtable) flush() error {
 	var keys []segmentindex.Key
 	skipIndices := false
 
+	if m.strategy == StrategyInverted && os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") == "true" {
+		f, err := os.OpenFile(m.path+".db.mapcollection", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
+		if err != nil {
+			return err
+		}
+		bufw := bufio.NewWriter(f)
+		segmentFile := segmentindex.NewSegmentFile(
+			segmentindex.WithBufferedWriter(bufw),
+			segmentindex.WithChecksumsDisabled(!m.enableChecksumValidation),
+		)
+		if keys, err = m.flushDataMap(segmentFile); err != nil {
+			return err
+		}
+		indexes := &segmentindex.Indexes{
+			Keys:                keys,
+			SecondaryIndexCount: m.secondaryIndices,
+			ScratchSpacePath:    m.path + ".scratch.mapcollection.d",
+		}
+		if _, err := segmentFile.WriteIndexes(indexes); err != nil {
+			return err
+		}
+		if _, err := segmentFile.WriteChecksum(); err != nil {
+			return err
+		}
+
+		if err := f.Sync(); err != nil {
+			return err
+		}
+
+		if err := f.Close(); err != nil {
+			return err
+		}
+	}
+
 	switch m.strategy {
 	case StrategyReplace:
 		if keys, err = m.flushDataReplace(segmentFile); err != nil {
