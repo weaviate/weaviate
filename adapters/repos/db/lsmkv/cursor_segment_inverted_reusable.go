@@ -13,7 +13,9 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -86,10 +88,15 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 		return err
 	}
 	if offset.end == 0 {
-		_, err := r.Read(buffer)
+		n, err := r.Read(buffer)
 		if err != nil {
 			return err
 		}
+
+		if n != len(buffer) {
+			return fmt.Errorf("expected to read %d bytes, got %d", len(buffer), n)
+		}
+
 		docCount := binary.LittleEndian.Uint64(buffer[:8])
 		end := uint64(20)
 		if docCount > uint64(terms.ENCODE_AS_FULL_BYTES) {
@@ -105,9 +112,12 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 
 	allBytes := make([]byte, offset.end-offset.start)
 
-	_, err = r.Read(allBytes)
+	n, err := r.Read(allBytes)
 	if err != nil {
 		return err
+	}
+	if n != len(allBytes) {
+		return errors.Errorf("expected to read %d bytes, got %d", len(allBytes), n)
 	}
 
 	nodes, _ := decodeAndConvertFromBlocks(allBytes)
@@ -122,9 +132,13 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 	}
 
 	key := make([]byte, keyLen)
-	_, err = r.Read(key)
+	n, err = r.Read(key)
 	if err != nil {
 		return err
+	}
+
+	if n != len(key) {
+		return errors.Errorf("expected to read %d bytes, got %d", len(key), n)
 	}
 
 	s.nodeBuf = &binarySearchNodeMap{

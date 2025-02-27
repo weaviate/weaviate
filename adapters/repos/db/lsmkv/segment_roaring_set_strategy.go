@@ -65,9 +65,12 @@ func (s *segment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentN
 		if err != nil {
 			return nil, false, err
 		}
-		_, err = r.Read(contents)
+		n, err := r.Read(contents)
 		if err != nil {
 			return nil, false, err
+		}
+		if n != len(contents) {
+			return nil, false, fmt.Errorf("expected to read %d bytes, got %d", len(contents), n)
 		}
 		copied = true
 	}
