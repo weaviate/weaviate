@@ -156,11 +156,11 @@ func TestConfigManager_loadConfig(t *testing.T) {
 			buf := []byte(fmt.Sprintf("backup_interval: %ds", i+1))
 			err := os.WriteFile(tmp.Name(), buf, 0o777)
 			require.NoError(t, err)
-			// give enough time to config manager to reload the previously written config
-			time.Sleep(writeDelay)
 
+			// give enough time to config manager to reload the previously written config
 			// assert: new config_last_load_success=1 and config_hash should be changed as well.
-			assert.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
+			assert.EventuallyWithT(t, func(c *assert.CollectT) {
+				assert.NoError(c, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
                 # HELP weaviate_runtime_config_hash Hash value of the currently active runtime configuration
         	# TYPE weaviate_runtime_config_hash gauge
         	weaviate_runtime_config_hash{sha256="%s"} 1
@@ -168,7 +168,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		# TYPE weaviate_runtime_config_last_load_success gauge
 		weaviate_runtime_config_last_load_success 1
 		`, fmt.Sprintf("%x", sha256.Sum256(buf))))))
-
+			}, writeDelay, writeDelay/2)
 		}
 
 		// stop the manger
@@ -227,10 +227,9 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		// give enough time to config manager to reload the previously written config
-		time.Sleep(writeDelay)
-
 		// assert: new config_last_load_success=0 and config_hash shouldn't have changed.
-		assert.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
+		assert.EventuallyWithT(t, func(c *assert.CollectT) {
+			assert.NoError(c, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
                 # HELP weaviate_runtime_config_hash Hash value of the currently active runtime configuration
         	# TYPE weaviate_runtime_config_hash gauge
         	weaviate_runtime_config_hash{sha256="%s"} 1
@@ -238,6 +237,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		# TYPE weaviate_runtime_config_last_load_success gauge
 		weaviate_runtime_config_last_load_success 0
 		`, fmt.Sprintf("%x", sha256.Sum256(buf)))))) // should have old valid config hash
+		}, writeDelay, writeDelay/2)
 
 		// stop the manger
 		cancel()
@@ -295,6 +295,9 @@ func TestConfigManager_loadConfig(t *testing.T) {
 			require.NoError(t, err)
 			// give enough time to config manager to reload the previously written config
 			time.Sleep(writeDelay)
+			assert.EventuallyWithT(t, func(c *assert.CollectT) {
+				assert.Equal(c, 1, loadCount)
+			}, writeDelay, writeDelay/2)
 		}
 
 		// stop the manger
