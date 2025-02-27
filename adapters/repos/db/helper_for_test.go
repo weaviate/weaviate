@@ -295,7 +295,6 @@ func testObject(className string) *storobj.Object {
 			ID:    strfmt.UUID(uuid.NewString()),
 			Class: className,
 		},
-		Vector: []float32{1, 2, 3},
 	}
 }
 
