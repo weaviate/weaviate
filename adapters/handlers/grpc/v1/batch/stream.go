@@ -14,10 +14,8 @@ package batch
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/sirupsen/logrus"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
@@ -27,16 +25,91 @@ type batcher interface {
 }
 
 type StreamHandler struct {
-	asyncEnabled bool
-	batcher      batcher
-	logger       logrus.FieldLogger
+	batcher batcher
+	logger  logrus.FieldLogger
 }
 
 func NewStreamHandler(batcher batcher, logger logrus.FieldLogger) *StreamHandler {
 	return &StreamHandler{
-		asyncEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
-		batcher:      batcher,
-		logger:       logger,
+		batcher: batcher,
+		logger:  logger,
+	}
+}
+
+func send(ctx context.Context, batcher batcher, objects []queueObject, errors chan errorsObject, consistencyLevel *pb.ConsistencyLevel) error {
+	firstIndex := objects[0].Index
+	objs := make([]*pb.BatchObject, len(objects))
+	for i, obj := range objects {
+		objs[i] = obj.Object
+	}
+	reply, err := batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{Objects: objs, ConsistencyLevel: consistencyLevel})
+	if err != nil {
+		return err
+	}
+	if len(reply.GetErrors()) > 0 {
+		for _, err := range reply.GetErrors() {
+			if err == nil {
+				continue
+			}
+			err.Index += int32(firstIndex)
+		}
+		errors <- errorsObject{Errors: reply.GetErrors()}
+	}
+	return nil
+}
+
+func batch(stream pb.Weaviate_BatchServer, batcher batcher, queue chan queueObject, errors chan errorsObject, consistencyLevel *pb.ConsistencyLevel) error {
+	objects := make([]queueObject, 0, 1000)
+	for {
+		select {
+		case <-stream.Context().Done():
+			return nil
+		case obj := <-queue:
+			if obj.IsSentinel() {
+				if len(objects) > 0 {
+					if err := send(stream.Context(), batcher, objects, errors, consistencyLevel); err != nil {
+						return err
+					}
+				}
+				// Signal to the reply handler that we are done
+				errors <- errorsObject{Shutdown: true}
+				return nil
+			}
+			if obj.IsObject() {
+				objects = append(objects, obj)
+			}
+			if len(objects) == 1000 {
+				if err := send(stream.Context(), batcher, objects, errors, consistencyLevel); err != nil {
+					return err
+				}
+				objects = objects[:0]
+			}
+		}
+	}
+}
+
+func reply(stream pb.Weaviate_BatchServer, errors chan errorsObject, concurrency int) error {
+	haveShutdown := 0 // loops over all the workers to ensure all errors have been returned before shutting down
+	for {
+		select {
+		case <-stream.Context().Done():
+			return nil
+		case errs := <-errors:
+			if errs.Shutdown {
+				haveShutdown += 1
+			}
+			for _, err := range errs.Errors {
+				if innerErr := stream.Send(&pb.BatchError{
+					Index: err.Index,
+					Error: err.Error,
+				}); innerErr != nil {
+					return innerErr
+				}
+			}
+		}
+		if haveShutdown == concurrency {
+			return nil
+		}
 	}
 }
 
@@ -48,82 +121,6 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 	init := first.GetInit()
 	if init == nil {
 		return fmt.Errorf("first object must be init object")
-	}
-
-	send := func(objects []queueObject, errors chan errorsObject) error {
-		firstIndex := objects[0].Index
-		objs := make([]*pb.BatchObject, len(objects))
-		for i, obj := range objects {
-			objs[i] = obj.Object
-		}
-		reply, err := h.batcher.BatchObjects(stream.Context(), &pb.BatchObjectsRequest{Objects: objs, ConsistencyLevel: init.ConsistencyLevel})
-		if err != nil {
-			return err
-		}
-		if len(reply.GetErrors()) > 0 {
-			for _, err := range reply.GetErrors() {
-				if err == nil {
-					continue
-				}
-				err.Index += int32(firstIndex)
-			}
-			errors <- errorsObject{Errors: reply.GetErrors()}
-		}
-		return nil
-	}
-
-	batcher := func(queue chan queueObject, errors chan errorsObject) error {
-		objects := make([]queueObject, 0, 1000)
-		for {
-			select {
-			case <-stream.Context().Done():
-				return nil
-			case obj := <-queue:
-				if obj.IsSentinel() {
-					if len(objects) > 0 {
-						if err := send(objects, errors); err != nil {
-							return err
-						}
-					}
-					errors <- errorsObject{Shutdown: true}
-					return nil
-				}
-				if obj.IsObject() {
-					objects = append(objects, obj)
-				}
-				if len(objects) == 1000 {
-					if err := send(objects, errors); err != nil {
-						return err
-					}
-					objects = objects[:0]
-				}
-			}
-		}
-	}
-
-	replier := func(errors chan errorsObject, concurrency int) error {
-		haveShutdown := 0
-		for {
-			select {
-			case <-stream.Context().Done():
-				return nil
-			case errs := <-errors:
-				if errs.Shutdown {
-					haveShutdown += 1
-				}
-				for _, err := range errs.Errors {
-					if innerErr := stream.Send(&pb.BatchError{
-						Index: err.Index,
-						Error: err.Error,
-					}); innerErr != nil {
-						return innerErr
-					}
-				}
-			}
-			if haveShutdown == concurrency {
-				return nil
-			}
-		}
 	}
 
 	errors := make(chan errorsObject)
@@ -139,9 +136,9 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 	}
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
 	for range concurrency {
-		eg.Go(func() error { return batcher(queue, errors) })
+		eg.Go(func() error { return batch(stream, h.batcher, queue, errors, init.ConsistencyLevel) })
 	}
-	eg.Go(func() error { return replier(errors, concurrency) })
+	eg.Go(func() error { return reply(stream, errors, concurrency) })
 
 	index := 0
 	for {
@@ -153,7 +150,6 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 		req, err := stream.Recv()
 		if err != nil {
 			stream.Send(&pb.BatchError{
-				Index: int32(index),
 				Error: err.Error(),
 			})
 			continue
@@ -161,6 +157,7 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 
 		sentinel := req.GetSentinel()
 		if sentinel != nil {
+			// Signal to each of the workers that we are done
 			for range concurrency {
 				queue <- queueObject{Sentinel: sentinel}
 			}
@@ -170,7 +167,6 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 		request := req.GetRequest()
 		if request == nil {
 			stream.Send(&pb.BatchError{
-				Index: int32(index),
 				Error: fmt.Errorf("object must be message object, got %T", req).Error(),
 			})
 			continue
