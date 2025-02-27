@@ -11,6 +11,8 @@
 
 package cohere
 
+import "github.com/weaviate/weaviate/entities/schema"
+
 type fakeClassConfig struct {
 	classConfig           map[string]interface{}
 	vectorizePropertyName bool
@@ -51,4 +53,8 @@ func (f fakeClassConfig) Tenant() string {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
 }
