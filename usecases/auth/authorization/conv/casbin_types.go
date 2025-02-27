@@ -44,8 +44,8 @@ const (
 var (
 	BuiltInPolicies = map[string]string{
 		authorization.Viewer: authorization.READ,
-		authorization.Admin:  CRUD,
-		authorization.Root:   CRUD,
+		authorization.Admin:  VALID_VERBS,
+		authorization.Root:   VALID_VERBS,
 	}
 	weaviate_actions_prefixes = map[string]string{
 		CRUD:                                 "manage",

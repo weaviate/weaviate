@@ -128,7 +128,10 @@ var (
 
 		// Users domain
 		AssignAndRevokeUsers,
+		CreateUsers,
 		ReadUsers,
+		UpdateUsers,
+		DeleteUsers,
 
 		// Cluster domain
 		ReadCluster,
@@ -463,6 +466,7 @@ func adminPermissions() []*models.Permission {
 			Roles:       AllRoles,
 			Collections: AllCollections,
 			Tenants:     AllTenants,
+			Users:       AllUsers,
 		})
 	}
 
