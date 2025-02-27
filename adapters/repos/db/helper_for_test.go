@@ -317,3 +317,14 @@ func createRandomObjects(r *rand.Rand, className string, numObj int, vectorDim i
 	}
 	return obj
 }
+
+func invertedConfig() *models.InvertedIndexConfig {
+	return &models.InvertedIndexConfig{
+		CleanupIntervalSeconds: 60,
+		Stopwords: &models.StopwordConfig{
+			Preset: "none",
+		},
+		IndexNullState:      true,
+		IndexPropertyLength: true,
+	}
+}
