@@ -540,6 +540,8 @@ func TestShard_RepairIndex(t *testing.T) {
 							test.targetVector: {1, 2, 3},
 						}
 					}
+				} else {
+					obj.Vector = randVector(3)
 				}
 				objs = append(objs, obj)
 			}
@@ -722,6 +724,8 @@ func TestShard_FillQueue(t *testing.T) {
 							test.targetVector: {1, 2, 3},
 						}
 					}
+				} else {
+					obj.Vector = randVector(3)
 				}
 				objs = append(objs, obj)
 			}
@@ -799,6 +803,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	t.Run("insert data into shard", func(t *testing.T) {
 		for i := 0; i < amount; i++ {
 			obj := testObject(className)
+			obj.Vector = randVector(3)
 
 			err := shd.PutObject(ctx, obj)
 			require.Nil(t, err)
@@ -827,6 +832,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	t.Run("insert data into shard after reset", func(t *testing.T) {
 		for i := 0; i < amount; i++ {
 			obj := testObject(className)
+			obj.Vector = randVector(3)
 
 			err := shd.PutObject(ctx, obj)
 			require.Nil(t, err)
