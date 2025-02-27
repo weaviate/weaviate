@@ -923,7 +923,6 @@ func TestIndex_ConvertQueueTargetVector(t *testing.T) {
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
 		obj := testObject("preloadtest")
-		obj.Vector = nil
 		obj.Vectors = map[string][]float32{
 			"foo": {1, 2, 3},
 		}
