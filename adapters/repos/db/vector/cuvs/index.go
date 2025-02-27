@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -74,6 +75,10 @@ type cuvs_index struct {
 	maxFiltered     uint64
 	nextCuvsId      uint32
 	count           uint64
+
+	holdingVectors [][]float32
+	holdingIds     []uint64
+	isIndexBuilt   bool
 }
 
 func CreateParams(uc cuvsEnt.UserConfig) (*cagra.IndexParams, *cagra.SearchParams, error) {
@@ -257,20 +262,20 @@ func (index *cuvs_index) Add(ctx context.Context, id uint64, vector []float32) e
 	return index.AddBatch(ctx, []uint64{id}, [][]float32{vector})
 }
 
-func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vectors [][]float32) error {
+func (index *cuvs_index) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	println("ADD VECTORS")
 	fmt.Println("num vectors: ", len(vectors))
 	index.Lock()
 	defer index.Unlock()
 
-	if index.count+uint64(len(id)) < 32 {
-		return errors.Errorf("minimum number of vectors in the dataset must be 32")
-	}
+	// if index.count+uint64(len(ids)) < 32 {
+	// 	return errors.Errorf("minimum number of vectors in the dataset must be 32")
+	// }
 
-	if len(id) != len(vectors) {
+	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
-	if len(id) == 0 {
+	if len(ids) == 0 {
 		return errors.Errorf("insertBatch called with empty lists")
 	}
 
@@ -293,20 +298,50 @@ func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vectors [][]
 	}
 
 	// store in bucket
-	for i := range id {
+	for i := range ids {
 		slice := make([]byte, len(vectors[i])*4)
 		idBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(idBytes, id[i])
+		binary.BigEndian.PutUint64(idBytes, ids[i])
 		index.store.Bucket(index.getBucketName()).Put(idBytes, byteSliceFromFloat32Slice(vectors[i], slice))
 	}
 
-	if shouldExtend(index, uint64(len(id))) {
-		index.cuvsExtendCount += uint64(len(id))
+	// If index is not built yet and we're still under threshold
+	if !index.isIndexBuilt && index.count+uint64(len(ids)) < 32 {
+		// Add to holding area
+		index.holdingVectors = append(index.holdingVectors, vectors...)
+		index.holdingIds = append(index.holdingIds, ids...)
+		index.count += uint64(len(ids))
+
+		// Just store, don't build index yet
+		index.logger.Debug("storing vectors in holding area, total count: ", index.count)
+		return nil
+	}
+
+	// If we have enough vectors to build the index but haven't built it yet
+	if !index.isIndexBuilt && index.count+uint64(len(ids)) >= 32 {
+		// Combine holding vectors with new vectors
+		allVectors := append(index.holdingVectors, vectors...)
+		allIds := append(index.holdingIds, ids...)
+
+		// Clear holding area
+		index.holdingVectors = nil
+		index.holdingIds = nil
+
+		// Build the index with all vectors
+		index.isIndexBuilt = true
+		index.count = 0 // Reset count as AddWithRebuild will increment it
+
+		index.logger.Debug("building initial index with ", len(allVectors), " vectors")
+		return AddWithRebuild(index, allIds, allVectors)
+	}
+
+	if shouldExtend(index, uint64(len(ids))) {
+		index.cuvsExtendCount += uint64(len(ids))
 		index.cuvsNumExtends += 1
-		return AddWithExtend(index, id, vectors)
+		return AddWithExtend(index, ids, vectors)
 	} else {
 		index.cuvsExtendCount = 0
-		return AddWithRebuild(index, id, vectors)
+		return AddWithRebuild(index, ids, vectors)
 	}
 }
 
@@ -562,6 +597,12 @@ func (index *cuvs_index) createAllowList() []uint32 {
 func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	index.Lock()
 	defer index.Unlock()
+
+	// If index is not built yet, perform linear search on holding vectors
+	if !index.isIndexBuilt {
+		return index.linearSearchHoldingVectors(vector, k, allow)
+	}
+
 	queries, err := cuvs.NewTensor([][]float32{vector})
 	if err != nil {
 		return nil, nil, err
@@ -631,6 +672,53 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 	}
 
 	return neighborsResultSlice, distancesSlice[0], nil
+}
+
+// Add new method for linear search on holding vectors
+func (index *cuvs_index) linearSearchHoldingVectors(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	if len(index.holdingVectors) == 0 {
+		return []uint64{}, []float32{}, nil
+	}
+
+	// Calculate distances to all holding vectors
+	type vectorDistance struct {
+		id       uint64
+		distance float32
+	}
+
+	distances := make([]vectorDistance, len(index.holdingVectors))
+	for i, v := range index.holdingVectors {
+		// Calculate L2 distance
+		var sum float32 = 0
+		for j := range v {
+			d := v[j] - vector[j]
+			sum += d * d
+		}
+		distances[i] = vectorDistance{
+			id:       index.holdingIds[i],
+			distance: sum, // We use L2 squared for consistency with CUVS
+		}
+	}
+
+	// Sort by distance
+	sort.Slice(distances, func(i, j int) bool {
+		return distances[i].distance < distances[j].distance
+	})
+
+	// Return top k
+	resultSize := k
+	if resultSize > len(distances) {
+		resultSize = len(distances)
+	}
+
+	ids := make([]uint64, resultSize)
+	dists := make([]float32, resultSize)
+	for i := 0; i < resultSize; i++ {
+		ids[i] = distances[i].id
+		dists[i] = distances[i].distance
+	}
+
+	return ids, dists, nil
 }
 
 func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow helpers.AllowList) ([][]uint64, [][]float32, error) {
@@ -767,7 +855,17 @@ func (index *cuvs_index) PostStartup() {
 		return
 	}
 
-	index.AddBatch(context.Background(), ids, vectors)
+	// If we have enough vectors, build the index
+	if len(vectors) >= 32 {
+		index.isIndexBuilt = true
+		index.AddBatch(context.Background(), ids, vectors)
+	} else {
+		// Otherwise, just store them in the holding area
+		index.holdingVectors = vectors
+		index.holdingIds = ids
+		index.count = uint64(len(vectors))
+		index.isIndexBuilt = false
+	}
 }
 
 func (index *cuvs_index) Dump(labels ...string) {
