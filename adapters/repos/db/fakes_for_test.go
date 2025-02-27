@@ -9,9 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build integrationTest
-// +build integrationTest
-
 package db
 
 import (

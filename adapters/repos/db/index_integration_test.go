@@ -517,17 +517,6 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	return idx
 }
 
-func invertedConfig() *models.InvertedIndexConfig {
-	return &models.InvertedIndexConfig{
-		CleanupIntervalSeconds: 60,
-		Stopwords: &models.StopwordConfig{
-			Preset: "none",
-		},
-		IndexNullState:      true,
-		IndexPropertyLength: true,
-	}
-}
-
 func getIndexFilenames(rootDir, indexName string) ([]string, error) {
 	var filenames []string
 	indexRoot, err := os.ReadDir(path.Join(rootDir, indexName))
@@ -572,6 +561,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
 		obj := testObject("reindextest")
+		obj.Vector = randVector(3)
 		objs = append(objs, obj)
 	}
 

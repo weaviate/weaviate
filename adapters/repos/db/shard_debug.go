@@ -28,17 +28,10 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return fmt.Errorf("async indexing is not enabled")
 	}
 
-	var vidx VectorIndex
-	var q *VectorIndexQueue
-	if s.hasTargetVectors() {
-		vidx = s.vectorIndexes[targetVector]
-		q = s.queues[targetVector]
-	} else {
-		vidx = s.vectorIndex
-		q = s.queue
-	}
+	vidx, vok := s.GetVectorIndex(targetVector)
+	q, qok := s.GetVectorIndexQueue(targetVector)
 
-	if vidx == nil {
+	if !(vok && qok) {
 		return fmt.Errorf("vector index %q not found", targetVector)
 	}
 
