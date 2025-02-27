@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
+	"fmt"
 	"io"
 	"math"
 
@@ -25,6 +26,23 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 )
+
+type convertedInvertedStats struct {
+	writtenDocs uint64
+	writtenKeys uint64
+
+	deletedDocs             uint64
+	deletedDocsLaterSegment uint64
+	deletedDocsObjectBucket uint64
+
+	deletedKeys uint64
+}
+
+// to string
+func (c *convertedInvertedStats) String() string {
+	return fmt.Sprintf("writtenDocs: %d, writtenKeys: %d, deletedDocs: %d, deletedDocsLaterSegment: %d, deletedDocsObjectBucket: %d, deletedKeys: %d",
+		c.writtenDocs, c.writtenKeys, c.deletedDocs, c.deletedDocsLaterSegment, c.deletedDocsObjectBucket, c.deletedKeys)
+}
 
 type convertedInverted struct {
 	c1 *segmentCursorMap
@@ -56,18 +74,7 @@ type convertedInverted struct {
 	propName         string
 	propTokenization string
 
-	statsWrittenDocs uint64
-	statsWrittenKeys uint64
-
-	statsDeletedDocs             uint64
-	statsDeletedDocsLaterSegment uint64
-	statsDeletedDocsObjectBucket uint64
-	statsDeletedDocsIdBucket     uint64
-	statsDeletedDocsNoData       uint64
-	statsDeletedDocsNoProp       uint64
-	statsDeletedDocsNoText       uint64
-
-	statsDeletedKeys uint64
+	stats *convertedInvertedStats
 
 	docIdEncoder varenc.VarEncEncoder[uint64]
 	tfEncoder    varenc.VarEncEncoder[uint64]
@@ -89,6 +96,7 @@ func newConvertedInverted(w io.WriteSeeker,
 		offset:              0,
 		propName:            propName,
 		propTokenization:    propTokenization,
+		stats:               &convertedInvertedStats{},
 	}
 }
 
@@ -347,7 +355,7 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 		docId := binary.BigEndian.Uint64(values[i].Key)
 		_, ok := c.propertyLengthsToWrite[docId]
 		if values[i].Tombstone || len(values[i].Value) == 0 {
-			c.statsDeletedKeys++
+			c.stats.deletedKeys++
 
 			// already tombstoned or updated in the current segment
 			if c.tombstonesToWrite.Contains(docId) {
@@ -356,14 +364,14 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 
 			// tombstoned on a later segment
 			if c.tombstonesToClean.Contains(docId) {
-				c.statsDeletedDocs++
-				c.statsDeletedDocsLaterSegment++
+				c.stats.deletedDocs++
+				c.stats.deletedDocsLaterSegment++
 				c.tombstonesToWrite.Set(docId)
 				continue
 			}
 
-			c.statsDeletedDocs++
-			c.statsDeletedDocsObjectBucket++
+			c.stats.deletedDocs++
+			c.stats.deletedDocsObjectBucket++
 			c.tombstonesToWrite.Set(docId)
 			continue
 
@@ -372,14 +380,14 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 		if !c.tombstonesToClean.Contains(docId) && !c.tombstonesToWrite.Contains(docId) {
 			// if docId in propertyLengthsToWrite
 			// then add propertyLengthsToWrite[docId] to propertyLengthsSum
-			c.statsWrittenKeys++
+			c.stats.writtenKeys++
 			if !ok {
-				c.statsWrittenDocs++
+				c.stats.writtenDocs++
 				c.propertyLengthsToWrite[docId] = 0
 			}
 			/*
 				if !ok {
-					c.statsWrittenDocs++
+					c.writtenDocs++
 					propLength = uint32(math.Float32frombits(binary.LittleEndian.Uint32(values[i].Value[4:])))
 					c.propertyLengthsToWrite[docId] = propLength
 					c.propertyLengthsCount++
@@ -396,10 +404,10 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 			values[last], values[i] = values[i], values[last]
 			last++
 		} else {
-			c.statsDeletedKeys++
+			c.stats.deletedKeys++
 			if c.tombstonesToClean.Contains(docId) && !c.tombstonesToWrite.Contains(docId) {
-				c.statsDeletedDocsLaterSegment++
-				c.statsDeletedDocs++
+				c.stats.deletedDocsLaterSegment++
+				c.stats.deletedDocs++
 				c.tombstonesToWrite.Set(docId)
 			}
 		}

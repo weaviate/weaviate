@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-func (sg *SegmentGroup) findInvertedConvertionCandidats() (*segment, *sroar.Bitmap, int, error) {
+func (sg *SegmentGroup) findInvertedConversionCandidates() (*segment, *sroar.Bitmap, int, error) {
 	// if true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
 	// SegmentGroup should refrain from flushing until its
@@ -43,7 +43,7 @@ func (sg *SegmentGroup) findInvertedConvertionCandidats() (*segment, *sroar.Bitm
 			tombstones, err := sg.segments[id].GetTombstones()
 			if err != nil {
 				sg.logger.WithError(err).WithFields(logrus.Fields{
-					"action": "lsm_compaction",
+					"action": "lsm_conversion",
 					"event":  "get_tombstones",
 					"path":   sg.segments[id].path,
 				}).Error("failed to get tombstones")
@@ -62,20 +62,20 @@ func (sg *SegmentGroup) findInvertedConvertionCandidats() (*segment, *sroar.Bitm
 	return nil, nil, 0, nil
 }
 
-func (sg *SegmentGroup) convertOnce() (bool, bool, string, error) {
+func (sg *SegmentGroup) convertOnce() (bool, bool, string, *convertedInvertedStats, error) {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 	if len(sg.segments) == 0 {
-		return true, true, "", nil
+		return false, true, "", nil, nil
 	}
 
-	segment, tombstones, index, err := sg.findInvertedConvertionCandidats()
+	segment, tombstones, index, err := sg.findInvertedConversionCandidates()
 	if err != nil {
-		return false, false, "", err
+		return false, false, "", nil, err
 	}
 
 	if segment == nil {
-		return false, true, "", nil
+		return false, true, "", nil, nil
 	}
 
 	path2 := sg.segments[0].path
@@ -84,9 +84,6 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, string, error) {
 	// get parent dir
 	propName := strings.Split(pathSplit[len(pathSplit)-1], "_")[1]
 	propTokenization := "word"
-	if err != nil {
-		return false, false, "", err
-	}
 
 	if sg.allocChecker != nil {
 		// allocChecker is optional
@@ -104,7 +101,7 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, string, error) {
 			}).WithError(err).
 				Warnf("skipping conversion due to memory pressure")
 
-			return false, false, segment.path, fmt.Errorf("skipping conversion due to memory pressure: %w", err)
+			return false, false, segment.path, nil, fmt.Errorf("skipping conversion due to memory pressure: %w", err)
 		}
 	}
 
@@ -112,7 +109,7 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, string, error) {
 
 	f, err := os.Create(path)
 	if err != nil {
-		return false, false, segment.path, err
+		return false, false, segment.path, nil, err
 	}
 
 	scratchSpacePath := segment.path + "compaction.scratch.d"
@@ -130,7 +127,7 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, string, error) {
 		"action": "lsm_conversion",
 		"event":  "conversion_started",
 		"path":   path,
-	}).Debug("Conversion started successfully")
+	}).Debug("conversion started")
 
 	c := newConvertedInverted(f,
 		segment.newMapCursor(),
@@ -142,17 +139,17 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, string, error) {
 	}
 	start := time.Now()
 	if err := c.do(); err != nil {
-		return false, false, segment.path, err
+		return false, false, segment.path, nil, err
 	}
 
 	if err := f.Sync(); err != nil {
-		return false, false, segment.path, errors.Wrap(err, "fsync converted segment file")
+		return false, false, segment.path, nil, errors.Wrap(err, "fsync converted segment file")
 	}
 
 	end := time.Now()
 
 	if err := f.Close(); err != nil {
-		return false, false, segment.path, errors.Wrap(err, "close converted segment file")
+		return false, false, segment.path, nil, errors.Wrap(err, "close converted segment file")
 	}
 
 	sg.logger.WithFields(logrus.Fields{
@@ -166,10 +163,10 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, string, error) {
 	// fmt.Println("Converted segment: ", segment.path, size, newSize.Size(), end.Sub(start).Seconds(), c.statsWrittenDocs, c.statsDeletedDocs, c.statsUpdatedDocs, c.statsWrittenKeys, c.statsDeletedKeys, c.statsUpdatedKeys, c.statsDeletedDocsLaterSegment, c.statsDeletedDocsObjectBucket, c.statsDeletedDocsIdBucket, c.statsDeletedDocsNoData, c.statsDeletedDocsNoProp, c.statsDeletedDocsNoText)
 
 	if err := sg.replaceCompactedSegment(index, path); err != nil {
-		return false, false, segment.path, errors.Wrap(err, "replace converted segments")
+		return false, false, segment.path, nil, errors.Wrap(err, "replace converted segments")
 	}
 
-	return true, index == 0, segment.path, nil
+	return true, index == 0, segment.path, c.stats, nil
 }
 
 func (sg *SegmentGroup) replaceCompactedSegment(old int,
