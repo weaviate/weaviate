@@ -56,7 +56,7 @@ func TestBadRequest(t *testing.T) {
 	}
 }
 
-func TestInternalServerError(t *testing.T) {
+func TestCreateInternalServerError(t *testing.T) {
 	principal := &models.Principal{}
 	tests := []struct {
 		name                                 string
@@ -74,7 +74,7 @@ func TestInternalServerError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authzMocks.NewAuthorizer(t)
-			authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+			authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(nil, tt.GetUserReturn)
@@ -98,12 +98,12 @@ func TestInternalServerError(t *testing.T) {
 	}
 }
 
-func TestConflict(t *testing.T) {
+func TestCreateConflict(t *testing.T) {
 	principal := &models.Principal{}
 
 	authorizer := authzMocks.NewAuthorizer(t)
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
 
 	h := dynUserHandler{
@@ -117,10 +117,10 @@ func TestConflict(t *testing.T) {
 	assert.NotNil(t, parsed)
 }
 
-func TestSuccess(t *testing.T) {
+func TestCreateSuccess(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
