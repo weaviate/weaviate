@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"slices"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -22,7 +23,6 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
-	"golang.org/x/exp/slices"
 )
 
 // PeerJoiner is the interface we expect to be able to talk to the other peers to either Join or Notify them

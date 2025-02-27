@@ -60,6 +60,7 @@ func createSingleNodeEnvironment(ctx context.Context, accessKey, secretKey, sess
 	compose, err = composeModules(accessKey, secretKey, sessionToken).
 		WithWeaviateWithGRPC().
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
+		WithWeaviateEnv("MODULES_CLIENT_TIMEOUT", "120s").
 		Start(ctx)
 	return
 }
