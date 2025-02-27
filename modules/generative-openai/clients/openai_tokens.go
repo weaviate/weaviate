@@ -58,7 +58,7 @@ func parseMessageContent(content interface{}) string {
 			case contentText:
 				contents = append(contents, input.Text)
 			case contentImage:
-				contents = append(contents, input.ImageURL.URL)
+				contents = append(contents, (*input.ImageURL).URL)
 			default:
 				// do nothing
 			}

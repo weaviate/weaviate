@@ -89,8 +89,8 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 	switch query.Kind.(type) {
 	case *pb.GenerativeProvider_Anthropic:
 		opts := query.GetAnthropic()
-		if opts.GetImages() != nil {
-			generative.Properties = append(generative.Properties, opts.GetImages().Values...)
+		if opts.GetImageProperties() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImageProperties().Values...)
 		}
 		generative.Options = p.anthropic(opts)
 		p.providerName = anthropicParams.Name
@@ -99,8 +99,8 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 		p.providerName = anyscaleParams.Name
 	case *pb.GenerativeProvider_Aws:
 		opts := query.GetAws()
-		if opts.GetImages() != nil {
-			generative.Properties = append(generative.Properties, opts.GetImages().Values...)
+		if opts.GetImageProperties() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImageProperties().Values...)
 		}
 		generative.Options = p.aws(opts)
 		p.providerName = awsParams.Name
@@ -115,15 +115,15 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 		p.providerName = ollamaParams.Name
 	case *pb.GenerativeProvider_Openai:
 		opts := query.GetOpenai()
-		if opts.GetImages() != nil {
-			generative.Properties = append(generative.Properties, opts.GetImages().Values...)
+		if opts.GetImageProperties() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImageProperties().Values...)
 		}
 		generative.Options = p.openai(opts)
 		p.providerName = openaiParams.Name
 	case *pb.GenerativeProvider_Google:
 		opts := query.GetGoogle()
-		if opts.GetImages() != nil {
-			generative.Properties = append(generative.Properties, opts.GetImages().Values...)
+		if opts.GetImageProperties() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImageProperties().Values...)
 		}
 		generative.Options = p.google(opts)
 		p.providerName = googleParams.Name
@@ -149,9 +149,9 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 	}
 	if req.Grouped != nil {
 		generative.Task = &req.Grouped.Task
-		p.extractFromQuery(&generative, req.Grouped.Queries) // populates generative.Properties with any values in provider.Images (if supported)
+		p.extractFromQuery(&generative, req.Grouped.Queries) // populates generative.Properties with any values in provider.ImageProperties (if supported)
 		if len(generative.Properties) == 0 && len(req.Grouped.GetProperties().GetValues()) == 0 {
-			// if users do not supply a properties, all properties need to be extracted
+			// if users do not supply any properties, all properties need to be extracted
 			generative.PropertiesToExtract = append(generative.PropertiesToExtract, schema.GetPropertyNamesFromClass(class, false)...)
 		} else {
 			generative.Properties = append(generative.Properties, req.Grouped.Properties.GetValues()...)
@@ -167,14 +167,15 @@ func (p *Parser) anthropic(in *pb.GenerativeAnthropic) map[string]any {
 	}
 	return map[string]any{
 		anthropicParams.Name: anthropicParams.Params{
-			BaseURL:       in.GetBaseUrl(),
-			Model:         in.GetModel(),
-			Temperature:   in.Temperature,
-			MaxTokens:     p.int64ToInt(in.MaxTokens),
-			StopSequences: in.StopSequences.GetValues(),
-			TopP:          in.TopP,
-			TopK:          p.int64ToInt(in.TopK),
-			Images:        p.getImages(in.Images),
+			BaseURL:         in.GetBaseUrl(),
+			Model:           in.GetModel(),
+			Temperature:     in.Temperature,
+			MaxTokens:       p.int64ToInt(in.MaxTokens),
+			StopSequences:   in.StopSequences.GetValues(),
+			TopP:            in.TopP,
+			TopK:            p.int64ToInt(in.TopK),
+			Images:          p.getStringPtrs(in.Images),
+			ImageProperties: p.getStrings(in.ImageProperties),
 		},
 	}
 }
@@ -198,14 +199,15 @@ func (p *Parser) aws(in *pb.GenerativeAWS) map[string]any {
 	}
 	return map[string]any{
 		awsParams.Name: awsParams.Params{
-			Service:       in.GetService(),
-			Region:        in.GetRegion(),
-			Endpoint:      in.GetEndpoint(),
-			TargetModel:   in.GetTargetModel(),
-			TargetVariant: in.GetTargetVariant(),
-			Model:         in.GetModel(),
-			Temperature:   in.Temperature,
-			Images:        p.getImages(in.Images),
+			Service:         in.GetService(),
+			Region:          in.GetRegion(),
+			Endpoint:        in.GetEndpoint(),
+			TargetModel:     in.GetTargetModel(),
+			TargetVariant:   in.GetTargetVariant(),
+			Model:           in.GetModel(),
+			Temperature:     in.Temperature,
+			Images:          p.getStringPtrs(in.Images),
+			ImageProperties: p.getStrings(in.ImageProperties),
 		},
 	}
 }
@@ -250,10 +252,11 @@ func (p *Parser) ollama(in *pb.GenerativeOllama) map[string]any {
 	}
 	return map[string]any{
 		ollamaParams.Name: ollamaParams.Params{
-			ApiEndpoint: in.GetApiEndpoint(),
-			Model:       in.GetModel(),
-			Temperature: in.Temperature,
-			Images:      p.getImages(in.Images),
+			ApiEndpoint:     in.GetApiEndpoint(),
+			Model:           in.GetModel(),
+			Temperature:     in.Temperature,
+			Images:          p.getStringPtrs(in.Images),
+			ImageProperties: p.getStrings(in.ImageProperties),
 		},
 	}
 }
@@ -277,7 +280,8 @@ func (p *Parser) openai(in *pb.GenerativeOpenAI) map[string]any {
 			Stop:             in.Stop.GetValues(),
 			Temperature:      in.Temperature,
 			TopP:             in.TopP,
-			Images:           p.getImages(in.Images),
+			Images:           p.getStringPtrs(in.Images),
+			ImageProperties:  p.getStrings(in.ImageProperties),
 		},
 	}
 }
@@ -300,7 +304,8 @@ func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 			StopSequences:    in.StopSequences.GetValues(),
 			PresencePenalty:  in.PresencePenalty,
 			FrequencyPenalty: in.FrequencyPenalty,
-			Images:           p.getImages(in.Images),
+			Images:           p.getStringPtrs(in.Images),
+			ImageProperties:  p.getStrings(in.ImageProperties),
 		},
 	}
 }
@@ -342,7 +347,18 @@ func (p *Parser) friendliai(in *pb.GenerativeFriendliAI) map[string]any {
 	}
 }
 
-func (p *Parser) getImages(in *pb.TextArray) []string {
+func (p *Parser) getStringPtrs(in *pb.TextArray) []*string {
+	if in != nil && len(in.Values) > 0 {
+		vals := make([]*string, len(in.Values))
+		for i, v := range in.Values {
+			vals[i] = &v
+		}
+		return vals
+	}
+	return nil
+}
+
+func (p *Parser) getStrings(in *pb.TextArray) []string {
 	if in != nil && len(in.Values) > 0 {
 		return in.Values
 	}
