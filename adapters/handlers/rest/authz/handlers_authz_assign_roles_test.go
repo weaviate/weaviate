@@ -44,7 +44,7 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 		},
 	}
 
-	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users(params.ID)[0]).Return(nil)
+	authorizer.On("Authorize", principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(params.ID)[0]).Return(nil)
 	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
 	controller.On("AddRolesForUser", conv.PrefixUserName(params.ID), params.Body.Roles).Return(nil)
 
@@ -136,7 +136,7 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 			controller := mocks.NewControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, mock.Anything, mock.Anything).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, mock.Anything, mock.Anything).Return(nil)
 
 			if tt.callToGetRole {
 				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
@@ -362,7 +362,7 @@ func TestAssignRoleToUserForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -498,7 +498,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			controller := mocks.NewControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
 			if tt.getRolesErr == nil {
