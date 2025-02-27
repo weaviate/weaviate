@@ -57,6 +57,21 @@ func (m *Memtable) Delete(key uint64, values []uint64) {
 	}
 }
 
+func (m *Memtable) Clone() *Memtable {
+	clone := &Memtable{logger: m.logger}
+	clone.additions = make(map[uint64]uint64, len(m.additions))
+	clone.deletions = make(map[uint64]struct{}, len(m.deletions))
+
+	for k := range m.additions {
+		clone.additions[k] = m.additions[k]
+	}
+	for k := range m.deletions {
+		clone.deletions[k] = m.deletions[k]
+	}
+
+	return clone
+}
+
 func (m *Memtable) Nodes() []*MemtableNode {
 	if len(m.additions) == 0 && len(m.deletions) == 0 {
 		return []*MemtableNode{}
