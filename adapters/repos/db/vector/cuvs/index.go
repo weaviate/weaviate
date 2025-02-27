@@ -647,7 +647,7 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 	for i := range neighborsSlice[0] {
 		// neighborsResultSlice[i] = index.idCuvsIdMap[neighborsSlice[0][i]]
 		exists := false
-		println("neighborsSlice[0][i]:", neighborsSlice[0][i])
+		// println("neighborsSlice[0][i]:", neighborsSlice[0][i])
 		// t_id, _ := index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i])
 
 		neighborsResultSlice[i], exists = index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i])

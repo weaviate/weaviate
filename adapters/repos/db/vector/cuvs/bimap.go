@@ -11,8 +11,6 @@
 
 package cuvs_index
 
-import "fmt"
-
 type (
 	weaviateId = uint64
 	cuvsId     = uint32
@@ -41,22 +39,18 @@ func (b *BiMap) Insert(CuvsId cuvsId, WeaviateId weaviateId) {
 		delete(b.forward, oldKey)
 	}
 
-	fmt.Println("Inserting pair (cuvs->weaviate): ", CuvsId, " -> ", WeaviateId)
-
 	b.forward[CuvsId] = WeaviateId
 	b.backward[WeaviateId] = CuvsId
 }
 
 // Get value by key
 func (b *BiMap) GetWeaviateId(cuvsId cuvsId) (weaviateId, bool) {
-	fmt.Println("Getting Weaviate id for cuvs id: ", cuvsId)
 	value, exists := b.forward[cuvsId]
 	return value, exists
 }
 
 // Get key by value
 func (b *BiMap) GetCuvsId(WeaviateId weaviateId) (cuvsId, bool) {
-	fmt.Println("Getting cuvs id for Weaviate id: ", WeaviateId)
 	key, exists := b.backward[WeaviateId]
 	return key, exists
 }
