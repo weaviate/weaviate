@@ -201,6 +201,39 @@ func TestMemtable(t *testing.T) {
 		assert.True(t, nodeNN.Additions.IsEmpty())
 		assert.ElementsMatch(t, []uint64{11, 22, 33, 44}, nodeNN.Deletions.ToArray())
 	})
+
+	t.Run("cloned memtable is not mutated", func(t *testing.T) {
+		assertSameNodes := func(t *testing.T, expNodes, nodes []*MemtableNode) {
+			require.NotNil(t, nodes)
+			require.Len(t, nodes, len(expNodes))
+			for i := range expNodes {
+				assert.Equal(t, expNodes[i].Key, nodes[i].Key)
+				assert.ElementsMatch(t, expNodes[i].Additions.ToArray(), nodes[i].Additions.ToArray())
+				assert.ElementsMatch(t, expNodes[i].Deletions.ToArray(), nodes[i].Deletions.ToArray())
+			}
+		}
+
+		m := NewMemtable(logger)
+		m.Insert(1, []uint64{11, 21, 31})
+		m.Insert(2, []uint64{12, 22, 32})
+		m.Insert(3, []uint64{13, 23, 33})
+		m.Delete(4, []uint64{14, 24, 34})
+		m.Delete(5, []uint64{15, 25, 35})
+		mNodes := m.Nodes()
+
+		c := m.Clone()
+		cNodes := c.Nodes()
+
+		assertSameNodes(t, mNodes, cNodes)
+
+		m.Insert(13, []uint64{113, 213, 313})
+		m.Delete(14, []uint64{114, 214, 314})
+		mNodes2 := m.Nodes()
+		cNodes2 := c.Nodes()
+
+		assert.NotEqual(t, len(mNodes), len(mNodes2))
+		assertSameNodes(t, cNodes, cNodes2)
+	})
 }
 
 func BenchmarkMemtableInsert(b *testing.B) {
