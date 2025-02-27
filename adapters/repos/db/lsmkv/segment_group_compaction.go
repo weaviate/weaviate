@@ -319,6 +319,27 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			return false, err
 		}
 	case segmentindex.StrategyInverted:
+		if os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") == "true" {
+			segmentConfig := segmentConfig{
+				mmapContents:             sg.mmapContents,
+				useBloomFilter:           false,
+				calcCountNetAdditions:    sg.calcCountNetAdditions,
+				overwriteDerived:         false,
+				enableChecksumValidation: true,
+			}
+			ok, err := convertMapCollectionSegment(leftSegment, rightSegment, sg, f, level, secondaryIndices, cleanupTombstones, pathLabel, segmentConfig)
+			// only log errors and proceed with the next compaction
+			if err != nil {
+				sg.logger.WithError(err).Error("failed to convert map collection segment")
+			}
+
+			// only log and proceed with the next compaction
+			if ok {
+				sg.logger.WithField("action", "segment_conversion").Infof("Segment %q converted successfully", path)
+			}
+
+		}
+
 		c := newCompactorInverted(f,
 			leftSegment.newInvertedCursorReusable(),
 			rightSegment.newInvertedCursorReusable(),
@@ -332,6 +353,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		if err := c.do(); err != nil {
 			return false, err
 		}
+
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
 	}
@@ -348,6 +370,52 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		return false, errors.Wrap(err, "replace compacted segments")
 	}
 
+	return true, nil
+}
+
+func convertMapCollectionSegment(leftSegment *segment, rightSegment *segment, sg *SegmentGroup, f *os.File, level uint16, secondaryIndices uint16, cleanupTombstones bool, pathLabel string, segmentConfig segmentConfig) (bool, error) {
+	leftSegmentMapPath := leftSegment.path + ".mapcollection"
+	rightSegmentMapPath := rightSegment.path + ".mapcollection"
+
+	// if both files exist
+	if _, err := os.Stat(leftSegmentMapPath); err != nil {
+		return false, errors.Wrap(err, "left segment mapcollection file does not exist")
+	}
+
+	if _, err := os.Stat(rightSegmentMapPath); err != nil {
+		return false, errors.Wrap(err, "right segment mapcollection file does not exist")
+	}
+
+	// both files exist, we can proceed with the migration
+
+	leftSegmentMap, err := newSegment(leftSegmentMapPath, sg.logger, nil, nil, segmentConfig)
+	if err != nil {
+		return false, errors.Wrap(err, "create left segment mapcollection")
+	}
+
+	rightSegmentMap, err := newSegment(rightSegmentMapPath, sg.logger, nil, nil, segmentConfig)
+	if err != nil {
+		return false, errors.Wrap(err, "create right segment mapcollection")
+	}
+
+	scratchSpacePath := rightSegmentMap.path + "compaction.scratch.d"
+
+	c := newCompactorMapCollection(f,
+		leftSegmentMap.newCollectionCursorReusable(),
+		rightSegmentMap.newCollectionCursorReusable(),
+		level, secondaryIndices, scratchSpacePath,
+		sg.mapRequiresSorting, cleanupTombstones,
+		sg.enableChecksumValidation)
+
+	if sg.metrics != nil {
+		sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
+		defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
+	}
+
+	if err := c.do(); err != nil {
+		return false, err
+	}
+	sg.logger.WithField("action", "migration").Infof("Map collection segment converted successfully from %q to %q", leftSegment.path, rightSegment.path)
 	return true, nil
 }
 

@@ -64,9 +64,11 @@ func (m *Memtable) flush() error {
 			segmentindex.WithBufferedWriter(bufw),
 			segmentindex.WithChecksumsDisabled(!m.enableChecksumValidation),
 		)
+		m.strategy = StrategyMapCollection
 		if keys, err = m.flushDataMap(segmentFile); err != nil {
 			return err
 		}
+		m.strategy = StrategyInverted
 		indexes := &segmentindex.Indexes{
 			Keys:                keys,
 			SecondaryIndexCount: m.secondaryIndices,
