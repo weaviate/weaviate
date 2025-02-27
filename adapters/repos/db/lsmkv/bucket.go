@@ -178,11 +178,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		haltedFlushTimer:      interval.NewBackoffTimer(),
 	}
 
-	if b.strategy == StrategyInverted && os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") == "true" {
-		b.forceCompaction = true
-		b.segmentsCleanupInterval = 1 * time.Second
-	}
-
 	for _, opt := range opts {
 		if err := opt(b); err != nil {
 			return nil, err
