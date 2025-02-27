@@ -35,8 +35,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	scheduler *queue.Scheduler,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (_ *Shard, err error) {
-	promMetrics.StartLoadingShard(class.Class)
-	defer promMetrics.FinishLoadingShard(class.Class)
+	promMetrics.StartLoadingShard()
+	defer promMetrics.FinishLoadingShard()
 
 	before := time.Now()
 

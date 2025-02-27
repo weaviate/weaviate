@@ -101,10 +101,10 @@ type PrometheusMetrics struct {
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
-	ShardsLoaded    *prometheus.GaugeVec
-	ShardsUnloaded  *prometheus.GaugeVec
-	ShardsLoading   *prometheus.GaugeVec
-	ShardsUnloading *prometheus.GaugeVec
+	ShardsLoaded    prometheus.Gauge
+	ShardsUnloaded  prometheus.Gauge
+	ShardsLoading   prometheus.Gauge
+	ShardsUnloading prometheus.Gauge
 
 	// RAFT-based schema metrics
 	SchemaWrites         *prometheus.SummaryVec
@@ -618,22 +618,22 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}, []string{"backend_name", "class_name"}),
 
 		// Shard metrics
-		ShardsLoaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_loaded",
 			Help: "Number of shards loaded",
-		}, []string{"class_name"}),
-		ShardsUnloaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		}),
+		ShardsUnloaded: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_unloaded",
 			Help: "Number of shards on not loaded",
-		}, []string{"class_name"}),
-		ShardsLoading: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		}),
+		ShardsLoading: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_loading",
 			Help: "Number of shards in process of loading",
-		}, []string{"class_name"}),
-		ShardsUnloading: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		}),
+		ShardsUnloading: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_unloading",
 			Help: "Number of shards in process of unloading",
-		}, []string{"class_name"}),
+		}),
 
 		// Schema TX-metrics. Can be removed when RAFT is ready
 		SchemaTxOpened: promauto.NewCounterVec(prometheus.CounterOpts{
