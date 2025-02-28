@@ -246,8 +246,10 @@ func (h *hnsw) restoreDocMappings() error {
 	h.Unlock()
 	if h.compressed.Load() {
 		h.compressor.GrowMultiCache(maxDocID)
+		h.compressor.GrowCache(maxNodeID)
 	} else {
 		h.cache.GrowMultiCache(maxDocID)
+		h.cache.Grow(maxNodeID)
 	}
 	return nil
 }
