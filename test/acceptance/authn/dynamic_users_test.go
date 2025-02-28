@@ -87,3 +87,46 @@ func TestCreateUser(t *testing.T) {
 		helper.DeleteUser(t, userName, adminKey)
 	})
 }
+
+func TestWithStaticUser(t *testing.T) {
+	adminKey := "admin-key"
+	adminUser := "admin-user"
+
+	otherKey := "custom-key"
+	otherUser := "custom-user"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).Start(ctx)
+	require.Nil(t, err)
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
+
+	t.Run("create with existing static user name", func(t *testing.T) {
+		resp, err := helper.Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(otherUser), helper.CreateAuth(adminKey))
+		require.Error(t, err)
+		require.Nil(t, resp)
+		var parsed *users.CreateUserConflict
+		require.True(t, errors.As(err, &parsed))
+	})
+
+	t.Run("delete existing static user name", func(t *testing.T) {
+		resp, err := helper.Client(t).Users.DeleteUser(users.NewDeleteUserParams().WithUserID(otherUser), helper.CreateAuth(adminKey))
+		require.Error(t, err)
+		require.Nil(t, resp)
+		var parsed *users.DeleteUserUnprocessableEntity
+		require.True(t, errors.As(err, &parsed))
+	})
+
+	t.Run("rotate existing static user name", func(t *testing.T) {
+		resp, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(otherUser), helper.CreateAuth(adminKey))
+		require.Error(t, err)
+		require.Nil(t, resp)
+		var parsed *users.RotateUserAPIKeyUnprocessableEntity
+		require.True(t, errors.As(err, &parsed))
+	})
+}

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user/mocks"
@@ -28,7 +30,7 @@ import (
 	authzMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
-func TestBadRequest(t *testing.T) {
+func TestCreateUnprocessableEntity(t *testing.T) {
 	principal := &models.Principal{}
 	tests := []struct {
 		name   string
@@ -49,7 +51,7 @@ func TestBadRequest(t *testing.T) {
 			}
 
 			res := h.createUser(users.CreateUserParams{UserID: tt.userId}, principal)
-			parsed, ok := res.(*users.CreateUserBadRequest)
+			parsed, ok := res.(*users.CreateUserUnprocessableEntity)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
 		})
@@ -99,22 +101,37 @@ func TestCreateInternalServerError(t *testing.T) {
 }
 
 func TestCreateConflict(t *testing.T) {
-	principal := &models.Principal{}
-
-	authorizer := authzMocks.NewAuthorizer(t)
-	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
-	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
-	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
-
-	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer,
+	tests := []struct {
+		name     string
+		rbacConf config.APIKey
+	}{
+		{name: "no rbac conf", rbacConf: config.APIKey{}},
+		{name: "enabled rbac conf", rbacConf: config.APIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}}},
 	}
 
-	res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
-	parsed, ok := res.(*users.CreateUserConflict)
-	assert.True(t, ok)
-	assert.NotNil(t, parsed)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{}
+
+			authorizer := authzMocks.NewAuthorizer(t)
+			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+			authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
+			if !tt.rbacConf.Enabled {
+				dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
+			}
+
+			h := dynUserHandler{
+				dynamicUser:          dynUser,
+				authorizer:           authorizer,
+				staticApiKeysConfigs: tt.rbacConf,
+			}
+
+			res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
+			parsed, ok := res.(*users.CreateUserConflict)
+			assert.True(t, ok)
+			assert.NotNil(t, parsed)
+		})
+	}
 }
 
 func TestCreateSuccess(t *testing.T) {

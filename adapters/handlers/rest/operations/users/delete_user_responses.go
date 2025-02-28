@@ -49,6 +49,51 @@ func (o *DeleteUserNoContent) WriteResponse(rw http.ResponseWriter, producer run
 	rw.WriteHeader(204)
 }
 
+// DeleteUserBadRequestCode is the HTTP code returned for type DeleteUserBadRequest
+const DeleteUserBadRequestCode int = 400
+
+/*
+DeleteUserBadRequest Malformed request.
+
+swagger:response deleteUserBadRequest
+*/
+type DeleteUserBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewDeleteUserBadRequest creates DeleteUserBadRequest with default headers values
+func NewDeleteUserBadRequest() *DeleteUserBadRequest {
+
+	return &DeleteUserBadRequest{}
+}
+
+// WithPayload adds the payload to the delete user bad request response
+func (o *DeleteUserBadRequest) WithPayload(payload *models.ErrorResponse) *DeleteUserBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the delete user bad request response
+func (o *DeleteUserBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *DeleteUserBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // DeleteUserUnauthorizedCode is the HTTP code returned for type DeleteUserUnauthorized
 const DeleteUserUnauthorizedCode int = 401
 
@@ -111,6 +156,51 @@ func (o *DeleteUserForbidden) SetPayload(payload *models.ErrorResponse) {
 func (o *DeleteUserForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// DeleteUserUnprocessableEntityCode is the HTTP code returned for type DeleteUserUnprocessableEntity
+const DeleteUserUnprocessableEntityCode int = 422
+
+/*
+DeleteUserUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+
+swagger:response deleteUserUnprocessableEntity
+*/
+type DeleteUserUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewDeleteUserUnprocessableEntity creates DeleteUserUnprocessableEntity with default headers values
+func NewDeleteUserUnprocessableEntity() *DeleteUserUnprocessableEntity {
+
+	return &DeleteUserUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the delete user unprocessable entity response
+func (o *DeleteUserUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *DeleteUserUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the delete user unprocessable entity response
+func (o *DeleteUserUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *DeleteUserUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

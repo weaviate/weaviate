@@ -233,7 +233,7 @@ func (o *CreateUserConflict) WriteResponse(rw http.ResponseWriter, producer runt
 const CreateUserUnprocessableEntityCode int = 422
 
 /*
-CreateUserUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+CreateUserUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
 
 swagger:response createUserUnprocessableEntity
 */

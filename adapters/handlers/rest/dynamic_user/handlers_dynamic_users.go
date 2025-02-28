@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -30,8 +32,9 @@ import (
 )
 
 type dynUserHandler struct {
-	authorizer  authorization.Authorizer
-	dynamicUser DynamicUserAndRolesGetter
+	authorizer           authorization.Authorizer
+	dynamicUser          DynamicUserAndRolesGetter
+	staticApiKeysConfigs config.APIKey
 }
 
 type DynamicUserAndRolesGetter interface {
@@ -47,11 +50,12 @@ const (
 
 var validateUserNameRegex = regexp.MustCompile(`^` + userNameRegexCore + `$`)
 
-func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, staticApiKeysConfigs config.APIKey, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
-		authorizer:  authorizer,
-		dynamicUser: dynamicUser,
+		authorizer:           authorizer,
+		dynamicUser:          dynamicUser,
+		staticApiKeysConfigs: staticApiKeysConfigs,
 	}
 
 	api.UsersCreateUserHandler = users.CreateUserHandlerFunc(h.createUser)
@@ -89,11 +93,15 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
 	if err := validateUserName(params.UserID); err != nil {
-		return users.NewCreateUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if h.staticUserExists(params.UserID) {
+		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v already exists", params.UserID)))
 	}
 
 	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
@@ -144,6 +152,10 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	if h.staticUserExists(params.UserID) {
+		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+	}
+
 	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
 	if err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
@@ -170,6 +182,10 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	if h.staticUserExists(params.UserID) {
+		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+	}
+
 	roles, err := h.dynamicUser.GetRolesForUser(params.UserID)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -189,6 +205,17 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 	return users.NewDeleteUserNoContent()
+}
+
+func (h *dynUserHandler) staticUserExists(newUser string) bool {
+	if h.staticApiKeysConfigs.Enabled {
+		for _, staticUser := range h.staticApiKeysConfigs.Users {
+			if staticUser == newUser {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // validateRoleName validates that this string is a valid role name (format wise)

@@ -15,6 +15,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/stretchr/testify/assert"
@@ -113,5 +115,23 @@ func TestRotateForbidden(t *testing.T) {
 
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
 	_, ok := res.(*users.RotateUserAPIKeyForbidden)
+	assert.True(t, ok)
+}
+
+func TestRotateUnprocessableEntity(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
+
+	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+
+	h := dynUserHandler{
+		dynamicUser:          dynUser,
+		authorizer:           authorizer,
+		staticApiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
+	}
+
+	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
+	_, ok := res.(*users.RotateUserAPIKeyUnprocessableEntity)
 	assert.True(t, ok)
 }

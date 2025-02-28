@@ -417,7 +417,7 @@ func NewCreateUserUnprocessableEntity() *CreateUserUnprocessableEntity {
 /*
 CreateUserUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
 */
 type CreateUserUnprocessableEntity struct {
 	Payload *models.ErrorResponse

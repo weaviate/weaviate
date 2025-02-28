@@ -15,6 +15,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
@@ -58,5 +60,23 @@ func TestDeleteForbidden(t *testing.T) {
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
 	_, ok := res.(*users.DeleteUserForbidden)
+	assert.True(t, ok)
+}
+
+func TestDeleteUnprocessableEntity(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
+
+	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+
+	h := dynUserHandler{
+		dynamicUser:          dynUser,
+		authorizer:           authorizer,
+		staticApiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
+	}
+
+	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
+	_, ok := res.(*users.DeleteUserUnprocessableEntity)
 	assert.True(t, ok)
 }

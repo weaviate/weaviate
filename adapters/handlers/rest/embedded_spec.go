@@ -4194,7 +4194,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4229,11 +4229,23 @@ func init() {
           "204": {
             "description": "Successfully deleted."
           },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11187,7 +11199,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11222,11 +11234,23 @@ func init() {
           "204": {
             "description": "Successfully deleted."
           },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
