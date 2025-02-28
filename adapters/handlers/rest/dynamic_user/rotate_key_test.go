@@ -118,7 +118,7 @@ func TestRotateForbidden(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestRotateBadRequest(t *testing.T) {
+func TestRotateUnprocessableEntity(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
@@ -132,6 +132,6 @@ func TestRotateBadRequest(t *testing.T) {
 	}
 
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
-	_, ok := res.(*users.RotateUserAPIKeyBadRequest)
+	_, ok := res.(*users.RotateUserAPIKeyUnprocessableEntity)
 	assert.True(t, ok)
 }

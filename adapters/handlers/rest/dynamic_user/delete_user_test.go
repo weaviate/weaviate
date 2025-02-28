@@ -63,7 +63,7 @@ func TestDeleteForbidden(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestDeleteBadRequest(t *testing.T) {
+func TestDeleteUnprocessableEntity(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
@@ -77,6 +77,6 @@ func TestDeleteBadRequest(t *testing.T) {
 	}
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
-	_, ok := res.(*users.DeleteUserBadRequest)
+	_, ok := res.(*users.DeleteUserUnprocessableEntity)
 	assert.True(t, ok)
 }

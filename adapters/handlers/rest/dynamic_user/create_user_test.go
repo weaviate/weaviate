@@ -30,7 +30,7 @@ import (
 	authzMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
-func TestBadRequest(t *testing.T) {
+func TestCreateUnprocessableEntity(t *testing.T) {
 	principal := &models.Principal{}
 	tests := []struct {
 		name   string
@@ -51,7 +51,7 @@ func TestBadRequest(t *testing.T) {
 			}
 
 			res := h.createUser(users.CreateUserParams{UserID: tt.userId}, principal)
-			parsed, ok := res.(*users.CreateUserBadRequest)
+			parsed, ok := res.(*users.CreateUserUnprocessableEntity)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
 		})

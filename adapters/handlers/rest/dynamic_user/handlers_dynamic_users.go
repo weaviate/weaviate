@@ -93,7 +93,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
 	if err := validateUserName(params.UserID); err != nil {
-		return users.NewCreateUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Users(params.UserID)...); err != nil {
@@ -153,7 +153,7 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 	}
 
 	if h.staticUserExists(params.UserID) {
-		return users.NewRotateUserAPIKeyBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
 	}
 
 	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
@@ -183,7 +183,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 	}
 
 	if h.staticUserExists(params.UserID) {
-		return users.NewDeleteUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
 	}
 
 	roles, err := h.dynamicUser.GetRolesForUser(params.UserID)
