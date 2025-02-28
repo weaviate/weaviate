@@ -117,8 +117,9 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 				t.Run("create a tweet using grpc", func(t *testing.T) {
 					planets.CreateTweetTestGRPC(t, class.Class)
 				})
-				t.Run("create a tweet with params using grpc", func(t *testing.T) {
-					openaiParams := &pb.GenerativeOpenAI{
+
+				params := func() *pb.GenerativeOpenAI {
+					params := &pb.GenerativeOpenAI{
 						MaxTokens:        grpchelper.ToPtr(int64(90)),
 						Model:            tt.generativeModel,
 						Temperature:      grpchelper.ToPtr(0.9),
@@ -128,12 +129,17 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 						PresencePenalty:  grpchelper.ToPtr(0.9),
 					}
 					if tt.absentModuleConfig {
-						openaiParams.BaseUrl = grpchelper.ToPtr("https://api.openai.com")
+						params.BaseUrl = grpchelper.ToPtr("https://api.openai.com")
 					}
-					params := &pb.GenerativeProvider_Openai{
-						Openai: openaiParams,
-					}
-					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
+					return params
+				}
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
+						ReturnMetadata: true,
+						Kind: &pb.GenerativeProvider_Openai{
+							Openai: params(),
+						},
+					})
 				})
 				if tt.withImages {
 					t.Run("image prompt", func(t *testing.T) {
@@ -142,23 +148,45 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 							params := "openai:{imageProperties:\"image\"}"
 							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
 						})
-						t.Run("grpc", func(t *testing.T) {
-							singlePrompt := "Give a short answer: What's on the image?"
-							groupPrompt := "Give a short answer: What are on the following images?"
-							openaiParams := &pb.GenerativeOpenAI{
-								MaxTokens:       grpchelper.ToPtr(int64(90)),
-								Model:           tt.generativeModel,
-								Temperature:     grpchelper.ToPtr(0.9),
-								N:               grpchelper.ToPtr(int64(90)),
-								TopP:            grpchelper.ToPtr(0.9),
-								ImageProperties: &pb.TextArray{Values: []string{"image"}},
-							}
-							if tt.absentModuleConfig {
-								openaiParams.BaseUrl = grpchelper.ToPtr("https://api.openai.com")
-							}
+
+						singlePrompt := "Give a short answer: What's on the image?"
+						groupPrompt := "Give a short answer: What are on the following images?"
+
+						t.Run("grpc server stored images", func(t *testing.T) {
+							params := params()
+							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
 							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
 								ReturnMetadata: true,
-								Kind:           &pb.GenerativeProvider_Openai{Openai: openaiParams},
+								Kind:           &pb.GenerativeProvider_Openai{Openai: params},
+							})
+						})
+
+						t.Run("grpc user provided images", func(t *testing.T) {
+							earth, err := planets.GetImageBlob(dataFolderPath, "earth")
+							require.NoError(t, err)
+							mars, err := planets.GetImageBlob(dataFolderPath, "mars")
+							require.NoError(t, err)
+
+							params := params()
+							params.Images = &pb.TextArray{Values: []string{earth, mars}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Openai{Openai: params},
+							})
+						})
+
+						t.Run("grpc mixed images", func(t *testing.T) {
+							earth, err := planets.GetImageBlob(dataFolderPath, "earth")
+							require.NoError(t, err)
+							mars, err := planets.GetImageBlob(dataFolderPath, "mars")
+							require.NoError(t, err)
+
+							params := params()
+							params.Images = &pb.TextArray{Values: []string{earth, mars}}
+							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Openai{Openai: params},
 							})
 						})
 					})

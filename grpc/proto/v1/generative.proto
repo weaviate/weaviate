@@ -56,7 +56,7 @@ message GenerativeAnthropic{
   optional double top_p = 6;
   optional TextArray stop_sequences = 7;
   optional TextArray images = 8;
-  optional TextArray image_properties = 15;
+  optional TextArray image_properties = 9;
 }
 
 message GenerativeAnyscale{
@@ -140,7 +140,7 @@ message GenerativeGoogle{
   optional string endpoint_id = 11;
   optional string region = 12;
   optional TextArray images = 13;
-  optional TextArray image_properties = 15;
+  optional TextArray image_properties = 14;
 }
 
 message GenerativeDatabricks{

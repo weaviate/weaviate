@@ -299,10 +299,10 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params) (gener
 				Text: prompt,
 			})
 			for i := range params.Images {
-				url := contentImageURL{URL: fmt.Sprintf("data:image/jpeg;base64,%s", *params.Images[i])}
+				url := fmt.Sprintf("data:image/jpeg;base64,%s", *params.Images[i])
 				imageInput = append(imageInput, contentImage{
 					Type:     "image_url",
-					ImageURL: &url,
+					ImageURL: contentImageURL{URL: &url},
 				})
 			}
 			content = imageInput
@@ -451,12 +451,12 @@ type contentText struct {
 }
 
 type contentImage struct {
-	Type     string           `json:"type"`
-	ImageURL *contentImageURL `json:"image_url,omitempty"`
+	Type     string          `json:"type"`
+	ImageURL contentImageURL `json:"image_url,omitempty"`
 }
 
 type contentImageURL struct {
-	URL string `json:"url"`
+	URL *string `json:"url"`
 }
 
 type generateResponse struct {
