@@ -213,9 +213,9 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 							singlePrompt := "Describe image"
 							groupPrompt := "Describe the images"
 							aws := &pb.GenerativeAWS{
-								Model:       grpchelper.ToPtr(tt.generativeModel),
-								Temperature: grpchelper.ToPtr(0.9),
-								Images:      &pb.TextArray{Values: []string{"image"}},
+								Model:           grpchelper.ToPtr(tt.generativeModel),
+								Temperature:     grpchelper.ToPtr(0.9),
+								ImageProperties: &pb.TextArray{Values: []string{"image"}},
 							}
 							if tt.absentModuleConfig {
 								aws.Region = grpchelper.ToPtr(region)

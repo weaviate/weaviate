@@ -146,12 +146,12 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 							singlePrompt := "Give a short answer: What's on the image?"
 							groupPrompt := "Give a short answer: What are on the following images?"
 							openaiParams := &pb.GenerativeOpenAI{
-								MaxTokens:   grpchelper.ToPtr(int64(90)),
-								Model:       tt.generativeModel,
-								Temperature: grpchelper.ToPtr(0.9),
-								N:           grpchelper.ToPtr(int64(90)),
-								TopP:        grpchelper.ToPtr(0.9),
-								Images:      &pb.TextArray{Values: []string{"image"}},
+								MaxTokens:       grpchelper.ToPtr(int64(90)),
+								Model:           tt.generativeModel,
+								Temperature:     grpchelper.ToPtr(0.9),
+								N:               grpchelper.ToPtr(int64(90)),
+								TopP:            grpchelper.ToPtr(0.9),
+								ImageProperties: &pb.TextArray{Values: []string{"image"}},
 							}
 							if tt.absentModuleConfig {
 								openaiParams.BaseUrl = grpchelper.ToPtr("https://api.openai.com")

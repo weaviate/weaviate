@@ -212,7 +212,7 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 								TopP:             grpchelper.ToPtr(0.1),
 								FrequencyPenalty: tt.frequencyPenalty,
 								PresencePenalty:  tt.presencePenalty,
-								Images:           &pb.TextArray{Values: []string{"image"}},
+								ImageProperties:  &pb.TextArray{Values: []string{"image"}},
 							}
 							if tt.absentModuleConfig {
 								google.ProjectId = &gcpProject
