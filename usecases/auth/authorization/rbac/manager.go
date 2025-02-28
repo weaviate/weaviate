@@ -12,6 +12,7 @@
 package rbac
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -168,8 +169,12 @@ func (m *manager) DeleteRoles(roles ...string) error {
 // AddRolesFroUser NOTE: user has to be prefixed by user:, group:, key: etc.
 // see func PrefixUserName(user) it will prefix username and nop-op if already prefixed
 func (m *manager) AddRolesForUser(user string, roles []string) error {
+	if !conv.NameHasPrefix(user) {
+		return errors.New("user does not contain a prefix")
+	}
+
 	for _, role := range roles {
-		if _, err := m.casbin.AddRoleForUser(conv.PrefixDefaultToUser(user), conv.PrefixRoleName(role)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(user, conv.PrefixRoleName(role)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 	}
@@ -214,8 +219,12 @@ func (m *manager) GetUsersForRole(roleName string) ([]string, error) {
 }
 
 func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
+	if !conv.NameHasPrefix(userName) {
+		return errors.New("user does not contain a prefix")
+	}
+
 	for _, roleName := range roles {
-		if _, err := m.casbin.DeleteRoleForUser(conv.PrefixDefaultToUser(userName), conv.PrefixRoleName(roleName)); err != nil {
+		if _, err := m.casbin.DeleteRoleForUser(userName, conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("DeleteRoleForUser: %w", err)
 		}
 	}
