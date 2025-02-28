@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -194,6 +195,13 @@ func (s *schema) ReadOnlySchema() models.Schema {
 	}
 
 	return cp
+}
+
+func (s *schema) CollectionsCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.classes)
 }
 
 // ShardOwner returns the node owner of the specified shard

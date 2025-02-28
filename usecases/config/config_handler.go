@@ -23,6 +23,8 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
+
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"gopkg.in/yaml.v2"
 )
 
 // ServerVersion is set when the misc handlers are setup.
@@ -130,6 +131,7 @@ type Config struct {
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
+	MaximumAllowedCollectionsCount      int                      `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?

@@ -19,16 +19,16 @@ import (
 	"reflect"
 	"strings"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/replication"
-
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -134,6 +134,20 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	err = h.invertedConfigValidator(cls.InvertedIndexConfig)
 	if err != nil {
 		return nil, 0, err
+	}
+
+	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount()
+	if err != nil {
+		h.logger.WithField("error", err).Error("could not query the collections count")
+	}
+
+	if h.config.MaximumAllowedCollectionsCount != -1 && existingCollectionsCount >= h.config.MaximumAllowedCollectionsCount {
+		return nil, 0, fmt.Errorf(
+			"cannot create collection: maximum number of collections (%d) reached - "+
+				"please consider switching to multi-tenancy or increasing the collection count limit - "+
+				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
+				"when working with multiple collections and tenants",
+			h.config.MaximumAllowedCollectionsCount)
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
