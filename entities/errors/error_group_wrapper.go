@@ -13,11 +13,11 @@ package errors
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"runtime/debug"
 	"sync"
 	"time"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 
@@ -93,8 +93,10 @@ func (pq *PriorityQueue_s) QueueRunner() {
 	for {
 		if pq.Len() > 0 && running < maxConcurrent {
 			running++
-			fmt.Printf("Running managed threads: %d\n", running)
+
 			item := heap.Pop(pq).(*ErrorGroupWrapper)
+			item.logger.Debugf("Running managed threads: %d\n", running)
+			item.logger.Debugf("Running with priority %d", item.priority)
 			item.goChan <- struct{}{}
 		}
 	}
@@ -194,7 +196,7 @@ func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
 				startTime := started[egw.zone]
 				pqlock.Unlock()
 				endTime := time.Now()
-				fmt.Printf("Zone: %s, Start: %s, End: %s, Duration: %s\n", egw.zone, startTime, endTime, endTime.Sub(startTime))
+				egw.logger.WithField("Zone", egw.zone, "Start", startTime, "End", endTime, "Duration", endTime.Sub(startTime)).Info("Finished")
 			}()
 			egw.logger.Debugf("Running with priority %d", egw.priority)
 			egw.logger.Debugf("Running in zone %s", egw.zone)
@@ -215,7 +217,7 @@ func (egw *ErrorGroupWrapper) GoWithPriority(f func() error, localVars ...interf
 			startTime := started[egw.zone]
 			pqlock.Unlock()
 			endTime := time.Now()
-			fmt.Printf("Zone: %s, Start: %s, End: %s, Duration: %s\n", egw.zone, startTime, endTime, endTime.Sub(startTime))
+			egw.logger.WithField("Zone", egw.zone, "Start", startTime, "End", endTime, "Duration", endTime.Sub(startTime)).Info("Finished")
 		}()
 		egw.logger.Debugf("Running with priority %d", egw.priority)
 		egw.logger.Debugf("Running in zone %s", egw.zone)
