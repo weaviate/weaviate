@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
@@ -196,7 +197,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 			roleNames = append(roleNames, name)
 		}
 
-		if err := h.dynamicUser.RevokeRolesForUser(params.UserID, roleNames...); err != nil {
+		if err := h.dynamicUser.RevokeRolesForUser(conv.PrefixUserName(params.UserID), roleNames...); err != nil {
 			return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 	}

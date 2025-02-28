@@ -24,11 +24,12 @@ import (
 const (
 	// https://casbin.org/docs/rbac/#how-to-distinguish-role-from-user
 	// ROLE_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	ROLE_NAME_PREFIX = "role:"
+	ROLE_NAME_PREFIX = "role" + NAME_PREFIX
 	// USER_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	USER_NAME_PREFIX = "user:"
+	USER_NAME_PREFIX = "user" + NAME_PREFIX
 	// GROUP_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	GROUP_NAME_PREFIX = "group:"
+	GROUP_NAME_PREFIX = "group" + NAME_PREFIX
+	NAME_PREFIX       = ":"
 
 	// CRUD allow all actions on a resource
 	// this is internal for casbin to handle admin actions
@@ -436,11 +437,8 @@ func PrefixGroupName(name string) string {
 	return fmt.Sprintf("%s%s", GROUP_NAME_PREFIX, name)
 }
 
-func PrefixDefaultToUser(name string) string {
-	if strings.HasPrefix(name, GROUP_NAME_PREFIX) {
-		return name
-	}
-	return PrefixUserName(name)
+func NameHasPrefix(name string) bool {
+	return strings.Contains(name, NAME_PREFIX)
 }
 
 func TrimRoleNamePrefix(name string) string {
