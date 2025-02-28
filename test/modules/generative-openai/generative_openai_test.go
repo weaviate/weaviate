@@ -139,7 +139,7 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 					t.Run("image prompt", func(t *testing.T) {
 						t.Run("graphql", func(t *testing.T) {
 							prompt := "Describe image"
-							params := "openai:{images:\"image\"}"
+							params := "openai:{imageProperties:\"image\"}"
 							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
 						})
 						t.Run("grpc", func(t *testing.T) {

@@ -198,7 +198,7 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 					t.Run("image prompt", func(t *testing.T) {
 						t.Run("graphql", func(t *testing.T) {
 							prompt := "Caption image"
-							params := "google:{images:\"image\"}"
+							params := "google:{imageProperties:\"image\"}"
 							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
 						})
 						t.Run("grpc", func(t *testing.T) {

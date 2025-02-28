@@ -206,7 +206,7 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 					t.Run("image prompt", func(t *testing.T) {
 						t.Run("graphql", func(t *testing.T) {
 							prompt := "Caption image"
-							params := "aws:{images:\"image\"}"
+							params := "aws:{imageProperties:\"image\"}"
 							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
 						})
 						t.Run("grpc", func(t *testing.T) {
