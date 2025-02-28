@@ -13,9 +13,10 @@ package dynamic_user
 
 import (
 	"errors"
-	"github.com/weaviate/weaviate/usecases/config"
 	"strings"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
@@ -131,7 +132,6 @@ func TestCreateConflict(t *testing.T) {
 			assert.NotNil(t, parsed)
 		})
 	}
-
 }
 
 func TestCreateSuccess(t *testing.T) {

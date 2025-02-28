@@ -13,8 +13,9 @@ package dynamic_user
 
 import (
 	"errors"
-	"github.com/weaviate/weaviate/usecases/config"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
