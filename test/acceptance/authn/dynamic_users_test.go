@@ -126,7 +126,7 @@ func TestWithStaticUser(t *testing.T) {
 		resp, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(otherUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 		require.Nil(t, resp)
-		var parsed *users.RotateUserAPIKeyBadRequest
+		var parsed *users.RotateUserAPIKeyUnprocessableEntity
 		require.True(t, errors.As(err, &parsed))
 	})
 }
