@@ -118,7 +118,7 @@ func TestWithStaticUser(t *testing.T) {
 		resp, err := helper.Client(t).Users.DeleteUser(users.NewDeleteUserParams().WithUserID(otherUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 		require.Nil(t, resp)
-		var parsed *users.DeleteUserBadRequest
+		var parsed *users.DeleteUserUnprocessableEntity
 		require.True(t, errors.As(err, &parsed))
 	})
 
