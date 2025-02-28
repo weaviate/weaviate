@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+
 	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
@@ -35,6 +37,7 @@ type dynUserHandler struct {
 	authorizer           authorization.Authorizer
 	dynamicUser          DynamicUserAndRolesGetter
 	staticApiKeysConfigs config.APIKey
+	rbacConfig           rbacconf.Config
 }
 
 type DynamicUserAndRolesGetter interface {
@@ -50,12 +53,13 @@ const (
 
 var validateUserNameRegex = regexp.MustCompile(`^` + userNameRegexCore + `$`)
 
-func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, staticApiKeysConfigs config.APIKey, logger logrus.FieldLogger,
+func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, staticApiKeysConfigs config.APIKey, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:           authorizer,
 		dynamicUser:          dynamicUser,
 		staticApiKeysConfigs: staticApiKeysConfigs,
+		rbacConfig:           rbacConfig,
 	}
 
 	api.UsersCreateUserHandler = users.CreateUserHandlerFunc(h.createUser)
@@ -102,6 +106,9 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 
 	if h.staticUserExists(params.UserID) {
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v already exists", params.UserID)))
+	}
+	if h.isRootUser(params.UserID) {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot delete root user")))
 	}
 
 	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
@@ -186,6 +193,10 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
 	}
 
+	if h.isRootUser(params.UserID) {
+		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot delete root user")))
+	}
+
 	roles, err := h.dynamicUser.GetRolesForUser(params.UserID)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -218,6 +229,15 @@ func (h *dynUserHandler) staticUserExists(newUser string) bool {
 	return false
 }
 
+func (h *dynUserHandler) isRootUser(name string) bool {
+	for i := range h.rbacConfig.RootUsers {
+		if h.rbacConfig.RootUsers[i] == name {
+			return true
+		}
+	}
+	return false
+}
+
 // validateRoleName validates that this string is a valid role name (format wise)
 func validateUserName(name string) error {
 	if len(name) > userNameMaxLength {
@@ -228,3 +248,5 @@ func validateUserName(name string) error {
 	}
 	return nil
 }
+
+// validateRootRole validates that enduser do not touch the internal root role
