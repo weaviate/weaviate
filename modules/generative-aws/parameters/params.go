@@ -17,14 +17,15 @@ import (
 )
 
 type Params struct {
-	Service       string
-	Region        string
-	Endpoint      string
-	TargetModel   string
-	TargetVariant string
-	Model         string
-	Temperature   *float64
-	Images        []string
+	Service         string
+	Region          string
+	Endpoint        string
+	TargetModel     string
+	TargetVariant   string
+	Model           string
+	Temperature     *float64
+	Images          []*string
+	ImageProperties []string
 }
 
 func extract(field *ast.ObjectField) interface{} {
@@ -48,7 +49,9 @@ func extract(field *ast.ObjectField) interface{} {
 			case "temperature":
 				out.Temperature = gqlparser.GetValueAsFloat64(f)
 			case "images":
-				out.Images = gqlparser.GetValueAsStringArray(f)
+				out.Images = gqlparser.GetValueAsStringPtrArray(f)
+			case "imageProperties":
+				out.ImageProperties = gqlparser.GetValueAsStringArray(f)
 			default:
 				// do nothing
 			}

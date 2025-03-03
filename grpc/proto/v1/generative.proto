@@ -56,6 +56,7 @@ message GenerativeAnthropic{
   optional double top_p = 6;
   optional TextArray stop_sequences = 7;
   optional TextArray images = 8;
+  optional TextArray image_properties = 9;
 }
 
 message GenerativeAnyscale{
@@ -73,6 +74,7 @@ message GenerativeAWS{
   optional string target_model = 12;
   optional string target_variant = 13;
   optional TextArray images = 14;
+  optional TextArray image_properties = 15;
 }
 
 message GenerativeCohere{
@@ -103,6 +105,7 @@ message GenerativeOllama{
   optional string model = 2;
   optional double temperature = 3;
   optional TextArray images = 4;
+  optional TextArray image_properties = 5;
 }
 
 message GenerativeOpenAI{
@@ -120,6 +123,7 @@ message GenerativeOpenAI{
   optional string deployment_id = 12;
   optional bool is_azure = 13;
   optional TextArray images = 14;
+  optional TextArray image_properties = 15;
 }
 
 message GenerativeGoogle{
@@ -136,6 +140,7 @@ message GenerativeGoogle{
   optional string endpoint_id = 11;
   optional string region = 12;
   optional TextArray images = 13;
+  optional TextArray image_properties = 14;
 }
 
 message GenerativeDatabricks{

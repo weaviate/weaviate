@@ -40,8 +40,8 @@ func Texts(properties []*modulecapabilities.GenerateProperties) []map[string]str
 	return texts
 }
 
-func Blobs(properties []*modulecapabilities.GenerateProperties) []map[string]string {
-	blobs := make([]map[string]string, len(properties))
+func Blobs(properties []*modulecapabilities.GenerateProperties) []map[string]*string {
+	blobs := make([]map[string]*string, 0, len(properties))
 	for _, prop := range properties {
 		if prop != nil && len(prop.Blob) > 0 {
 			blobs = append(blobs, prop.Blob)
@@ -50,24 +50,20 @@ func Blobs(properties []*modulecapabilities.GenerateProperties) []map[string]str
 	return blobs
 }
 
-func ParseImageProperties(inputImages []string, storedImageProperties []map[string]string) []string {
-	if len(inputImages) > 0 && len(storedImageProperties) > 0 {
-		images := make([]string, len(inputImages))
-		for _, imageProperties := range storedImageProperties {
-			if len(imageProperties) == 0 {
-				continue
-			}
-			for i, imageProperty := range inputImages {
-				if image, ok := imageProperties[imageProperty]; ok {
-					images[i] = image // in this case, the image has been retrieved from the DB
-				} else {
-					images[i] = imageProperty // in this case, the image is a base64 supplied in inputImages
-				}
+// ParseImageProperties parses the user-supplied base64 images in inputImages and server-stored base64 images in storedImagePropertiesArray based on the inputImageProperties.
+//
+// It returns a slice of pointers to base64 strings in order to optimise for memory usage when dealing with large images.
+func ParseImageProperties(inputBase64Images []*string, inputImagePropertyNames []string, storedBase64ImagesArray []map[string]*string) []*string {
+	images := []*string{}
+	images = append(images, inputBase64Images...)
+	if len(storedBase64ImagesArray) > 0 {
+		for _, storedBase64Images := range storedBase64ImagesArray {
+			for _, inputImagePropertyName := range inputImagePropertyNames {
+				images = append(images, storedBase64Images[inputImagePropertyName])
 			}
 		}
-		return images
 	}
-	return nil
+	return images
 }
 
 func MakeTaskPrompt(textProperties []map[string]string, task string) (string, error) {

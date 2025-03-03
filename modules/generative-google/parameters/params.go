@@ -29,7 +29,8 @@ type Params struct {
 	StopSequences    []string
 	PresencePenalty  *float64
 	FrequencyPenalty *float64
-	Images           []string
+	Images           []*string
+	ImageProperties  []string
 }
 
 func extract(field *ast.ObjectField) interface{} {
@@ -63,7 +64,9 @@ func extract(field *ast.ObjectField) interface{} {
 			case "frequencyPenalty":
 				out.FrequencyPenalty = gqlparser.GetValueAsFloat64(f)
 			case "images":
-				out.Images = gqlparser.GetValueAsStringArray(f)
+				out.Images = gqlparser.GetValueAsStringPtrArray(f)
+			case "imageProperties":
+				out.ImageProperties = gqlparser.GetValueAsStringArray(f)
 			default:
 				// do nothing
 			}
