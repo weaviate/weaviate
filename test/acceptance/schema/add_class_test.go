@@ -12,10 +12,8 @@
 package test
 
 import (
-	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,7 +21,6 @@ import (
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -455,144 +452,6 @@ func TestUpdateDistanceSettings(t *testing.T) {
 // 	delResp, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
 // 	helper.AssertRequestOk(t, delResp, err, nil)
 
-//		// And verify that the class does not exist anymore.
-//		assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
-//	}
-func TestMaximumAllowedCollectionsCount(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	t.Run("with limit of 1", func(t *testing.T) {
-		// Start a single node with collection limit of 1
-		compose, err := docker.New().WithWeaviateCluster().
-			WithWeaviateEnv("MAXIMUM_ALLOWED_COLLECTIONS_COUNT", "1").
-			Start(ctx)
-		require.Nil(t, err)
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminate test containers: %v", err)
-			}
-		}()
-
-		helper.SetupClient(compose.GetWeaviate().URI())
-		defer helper.ResetClient()
-
-		className := "TestCollection1"
-		c1 := &models.Class{
-			Class:      className,
-			Vectorizer: "none",
-		}
-
-		// First class should succeed
-		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c1)
-		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
-		helper.AssertRequestOk(t, resp, err, nil)
-
-		// Second class should fail
-		className2 := "TestCollection2"
-		c2 := &models.Class{
-			Class:      className2,
-			Vectorizer: "none",
-		}
-
-		params = clschema.NewSchemaObjectsCreateParams().WithObjectClass(c2)
-		resp, err = helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
-		helper.AssertRequestFail(t, resp, err, func() {
-			parsed, ok := err.(*clschema.SchemaObjectsCreateUnprocessableEntity)
-			require.True(t, ok, "error should be unprocessable entity")
-			assert.Contains(t, parsed.Payload.Error[0].Message, "maximum number of collections")
-		})
-	})
-
-	t.Run("with unlimited collections (-1)", func(t *testing.T) {
-		// Start a single node with unlimited collections
-		compose, err := docker.New().WithWeaviateCluster().
-			WithWeaviateEnv("MAXIMUM_ALLOWED_COLLECTIONS_COUNT", "-1").
-			Start(ctx)
-		require.Nil(t, err)
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminate test containers: %v", err)
-			}
-		}()
-
-		helper.SetupClient(compose.GetWeaviate().URI())
-		defer helper.ResetClient()
-
-		// Create multiple classes (more than default limit)
-		classNames := []string{}
-		for i := 0; i < 102; i++ {
-			className := fmt.Sprintf("TestCollection_%d", i)
-			classNames = append(classNames, className)
-
-			c := &models.Class{
-				Class:      className,
-				Vectorizer: "none",
-			}
-
-			params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
-			resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
-			helper.AssertRequestOk(t, resp, err, nil)
-		}
-
-		// Verify all classes exist
-		for _, className := range classNames {
-			assert.Contains(t, GetObjectClassNames(t), className)
-		}
-	})
-
-	t.Run("with default limit (100)", func(t *testing.T) {
-		// Start a single node with default limit
-		compose, err := docker.New().WithWeaviateCluster().
-			Start(ctx)
-		require.Nil(t, err)
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminate test containers: %v", err)
-			}
-		}()
-
-		helper.SetupClient(compose.GetWeaviate().URI())
-		defer helper.ResetClient()
-
-		// Create classes up to the limit
-		classNames := []string{}
-		for i := 0; i < 100; i++ {
-			className := fmt.Sprintf("TestCollection_%d", i)
-			classNames = append(classNames, className)
-
-			c := &models.Class{
-				Class:      className,
-				Vectorizer: "none",
-			}
-
-			params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
-			resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
-			helper.AssertRequestOk(t, resp, err, nil)
-		}
-
-		// Attempt to create one more class (should fail)
-		c := &models.Class{
-			Class:      "TestCollectionExtra",
-			Vectorizer: "none",
-		}
-
-		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
-		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
-		helper.AssertRequestFail(t, resp, err, func() {
-			parsed, ok := err.(*clschema.SchemaObjectsCreateUnprocessableEntity)
-			require.True(t, ok, "error should be unprocessable entity")
-			assert.Contains(t, parsed.Payload.Error[0].Message, "maximum number of collections")
-		})
-
-		// Delete one class and verify we can create a new one
-		deleteParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(classNames[0])
-		delResp, err := helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
-		helper.AssertRequestOk(t, delResp, err, nil)
-
-		// Should now be able to create a new class
-		params = clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
-		resp, err = helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
-		helper.AssertRequestOk(t, resp, err, nil)
-	})
-}
+// 	// And verify that the class does not exist anymore.
+// 	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
+// }

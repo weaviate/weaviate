@@ -21,7 +21,6 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
 	"github.com/prometheus/client_golang/prometheus"
-
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -117,35 +116,6 @@ func (s *Raft) QuerySchema() (models.Schema, error) {
 		return models.Schema{}, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 	return resp.Schema, nil
-}
-
-// QueryCollectionsCount build a Query to read the schema that will be directed to the leader to ensure we will read the class
-// with strong consistency
-func (s *Raft) QueryCollectionsCount() (int, error) {
-	ctx := context.Background()
-	if entSentry.Enabled() {
-		transaction := sentry.StartSpan(ctx, "grpc.client",
-			sentry.WithTransactionName("raft.query.collections.count"),
-			sentry.WithDescription("Query the collections count"),
-		)
-		ctx = transaction.Context()
-		defer transaction.Finish()
-	}
-	command := &cmd.QueryRequest{
-		Type: cmd.QueryRequest_TYPE_GET_COLLECTIONS_COUNT,
-	}
-	queryResp, err := s.Query(ctx, command)
-	if err != nil {
-		return 0, fmt.Errorf("failed to execute query: %w", err)
-	}
-
-	// Unmarshal the response
-	resp := cmd.QueryCollectionsCountResponse{}
-	err = json.Unmarshal(queryResp.Payload, &resp)
-	if err != nil {
-		return 0, fmt.Errorf("failed to unmarshal query result: %w", err)
-	}
-	return resp.Count, nil
 }
 
 // QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
