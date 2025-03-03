@@ -752,8 +752,20 @@ func (s *shardedMultipleLockCache[T]) CountVectors() int64 {
 
 func (s *shardedMultipleLockCache[T]) Drop() {
 	s.deleteAllVectors()
+	s.deleteAllCacheKeys()
 	if s.deletionInterval != 0 {
 		s.cancelFn()
+	}
+}
+
+func (s *shardedMultipleLockCache[T]) deleteAllCacheKeys() {
+	s.shardedLocks.LockAll()
+	defer s.shardedLocks.UnlockAll()
+
+	s.logger.WithField("action", "hnsw_delete_cache_keys").
+		Debug("deleting full cache keys")
+	for i := range s.vectorDocID {
+		s.vectorDocID[i] = CacheKeys{}
 	}
 }
 

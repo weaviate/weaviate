@@ -316,15 +316,21 @@ func New(cfg Config, uc ent.UserConfig,
 
 	index.multivector.Store(uc.Multivector.Enabled)
 
-	if uc.Multivector.Enabled && (uc.PQ.Enabled || uc.SQ.Enabled || uc.BQ.Enabled) {
-		return nil, errors.New("compression is not supported in multivector mode")
+	if uc.Multivector.Enabled && (uc.PQ.Enabled || uc.SQ.Enabled) {
+		return nil, errors.New("PQ and SQ compression are not supported in multivector mode")
 	}
 
 	if uc.BQ.Enabled {
 		var err error
-		index.compressor, err = compressionhelpers.NewBQCompressor(
-			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-			cfg.AllocChecker)
+		if !uc.Multivector.Enabled {
+			index.compressor, err = compressionhelpers.NewBQCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		} else {
+			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		}
 		if err != nil {
 			return nil, err
 		}

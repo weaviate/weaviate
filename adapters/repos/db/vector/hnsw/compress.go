@@ -26,12 +26,15 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled {
 		return nil
 	}
-	if h.Multivector() {
-		return errors.New("compression is not supported in multivector mode")
+	if h.Multivector() && (cfg.PQ.Enabled || cfg.SQ.Enabled) {
+		return errors.New("PQ and SQ compression are not supported in multivector mode")
 	}
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
-	data := h.cache.All()
+	var data [][]float32
+	if !h.multivector.Load() {
+		data = h.cache.All()
+	}
 	if cfg.PQ.Enabled || cfg.SQ.Enabled {
 		if h.isEmpty() {
 			return errors.New("compress command cannot be executed before inserting some data")
@@ -98,19 +101,36 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		h.compressor.PersistCompression(h.commitLog)
 	} else {
 		var err error
-		h.compressor, err = compressionhelpers.NewBQCompressor(
-			h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)
+		if !h.multivector.Load() {
+			h.compressor, err = compressionhelpers.NewBQCompressor(
+				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)
+		} else {
+			h.compressor, err = compressionhelpers.NewBQMultiCompressor(
+				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)
+		}
 		if err != nil {
 			return err
 		}
 	}
-	compressionhelpers.Concurrently(h.logger, uint64(len(data)),
-		func(index uint64) {
-			if data[index] == nil {
-				return
-			}
-			h.compressor.Preload(index, data[index])
-		})
+	if !h.multivector.Load() {
+		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
+			func(index uint64) {
+				if data[index] == nil {
+					return
+				}
+				h.compressor.Preload(index, data[index])
+			})
+	} else {
+		multiData := h.cache.AllMulti()
+		docMappings := h.docIDVectors
+		compressionhelpers.Concurrently(h.logger, uint64(len(multiData)),
+			func(index uint64) {
+				if multiData[index] == nil {
+					return
+				}
+				h.compressor.PreloadMulti(index, docMappings[index], multiData[index])
+			})
+	}
 
 	h.compressed.Store(true)
 	h.cache.Drop()
