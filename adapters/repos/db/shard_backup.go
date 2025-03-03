@@ -52,26 +52,19 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool) (err error
 	}
 
 	// pause indexing
-	if s.hasTargetVectors() {
-		for _, q := range s.Queues() {
-			q.Pause()
-		}
-	} else {
-		if s.Queue() != nil {
-			s.Queue().Pause()
-		}
-	}
+	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+		q.Pause()
+		return nil
+	})
 
-	if s.hasTargetVectors() {
-		for targetVector, vectorIndex := range s.vectorIndexes {
-			if err = vectorIndex.SwitchCommitLogs(ctx); err != nil {
-				return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
-			}
+	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		if err = index.SwitchCommitLogs(ctx); err != nil {
+			return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
 		}
-	} else {
-		if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
-			return fmt.Errorf("switch commit logs: %w", err)
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -87,23 +80,14 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 		return err
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, vectorIndex := range s.vectorIndexes {
-			files, err := vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
-			if err != nil {
-				return fmt.Errorf("list files of vector %q: %w", targetVector, err)
-			}
-			ret.Files = append(ret.Files, files...)
-		}
-	} else {
-		files, err := s.vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
+	return s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
+		files, err := idx.ListFiles(ctx, s.index.Config.RootPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("list files of vector %q: %w", targetVector, err)
 		}
 		ret.Files = append(ret.Files, files...)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
@@ -120,16 +104,10 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	})
 
 	g.Go(func() error {
-		if s.hasTargetVectors() {
-			for _, q := range s.Queues() {
-				q.Resume()
-			}
-		} else {
-			if s.Queue() != nil {
-				s.Queue().Resume()
-			}
-		}
-		return nil
+		return s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+			q.Resume()
+			return nil
+		})
 	})
 
 	if err := g.Wait(); err != nil {

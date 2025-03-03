@@ -45,3 +45,13 @@ func (bq BinaryQuantizer) Encode(vec []float32) []uint64 {
 func (bq BinaryQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) {
 	return distancer.HammingBitwise(x, y)
 }
+
+type BQStats struct{}
+
+func (b BQStats) CompressionType() string {
+	return "bq"
+}
+
+func (bq *BinaryQuantizer) Stats() CompressionStats {
+	return BQStats{}
+}

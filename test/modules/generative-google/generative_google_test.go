@@ -203,7 +203,8 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
 						})
 						t.Run("grpc", func(t *testing.T) {
-							prompt := "Describe image"
+							singlePrompt := "Describe image"
+							groupPrompt := "Describe the images"
 							google := &pb.GenerativeGoogle{
 								MaxTokens:        grpchelper.ToPtr(int64(256)),
 								Model:            grpchelper.ToPtr(tt.generativeModel),
@@ -217,7 +218,7 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 							if tt.absentModuleConfig {
 								google.ProjectId = &gcpProject
 							}
-							planets.CreatePromptTestWithParamsGRPC(t, class.Class, prompt, &pb.GenerativeProvider{
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
 								ReturnMetadata: true,
 								Kind:           &pb.GenerativeProvider_Google{Google: google},
 							})

@@ -9,8 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build integrationTest
-
 package db
 
 import (
@@ -33,6 +31,7 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -271,6 +270,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		allocChecker:          memwatch.NewDummyMonitor(),
 		shardCreateLocks:      esync.NewKeyLocker(),
 		scheduler:             repo.scheduler,
+		shardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
@@ -295,7 +295,6 @@ func testObject(className string) *storobj.Object {
 			ID:    strfmt.UUID(uuid.NewString()),
 			Class: className,
 		},
-		Vector: []float32{1, 2, 3},
 	}
 }
 
@@ -317,4 +316,15 @@ func createRandomObjects(r *rand.Rand, className string, numObj int, vectorDim i
 		}
 	}
 	return obj
+}
+
+func invertedConfig() *models.InvertedIndexConfig {
+	return &models.InvertedIndexConfig{
+		CleanupIntervalSeconds: 60,
+		Stopwords: &models.StopwordConfig{
+			Preset: "none",
+		},
+		IndexNullState:      true,
+		IndexPropertyLength: true,
+	}
 }

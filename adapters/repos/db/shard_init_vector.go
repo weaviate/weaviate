@@ -31,6 +31,25 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+func (s *Shard) initShardVectors(ctx context.Context) error {
+	if s.hasTargetVectors() {
+		if err := s.initTargetVectors(ctx); err != nil {
+			return err
+		}
+		if err := s.initTargetQueues(); err != nil {
+			return err
+		}
+	} else {
+		if err := s.initLegacyVector(ctx); err != nil {
+			return err
+		}
+		if err := s.initLegacyQueue(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Shard) initVectorIndex(ctx context.Context,
 	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 ) (VectorIndex, error) {

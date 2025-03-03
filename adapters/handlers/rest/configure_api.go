@@ -358,6 +358,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SegmentsCleanupIntervalSeconds:      appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
 		SeparateObjectsCompactions:          appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
 		MaxSegmentSize:                      appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
+		CycleManagerRoutinesFactor:          appState.ServerConfig.Config.Persistence.LSMCycleManagerRoutinesFactor,
 		HNSWMaxLogSize:                      appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
 		HNSWWaitForCachePrefill:             appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		HNSWFlatSearchConcurrency:           appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
@@ -380,7 +381,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// longer start up if the required minimum is now higher than 1. We want
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
-		Replication: replication.GlobalConfig{MinimumFactor: 1},
+		Replication:                 replication.GlobalConfig{MinimumFactor: 1},
+		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -778,7 +780,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		defer cancel()
 
 		if err := appState.ClusterService.Close(ctx); err != nil {
-			panic(err)
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown").
+				Errorf("failed to gracefully shutdown")
 		}
 	}
 

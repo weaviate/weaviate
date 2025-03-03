@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -66,17 +67,17 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 
 	var counter int
 
-	vectorIndex, err := s.getVectorIndex(targetVector)
-	if err != nil {
-		s.index.logger.Warn("preload queue: vector index not found")
+	vectorIndex, ok := s.GetVectorIndex(targetVector)
+	if !ok {
+		s.index.logger.WithField("targetVector", targetVector).Warn("preload queue: vector index not found")
 		// shard was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
 	}
 
-	q, err := s.getIndexQueue(targetVector)
-	if err != nil {
-		s.index.logger.WithError(err).Warn("preload queue: queue not found")
+	q, ok := s.GetVectorIndexQueue(targetVector)
+	if !ok {
+		s.index.logger.WithField("targetVector", targetVector).Warn("preload queue: queue not found")
 		// queue was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
@@ -89,7 +90,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 	var batch []common.VectorRecord
 
 	if vectorIndex.Multivector() {
-		err = s.iterateOnLSMMultiVectors(ctx, from, targetVector, func(id uint64, vector [][]float32) error {
+		err := s.iterateOnLSMMultiVectors(ctx, from, targetVector, func(id uint64, vector [][]float32) error {
 			if vectorIndex.ContainsDoc(id) {
 				return nil
 			}
@@ -109,7 +110,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 				return nil
 			}
 
-			err = q.Insert(ctx, batch...)
+			err := q.Insert(ctx, batch...)
 			if err != nil {
 				return err
 			}
@@ -121,7 +122,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 			return errors.Wrap(err, "iterate on LSM multi vectors")
 		}
 	} else {
-		err = s.iterateOnLSMVectors(ctx, from, targetVector, func(id uint64, vector []float32) error {
+		err := s.iterateOnLSMVectors(ctx, from, targetVector, func(id uint64, vector []float32) error {
 			if vectorIndex.ContainsDoc(id) {
 				return nil
 			}
@@ -141,7 +142,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 				return nil
 			}
 
-			err = q.Insert(ctx, batch...)
+			err := q.Insert(ctx, batch...)
 			if err != nil {
 				return err
 			}
@@ -155,7 +156,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 	}
 
 	if len(batch) > 0 {
-		err = q.Insert(ctx, batch...)
+		err := q.Insert(ctx, batch...)
 		if err != nil {
 			return errors.Wrap(err, "insert batch")
 		}
@@ -173,6 +174,14 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 }
 
 func (s *Shard) iterateOnLSMVectors(ctx context.Context, fromID uint64, targetVector string, fn func(id uint64, vector []float32) error) error {
+	properties := additional.Properties{
+		NoProps: true,
+		Vector:  true,
+	}
+	if targetVector != "" {
+		properties.Vectors = []string{targetVector}
+	}
+
 	return s.iterateOnLSMObjects(ctx, fromID, func(obj *storobj.Object) error {
 		var vector []float32
 		if targetVector == "" {
@@ -183,20 +192,31 @@ func (s *Shard) iterateOnLSMVectors(ctx context.Context, fromID uint64, targetVe
 			}
 		}
 		return fn(obj.DocID, vector)
-	})
+	}, properties, nil)
 }
 
 func (s *Shard) iterateOnLSMMultiVectors(ctx context.Context, fromID uint64, targetVector string, fn func(id uint64, vector [][]float32) error) error {
+	properties := additional.Properties{
+		NoProps: true,
+		Vectors: []string{targetVector},
+	}
+
 	return s.iterateOnLSMObjects(ctx, fromID, func(obj *storobj.Object) error {
 		var vector [][]float32
 		if len(obj.MultiVectors) > 0 {
 			vector = obj.MultiVectors[targetVector]
 		}
 		return fn(obj.DocID, vector)
-	})
+	}, properties, nil)
 }
 
-func (s *Shard) iterateOnLSMObjects(ctx context.Context, fromID uint64, fn func(obj *storobj.Object) error) error {
+func (s *Shard) iterateOnLSMObjects(
+	ctx context.Context,
+	fromID uint64,
+	fn func(obj *storobj.Object) error,
+	addProps additional.Properties,
+	properties *storobj.PropertyExtraction,
+) error {
 	maxDocID := s.Counter().Get()
 	bucket := s.Store().Bucket(helpers.ObjectsBucketLSM)
 
@@ -215,7 +235,7 @@ func (s *Shard) iterateOnLSMObjects(ctx context.Context, fromID uint64, fn func(
 		if v == nil {
 			continue
 		}
-		obj, err := storobj.FromBinary(v)
+		obj, err := storobj.FromBinaryOptional(v, addProps, properties)
 		if err != nil {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
@@ -241,9 +261,9 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 	start := time.Now()
 
-	vectorIndex, err := s.getVectorIndex(targetVector)
-	if err != nil {
-		s.index.logger.Warn("repair index: vector index not found")
+	vectorIndex, ok := s.GetVectorIndex(targetVector)
+	if !ok {
+		s.index.logger.WithField("targetVector", targetVector).Warn("repair index: vector index not found")
 		// shard was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
@@ -259,9 +279,9 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		}
 	}
 
-	q, err := s.getIndexQueue(targetVector)
-	if err != nil {
-		s.index.logger.WithError(err).Warn("repair index: queue not found")
+	q, ok := s.GetVectorIndexQueue(targetVector)
+	if !ok {
+		s.index.logger.WithField("targetVector", targetVector).Warn("repair index: queue not found")
 		// queue was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
@@ -277,7 +297,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 	if vectorIndex.Multivector() {
 		// add non-indexed multi vectors to the queue
-		err = s.iterateOnLSMMultiVectors(ctx, 0, targetVector, func(docID uint64, vector [][]float32) error {
+		err := s.iterateOnLSMMultiVectors(ctx, 0, targetVector, func(docID uint64, vector [][]float32) error {
 			visited.Visit(docID)
 
 			if vectorIndex.ContainsDoc(docID) {
@@ -299,7 +319,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 				return nil
 			}
 
-			err = q.Insert(ctx, batch...)
+			err := q.Insert(ctx, batch...)
 			if err != nil {
 				return err
 			}
@@ -312,7 +332,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		}
 	} else {
 		// add non-indexed vectors to the queue
-		err = s.iterateOnLSMVectors(ctx, 0, targetVector, func(docID uint64, vector []float32) error {
+		err := s.iterateOnLSMVectors(ctx, 0, targetVector, func(docID uint64, vector []float32) error {
 			visited.Visit(docID)
 
 			if vectorIndex.ContainsDoc(docID) {
@@ -334,7 +354,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 				return nil
 			}
 
-			err = q.Insert(ctx, batch...)
+			err := q.Insert(ctx, batch...)
 			if err != nil {
 				return err
 			}
@@ -348,7 +368,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 	}
 
 	if len(batch) > 0 {
-		err = q.Insert(ctx, batch...)
+		err := q.Insert(ctx, batch...)
 		if err != nil {
 			return errors.Wrap(err, "insert batch")
 		}

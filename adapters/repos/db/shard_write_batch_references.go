@@ -333,21 +333,14 @@ func (b *referencesBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	if b.shard.hasTargetVectors() {
-		for targetVector, queue := range b.shard.Queues() {
-			if err := queue.Flush(); err != nil {
-				for i := range b.refs {
-					b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
-				}
-			}
-		}
-	} else {
-		if err := b.shard.Queue().Flush(); err != nil {
+	_ = b.shard.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
 			for i := range b.refs {
-				b.setErrorAtIndex(err, i)
+				b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
 			}
 		}
-	}
+		return nil
+	})
 }
 
 func (b *referencesBatcher) getSchemaPropsByName() (map[string]*models.Property, error) {

@@ -50,21 +50,23 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts  *deferredShardOpts
-	shard      *Shard
-	loaded     bool
-	mutex      sync.Mutex
-	memMonitor memwatch.AllocChecker
+	shardOpts        *deferredShardOpts
+	shard            *Shard
+	loaded           bool
+	mutex            sync.Mutex
+	memMonitor       memwatch.AllocChecker
+	shardLoadLimiter ShardLoadLimiter
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
+	shardLoadLimiter ShardLoadLimiter,
 ) *LazyLoadShard {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
 	}
-	promMetrics.NewUnloadedshard(class.Class)
+	promMetrics.NewUnloadedshard()
 	return &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
 			promMetrics:      promMetrics,
@@ -75,7 +77,8 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			scheduler:        index.scheduler,
 			indexCheckpoints: indexCheckpoints,
 		},
-		memMonitor: memMonitor,
+		memMonitor:       memMonitor,
+		shardLoadLimiter: shardLoadLimiter,
 	}
 }
 
@@ -111,11 +114,11 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		return errors.Wrap(err, "memory pressure: cannot load shard")
 	}
 
-	if l.shardOpts.class == nil {
-		l.shardOpts.promMetrics.StartLoadingShard("unknown class")
-	} else {
-		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
+	if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
+		return fmt.Errorf("acquiring permit to load shard: %w", err)
 	}
+	defer l.shardLoadLimiter.Release()
+
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler, l.shardOpts.indexCheckpoints)
 	if err != nil {
@@ -125,11 +128,6 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 	l.shard = shard
 	l.loaded = true
-	if l.shardOpts.class == nil {
-		l.shardOpts.promMetrics.FinishLoadingShard("unknown class")
-	} else {
-		l.shardOpts.promMetrics.FinishLoadingShard(l.shardOpts.class.Class)
-	}
 
 	return nil
 }
@@ -442,6 +440,26 @@ func (l *LazyLoadShard) Queue() *VectorIndexQueue {
 func (l *LazyLoadShard) Queues() map[string]*VectorIndexQueue {
 	l.mustLoad()
 	return l.shard.Queues()
+}
+
+func (l *LazyLoadShard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
+	l.mustLoad()
+	return l.shard.GetVectorIndexQueue(targetVector)
+}
+
+func (l *LazyLoadShard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
+	l.mustLoad()
+	return l.shard.GetVectorIndex(targetVector)
+}
+
+func (l *LazyLoadShard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
+	l.mustLoad()
+	return l.shard.ForEachVectorIndex(f)
+}
+
+func (l *LazyLoadShard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
+	l.mustLoad()
+	return l.shard.ForEachVectorQueue(f)
 }
 
 func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error) {

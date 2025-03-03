@@ -127,7 +127,7 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 					planets.CreateTweetTestGRPC(t, class.Class)
 				})
 				t.Run("create a tweet with params using grpc", func(t *testing.T) {
-					annthropic := &pb.GenerativeAnthropic{
+					anthropic := &pb.GenerativeAnthropic{
 						MaxTokens:     grpchelper.ToPtr(int64(90)),
 						Model:         grpchelper.ToPtr(tt.generativeModel),
 						Temperature:   grpchelper.ToPtr(0.9),
@@ -136,23 +136,24 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 						StopSequences: &pb.TextArray{Values: []string{"stop"}},
 					}
 					if tt.absentModuleConfig {
-						annthropic.BaseUrl = grpchelper.ToPtr("https://api.anthropic.com")
+						anthropic.BaseUrl = grpchelper.ToPtr("https://api.anthropic.com")
 					}
 					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
 						ReturnMetadata: true,
-						Kind:           &pb.GenerativeProvider_Anthropic{Anthropic: annthropic},
+						Kind:           &pb.GenerativeProvider_Anthropic{Anthropic: anthropic},
 					})
 				})
 				if tt.withImages {
 					t.Run("image prompt", func(t *testing.T) {
 						t.Run("graphql", func(t *testing.T) {
 							prompt := "Describe image"
-							params := "anthropic:{images:\"image\"}"
+							params := "anthropic:{images:[\"image\"]}"
 							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
 						})
 						t.Run("grpc", func(t *testing.T) {
-							prompt := "Give a short answer: What's on the image?"
-							annthropic := &pb.GenerativeAnthropic{
+							singlePrompt := "Give a short answer: What's on the image?"
+							groupPrompt := "Give a short answer: What are on the following images?"
+							anthropic := &pb.GenerativeAnthropic{
 								MaxTokens:   grpchelper.ToPtr(int64(90)),
 								Model:       grpchelper.ToPtr(tt.generativeModel),
 								Temperature: grpchelper.ToPtr(0.9),
@@ -161,11 +162,11 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 								Images:      &pb.TextArray{Values: []string{"image"}},
 							}
 							if tt.absentModuleConfig {
-								annthropic.BaseUrl = grpchelper.ToPtr("https://api.anthropic.com")
+								anthropic.BaseUrl = grpchelper.ToPtr("https://api.anthropic.com")
 							}
-							planets.CreatePromptTestWithParamsGRPC(t, class.Class, prompt, &pb.GenerativeProvider{
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
 								ReturnMetadata: true,
-								Kind:           &pb.GenerativeProvider_Anthropic{Anthropic: annthropic},
+								Kind:           &pb.GenerativeProvider_Anthropic{Anthropic: anthropic},
 							})
 						})
 					})
