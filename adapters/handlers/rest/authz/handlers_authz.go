@@ -140,7 +140,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role with name %s already exists", *params.Body.Name)))
 	}
 
-	if err = h.controller.UpsertRolesPermissions(policies); err != nil {
+	if err = h.controller.CreateRolesPermissions(policies); err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -185,7 +185,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsNotFound()
 	}
 
-	if err := h.controller.UpsertRolesPermissions(policies); err != nil {
+	if err := h.controller.UpdateRolesPermissions(policies); err != nil {
 		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 

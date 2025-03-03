@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -25,11 +27,11 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ  authorization.Controller
+	authZ  *rbac.RBAC
 	logger logrus.FieldLogger
 }
 
-func NewManager(authZ authorization.Controller, logger logrus.FieldLogger) *Manager {
+func NewManager(authZ *rbac.RBAC, logger logrus.FieldLogger) *Manager {
 	return &Manager{authZ: authZ, logger: logger}
 }
 
@@ -132,6 +134,21 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 	req := &cmd.CreateRolesRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// don't allow to create roles if there is already a role present
+	if req.RoleCreation {
+		names := make([]string, 0, len(req.Roles))
+		for name := range req.Roles {
+			names = append(names, name)
+		}
+		roles, err := m.authZ.GetRoles(names...)
+		if err != nil {
+			return err
+		}
+		if len(roles) > 0 {
+			return fmt.Errorf("%w: roles already exist", ErrBadRequest)
+		}
 	}
 
 	if req.Version < cmd.RBACLatestCommandPolicyVersion {
