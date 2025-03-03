@@ -490,6 +490,7 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 			// in case everything was tombstoned, stick with the existing one
 			elem := res.Pop()
 			n := h.nodes.Get(elem.ID)
+
 			if n != nil && !n.IsUnderMaintenance() {
 				// but not if the entrypoint is under maintenance
 				entryPointID = elem.ID
@@ -680,7 +681,7 @@ func (h *hnsw) Iterate(fn func(docID uint64) bool) {
 }
 
 func (h *hnsw) iterate(fn func(docID uint64) bool) {
-	h.nodes.Iter(true, func(id uint64, v *graph.Vertex) bool {
+	h.nodes.Iter(func(id uint64, v *graph.Vertex) bool {
 		if h.shutdownCtx.Err() != nil {
 			return false
 		}
@@ -826,7 +827,7 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 	}
 
 	unvisitedNodes := []uint64{}
-	h.nodes.Iter(true, func(id uint64, node *graph.Vertex) bool {
+	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
 		if !visitedNodes[id] {
 			unvisitedNodes = append(unvisitedNodes, id)
 		}
@@ -856,9 +857,9 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	defer h.RUnlock()
 	distributionLayers := map[int]uint{}
 
-	h.nodes.Iter(true /* skipNil */, func(id uint64, node *graph.Vertex) bool {
+	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
 		l := node.Level()
-		if l == 0 && node.ConnectionsLength() == 0 {
+		if l == 0 && node.ConnectionLen() == 0 {
 			return true
 		}
 		c, ok := distributionLayers[l]

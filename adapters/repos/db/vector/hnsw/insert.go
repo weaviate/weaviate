@@ -338,7 +338,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, id uint64, level in
 		return err
 	}
 
-	h.nodes.Set(id, node)
+	h.nodes.Set(node)
 
 	if h.compressed.Load() && !h.multivector.Load() {
 		h.compressor.Preload(id, vector)
@@ -432,7 +432,7 @@ func (h *hnsw) insertInitialElement(id uint64, nodeVec []float32) error {
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", id)
 	}
 
-	h.nodes.Set(id, node)
+	h.nodes.Set(node)
 
 	if h.compressed.Load() && !h.multivector.Load() {
 		h.compressor.Preload(id, nodeVec)

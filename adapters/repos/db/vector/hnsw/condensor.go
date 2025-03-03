@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
@@ -70,35 +71,37 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		}
 	}
 
-	for _, node := range res.Nodes {
-		if node == nil {
-			// nil nodes occur when we've grown, but not inserted anything yet
-			continue
-		}
-
-		if node.level > 0 {
+	err = res.Nodes.IterE(func(id uint64, node *graph.Vertex) error {
+		if node.Level() > 0 {
 			// nodes are implicitly added when they are first linked, if the level is
 			// not zero we know this node was new. If the level is zero it doesn't
 			// matter if it gets added explicitly or implicitly
 			if err := c.AddNode(node); err != nil {
-				return errors.Wrapf(err, "write node %d to commit log", node.id)
+				return errors.Wrapf(err, "write node %d to commit log", node.ID())
 			}
 		}
 
-		for level, links := range node.connections {
-			if res.ReplaceLinks(node.id, uint16(level)) {
-				if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
-					return errors.Wrapf(err,
-						"write links for node %d at level %d to commit log", node.id, level)
-				}
-			} else {
-				if err := c.AddLinksAtLevel(node.id, uint16(level), links); err != nil {
-					return errors.Wrapf(err,
-						"write links for node %d at level %d to commit log", node.id, level)
+		return node.Edit(func(node *graph.VertexEditor) error {
+			lvl := node.Level()
+			for i := 0; i < lvl; i++ {
+				level := i
+				links := node.ConnectionsAtLevel(level)
+				if res.ReplaceLinks(node.ID(), uint16(level)) {
+					if err := c.SetLinksAtLevel(node.ID(), level, links); err != nil {
+						return errors.Wrapf(err,
+							"write links for node %d at level %d to commit log", node.ID(), level)
+					}
+				} else {
+					if err := c.AddLinksAtLevel(node.ID(), uint16(level), links); err != nil {
+						return errors.Wrapf(err,
+							"write links for node %d at level %d to commit log", node.ID(), level)
+					}
 				}
 			}
-		}
-	}
+
+			return nil
+		})
+	})
 
 	if res.EntrypointChanged {
 		if err := c.SetEntryPointWithMaxLayer(res.Entrypoint,
@@ -198,11 +201,11 @@ func (c *MemoryCondensor) writeUint64Slice(w *bufWriter, in []uint64) error {
 }
 
 // AddNode adds an empty node
-func (c *MemoryCondensor) AddNode(node *vertex) error {
+func (c *MemoryCondensor) AddNode(node *graph.Vertex) error {
 	ec := errorcompounder.New()
 	ec.Add(c.writeCommitType(c.newLog, AddNode))
-	ec.Add(c.writeUint64(c.newLog, node.id))
-	ec.Add(c.writeUint16(c.newLog, uint16(node.level)))
+	ec.Add(c.writeUint64(c.newLog, node.ID()))
+	ec.Add(c.writeUint16(c.newLog, uint16(node.Level())))
 
 	return ec.ToError()
 }

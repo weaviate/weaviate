@@ -66,8 +66,10 @@ func TestVertex_SetConnections(t *testing.T) {
 				connections: make([][]uint64, 1),
 			}
 			v.connections[0] = tc.initial
-
-			v.setConnectionsAtLevel(0, tc.updated)
+			v.Edit(func(v *VertexEditor) error {
+				v.SetConnectionsAtLevel(0, tc.updated)
+				return nil
+			})
 
 			assert.Equal(t, tc.updated, v.connections[0])
 			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
@@ -122,13 +124,16 @@ func TestVertex_AppendConnection(t *testing.T) {
 			}
 			v.connections[0] = tc.initial
 
-			v.appendConnectionAtLevelNoLock(0, 18, 64)
+			v.Edit(func(v *VertexEditor) error {
+				v.AppendConnectionAtLevel(0, 18, 64)
+				return nil
+			})
 
 			newConns := make([]uint64, len(tc.initial)+1)
 			copy(newConns, tc.initial)
 			newConns[len(newConns)-1] = 18
 
-			assert.Equal(t, newConns, v.connectionsAtLevelNoLock(0))
+			assert.Equal(t, newConns, v.CopyLevel(nil, 0))
 			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
 		})
 	}
@@ -182,13 +187,16 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 			}
 			v.connections[0] = tc.initial
 
-			v.appendConnectionAtLevelNoLock(0, 18, 63)
+			v.Edit(func(v *VertexEditor) error {
+				v.AppendConnectionAtLevel(0, 18, 63)
+				return nil
+			})
 
 			newConns := make([]uint64, len(tc.initial)+1)
 			copy(newConns, tc.initial)
 			newConns[len(newConns)-1] = 18
 
-			assert.Equal(t, newConns, v.connectionsAtLevelNoLock(0))
+			assert.Equal(t, newConns, v.CopyLevel(nil, 0))
 			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
 		})
 	}
@@ -200,7 +208,10 @@ func TestVertex_ResetConnections(t *testing.T) {
 	}
 	v.connections[0] = makeConnections(4, 4)
 
-	v.resetConnectionsAtLevelNoLock(0)
+	v.Edit(func(v *VertexEditor) error {
+		v.ResetConnectionsAtLevel(0)
+		return nil
+	})
 	assert.Equal(t, 0, len(v.connections[0]))
 	assert.Equal(t, 4, cap(v.connections[0]))
 }

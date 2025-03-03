@@ -31,6 +31,26 @@ func NewNodesWith(list []*Vertex) *Nodes {
 	}
 }
 
+func (n *Nodes) SetNodes(nodes []*Vertex) {
+	n.Lock()
+	defer n.Unlock()
+
+	n.locks.LockAll()
+	defer n.locks.UnlockAll()
+
+	n.list = nodes
+}
+
+func (n *Nodes) Reset(size int) {
+	n.Lock()
+	defer n.Unlock()
+
+	n.locks.LockAll()
+	defer n.locks.UnlockAll()
+
+	n.list = make([]*Vertex, size)
+}
+
 func (n *Nodes) IsEmpty(entryPointID uint64) bool {
 	n.RLock()
 	defer n.RUnlock()
@@ -62,10 +82,11 @@ func (n *Nodes) Get(id uint64) *Vertex {
 	return v
 }
 
-func (n *Nodes) Set(id uint64, node *Vertex) {
+func (n *Nodes) Set(node *Vertex) {
 	n.RLock()
 	defer n.RUnlock()
 
+	id := node.ID()
 	n.locks.Lock(id)
 	n.list[id] = node
 	n.locks.Unlock(id)
@@ -73,24 +94,79 @@ func (n *Nodes) Set(id uint64, node *Vertex) {
 
 // TODO: switch to Golang iterators once Go 1.23 is the
 // minimum version
-func (n *Nodes) Iter(skipNil bool, fn func(id uint64, node *Vertex) bool) {
+func (n *Nodes) Iter(fn func(id uint64, node *Vertex) bool) {
 	n.RLock()
 	list := n.list
 	n.RUnlock()
 
-	for id := range list {
+	for id := 0; id < len(list); id++ {
 		id := uint64(id)
 		n.locks.RLock(id)
 		node := list[id]
 		n.locks.RUnlock(id)
 
-		if !skipNil || node != nil {
+		if node != nil {
 			ok := fn(id, node)
 			if !ok {
 				return // stop iteration
 			}
 		}
 	}
+}
+
+// TODO: switch to Golang iterators once Go 1.23 is the
+// minimum version
+func (n *Nodes) IterReverse(fn func(id uint64, node *Vertex) bool) {
+	n.RLock()
+	list := n.list
+	n.RUnlock()
+
+	for id := len(list) - 1; id >= 0; id-- {
+		id := uint64(id)
+		n.locks.RLock(id)
+		node := list[id]
+		n.locks.RUnlock(id)
+
+		if node != nil {
+			ok := fn(id, node)
+			if !ok {
+				return // stop iteration
+			}
+		}
+	}
+}
+
+// TODO: switch to Golang iterators once Go 1.23 is the
+// minimum version
+func (n *Nodes) IterE(fn func(id uint64, node *Vertex) error) error {
+	n.RLock()
+	list := n.list
+	n.RUnlock()
+
+	for id := 0; id < len(list); id++ {
+		id := uint64(id)
+		n.locks.RLock(id)
+		node := list[id]
+		n.locks.RUnlock(id)
+
+		if node != nil {
+			err := fn(id, node)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (n *Nodes) Delete(id uint64) {
+	n.RLock()
+	defer n.RUnlock()
+
+	n.locks.Lock(id)
+	n.list[id] = nil
+	n.locks.Unlock(id)
 }
 
 func (n *Nodes) Grow(id uint64) (previousSize, newSize int) {
