@@ -133,12 +133,11 @@ type ShardLike interface {
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
-	// TODO tests only
-	Dimensions(ctx context.Context) int // dim(vector)*number vectors
-	// TODO tests only
-	QuantizedDimensions(ctx context.Context, segments int) int
-	extendDimensionTrackerLSM(dimLength int, docID uint64) error
-	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
+	// TODO test only
+	Dimensions(ctx context.Context, targetVector string) int // dim(vector)*number vectors
+	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
+
+	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
 	publishDimensionMetrics(ctx context.Context)
 	resetDimensionsLSM() error
 

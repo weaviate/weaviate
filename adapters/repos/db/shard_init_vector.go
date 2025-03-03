@@ -224,6 +224,10 @@ func (s *Shard) hasTargetVectors() bool {
 	return hasTargetVectors(s.index.vectorIndexUserConfig, s.index.vectorIndexUserConfigs)
 }
 
+func (s *Shard) hasLegacyVector() bool {
+	return s.vectorIndex != nil
+}
+
 // target vectors and legacy vector are (supposed to be) exclusive
 // method allows to distinguish which of them is configured for the class
 func hasTargetVectors(cfg schemaConfig.VectorIndexConfig, targetCfgs map[string]schemaConfig.VectorIndexConfig) bool {

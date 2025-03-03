@@ -264,18 +264,9 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 }
 
 func (s *Shard) extendDimensionTrackerLSM(
-	dimLength int, docID uint64,
+	dimLength int, docID uint64, targetVector string,
 ) error {
-	return s.addToDimensionBucket(dimLength, docID, "", false)
-}
-
-func (s *Shard) extendDimensionTrackerForVecLSM(
-	dimLength int, docID uint64, vecName string,
-) error {
-	if vecName == "" {
-		return fmt.Errorf("vector name can not be empty")
-	}
-	return s.addToDimensionBucket(dimLength, docID, vecName, false)
+	return s.addToDimensionBucket(dimLength, docID, targetVector, false)
 }
 
 var uniqueCounter atomic.Uint64
@@ -329,23 +320,13 @@ func (s *Shard) resetDimensionsLSM() error {
 	return nil
 }
 
-// Key (dimensionality) | Value Doc IDs
-// 128 | 1,2,4,5,17
-// 128 | 1,2,4,5,17, Tombstone 4,
-
+// Key (dimensionality and target vector name) | Value Doc IDs
+// 128,targetVector | 1,2,4,5,17
+// 128,targetVector | 1,2,4,5,17, Tombstone 4,
 func (s *Shard) removeDimensionsLSM(
-	dimLength int, docID uint64,
+	dimLength int, docID uint64, targetVector string,
 ) error {
-	return s.addToDimensionBucket(dimLength, docID, "", true)
-}
-
-func (s *Shard) removeDimensionsForVecLSM(
-	dimLength int, docID uint64, vecName string,
-) error {
-	if vecName == "" {
-		return fmt.Errorf("vector name can not be empty")
-	}
-	return s.addToDimensionBucket(dimLength, docID, vecName, true)
+	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
 }
 
 func (s *Shard) addToDimensionBucket(
