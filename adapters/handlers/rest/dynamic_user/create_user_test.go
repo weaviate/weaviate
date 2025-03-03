@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+
 	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -169,5 +171,23 @@ func TestCreateForbidden(t *testing.T) {
 
 	res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
 	_, ok := res.(*users.CreateUserForbidden)
+	assert.True(t, ok)
+}
+
+func TestCreateUnprocessableEntityCreatingRootUser(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user-root")[0]).Return(nil)
+
+	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+
+	h := dynUserHandler{
+		dynamicUser: dynUser,
+		authorizer:  authorizer,
+		rbacConfig:  rbacconf.Config{RootUsers: []string{"user-root"}},
+	}
+
+	res := h.createUser(users.CreateUserParams{UserID: "user-root"}, principal)
+	_, ok := res.(*users.CreateUserUnprocessableEntity)
 	assert.True(t, ok)
 }

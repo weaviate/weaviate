@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	authzMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -63,7 +64,7 @@ func TestDeleteForbidden(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestDeleteUnprocessableEntity(t *testing.T) {
+func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
@@ -77,6 +78,24 @@ func TestDeleteUnprocessableEntity(t *testing.T) {
 	}
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
+	_, ok := res.(*users.DeleteUserUnprocessableEntity)
+	assert.True(t, ok)
+}
+
+func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user-root")[0]).Return(nil)
+
+	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+
+	h := dynUserHandler{
+		dynamicUser: dynUser,
+		authorizer:  authorizer,
+		rbacConfig:  rbacconf.Config{RootUsers: []string{"user-root"}},
+	}
+
+	res := h.deleteUser(users.DeleteUserParams{UserID: "user-root"}, principal)
 	_, ok := res.(*users.DeleteUserUnprocessableEntity)
 	assert.True(t, ok)
 }
