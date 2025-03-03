@@ -59,9 +59,7 @@ func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 	before := time.Now()
 	layerCount := 0
 
-	pf.index.Lock()
-	nodesLen := len(pf.index.nodes)
-	pf.index.Unlock()
+	nodesLen := pf.index.nodes.Len()
 
 	for i := 0; i < nodesLen; i++ {
 		if int(pf.cache.Len()) >= limit {
@@ -72,15 +70,13 @@ func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 			return false, err
 		}
 
-		pf.index.shardedNodeLocks.RLock(uint64(i))
-		node := pf.index.nodes[i]
-		pf.index.shardedNodeLocks.RUnlock(uint64(i))
+		node := pf.index.nodes.Get(uint64(i))
 
 		if node == nil {
 			continue
 		}
 
-		if levelOfNode(node) != level {
+		if node.Level() != level {
 			continue
 		}
 
@@ -114,13 +110,6 @@ func (pf *vectorCachePrefiller[T]) logTotal(count, limit int, before time.Time) 
 		"took":     time.Since(before),
 		"index_id": pf.index.id,
 	}).Info("prefilled vector cache")
-}
-
-func levelOfNode(node *vertex) int {
-	node.Lock()
-	defer node.Unlock()
-
-	return node.level
 }
 
 func (pf *vectorCachePrefiller[T]) maxLevel() int {

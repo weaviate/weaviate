@@ -262,7 +262,7 @@ Ex: go test -v -run TestHnswStress . -download
 
 			time.Sleep(time.Microsecond * 100)
 			index.Lock()
-			require.NotNil(t, index.nodes[24])
+			require.NotNil(t, index.nodes.Get(24))
 			index.Unlock()
 
 		}
