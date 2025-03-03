@@ -36,7 +36,7 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 		return nil
 	}
 
-	previousSize, newSize := h.nodes.Grow(uint64(size))
+	previousSize, newSize := h.nodes.Grow(uint64(id))
 
 	took := time.Since(before)
 	logger.WithField("action", "hnsw_grow_index").
