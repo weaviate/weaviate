@@ -35,6 +35,7 @@ services:
       ASYNC_INDEXING: ${ASYNC_INDEXING:-false}
       RAFT_BOOTSTRAP_EXPECT: {{ NUMBER_VOTERS }}
       RAFT_JOIN: "{{ raft_join }}"
+      MAXIMUM_ALLOWED_COLLECTIONS_COUNT: -1
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in
       # memtables, the after run has some flushed which leads to some metrics
@@ -68,6 +69,7 @@ services:
       ASYNC_INDEXING: ${ASYNC_INDEXING:-false}
       RAFT_BOOTSTRAP_EXPECT: {{ NUMBER_VOTERS }}
       RAFT_JOIN: "{{ raft_join }}"
+      MAXIMUM_ALLOWED_COLLECTIONS_COUNT: -1
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in
       # memtables, the after run has some flushed which leads to some metrics
