@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
@@ -50,7 +52,7 @@ type State struct {
 	AnonymousAccess *anonymous.Client
 	APIKey          *apikey.Client
 	Authorizer      authorization.Authorizer
-	AuthzController authorization.Controller
+	AuthzController *rbac.RBAC
 
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration

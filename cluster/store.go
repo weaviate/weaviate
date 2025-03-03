@@ -24,17 +24,17 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
-	"github.com/weaviate/weaviate/cluster/rbac"
+	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 )
 
 const (
@@ -144,7 +144,7 @@ type Config struct {
 	FQDNResolverTLD    string
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
-	AuthzController authorization.Controller
+	AuthzController *rbac.RBAC
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -189,7 +189,7 @@ type Store struct {
 	schemaManager *schema.SchemaManager
 
 	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
-	authZManager *rbac.Manager
+	authZManager *rbacRaft.Manager
 
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
@@ -225,7 +225,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
 		schemaManager: schemaManager,
-		authZManager:  rbac.NewManager(cfg.AuthzController, cfg.Logger),
+		authZManager:  rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
 	}
 }
 

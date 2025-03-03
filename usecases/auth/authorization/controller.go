@@ -12,7 +12,8 @@
 package authorization
 
 type Controller interface {
-	UpsertRolesPermissions(roles map[string][]Policy) error
+	UpdateRolesPermissions(roles map[string][]Policy) error
+	CreateRolesPermissions(roles map[string][]Policy) error
 	GetRoles(names ...string) (map[string][]Policy, error)
 	DeleteRoles(roles ...string) error
 	AddRolesForUser(user string, roles []string) error
