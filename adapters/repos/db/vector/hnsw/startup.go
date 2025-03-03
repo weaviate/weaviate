@@ -208,7 +208,7 @@ func (h *hnsw) restoreDocMappings() error {
 	prevDocID := uint64(0)
 	relativeID := uint64(0)
 	maxNodeID := uint64(0)
-	maxDocID := uint64(0)
+	//maxDocID := uint64(0)
 	buf := make([]byte, 8)
 	for _, node := range h.nodes {
 		if node == nil {
@@ -236,19 +236,19 @@ func (h *hnsw) restoreDocMappings() error {
 		if node.id > maxNodeID {
 			maxNodeID = node.id
 		}
-		if docID > maxDocID {
+		/*if docID > maxDocID {
 			maxDocID = docID
-		}
+		}*/
 	}
 	h.Lock()
 	h.vecIDcounter = maxNodeID + 1
-	h.maxDocID = maxDocID
+	//h.maxDocID = maxDocID
 	h.Unlock()
-	if h.compressed.Load() {
+	/*if h.compressed.Load() {
 		h.compressor.GrowMultiCache(maxDocID)
 	} else {
 		h.cache.GrowMultiCache(maxDocID)
-	}
+	}*/
 	return nil
 }
 

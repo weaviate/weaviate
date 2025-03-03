@@ -130,7 +130,6 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadMulti(docID uint64, ids 
 	for i, vector := range vecs {
 		compressedVectors[i] = compressor.quantizer.Encode(vector)
 	}
-	compressor.cache.GrowMultiCache(docID)
 	for i, id := range ids {
 		idBytes := make([]byte, 8)
 		compressor.storeId(idBytes, id)
