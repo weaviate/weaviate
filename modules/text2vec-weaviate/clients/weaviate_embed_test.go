@@ -98,7 +98,7 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, err.Error(), "Weaviate embed API error: 500 ")
 	})
 
-	t.Run("when Weaviate API key is passed using X-Weaviate-Api-Key header", func(t *testing.T) {
+	t.Run("when Weaviate API key is passed using Authorization header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &vectorizer{
@@ -110,7 +110,7 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		ctxWithValue := context.WithValue(context.Background(), "X-Weaviate-Api-Key", []string{"some-key"})
+		ctxWithValue := context.WithValue(context.Background(), "Authorization", []string{"some-key"})
 		ctxWithBothValues := context.WithValue(ctxWithValue, "X-Weaviate-Cluster-Url", []string{server.URL})
 
 		expected := &modulecomponents.VectorizationResult{
@@ -143,9 +143,8 @@ func TestClient(t *testing.T) {
 		_, _, _, err := c.Vectorize(ctxWithClusterURL, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
-		assert.Equal(t, "Weaviate API key: no api key found "+
-			"neither in request header: X-Weaviate-Api-Key "+
-			"nor in environment variable under WEAVIATE_APIKEY", err.Error())
+		assert.Equal(t, "authentication token: neither authentication token found in request header: Authorization "+
+			"nor api key in environment variable under WEAVIATE_APIKEY", err.Error())
 	})
 
 	t.Run("when X-Weaviate-Api-Key header is passed but empty", func(t *testing.T) {
@@ -161,14 +160,13 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Weaviate-Api-Key", []string{""})
+			"Authorization", []string{""})
 
 		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{}})
 
 		require.NotNil(t, err)
-		assert.Equal(t, "Weaviate API key: no api key found "+
-			"neither in request header: X-Weaviate-Api-Key "+
-			"nor in environment variable under WEAVIATE_APIKEY", err.Error())
+		assert.Equal(t, "authentication token: neither authentication token found in request header: Authorization "+
+			"nor api key in environment variable under WEAVIATE_APIKEY", err.Error())
 	})
 
 	t.Run("when X-Weaviate-Baseurl header is passed", func(t *testing.T) {
