@@ -208,7 +208,7 @@ func (h *hnsw) restoreDocMappings() error {
 	maxNodeID := uint64(0)
 	maxDocID := uint64(0)
 	buf := make([]byte, 8)
-	err := h.nodes.IterE(true, func(id uint64, node *graph.Vertex) error {
+	err := h.nodes.IterE(func(id uint64, node *graph.Vertex) error {
 		binary.BigEndian.PutUint64(buf, node.ID())
 		docIDBytes, err := h.store.Bucket(h.id + "_mv_mappings").Get(buf)
 		if err != nil {

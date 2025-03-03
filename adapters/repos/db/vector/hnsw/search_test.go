@@ -80,7 +80,7 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			),
 			nil, // corrupt node
 			graph.NewVertexWithConnections(0, 0, [][]uint64{{0, 1, 2}}),
-		}),
+		})
 	})
 
 	t.Run("run a search that would typically find the new ep", func(t *testing.T) {
