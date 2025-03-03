@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -62,7 +61,7 @@ func Test_AddClass(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		assert.Nil(t, err)
 
@@ -120,7 +119,7 @@ func Test_AddClass(t *testing.T) {
 			Stopwords:              expectedStopwordConfig,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -152,7 +151,6 @@ func Test_AddClass(t *testing.T) {
 			Stopwords:              expectedStopwordConfig,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -212,7 +210,6 @@ func Test_AddClass(t *testing.T) {
 					// fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(&models.Class{Class: classes[tc.dataType[0]].Class, Vectorizer: classes[tc.dataType[0]].Vectorizer})
 					if tc.expectedErrMsg == "" {
 						fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 
 					_, _, err := handler.AddClass(context.Background(), nil, class)
@@ -395,76 +392,6 @@ func Test_AddClass(t *testing.T) {
 	})
 }
 
-func Test_AddClassWithLimits(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	t.Run("with max collections limit", func(t *testing.T) {
-		tests := []struct {
-			name          string
-			existingCount int
-			maxAllowed    int
-			expectedError error
-		}{
-			{
-				name:          "under the limit",
-				existingCount: 5,
-				maxAllowed:    10,
-				expectedError: nil,
-			},
-			{
-				name:          "at the limit",
-				existingCount: 10,
-				maxAllowed:    10,
-				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
-			},
-			{
-				name:          "over the limit",
-				existingCount: 11,
-				maxAllowed:    10,
-				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
-			},
-			{
-				name:          "no limit set",
-				existingCount: 100,
-				maxAllowed:    -1,
-				expectedError: nil,
-			},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-
-				// Mock the schema count
-				fakeSchemaManager.On("QueryCollectionsCount").Return(tt.existingCount, nil)
-
-				// Set the max collections limit in config
-				handler.config.MaximumAllowedCollectionsCount = tt.maxAllowed
-
-				class := &models.Class{
-					Class:      "NewClass",
-					Vectorizer: "none",
-				}
-
-				if tt.expectedError == nil {
-					fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-				}
-
-				_, _, err := handler.AddClass(ctx, nil, class)
-				if tt.expectedError != nil {
-					require.NotNil(t, err)
-					assert.Contains(t, err.Error(), tt.expectedError.Error())
-				} else {
-					require.Nil(t, err)
-				}
-				fakeSchemaManager.AssertExpectations(t)
-			})
-		}
-	})
-}
-
 func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 	t.Parallel()
 
@@ -558,8 +485,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-			handler.config.MaximumAllowedCollectionsCount = -1
+
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 		})
@@ -725,7 +651,6 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 			fakeSchemaManager.AssertExpectations(t)
@@ -890,7 +815,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -911,7 +835,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -1008,10 +931,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
-					handler.config.MaximumAllowedCollectionsCount = -1
 					_, _, err := handler.AddClass(context.Background(), nil, class)
+					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeSchemaManager.AssertExpectations(t)
 				})
@@ -1033,7 +955,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -1061,7 +982,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
@@ -1095,7 +1015,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(ctx, nil, class)
 					t.Log(err)
@@ -1420,13 +1339,11 @@ func Test_UpdateClass(t *testing.T) {
 				ctx := context.Background()
 
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				if len(test.initial.Properties) > 0 {
 					fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				}
-				handler.config.MaximumAllowedCollectionsCount = -1
 				_, _, err := handler.AddClass(ctx, nil, test.initial)
 				assert.Nil(t, err)
 				store.AddClass(test.initial)
@@ -1713,8 +1630,6 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.config.MaximumAllowedCollectionsCount = -1
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.False(t, schema.AutoTenantCreationEnabled(c))
@@ -1734,8 +1649,6 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.config.MaximumAllowedCollectionsCount = -1
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.True(t, schema.AutoTenantCreationEnabled(c))
@@ -1751,8 +1664,6 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.config.MaximumAllowedCollectionsCount = -1
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})
@@ -1766,8 +1677,6 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.config.MaximumAllowedCollectionsCount = -1
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})

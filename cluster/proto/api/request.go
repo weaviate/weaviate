@@ -67,10 +67,6 @@ type QuerySchemaResponse struct {
 	Schema models.Schema
 }
 
-type QueryCollectionsCountResponse struct {
-	Count int
-}
-
 type QueryShardOwnerRequest struct {
 	Class, Shard string
 }

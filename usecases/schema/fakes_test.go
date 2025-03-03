@@ -17,7 +17,6 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/mock"
-
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -129,11 +128,6 @@ func (f *fakeSchemaManager) ClassInfoWithVersion(ctx context.Context, class stri
 func (f *fakeSchemaManager) QuerySchema() (models.Schema, error) {
 	args := f.Called()
 	return args.Get(0).(models.Schema), args.Error(1)
-}
-
-func (f *fakeSchemaManager) QueryCollectionsCount() (int, error) {
-	args := f.Called()
-	return args.Get(0).(int), args.Error(1)
 }
 
 func (f *fakeSchemaManager) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
