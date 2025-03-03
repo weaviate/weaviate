@@ -18,6 +18,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -29,20 +30,33 @@ import (
 //
 // swagger:model UserInfo
 type UserInfo struct {
-
 	// The role names associated to the user
+	// Required: true
 	Roles []string `json:"roles"`
 
 	// The user id of the given user
 	// Required: true
 	UserID *string `json:"user_id"`
+
+	// type of the returned user
+	// Required: true
+	// Enum: [dynamic static]
+	UserType *string `json:"user_type"`
 }
 
 // Validate validates this user info
 func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateRoles(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateUserID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUserType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -52,9 +66,58 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *UserInfo) validateUserID(formats strfmt.Registry) error {
+func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
+	if err := validate.Required("roles", "body", m.Roles); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func (m *UserInfo) validateUserID(formats strfmt.Registry) error {
 	if err := validate.Required("user_id", "body", m.UserID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var userInfoTypeUserTypePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["dynamic","static"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		userInfoTypeUserTypePropEnum = append(userInfoTypeUserTypePropEnum, v)
+	}
+}
+
+const (
+
+	// UserInfoUserTypeDynamic captures enum value "dynamic"
+	UserInfoUserTypeDynamic string = "dynamic"
+
+	// UserInfoUserTypeStatic captures enum value "static"
+	UserInfoUserTypeStatic string = "static"
+)
+
+// prop value enum
+func (m *UserInfo) validateUserTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, userInfoTypeUserTypePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *UserInfo) validateUserType(formats strfmt.Registry) error {
+	if err := validate.Required("user_type", "body", m.UserType); err != nil {
+		return err
+	}
+
+	// value enum
+	if err := m.validateUserTypeEnum("user_type", "body", *m.UserType); err != nil {
 		return err
 	}
 

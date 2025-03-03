@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -48,6 +49,11 @@ const (
 	userNameRegexCore = `[A-Za-z][-_0-9A-Za-z]{0,254}`
 )
 
+const (
+	userTypeStatic  = "static"
+	userTypeDynamic = "dynamic"
+)
+
 var validateUserNameRegex = regexp.MustCompile(`^` + userNameRegexCore + `$`)
 
 func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, staticApiKeysConfigs config.APIKey, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
@@ -70,13 +76,18 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
-	if err != nil {
-		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
-	}
+	// also check for existing static users if request comes from root
+	isStaticUser := h.isRequestFromRootUser(principal) && h.staticUserExists(params.UserID)
 
-	if len(existingUser) == 0 {
-		return users.NewGetUserInfoNotFound()
+	if !isStaticUser {
+		existingDynamicUsers, err := h.dynamicUser.GetUsers(params.UserID)
+		if err != nil {
+			return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
+		}
+
+		if len(existingDynamicUsers) == 0 {
+			return users.NewGetUserInfoNotFound()
+		}
 	}
 
 	existedRoles, err := h.dynamicUser.GetRolesForUser(params.UserID)
@@ -89,7 +100,12 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		roles = append(roles, roleName)
 	}
 
-	return users.NewGetUserInfoOK().WithPayload(&models.UserInfo{UserID: &params.UserID, Roles: roles})
+	userType := userTypeDynamic
+	if isStaticUser {
+		userType = userTypeStatic
+	}
+
+	return users.NewGetUserInfoOK().WithPayload(&models.UserInfo{UserID: &params.UserID, Roles: roles, UserType: &userType})
 }
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
@@ -235,6 +251,15 @@ func (h *dynUserHandler) isRootUser(name string) bool {
 	return false
 }
 
+func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool {
+	for _, groupName := range principal.Groups {
+		if slices.Contains(h.rbacConfig.RootGroups, groupName) {
+			return true
+		}
+	}
+	return slices.Contains(h.rbacConfig.RootUsers, principal.Username)
+}
+
 // validateRoleName validates that this string is a valid role name (format wise)
 func validateUserName(name string) error {
 	if len(name) > userNameMaxLength {
@@ -245,5 +270,3 @@ func validateUserName(name string) error {
 	}
 	return nil
 }
-
-// validateRootRole validates that enduser do not touch the internal root role
