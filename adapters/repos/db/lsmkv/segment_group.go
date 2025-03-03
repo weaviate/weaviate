@@ -348,15 +348,12 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	}
 	sg.segmentCleaner = sc
 
-	// TODO AL: use separate cycle callback for cleanup?
-	id := "segmentgroup/compaction/" + sg.dir
-	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
-
+	ogStrategy := sg.strategy
 	// if a segment exists of the map collection strategy, we need to
 	// convert the inverted strategy to a map collection strategy
 	// as it is done on the bucket level
-	if sg.strategy == StrategyInverted && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+	if sg.strategy == StrategyInverted && (len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyMapCollection) || os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") != "true" {
 		sg.strategy = StrategyMapCollection
 	}
 
@@ -386,6 +383,48 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			}
 			tombstonesCurrent.Or(tombstonesNext)
 		}
+	}
+
+	// TODO AL: use separate cycle callback for cleanup?
+	id := "segmentgroup/compaction/" + sg.dir
+
+	atLeastOneMapCollection := false
+	for _, segment := range sg.segments {
+		if segment.strategy == segmentindex.StrategyMapCollection {
+			atLeastOneMapCollection = true
+		}
+	}
+
+	if ogStrategy == StrategyInverted && os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") == "true" {
+		if err := os.Setenv("USE_BLOCKMAX_WAND", "false"); err != nil {
+			return nil, fmt.Errorf("set env USE_BLOCKMAX_WAND: %w", err)
+		}
+		prop := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-1]
+		shardName := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-2]
+		indexName := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-4]
+		if atLeastOneMapCollection {
+
+			sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
+				WithField("path", sg.dir).
+				WithField("prop", prop).
+				WithField("shard", shardName).
+				WithField("index", indexName).
+				Errorf("conversion process started for %s in %s in %s", prop, shardName, indexName)
+			segmentStats.lock.Lock()
+			defer segmentStats.lock.Unlock()
+			segmentStats.total++
+			sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.convertToInverted)
+		} else {
+			sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
+				WithField("path", sg.dir).
+				WithField("prop", prop).
+				WithField("shard", shardName).
+				WithField("index", indexName).
+				Errorf("nothing to convert for %s in %s in %s", prop, shardName, indexName)
+			sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
+		}
+	} else {
+		sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 	}
 
 	return sg, nil
@@ -732,6 +771,73 @@ func fileExists(path string) (bool, error) {
 	}
 
 	return false, err
+}
+
+var segmentStats struct {
+	total int
+	done  int
+	lock  sync.Mutex
+}
+
+func (sg *SegmentGroup) convertToInverted(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	sg.monitorSegments()
+
+	convert := func() bool {
+		startTime := time.Now()
+		converted, isLast, path, metrics, err := sg.convertOnce()
+		took := time.Since(startTime).Seconds()
+
+		prop := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-1]
+		shardName := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-2]
+		indexName := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-4]
+
+		if err != nil {
+			sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
+				WithField("path", path).
+				WithField("prop", prop).
+				WithField("shard", shardName).
+				WithField("index", indexName).
+				WithField("duration", took).
+				WithError(err).
+				Errorf("conversion failed")
+		} else if converted {
+			sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
+				WithField("path", path).
+				WithField("prop", prop).
+				WithField("shard", shardName).
+				WithField("index", indexName).
+				WithField("metrics", metrics).
+				WithField("duration", took).
+				Errorf("file converted to inverted")
+		}
+
+		if isLast {
+			if converted {
+				segmentStats.lock.Lock()
+				segmentStats.done++
+				segmentStats.lock.Unlock()
+				sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
+					WithField("prop", prop).
+					WithField("shard", shardName).
+					WithField("index", indexName).
+					Errorf("conversion process is finished for %s in %s in %s. Done %v out of %v", prop, shardName, indexName, segmentStats.done, segmentStats.total)
+
+			}
+			if segmentStats.done == segmentStats.total {
+				sg.logger.WithField("action", "lsm_conversion_mapcollection_inverted").
+					Errorf("conversion process is finished for all properties %v out of %v", segmentStats.done, segmentStats.total)
+				segmentStats.lock.Lock()
+				// stop double logging
+				segmentStats.total = 0
+				segmentStats.lock.Unlock()
+			}
+
+		}
+
+		return converted
+	}
+
+	return convert()
 }
 
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {

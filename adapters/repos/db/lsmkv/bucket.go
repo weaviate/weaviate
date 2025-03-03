@@ -233,14 +233,15 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		sg.strategy = StrategyMapCollection
 	}
 
-	// Inverted segments share a lot of their logic as the MapCollection,
-	// and the main difference is in the way they store their data.
-	// Setting the desired strategy to Inverted will make sure that we can
-	// distinguish between the two strategies for search.
-	// The changes only apply when we have segments on disk,
-	// as the memtables will always be created with the MapCollection strategy.
-	if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
+	// if migrating, force inverted strategy for memtables
+	if b.strategy == StrategyInverted && os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") == "true" {
+		b.desiredStrategy = StrategyInverted
+	} else if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
 		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+		// Inverted segments share a lot of their logic as the MapCollection,
+		// and the main difference is in the way they store their data.
+		// Setting the desired strategy to Inverted will make sure that we can
+		// distinguish between the two strategies for search.
 		b.strategy = StrategyMapCollection
 		b.desiredStrategy = StrategyInverted
 		sg.strategy = StrategyMapCollection
