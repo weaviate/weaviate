@@ -572,7 +572,7 @@ func (s *shardedMultipleLockCache[T]) Delete(ctx context.Context, id uint64) {
 	}
 
 	s.cache[id] = nil
-	//TODO: roberto
+	s.vectorDocID[id] = CacheKeys{}
 	atomic.AddInt64(&s.count, -1)
 }
 
@@ -604,9 +604,12 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 	}
 
 	atomic.AddInt64(&s.count, 1)
-	s.shardedLocks.Lock(id)
-	s.cache[id] = vec
-	s.shardedLocks.Unlock(id)
+	if vec != nil {
+		s.shardedLocks.Lock(id)
+		s.cache[id] = vec
+		s.shardedLocks.Unlock(id)
+
+	}
 
 	return vec, nil
 }
@@ -691,20 +694,8 @@ func (s *shardedMultipleLockCache[T]) CountVectors() int64 {
 
 func (s *shardedMultipleLockCache[T]) Drop() {
 	s.deleteAllVectors()
-	s.deleteAllCacheKeys()
 	if s.deletionInterval != 0 {
 		s.cancelFn()
-	}
-}
-
-func (s *shardedMultipleLockCache[T]) deleteAllCacheKeys() {
-	s.shardedLocks.LockAll()
-	defer s.shardedLocks.UnlockAll()
-
-	s.logger.WithField("action", "hnsw_delete_cache_keys").
-		Debug("deleting full cache keys")
-	for i := range s.vectorDocID {
-		s.vectorDocID[i] = CacheKeys{}
 	}
 }
 
