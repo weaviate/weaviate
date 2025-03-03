@@ -12,14 +12,12 @@
 package cluster
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"
@@ -48,11 +46,6 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 
 	// Always call Error first otherwise the response can't  be read from the future
 	if err := fut.Error(); err != nil {
-		// If the current node is not the leader (it might have changed recently) return ErrNotLeader to ensure that we
-		// will retry the apply to the leader
-		if errors.Is(err, raft.ErrNotLeader) {
-			return 0, types.ErrNotLeader
-		}
 		return 0, err
 	}
 
