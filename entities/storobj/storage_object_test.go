@@ -1408,6 +1408,98 @@ func TestSkipMissingObjects(t *testing.T) {
 	}
 }
 
+func TestIterateThroughVectorDimensions(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		object Object
+
+		expect map[string]int
+	}{
+		{
+			name:   "empty",
+			object: Object{},
+			expect: map[string]int{},
+		},
+		{
+			name: "legacy",
+			object: Object{
+				Vector: make([]float32, 100),
+			},
+			expect: map[string]int{
+				"": 100,
+			},
+		},
+		{
+			name: "named",
+			object: Object{
+				Vectors: map[string][]float32{
+					"vec1": make([]float32, 100),
+					"vec2": make([]float32, 200),
+				},
+			},
+			expect: map[string]int{
+				"vec1": 100,
+				"vec2": 200,
+			},
+		},
+		{
+			name: "multi",
+			object: Object{
+				MultiVectors: map[string][][]float32{
+					"vec1": {
+						make([]float32, 100),
+						make([]float32, 200),
+						make([]float32, 300),
+					},
+					"vec2": {
+						make([]float32, 400),
+						make([]float32, 500),
+					},
+				},
+			},
+			expect: map[string]int{
+				"vec1": 600,
+				"vec2": 900,
+			},
+		},
+		{
+			name: "mixed",
+			object: Object{
+				Vector: make([]float32, 100),
+				Vectors: map[string][]float32{
+					"vec1": make([]float32, 200),
+					"vec2": make([]float32, 300),
+				},
+				MultiVectors: map[string][][]float32{
+					"vec3": {
+						make([]float32, 400),
+					},
+					"vec4": {
+						make([]float32, 500),
+					},
+				},
+			},
+			expect: map[string]int{
+				"":     100,
+				"vec1": 200,
+				"vec2": 300,
+				"vec3": 400,
+				"vec4": 500,
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			captured := map[string]int{}
+			err := tt.object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+				captured[targetVector] += dims
+				return nil
+			})
+			require.NoError(t, err)
+			require.Equal(t, tt.expect, captured)
+		})
+	}
+}
+
 func BenchmarkObjectsByDocID(b *testing.B) {
 	bucket := genFakeBucket(b, 10000)
 	logger, _ := test.NewNullLogger()
