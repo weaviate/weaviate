@@ -65,7 +65,7 @@ func (a *anthropic) GenerateAllResults(ctx context.Context, properties []*module
 	return a.generate(ctx, cfg, forTask, generative.Blobs(properties), options, debug)
 }
 
-func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	params := a.getParameters(cfg, options, imageProperties)
 	debugInformation := a.getDebugInformation(debug, prompt)
 
@@ -165,7 +165,7 @@ func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, p
 	}, nil
 }
 
-func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]string) anthropicparams.Params {
+func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) anthropicparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params anthropicparams.Params
@@ -199,7 +199,7 @@ func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface
 		params.MaxTokens = &maxTokens
 	}
 
-	params.Images = generative.ParseImageProperties(params.Images, imagePropertiesArray)
+	params.Images = generative.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
 
 	return params
 }
@@ -277,9 +277,9 @@ type contentImage struct {
 }
 
 type contentSource struct {
-	Type      string `json:"type"`
-	MediaType string `json:"media_type"`
-	Data      string `json:"data"`
+	Type      string  `json:"type"`
+	MediaType string  `json:"media_type"`
+	Data      *string `json:"data,omitempty"`
 }
 
 type generateResponse struct {
