@@ -48,7 +48,6 @@ type CompressionStats interface {
 type VectorCompressor interface {
 	Drop() error
 	GrowCache(size uint64)
-	GrowMultiCache(id uint64)
 	SetCacheMaxSize(size int64)
 	GetCacheMaxSize() int64
 	Delete(ctx context.Context, id uint64)
@@ -85,10 +84,6 @@ func (compressor *quantizedVectorsCompressor[T]) Drop() error {
 
 func (compressor *quantizedVectorsCompressor[T]) GrowCache(size uint64) {
 	compressor.cache.Grow(size)
-}
-
-func (compressor *quantizedVectorsCompressor[T]) GrowMultiCache(id uint64) {
-	compressor.cache.GrowMultiCache(id)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) SetCacheMaxSize(size int64) {
@@ -130,12 +125,16 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadMulti(docID uint64, ids 
 	for i, vector := range vecs {
 		compressedVectors[i] = compressor.quantizer.Encode(vector)
 	}
+	maxID := ids[0]
 	for i, id := range ids {
 		idBytes := make([]byte, 8)
 		compressor.storeId(idBytes, id)
 		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVectors[i]))
-		compressor.cache.Grow(id)
+		if id > maxID {
+			maxID = id
+		}
 	}
+	compressor.cache.Grow(maxID)
 	compressor.cache.PreloadMulti(docID, ids, compressedVectors)
 }
 
