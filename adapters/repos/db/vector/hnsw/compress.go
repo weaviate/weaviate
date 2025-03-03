@@ -31,10 +31,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	}
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
-	var data [][]float32
-	if !h.multivector.Load() {
-		data = h.cache.All()
-	}
+	data := h.cache.All()
 	if cfg.PQ.Enabled || cfg.SQ.Enabled {
 		if h.isEmpty() {
 			return errors.New("compress command cannot be executed before inserting some data")
@@ -121,14 +118,14 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.compressor.Preload(index, data[index])
 			})
 	} else {
-		multiData := h.cache.AllMulti()
-		docMappings := h.docIDVectors
-		compressionhelpers.Concurrently(h.logger, uint64(len(multiData)),
+		h.compressor.GrowCache(uint64(len(data)))
+		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
-				if multiData[index] == nil {
+				if data[index] == nil {
 					return
 				}
-				h.compressor.PreloadMulti(index, docMappings[index], multiData[index])
+				docID, _ := h.cache.GetKeys(index)
+				h.compressor.PreloadMulti(docID, []uint64{index}, [][]float32{data[index]})
 			})
 	}
 

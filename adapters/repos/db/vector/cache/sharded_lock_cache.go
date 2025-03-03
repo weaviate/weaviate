@@ -390,19 +390,11 @@ func (s *shardedLockCache[T]) GetKeys(id uint64) (uint64, uint64) {
 	panic("not implemented")
 }
 
-func (s *shardedLockCache[T]) GrowMultiCache(id uint64) {
-	panic("not implemented")
-}
-
 func (s *shardedLockCache[T]) PreloadMulti(docID uint64, ids []uint64, vecs [][]T) {
 	panic("not implemented")
 }
 
 func (s *shardedLockCache[T]) SetKeys(id uint64, docID uint64, relativeID uint64) {
-	panic("not implemented")
-}
-
-func (s *shardedLockCache[T]) AllMulti() [][][]T {
 	panic("not implemented")
 }
 
@@ -516,10 +508,6 @@ func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64],
 
 func (s *shardedMultipleLockCache[T]) All() [][]T {
 	return s.cache
-}
-
-func (s *shardedMultipleLockCache[T]) AllMulti() [][][]T {
-	panic("not implemented")
 }
 
 func (s *shardedMultipleLockCache[T]) GetKeys(id uint64) (uint64, uint64) {
@@ -688,11 +676,6 @@ func (s *shardedMultipleLockCache[T]) Grow(node uint64) {
 	newCache := make([][]T, newSizeVector)
 	copy(newCache, s.cache)
 	s.cache = newCache
-}
-
-func (s *shardedMultipleLockCache[T]) GrowMultiCache(id uint64) {
-	//TODO: roberto
-	panic("not implemented")
 }
 
 func (s *shardedMultipleLockCache[T]) Len() int32 {

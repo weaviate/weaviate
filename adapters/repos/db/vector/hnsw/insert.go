@@ -215,23 +215,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			h.RUnlock()
 		}
 
-		/*h.RLock()
-		if docID >= h.maxDocID {
-			h.RUnlock()
-			h.Lock()
-			if docID >= h.maxDocID {
-				h.maxDocID = docID
-				if h.compressed.Load() {
-					h.compressor.GrowMultiCache(docID)
-				} else {
-					h.cache.GrowMultiCache(docID)
-				}
-			}
-			h.Unlock()
-		} else {
-			h.RUnlock()
-		}*/
-
 		ids := make([]uint64, numVectors)
 		for id := range ids {
 			ids[id] = counter + uint64(id)
