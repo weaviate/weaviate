@@ -694,36 +694,39 @@ func runReindexerV2(reindexCtx context.Context, waitForMetaStore func() error,
 	}
 
 	if reindexer.HasOnBefore() {
+		start := time.Now()
 		logger.Debug("starting waiting for meta store")
 		if err := waitForMetaStore(); err != nil {
 			err = fmt.Errorf("meta store not available: %w", err)
-			logger.WithError(err).Error("finished waiting for meta store")
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished waiting for meta store")
 
 			reindexFinishedV2 <- err
 			return nil
 		}
-		logger.Debug("finished waiting for meta store")
+		logger.WithField("took", time.Since(start)).Debug("finished waiting for meta store")
 
+		start = time.Now()
 		logger.Debug("starting on before")
 		if err := reindexer.OnBefore(reindexCtx); err != nil {
 			err = fmt.Errorf("on before: %w", err)
-			logger.WithError(err).Error("finished on before")
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished on before")
 		} else {
-			logger.Debug("finished on before")
+			logger.WithField("took", time.Since(start)).Debug("finished on before")
 		}
 
 		// continue even in onBefore failed on some tasks.
 		// remaining tasks will proceed with reindexing.
 		enterrors.GoWrapper(func() {
+			start = time.Now()
 			logger.Debug("starting reindexing")
 			if err := reindexer.Reindex(reindexCtx); err != nil {
 				err = fmt.Errorf("reindex: %w", err)
-				logger.WithError(err).Error("finished reindexing")
+				logger.WithField("took", time.Since(start)).WithError(err).Error("finished reindexing")
 
 				reindexFinishedV2 <- err
 				return
 			}
-			logger.Debug("finished reindexing")
+			logger.WithField("took", time.Since(start)).Debug("finished reindexing")
 			reindexFinishedV2 <- nil
 		}, logger)
 
@@ -731,25 +734,27 @@ func runReindexerV2(reindexCtx context.Context, waitForMetaStore func() error,
 	}
 
 	enterrors.GoWrapper(func() {
+		start := time.Now()
 		logger.Debug("starting waiting for meta store")
 		if err := waitForMetaStore(); err != nil {
 			err = fmt.Errorf("meta store not available: %w", err)
-			logger.WithError(err).Error("finished waiting for meta store")
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished waiting for meta store")
 
 			reindexFinishedV2 <- err
 			return
 		}
-		logger.Debug("finished waiting for meta store")
+		logger.WithField("took", time.Since(start)).Debug("finished waiting for meta store")
 
+		start = time.Now()
 		logger.Debug("starting reindexing")
 		if err := reindexer.Reindex(reindexCtx); err != nil {
 			err = fmt.Errorf("reindex: %w", err)
-			logger.WithError(err).Error("finished reindexing")
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished reindexing")
 
 			reindexFinishedV2 <- err
 			return
 		}
-		logger.Debug("finished reindexing")
+		logger.WithField("took", time.Since(start)).Debug("finished reindexing")
 	}, logger)
 
 	return nil

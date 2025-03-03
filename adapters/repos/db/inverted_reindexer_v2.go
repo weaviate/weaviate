@@ -32,10 +32,10 @@ type ShardInvertedReindexTaskV2 interface {
 }
 
 type ReindexerV2 struct {
-	logger     logrus.FieldLogger
-	indexes    map[string]*Index
-	indexNames []string
-	indexLock  *sync.RWMutex
+	logger    logrus.FieldLogger
+	indexes   map[string]*Index
+	indexIds  []string
+	indexLock *sync.RWMutex
 
 	taskNames []string
 	tasks     map[string]ShardInvertedReindexTaskV2
@@ -94,7 +94,7 @@ func (r *ReindexerV2) HasOnBefore() bool {
 }
 
 func (r *ReindexerV2) OnBefore(ctx context.Context) error {
-	r.initIndexNames()
+	r.initIndexIds()
 	errs := errorcompounder.NewSafe()
 
 	for _, taskName := range r.taskNames {
@@ -109,9 +109,9 @@ func (r *ReindexerV2) OnBefore(ctx context.Context) error {
 			continue
 		}
 
-		for _, indexName := range r.indexNames {
+		for _, indexId := range r.indexIds {
 			r.indexLock.RLock()
-			index, ok := r.indexes[indexName]
+			index, ok := r.indexes[indexId]
 			r.indexLock.RUnlock()
 			if !ok {
 				continue
@@ -135,14 +135,14 @@ func (r *ReindexerV2) OnBefore(ctx context.Context) error {
 }
 
 func (r *ReindexerV2) Reindex(ctx context.Context) error {
-	r.initIndexNames()
+	r.initIndexIds()
 	errsAllTasks := errorcompounder.New()
 
 	for _, taskName := range r.taskNames {
 		logger := r.logger.WithField("task", taskName)
 
 		if err := ctx.Err(); err != nil {
-			errsAllTasks.Add(fmt.Errorf("TASK %q: %w", taskName, err))
+			errsAllTasks.Add(fmt.Errorf("task %q: context check (1): %w", taskName, err))
 			break
 		}
 
@@ -159,16 +159,16 @@ func (r *ReindexerV2) Reindex(ctx context.Context) error {
 		egShards, gctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, gctx)
 		egShards.SetLimit(r.config.concurrencyShards)
 
-		for _, indexName := range r.indexNames {
+		for _, indexId := range r.indexIds {
 			r.indexLock.RLock()
-			index, ok := r.indexes[indexName]
+			index, ok := r.indexes[indexId]
 			r.indexLock.RUnlock()
 			if !ok {
 				continue
 			}
 
 			if err := gctx.Err(); err != nil {
-				errsPerTask.Add(fmt.Errorf("INDEX %q: %w", indexName, err))
+				errsPerTask.Add(fmt.Errorf("index %q: context check(2): %w", indexId, err))
 				break
 			}
 
@@ -182,19 +182,19 @@ func (r *ReindexerV2) Reindex(ctx context.Context) error {
 		egShards.Wait()
 
 		if err := errsPerTask.ToError(); err != nil {
-			errsAllTasks.Add(fmt.Errorf("TASK %q: %w", taskName, err))
+			errsAllTasks.Add(fmt.Errorf("task %q: %w", taskName, err))
 		}
 	}
 
 	return errsAllTasks.ToError()
 }
 
-func (r *ReindexerV2) initIndexNames() {
-	if r.indexNames == nil {
+func (r *ReindexerV2) initIndexIds() {
+	if r.indexIds == nil {
 		r.indexLock.RLock()
-		r.indexNames = make([]string, 0, len(r.indexes))
+		r.indexIds = make([]string, 0, len(r.indexes))
 		for name := range r.indexes {
-			r.indexNames = append(r.indexNames, name)
+			r.indexIds = append(r.indexIds, name)
 		}
 		r.indexLock.RUnlock()
 	}
@@ -209,7 +209,9 @@ func (r *ReindexerV2) runForIndex(ctx context.Context, task ShardInvertedReindex
 		tracker.increment()
 		errgrp.Go(func() error {
 			defer tracker.decrement()
-			r.runForShard(ctx, task, index, shardName, errs, tracker)
+			if err := r.runForShard(ctx, task, index, shardName, tracker); err != nil {
+				errs.Add(fmt.Errorf("index %q / shard %q: %w", index.ID(), shardName, err))
+			}
 			return nil
 		})
 		return ctx.Err()
@@ -217,7 +219,7 @@ func (r *ReindexerV2) runForIndex(ctx context.Context, task ShardInvertedReindex
 
 	for {
 		if err := ctx.Err(); err != nil {
-			errs.Add(err)
+			errs.Add(fmt.Errorf("index %q: context check (3): %w", index.ID(), err))
 			return
 		}
 
@@ -229,35 +231,38 @@ func (r *ReindexerV2) runForIndex(ctx context.Context, task ShardInvertedReindex
 			tracker.increment()
 			errgrp.Go(func() error {
 				defer tracker.decrement()
-				r.runForShard(ctx, task, index, shardName, errs, tracker)
+				if err := r.runForShard(ctx, task, index, shardName, tracker); err != nil {
+					errs.Add(fmt.Errorf("index %q / shard %q: %w", index.ID(), shardName, err))
+				}
 				return nil
 			})
 			continue
 		}
 
 		if err := tracker.wait(ctx); err != nil {
-			errs.Add(err)
+			errs.Add(fmt.Errorf("index %q: context check (4): %w", index.ID(), err))
 			return
 		}
 	}
 }
 
 func (r *ReindexerV2) runForShard(ctx context.Context, task ShardInvertedReindexTaskV2,
-	index *Index, shardName string, errs *errorcompounder.SafeErrorCompounder,
-	tracker *processingTracker,
-) {
+	index *Index, shardName string, tracker *processingTracker,
+) error {
 	shard, release, err := index.GetShard(ctx, shardName)
 	if err != nil {
-		errs.Add(err)
-		return
+		return err
 	}
 	defer release()
 
-	if rerunAfter, err := task.ReindexByShard(ctx, shard); err != nil {
-		errs.Add(err)
-	} else if !rerunAfter.IsZero() {
+	rerunAfter, err := task.ReindexByShard(ctx, shard)
+	if err != nil {
+		return err
+	}
+	if !rerunAfter.IsZero() {
 		tracker.insert(shardName, rerunAfter)
 	}
+	return nil
 }
 
 type processingTracker struct {

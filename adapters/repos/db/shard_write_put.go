@@ -507,7 +507,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	// determine only changed properties to avoid unnecessary updates of inverted indexes
 	if status.docIDPreserved {
 		skipDeltaForProps := []string{}
-		// TODO:aliszka	optimize fetching skipDeltaForProps
+		// TODO aliszka:blockmax optimize fetching skipDeltaForProps
 		if bucketsInverted := s.store.GetBucketsByStrategy(lsmkv.StrategyInverted); len(bucketsInverted) > 0 {
 			for bucketName := range bucketsInverted {
 				if strings.HasSuffix(bucketName, "_searchable") && strings.HasPrefix(bucketName, "property_") {

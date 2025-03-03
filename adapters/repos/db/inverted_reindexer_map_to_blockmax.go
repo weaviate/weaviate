@@ -80,8 +80,8 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger, swapBuc
 			pauseInterval:                 1 * time.Minute,
 			checkProcessingEveryNoObjects: 100,
 
-			// processing:                    1 * time.Second,
-			// pause:                         5 * time.Second,
+			// processingInterval:            1 * time.Second,
+			// pauseInterval:                 5 * time.Second,
 			// checkProcessingEveryNoObjects: 4,
 		},
 	}
@@ -442,24 +442,30 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) tidyMapBuckets(ctx context.Cont
 func (t *ShardInvertedReindexTask_MapToBlockmax) startReindexBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
-	return t.startBuckets(ctx, logger, shard, props, t.reindexBucketName, lsmkv.StrategyInverted)
+	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted)
+	return t.startBuckets(ctx, logger, shard, props, t.reindexBucketName, bucketOpts)
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) startIngestBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
-	return t.startBuckets(ctx, logger, shard, props, t.ingestBucketName, lsmkv.StrategyInverted)
+	// since bucket will be merged with reindex bucket (ingest segments being after reindex segments),
+	// tombstones need to be kept
+	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted)
+	bucketOpts = append(bucketOpts, lsmkv.WithKeepTombstones(true))
+	return t.startBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) startMapBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
-	return t.startBuckets(ctx, logger, shard, props, t.mapBucketName, lsmkv.StrategyMapCollection)
+	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyMapCollection)
+	return t.startBuckets(ctx, logger, shard, props, t.mapBucketName, bucketOpts)
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) startBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string, bucketNamer func(string) string,
-	strategy string,
+	bucketOpts []lsmkv.BucketOption,
 ) error {
 	store := shard.Store()
 
@@ -470,7 +476,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) startBuckets(ctx context.Contex
 
 		eg.Go(func() error {
 			bucketName := bucketNamer(propName)
-			if err := store.CreateOrLoadBucket(gctx, bucketName, t.bucketOptions(shard, strategy)...); err != nil {
+			if err := store.CreateOrLoadBucket(gctx, bucketName, bucketOpts...); err != nil {
 				return err
 			}
 			return nil
