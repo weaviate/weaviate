@@ -758,7 +758,7 @@ func Test_MultiDimensionTrackingMetrics(t *testing.T) {
 	}
 }
 
-func Test_TotalDimensionTrackingMetrics(t *testing.T) {
+func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	const (
 		objectCount         = 100
 		multiVecCard        = 3
