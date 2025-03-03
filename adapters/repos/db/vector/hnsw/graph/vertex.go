@@ -226,6 +226,8 @@ func (v *VertexEditor) ConnectionsAtLevel(level int) []uint64 {
 }
 
 func (v *VertexEditor) SetConnectionsAtLevel(level int, connections []uint64) (owned bool) {
+	v.EnsureLevel(level)
+
 	// before we simply copy the connections let's check how much smaller the new
 	// list is. If it's considerably smaller, we might want to downsize the
 	// current allocation
@@ -287,6 +289,10 @@ func (v *VertexEditor) AppendConnectionAtLevel(level int, connection uint64, max
 
 func (v *VertexEditor) ResetConnections() {
 	v.v.connections = make([][]uint64, len(v.v.connections))
+}
+
+func (v *VertexEditor) ResetConnectionsWith(connections [][]uint64) {
+	v.v.connections = connections
 }
 
 func (v *VertexEditor) ResetConnectionsAtLevel(level int) {
