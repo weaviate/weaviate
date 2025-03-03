@@ -139,6 +139,12 @@ type PrometheusMetrics struct {
 	T2VTokensInRequest    *prometheus.HistogramVec
 	T2VRateLimitStats     *prometheus.GaugeVec
 	T2VRequestsPerBatch   *prometheus.HistogramVec
+
+	TokenizerDuration           *prometheus.HistogramVec
+	TokenizerRequests           *prometheus.CounterVec
+	TokenizerInitializeDuration *prometheus.HistogramVec
+	TokenCount                  *prometheus.CounterVec
+	TokenCountPerRequest        *prometheus.HistogramVec
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
@@ -719,6 +725,29 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help:    "Number of requests required to process an entire (user) batch",
 			Buckets: []float64{1, 2, 5, 10, 100, 1000},
 		}, []string{"vectorizer"}),
+		TokenizerDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "tokenizer_duration_microseconds",
+			Help:    "Duration of a tokenizer operation",
+			Buckets: []float64{1, 10, 50, 100, 1000, 5000, 10000, 100000, 500000, 1000000, 10000000},
+		}, []string{"tokenizer"}),
+		TokenizerRequests: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tokenizer_requests_total",
+			Help: "Number of tokenizer requests",
+		}, []string{"tokenizer"}),
+		TokenizerInitializeDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "tokenizer_initialize_duration_microseconds",
+			Help:    "Duration of a tokenizer initialization operation",
+			Buckets: []float64{1000, 5000, 10000, 100000, 500000, 1000000, 10000000},
+		}, []string{"tokenizer"}),
+		TokenCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "token_count_total",
+			Help: "Number of tokens processed",
+		}, []string{"tokenizer"}),
+		TokenCountPerRequest: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "token_count_per_request",
+			Help:    "Number of tokens processed per request",
+			Buckets: []float64{1, 10, 50, 100, 500, 1000, 10000, 100000, 1000000},
+		}, []string{"tokenizer"}),
 	}
 }
 
