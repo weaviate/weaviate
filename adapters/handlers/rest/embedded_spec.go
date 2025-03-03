@@ -6540,7 +6540,9 @@ func init() {
     "UserInfo": {
       "type": "object",
       "required": [
-        "user_id"
+        "user_id",
+        "user_type",
+        "roles"
       ],
       "properties": {
         "roles": {
@@ -6553,6 +6555,14 @@ func init() {
         "user_id": {
           "description": "The user id of the given user",
           "type": "string"
+        },
+        "user_type": {
+          "description": "type of the returned user",
+          "type": "string",
+          "enum": [
+            "dynamic",
+            "static"
+          ]
         }
       }
     },
@@ -13833,7 +13843,9 @@ func init() {
     "UserInfo": {
       "type": "object",
       "required": [
-        "user_id"
+        "user_id",
+        "user_type",
+        "roles"
       ],
       "properties": {
         "roles": {
@@ -13846,6 +13858,14 @@ func init() {
         "user_id": {
           "description": "The user id of the given user",
           "type": "string"
+        },
+        "user_type": {
+          "description": "type of the returned user",
+          "type": "string",
+          "enum": [
+            "dynamic",
+            "static"
+          ]
         }
       }
     },

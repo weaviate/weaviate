@@ -43,9 +43,17 @@
         "user_id": {
           "type": "string",
           "description": "The user id of the given user"
+        },
+        "user_type":{
+          "type": "string",
+          "enum": [
+            "dynamic",
+            "static"
+          ],
+          "description": "type of the returned user"
         }
       },
-      "required": ["user_id"]
+      "required": ["user_id", "user_type", "roles"]
     },
     "UserApiKey": {
       "type": "object",
