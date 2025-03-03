@@ -44,6 +44,11 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
+const (
+	UUID3 = "a4de3ca0-6975-464f-b23b-adddd83630d7"
+	UUID4 = "7e10ec81-a26d-4ac7-8264-3e3e05397ddc"
+)
+
 func TestGRPCRequest(t *testing.T) {
 	classname := "TestClass"
 	refClass1 := "OtherClass"

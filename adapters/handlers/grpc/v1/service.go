@@ -16,13 +16,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/classcache"
-	"github.com/weaviate/weaviate/entities/versioned"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -41,14 +39,16 @@ import (
 
 type Service struct {
 	pb.UnimplementedWeaviateServer
-	traverser            *traverser.Traverser
-	authComposer         composer.TokenFunc
-	allowAnonymousAccess bool
-	schemaManager        *schemaManager.Manager
-	batchManager         *objects.BatchManager
-	config               *config.Config
-	authorizer           authorization.Authorizer
-	logger               logrus.FieldLogger
+	traverser     *traverser.Traverser
+	schemaManager *schemaManager.Manager
+	batchManager  *objects.BatchManager
+	config        *config.Config
+	authorizer    authorization.Authorizer
+	logger        logrus.FieldLogger
+
+	authenticator       *authHandler
+	batchObjectsHandler *batch.ObjectsHandler
+	batchStreamHandler  *batch.StreamHandler
 }
 
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
@@ -56,15 +56,18 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
 	logger logrus.FieldLogger,
 ) *Service {
+	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
+	batchObjectsHandler := batch.NewObjectsHandler(authorization, batchManager, logger, authenticator, schemaManager)
 	return &Service{
-		traverser:            traverser,
-		authComposer:         authComposer,
-		allowAnonymousAccess: allowAnonymousAccess,
-		schemaManager:        schemaManager,
-		batchManager:         batchManager,
-		config:               config,
-		logger:               logger,
-		authorizer:           authorization,
+		traverser:           traverser,
+		schemaManager:       schemaManager,
+		batchManager:        batchManager,
+		config:              config,
+		logger:              logger,
+		authorizer:          authorization,
+		authenticator:       authenticator,
+		batchObjectsHandler: batchObjectsHandler,
+		batchStreamHandler:  batch.NewStreamHandler(batchObjectsHandler, logger),
 	}
 }
 
@@ -84,7 +87,7 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
 	before := time.Now()
 
-	principal, err := s.principalFromContext(ctx)
+	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
@@ -119,7 +122,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
 	before := time.Now()
 
-	principal, err := s.principalFromContext(ctx)
+	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
@@ -151,7 +154,7 @@ func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 
 func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
 	before := time.Now()
-	principal, err := s.principalFromContext(ctx)
+	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
@@ -190,7 +193,7 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	var errInner error
 
 	if err := enterrors.GoWrapperWithBlock(func() {
-		result, errInner = s.batchObjects(ctx, req)
+		result, errInner = s.batchObjectsHandler.BatchObjects(ctx, req)
 	}, s.logger); err != nil {
 		return nil, err
 	}
@@ -198,80 +201,16 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	return result, errInner
 }
 
-func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
-	before := time.Now()
-	principal, err := s.principalFromContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("extract auth: %w", err)
-	}
-	ctx = classcache.ContextWithClassCache(ctx)
+func (s *Service) Batch(stream pb.Weaviate_BatchServer) error {
+	var errInner error
 
-	// we need to save the class two times:
-	// - to check if we already authorized the class+shard combination and if yes skip the auth, this is indexed by
-	//   a combination of class+shard
-	// - to pass down the stack to reuse, index by classname so it can be found easily
-	knownClasses := map[string]versioned.Class{}
-	knownClassesAuthCheck := map[string]*models.Class{}
-	classGetter := func(classname, shard string) (*models.Class, error) {
-		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
-		classTenantName := classname + "#" + shard
-		class, ok := knownClassesAuthCheck[classTenantName]
-		if ok {
-			return class, nil
-		}
-
-		// batch is upsert
-		if err := s.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
-			return nil, err
-		}
-
-		if err := s.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
-			return nil, err
-		}
-
-		// we don't leak any info that someone who inserts data does not have anyway
-		vClass, err := s.schemaManager.GetCachedClassNoAuth(ctx, classname)
-		if err != nil {
-			return nil, err
-		}
-		knownClasses[classname] = vClass[classname]
-		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
-		return vClass[classname].Class, nil
-	}
-	objs, objOriginalIndex, objectParsingErrors := BatchFromProto(req, classGetter)
-
-	var objErrors []*pb.BatchObjectsReply_BatchError
-	for i, err := range objectParsingErrors {
-		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: err.Error()})
+	if err := enterrors.GoWrapperWithBlock(func() {
+		errInner = s.batchStreamHandler.Stream(stream)
+	}, s.logger); err != nil {
+		return err
 	}
 
-	// If every object failed to parse, return early with the errors
-	if len(objs) == 0 {
-		result := &pb.BatchObjectsReply{
-			Took:   float32(time.Since(before).Seconds()),
-			Errors: objErrors,
-		}
-		return result, nil
-	}
-
-	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
-
-	response, err := s.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, replicationProperties, knownClasses)
-	if err != nil {
-		return nil, err
-	}
-
-	for i, obj := range response {
-		if obj.Err != nil {
-			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: obj.Err.Error()})
-		}
-	}
-
-	result := &pb.BatchObjectsReply{
-		Took:   float32(time.Since(before).Seconds()),
-		Errors: objErrors,
-	}
-	return result, nil
+	return errInner
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
@@ -290,7 +229,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	before := time.Now()
 
-	principal, err := s.principalFromContext(ctx)
+	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
