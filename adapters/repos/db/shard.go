@@ -133,7 +133,7 @@ type ShardLike interface {
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
-	// TODO test only
+	// TODO tests only
 	Dimensions(ctx context.Context, targetVector string) int // dim(vector)*number vectors
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
 

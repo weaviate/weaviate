@@ -147,8 +147,8 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 
 		for vecName, vecCfg := range s.index.vectorIndexUserConfigs {
 			dimensions, segments := s.calcDimensionsAndSegments(ctx, vecCfg, vecName)
-			sendVectorDimensionsForVecMetric(s.promMetrics, className, s.name, dimensions, vecName)
-			sendVectorSegmentsForVecMetric(s.promMetrics, className, s.name, segments, vecName)
+			sendVectorDimensionsForVecMetric(s.promMetrics, className, s.name, vecName, dimensions)
+			sendVectorSegmentsForVecMetric(s.promMetrics, className, s.name, vecName, segments)
 
 			sumDimensions += dimensions
 			sumSegments += segments
@@ -182,9 +182,9 @@ func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics,
 	className, shardName string, targetCfgs map[string]schemaConfig.VectorIndexConfig,
 ) {
 	if promMetrics != nil {
-		for vecName := range targetCfgs {
-			sendVectorDimensionsForVecMetric(promMetrics, className, shardName, 0, vecName)
-			sendVectorSegmentsForVecMetric(promMetrics, className, shardName, 0, vecName)
+		for targetVector := range targetCfgs {
+			sendVectorDimensionsForVecMetric(promMetrics, className, shardName, targetVector, 0)
+			sendVectorSegmentsForVecMetric(promMetrics, className, shardName, targetVector, 0)
 		}
 
 		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
@@ -203,10 +203,10 @@ func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
 }
 
 func sendVectorSegmentsForVecMetric(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName string, count int, vecName string,
+	className, shardName, targetVector string, count int,
 ) {
 	metric, err := promMetrics.VectorSegmentsSumByVector.
-		GetMetricWithLabelValues(className, shardName, vecName)
+		GetMetricWithLabelValues(className, shardName, targetVector)
 	if err == nil {
 		metric.Set(float64(count))
 	}
@@ -231,7 +231,7 @@ func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
 }
 
 func sendVectorDimensionsForVecMetric(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName string, count int, vecName string,
+	className, shardName, targetVector string, count int,
 ) {
 	// Important: Never group classes/shards for this metric. We need the
 	// granularity here as this tracks an absolute value per shard that changes
@@ -242,7 +242,7 @@ func sendVectorDimensionsForVecMetric(promMetrics *monitoring.PrometheusMetrics,
 	// Then have a single metric that aggregates all dimensions first, then
 	// observes only the sum
 	metric, err := promMetrics.VectorDimensionsSumByVector.
-		GetMetricWithLabelValues(className, shardName, vecName)
+		GetMetricWithLabelValues(className, shardName, targetVector)
 	if err == nil {
 		metric.Set(float64(count))
 	}
