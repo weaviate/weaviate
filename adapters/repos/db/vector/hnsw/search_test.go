@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -67,23 +68,19 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 	t.Run("manually add the nodes", func(t *testing.T) {
 		vectorIndex.entryPointID = 0
 		vectorIndex.currentMaximumLayer = 1
-		vectorIndex.nodes = []*vertex{
-			{
+		vectorIndex.nodes = graph.NewNodesWith([]*graph.Vertex{
+			graph.NewVertexWithConnections(
+				0,
 				// must be on a non-zero layer for this bug to occur
-				level: 1,
-				connections: [][]uint64{
+				1,
+				[][]uint64{
 					{1, 2},
 					{1},
 				},
-			},
+			),
 			nil, // corrupt node
-			{
-				level: 0,
-				connections: [][]uint64{
-					{0, 1, 2},
-				},
-			},
-		}
+			graph.NewVertexWithConnections(0, 0, [][]uint64{{0, 1, 2}}),
+		}),
 	})
 
 	t.Run("run a search that would typically find the new ep", func(t *testing.T) {
