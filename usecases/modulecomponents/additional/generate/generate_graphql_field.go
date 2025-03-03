@@ -81,11 +81,10 @@ func (p *GenerateProvider) groupedResultArguments(className string) graphql.Inpu
 }
 
 func (p *GenerateProvider) inputArguments(argumentFields graphql.InputObjectConfigFieldMap, prefix string) {
-	if p.isDynamicRAGSyntaxEnabled {
-		for name, generativeParameters := range p.additionalGenerativeParameters {
-			if generativeParameters.RequestParamsFunction != nil {
-				argumentFields[name] = generativeParameters.RequestParamsFunction(prefix)
-			}
+	// Dynamic RAG syntax generative module specific request parameters
+	for name, generativeParameters := range p.additionalGenerativeParameters {
+		if generativeParameters.RequestParamsFunction != nil {
+			argumentFields[name] = generativeParameters.RequestParamsFunction(prefix)
 		}
 	}
 }
@@ -102,11 +101,10 @@ func (p *GenerateProvider) fields(className string) graphql.Fields {
 			},
 		})},
 	}
-	if p.isDynamicRAGSyntaxEnabled {
-		for name, generativeParameters := range p.additionalGenerativeParameters {
-			if generativeParameters.ResponseParamsFunction != nil {
-				fields[name] = generativeParameters.ResponseParamsFunction(className)
-			}
+	// Dynamic RAG syntax generative module specific response parameters
+	for name, generativeParameters := range p.additionalGenerativeParameters {
+		if generativeParameters.ResponseParamsFunction != nil {
+			fields[name] = generativeParameters.ResponseParamsFunction(className)
 		}
 	}
 	return fields
