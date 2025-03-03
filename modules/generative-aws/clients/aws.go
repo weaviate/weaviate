@@ -86,7 +86,7 @@ func (v *awsClient) GenerateAllResults(ctx context.Context, properties []*module
 	return v.Generate(ctx, cfg, forTask, generativecomponents.Blobs(properties), options, debug)
 }
 
-func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	params := v.getParameters(cfg, options, imageProperties)
 	service := params.Service
 	debugInformation := v.getDebugInformation(debug, prompt)
@@ -189,7 +189,7 @@ func (v *awsClient) getDebugInformation(debug bool, prompt string) *modulecapabi
 	return nil
 }
 
-func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]string) awsparams.Params {
+func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) awsparams.Params {
 	settings := generativeconfig.NewClassSettings(cfg)
 
 	service := settings.Service()
@@ -221,7 +221,7 @@ func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface
 		params.Temperature = temperature
 	}
 
-	params.Images = generativecomponents.ParseImageProperties(params.Images, imagePropertiesArray)
+	params.Images = generativecomponents.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
 
 	return params
 }
@@ -634,7 +634,7 @@ type bedrockAmazonNovaContentImage struct {
 }
 
 type bedrockAmazonNovaContentImageSource struct {
-	Bytes string `json:"bytes,omitempty"`
+	Bytes *string `json:"bytes,omitempty"`
 }
 
 type bedrockAmazonNovaInferenceConfig struct {
@@ -697,7 +697,7 @@ type bedrockAnthropicClaudeV3Source struct {
 	// possible values are: image/jpeg
 	MediaType string `json:"media_type,omitempty"`
 	// base64 encoded image
-	Data string `json:"data,omitempty"`
+	Data *string `json:"data,omitempty"`
 }
 
 type bedrockAI21GenerateRequest struct {

@@ -139,7 +139,7 @@ func (p *GenerateProvider) getProperties(result search.Result,
 	properties []string, propertyDataTypes map[string]schema.DataType,
 ) *modulecapabilities.GenerateProperties {
 	textProperties := map[string]string{}
-	blobProperties := map[string]string{}
+	blobProperties := map[string]*string{}
 	allProperties := result.Object().Properties.(map[string]interface{})
 	for property, value := range allProperties {
 		if len(properties) > 0 && !p.containsProperty(property, properties) {
@@ -153,7 +153,8 @@ func (p *GenerateProvider) getProperties(result search.Result,
 			case schema.DataTypeTextArray:
 				textProperties[property] = strings.Join(value.([]string), ",")
 			case schema.DataTypeBlob:
-				blobProperties[property] = value.(string)
+				v := value.(string)
+				blobProperties[property] = &v
 			default:
 			}
 		}
