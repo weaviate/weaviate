@@ -320,9 +320,9 @@ func (s *Shard) resetDimensionsLSM() error {
 	return nil
 }
 
-// Key (dimensionality and target vector name) | Value Doc IDs
-// 128,targetVector | 1,2,4,5,17
-// 128,targetVector | 1,2,4,5,17, Tombstone 4,
+// Key (target vector name and dimensionality) | Value Doc IDs
+// targetVector,128 | 1,2,4,5,17
+// targetVector,128 | 1,2,4,5,17, Tombstone 4,
 func (s *Shard) removeDimensionsLSM(
 	dimLength int, docID uint64, targetVector string,
 ) error {
