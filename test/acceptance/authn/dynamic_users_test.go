@@ -133,7 +133,7 @@ func TestWithStaticUser(t *testing.T) {
 
 func TestSuspendAndActivate(t *testing.T) {
 	adminKey := "admin-key"
-	//adminUser := "admin-user"
+	// adminUser := "admin-user"
 
 	dynamicUser := "dynamic-user"
 
