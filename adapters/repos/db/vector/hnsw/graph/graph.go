@@ -44,36 +44,44 @@ func NewNodesWith(list []*Vertex) *Nodes {
 
 func (n *Nodes) SetNodes(nodes []*Vertex) {
 	n.Lock()
-	defer n.Unlock()
-
 	n.locks.LockAll()
-	defer n.locks.UnlockAll()
 
 	n.list = nodes
+
+	n.locks.UnlockAll()
+	n.Unlock()
 }
 
 func (n *Nodes) Reset(size int) {
 	n.Lock()
-	defer n.Unlock()
-
 	n.locks.LockAll()
-	defer n.locks.UnlockAll()
 
 	n.list = make([]*Vertex, size)
+
+	n.locks.UnlockAll()
+	n.Unlock()
 }
 
 func (n *Nodes) IsEmpty(entryPointID uint64) bool {
 	n.RLock()
-	defer n.RUnlock()
+	n.locks.RLock(entryPointID)
 
-	return n.list[entryPointID] == nil
+	empty := n.list[entryPointID] == nil
+
+	n.locks.RUnlock(entryPointID)
+	n.RUnlock()
+
+	return empty
 }
 
 func (n *Nodes) Len() int {
 	n.RLock()
-	defer n.RUnlock()
 
-	return len(n.list)
+	l := len(n.list)
+
+	n.RUnlock()
+
+	return l
 }
 
 func (n *Nodes) Get(id uint64) *Vertex {
@@ -95,12 +103,13 @@ func (n *Nodes) Get(id uint64) *Vertex {
 
 func (n *Nodes) Set(node *Vertex) {
 	n.RLock()
-	defer n.RUnlock()
 
 	id := node.ID()
 	n.locks.Lock(id)
 	n.list[id] = node
 	n.locks.Unlock(id)
+
+	n.RUnlock()
 }
 
 // TODO: switch to Golang iterators once Go 1.23 is the
@@ -173,11 +182,12 @@ func (n *Nodes) IterE(fn func(id uint64, node *Vertex) error) error {
 
 func (n *Nodes) Delete(id uint64) {
 	n.RLock()
-	defer n.RUnlock()
 
 	n.locks.Lock(id)
 	n.list[id] = nil
 	n.locks.Unlock(id)
+
+	n.RUnlock()
 }
 
 func (n *Nodes) Grow(id uint64) (previousSize, newSize int) {
