@@ -133,7 +133,7 @@ func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	h.tombstoneLock.Lock()
 	defer h.tombstoneLock.Unlock()
 
-	// It can happen that between calls of isEmptyUnlocked and resetUnlocked
+	// It can happen that between calls of IsEmpty and resetUnlocked
 	// values of h.nodes will change (due to locks being RUnlocked and Locked again)
 	// This is acceptable in order to avoid long Locking of all striped locks
 	if h.nodes.IsEmpty(h.entryPointID) {
@@ -723,7 +723,7 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 func (h *hnsw) isOnlyNode(id uint64, denyList helpers.AllowList) bool {
 	isOnlyNode := true
 
-	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
+	h.nodes.Iter(func(_ uint64, node *graph.Vertex) bool {
 		if node.ID() == id || denyList.Contains(node.ID()) {
 			return true
 		}
