@@ -550,7 +550,19 @@ func (h *hnsw) reassignNeighbor(
 		}
 	}
 	neighborLevel := neighborNode.Level()
-	if !neighborNode.ConnectionsPointTo(deleteList) {
+	maxLevel := neighborNode.MaxLevel()
+	var found bool
+	for i := 0; i < maxLevel; i++ {
+		neighborNode.IterConnections(i, func(u uint64) bool {
+			if deleteList.Contains(u) {
+				found = true
+				return false
+			}
+
+			return true
+		})
+	}
+	if !found {
 		// nothing needs to be changed, skip
 		return true, nil
 	}

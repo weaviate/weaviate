@@ -13,8 +13,6 @@ package graph
 
 import (
 	"sync"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
 type Vertex struct {
@@ -140,22 +138,6 @@ func (v *Vertex) CopyLevel(buf []uint64, level int) []uint64 {
 	copy(buf, v.connections[level])
 	v.m.Unlock()
 	return buf
-}
-
-// TODO: remove from here
-func (v *Vertex) ConnectionsPointTo(needles helpers.AllowList) bool {
-	v.m.Lock()
-	defer v.m.Unlock()
-
-	for _, atLevel := range v.connections {
-		for _, pointer := range atLevel {
-			if needles.Contains(pointer) {
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
 // Edit allows to modify the vertex in a safe way. The function passed to Edit
