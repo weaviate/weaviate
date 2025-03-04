@@ -130,3 +130,109 @@ func TestWithStaticUser(t *testing.T) {
 		require.True(t, errors.As(err, &parsed))
 	})
 }
+
+func TestSuspendAndActivate(t *testing.T) {
+	adminKey := "admin-key"
+	//adminUser := "admin-user"
+
+	dynamicUser := "dynamic-user"
+
+	//ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	//compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).Start(ctx)
+	//require.Nil(t, err)
+	//helper.SetupClient(compose.GetWeaviate().URI())
+	//
+	//defer func() {
+	//	helper.ResetClient()
+	//	require.NoError(t, compose.Terminate(ctx))
+	//	cancel()
+	//}()
+
+	helper.SetupClient("127.0.0.1:8081")
+
+	t.Run("suspend and activate without revocation", func(t *testing.T) {
+		helper.DeleteUser(t, dynamicUser, adminKey)
+		apiKey := helper.CreateUser(t, dynamicUser, adminKey)
+
+		info := helper.GetInfoForOwnUser(t, apiKey)
+		require.NotNil(t, info)
+
+		helper.SuspendUser(t, adminKey, dynamicUser, false)
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(apiKey))
+		require.Error(t, err)
+
+		helper.ActivateUser(t, adminKey, dynamicUser)
+		infoActive := helper.GetInfoForOwnUser(t, apiKey)
+		require.NotNil(t, infoActive)
+	})
+
+	t.Run("suspend and activate with revocation", func(t *testing.T) {
+		helper.DeleteUser(t, dynamicUser, adminKey)
+		apiKey := helper.CreateUser(t, dynamicUser, adminKey)
+
+		info := helper.GetInfoForOwnUser(t, apiKey)
+		require.NotNil(t, info)
+
+		helper.SuspendUser(t, adminKey, dynamicUser, true)
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(apiKey))
+		require.Error(t, err)
+
+		helper.ActivateUser(t, adminKey, dynamicUser)
+		_, err = helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(apiKey))
+		require.Error(t, err)
+
+		// need to rotate key for user to work again
+		apiKey = helper.RotateKey(t, dynamicUser, adminKey)
+		require.NotNil(t, helper.GetInfoForOwnUser(t, apiKey))
+	})
+
+	t.Run("suspend and activate with revocation - first rotate then activate", func(t *testing.T) {
+		helper.DeleteUser(t, dynamicUser, adminKey)
+		apiKey := helper.CreateUser(t, dynamicUser, adminKey)
+
+		info := helper.GetInfoForOwnUser(t, apiKey)
+		require.NotNil(t, info)
+
+		helper.SuspendUser(t, adminKey, dynamicUser, true)
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(apiKey))
+		require.Error(t, err)
+
+		apiKey = helper.RotateKey(t, dynamicUser, adminKey)
+
+		helper.ActivateUser(t, adminKey, dynamicUser)
+		require.NotNil(t, helper.GetInfoForOwnUser(t, apiKey))
+	})
+
+	t.Run("suspend and delete with deactivate key", func(t *testing.T) {
+		for _, deactivateKey := range []bool{true, false} {
+			helper.DeleteUser(t, dynamicUser, adminKey)
+			apiKey := helper.CreateUser(t, dynamicUser, adminKey)
+
+			info := helper.GetInfoForOwnUser(t, apiKey)
+			require.NotNil(t, info)
+
+			helper.SuspendUser(t, adminKey, dynamicUser, deactivateKey)
+			helper.DeleteUser(t, dynamicUser, adminKey)
+
+			// create new user with same name, should not be suspended anymore
+			apiKey = helper.CreateUser(t, dynamicUser, adminKey)
+			require.NotNil(t, helper.GetInfoForOwnUser(t, apiKey))
+		}
+	})
+
+	t.Run("double suspend", func(t *testing.T) {
+		helper.DeleteUser(t, dynamicUser, adminKey)
+		helper.CreateUser(t, dynamicUser, adminKey)
+		helper.SuspendUser(t, adminKey, dynamicUser, false)
+		// suspend again
+		_, err := helper.Client(t).Users.SuspendUser(users.NewSuspendUserParams().WithUserID(dynamicUser), helper.CreateAuth(adminKey))
+		require.Error(t, err)
+	})
+
+	t.Run("activate active user", func(t *testing.T) {
+		helper.DeleteUser(t, dynamicUser, adminKey)
+		helper.CreateUser(t, dynamicUser, adminKey)
+		_, err := helper.Client(t).Users.ActivateUser(users.NewActivateUserParams().WithUserID(dynamicUser), helper.CreateAuth(adminKey))
+		require.Error(t, err)
+	})
+}

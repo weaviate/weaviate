@@ -397,16 +397,20 @@ func TestUserEndpoint(t *testing.T) {
 		require.Equal(t, *otherTestUser.UserID, otherTestUserName)
 	})
 
-	t.Run("Rotate user key", func(t *testing.T) {
+	t.Run("Update (rotate, suspend, activate) user", func(t *testing.T) {
 		otherTestUser := "otherTestUser"
 		helper.DeleteUser(t, otherTestUser, adminKey)
 		defer helper.DeleteUser(t, otherTestUser, adminKey)
 		helper.CreateUser(t, otherTestUser, adminKey)
+
+		// rotate
 		_, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(otherTestUser), helper.CreateAuth(testKey))
 		require.Error(t, err)
 		var createUserForbidden *users.RotateUserAPIKeyForbidden
 		ok := errors.As(err, &createUserForbidden)
 		assert.True(t, ok)
+
+		//
 
 		helper.AssignRoleToUser(t, adminKey, updateUserRoleName, testUser)
 		defer helper.RevokeRoleFromUser(t, adminKey, updateUserRoleName, testUser)

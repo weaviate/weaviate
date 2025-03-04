@@ -38,6 +38,17 @@ type DeleteUsersRequest struct {
 	Version int
 }
 
+type ActivateUsersRequest struct {
+	UserId  string
+	Version int
+}
+
+type SuspendUserRequest struct {
+	UserId    string
+	RevokeKey bool
+	Version   int
+}
+
 type QueryGetUsersRequest struct {
 	UserIds []string
 }

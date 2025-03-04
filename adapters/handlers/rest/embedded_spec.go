@@ -4262,6 +4262,62 @@ func init() {
         ]
       }
     },
+    "/users/{user_id}/activate": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "activate a suspended user",
+        "operationId": "activateUser",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "user id",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User successfully activated"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.activateUser"
+        ]
+      }
+    },
     "/users/{user_id}/rotate-key": {
       "post": {
         "tags": [
@@ -4304,7 +4360,7 @@ func init() {
             "description": "user not found"
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4318,6 +4374,77 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.rotateApiKey"
+        ]
+      }
+    },
+    "/users/{user_id}/suspend": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "suspend a user",
+        "operationId": "suspendUser",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "user id",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "deactivate_key": {
+                  "description": "if the key should be deactivated when suspending the user",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "users successfully suspended"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.suspendUser"
         ]
       }
     }
@@ -6542,9 +6669,14 @@ func init() {
       "required": [
         "user_id",
         "user_type",
-        "roles"
+        "roles",
+        "active"
       ],
       "properties": {
+        "active": {
+          "description": "activity status of the returned user",
+          "type": "boolean"
+        },
         "roles": {
           "description": "The role names associated to the user",
           "type": "array",
@@ -11277,6 +11409,62 @@ func init() {
         ]
       }
     },
+    "/users/{user_id}/activate": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "activate a suspended user",
+        "operationId": "activateUser",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "user id",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User successfully activated"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.activateUser"
+        ]
+      }
+    },
     "/users/{user_id}/rotate-key": {
       "post": {
         "tags": [
@@ -11319,7 +11507,7 @@ func init() {
             "description": "user not found"
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11333,6 +11521,77 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.rotateApiKey"
+        ]
+      }
+    },
+    "/users/{user_id}/suspend": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "suspend a user",
+        "operationId": "suspendUser",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "user id",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "deactivate_key": {
+                  "description": "if the key should be deactivated when suspending the user",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "users successfully suspended"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.suspendUser"
         ]
       }
     }
@@ -13845,9 +14104,14 @@ func init() {
       "required": [
         "user_id",
         "user_type",
-        "roles"
+        "roles",
+        "active"
       ],
       "properties": {
+        "active": {
+          "description": "activity status of the returned user",
+          "type": "boolean"
+        },
         "roles": {
           "description": "The role names associated to the user",
           "type": "array",

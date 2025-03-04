@@ -25,6 +25,8 @@ import (
 type DynamicUser interface {
 	CreateUser(userId, secureHash, userIdentifier string) error
 	DeleteUser(userId string) error
+	ActivateUser(userId string) error
+	SuspendUser(userId string, revokeKey bool) error
 	GetUsers(userIds ...string) (map[string]*User, error)
 	RotateKey(userId, secureHash string) error
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
@@ -43,6 +45,7 @@ type DynamicApiKey struct {
 	identifierToId       map[string]string
 	idToIdentifier       map[string]string
 	users                map[string]*User
+	userKeyRevoked       map[string]struct{}
 }
 
 func NewDynamicApiKey() *DynamicApiKey {
@@ -52,6 +55,7 @@ func NewDynamicApiKey() *DynamicApiKey {
 		identifierToId:       make(map[string]string),
 		idToIdentifier:       make(map[string]string),
 		users:                make(map[string]*User),
+		userKeyRevoked:       make(map[string]struct{}),
 	}
 }
 
@@ -79,6 +83,7 @@ func (c *DynamicApiKey) RotateKey(userId, secureHash string) error {
 
 	c.secureKeyStorageById[userId] = secureHash
 	delete(c.weakKeyStorageById, userId)
+	delete(c.userKeyRevoked, userId)
 	return nil
 }
 
@@ -87,9 +92,29 @@ func (c *DynamicApiKey) DeleteUser(userId string) error {
 	defer c.Unlock()
 
 	delete(c.secureKeyStorageById, userId)
-	delete(c.identifierToId, userId)
+	delete(c.idToIdentifier, userId)
+	delete(c.identifierToId, c.idToIdentifier[userId])
 	delete(c.users, userId)
 	delete(c.weakKeyStorageById, userId)
+	delete(c.userKeyRevoked, userId)
+	return nil
+}
+
+func (c *DynamicApiKey) ActivateUser(userId string) error {
+	c.Lock()
+	defer c.Unlock()
+
+	c.users[userId].Active = true
+	return nil
+}
+
+func (c *DynamicApiKey) SuspendUser(userId string, revokeKey bool) error {
+	c.Lock()
+	defer c.Unlock()
+	if revokeKey {
+		c.userKeyRevoked[userId] = struct{}{}
+	}
+	c.users[userId].Active = false
 	return nil
 }
 
@@ -131,31 +156,44 @@ func (c *DynamicApiKey) ValidateAndExtract(key, userIdentifier string) (*models.
 	weakHash, ok := c.weakKeyStorageById[userId]
 	if ok {
 		// use the secureHash as salt for the computation of the weaker in-memory
-		return c.validateWeakHash([]byte(key+secureHash), weakHash, userId)
+		if err := c.validateWeakHash([]byte(key+secureHash), weakHash); err != nil {
+			return nil, err
+		}
 	} else {
-		return c.validateStrongHash(key, secureHash, userId)
+		if err := c.validateStrongHash(key, secureHash, userId); err != nil {
+			return nil, err
+		}
 	}
-}
 
-func (c *DynamicApiKey) validateWeakHash(key []byte, weakHash [32]byte, userId string) (*models.Principal, error) {
-	keyHash := sha256.Sum256(key)
-	if subtle.ConstantTimeCompare(keyHash[:], weakHash[:]) != 1 {
-		return nil, fmt.Errorf("invalid token")
+	if c.users[userId] != nil && !c.users[userId].Active {
+		return nil, fmt.Errorf("user suspended")
+	}
+	if _, ok := c.userKeyRevoked[userId]; ok {
+		return nil, fmt.Errorf("key is revoked")
 	}
 
 	return &models.Principal{Username: userId}, nil
 }
 
-func (c *DynamicApiKey) validateStrongHash(key, secureHash, userId string) (*models.Principal, error) {
+func (c *DynamicApiKey) validateWeakHash(key []byte, weakHash [32]byte) error {
+	keyHash := sha256.Sum256(key)
+	if subtle.ConstantTimeCompare(keyHash[:], weakHash[:]) != 1 {
+		return fmt.Errorf("invalid token")
+	}
+
+	return nil
+}
+
+func (c *DynamicApiKey) validateStrongHash(key, secureHash, userId string) error {
 	match, err := argon2id.ComparePasswordAndHash(key, secureHash)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !match {
-		return nil, fmt.Errorf("invalid token")
+		return fmt.Errorf("invalid token")
 	}
 	token := []byte(key + secureHash)
 	c.weakKeyStorageById[userId] = sha256.Sum256(token)
 
-	return &models.Principal{Username: userId}, nil
+	return nil
 }

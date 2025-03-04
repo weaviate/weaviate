@@ -30,6 +30,9 @@ import (
 //
 // swagger:model UserInfo
 type UserInfo struct {
+	// activity status of the returned user
+	// Required: true
+	Active *bool `json:"active"`
 
 	// The role names associated to the user
 	// Required: true
@@ -49,6 +52,10 @@ type UserInfo struct {
 func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateActive(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateRoles(formats); err != nil {
 		res = append(res, err)
 	}
@@ -67,8 +74,15 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
+func (m *UserInfo) validateActive(formats strfmt.Registry) error {
+	if err := validate.Required("active", "body", m.Active); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
 	if err := validate.Required("roles", "body", m.Roles); err != nil {
 		return err
 	}
@@ -77,7 +91,6 @@ func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
 }
 
 func (m *UserInfo) validateUserID(formats strfmt.Registry) error {
-
 	if err := validate.Required("user_id", "body", m.UserID); err != nil {
 		return err
 	}
@@ -115,7 +128,6 @@ func (m *UserInfo) validateUserTypeEnum(path, location string, value string) err
 }
 
 func (m *UserInfo) validateUserType(formats strfmt.Registry) error {
-
 	if err := validate.Required("user_type", "body", m.UserType); err != nil {
 		return err
 	}

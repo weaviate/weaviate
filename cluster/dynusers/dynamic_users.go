@@ -56,6 +56,30 @@ func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {
 	return m.dynUser.DeleteUser(req.UserId)
 }
 
+func (m *Manager) ActivateUser(c *cmd.ApplyRequest) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	req := &cmd.ActivateUsersRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.dynUser.ActivateUser(req.UserId)
+}
+
+func (m *Manager) SuspendUser(c *cmd.ApplyRequest) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	req := &cmd.SuspendUserRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.dynUser.SuspendUser(req.UserId, req.RevokeKey)
+}
+
 func (m *Manager) RotateKey(c *cmd.ApplyRequest) error {
 	if m.dynUser == nil {
 		return nil

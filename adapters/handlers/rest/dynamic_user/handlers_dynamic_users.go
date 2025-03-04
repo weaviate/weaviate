@@ -69,6 +69,8 @@ func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesG
 	api.UsersDeleteUserHandler = users.DeleteUserHandlerFunc(h.deleteUser)
 	api.UsersGetUserInfoHandler = users.GetUserInfoHandlerFunc(h.getUser)
 	api.UsersRotateUserAPIKeyHandler = users.RotateUserAPIKeyHandlerFunc(h.rotateKey)
+	api.UsersSuspendUserHandler = users.SuspendUserHandlerFunc(h.suspendUser)
+	api.UsersActivateUserHandler = users.ActivateUserHandlerFunc(h.activateUser)
 }
 
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
@@ -229,6 +231,72 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 	return users.NewDeleteUserNoContent()
+}
+
+func (h *dynUserHandler) suspendUser(params users.SuspendUserParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+		return users.NewSuspendUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if h.staticUserExists(params.UserID) {
+		return users.NewSuspendUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+	}
+
+	if h.isRootUser(params.UserID) {
+		return users.NewSuspendUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot suspend root user")))
+	}
+
+	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
+	if err != nil {
+		return users.NewSuspendUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
+	}
+
+	if len(existingUser) == 0 {
+		return users.NewSuspendUserNotFound()
+	}
+
+	if !existingUser[params.UserID].Active {
+		return users.NewSuspendUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("user already suspended")))
+	}
+
+	if err := h.dynamicUser.SuspendUser(params.UserID, *params.Body.DeactivateKey); err != nil {
+		return users.NewSuspendUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("suspending user: %w", err)))
+	}
+
+	return users.NewSuspendUserOK()
+}
+
+func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+		return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if h.staticUserExists(params.UserID) {
+		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+	}
+
+	if h.isRootUser(params.UserID) {
+		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot suspend root user")))
+	}
+
+	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
+	if err != nil {
+		return users.NewActivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
+	}
+
+	if len(existingUser) == 0 {
+		return users.NewActivateUserNotFound()
+	}
+
+	if existingUser[params.UserID].Active {
+		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("user already activated")))
+	}
+
+	if err := h.dynamicUser.ActivateUser(params.UserID); err != nil {
+		return users.NewActivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("suspending user: %w", err)))
+	}
+
+	return users.NewActivateUserOK()
 }
 
 func (h *dynUserHandler) staticUserExists(newUser string) bool {

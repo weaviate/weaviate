@@ -72,6 +72,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
 		}),
+		UsersActivateUserHandler: users.ActivateUserHandlerFunc(func(params users.ActivateUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.ActivateUser has not yet been implemented")
+		}),
 		AuthzAddPermissionsHandler: authz.AddPermissionsHandlerFunc(func(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AddPermissions has not yet been implemented")
 		}),
@@ -258,6 +261,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsUpdateHandler: schema.SchemaObjectsUpdateHandlerFunc(func(params schema.SchemaObjectsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsUpdate has not yet been implemented")
 		}),
+		UsersSuspendUserHandler: users.SuspendUserHandlerFunc(func(params users.SuspendUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.SuspendUser has not yet been implemented")
+		}),
 		SchemaTenantExistsHandler: schema.TenantExistsHandlerFunc(func(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantExists has not yet been implemented")
 		}),
@@ -354,6 +360,8 @@ type WeaviateAPI struct {
 
 	// WellKnownGetWellKnownOpenidConfigurationHandler sets the operation handler for the get well known openid configuration operation
 	WellKnownGetWellKnownOpenidConfigurationHandler well_known.GetWellKnownOpenidConfigurationHandler
+	// UsersActivateUserHandler sets the operation handler for the activate user operation
+	UsersActivateUserHandler users.ActivateUserHandler
 	// AuthzAddPermissionsHandler sets the operation handler for the add permissions operation
 	AuthzAddPermissionsHandler authz.AddPermissionsHandler
 	// AuthzAssignRoleToGroupHandler sets the operation handler for the assign role to group operation
@@ -478,6 +486,8 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsShardsUpdateHandler schema.SchemaObjectsShardsUpdateHandler
 	// SchemaSchemaObjectsUpdateHandler sets the operation handler for the schema objects update operation
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
+	// UsersSuspendUserHandler sets the operation handler for the suspend user operation
+	UsersSuspendUserHandler users.SuspendUserHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
 	SchemaTenantExistsHandler schema.TenantExistsHandler
 	// SchemaTenantsCreateHandler sets the operation handler for the tenants create operation
@@ -582,6 +592,9 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.WellKnownGetWellKnownOpenidConfigurationHandler == nil {
 		unregistered = append(unregistered, "well_known.GetWellKnownOpenidConfigurationHandler")
+	}
+	if o.UsersActivateUserHandler == nil {
+		unregistered = append(unregistered, "users.ActivateUserHandler")
 	}
 	if o.AuthzAddPermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.AddPermissionsHandler")
@@ -769,6 +782,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaSchemaObjectsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsUpdateHandler")
 	}
+	if o.UsersSuspendUserHandler == nil {
+		unregistered = append(unregistered, "users.SuspendUserHandler")
+	}
 	if o.SchemaTenantExistsHandler == nil {
 		unregistered = append(unregistered, "schema.TenantExistsHandler")
 	}
@@ -900,6 +916,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/.well-known/openid-configuration"] = well_known.NewGetWellKnownOpenidConfiguration(o.context, o.WellKnownGetWellKnownOpenidConfigurationHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/users/{user_id}/activate"] = users.NewActivateUser(o.context, o.UsersActivateUserHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1148,6 +1168,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}"] = schema.NewSchemaObjectsUpdate(o.context, o.SchemaSchemaObjectsUpdateHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/users/{user_id}/suspend"] = users.NewSuspendUser(o.context, o.UsersSuspendUserHandler)
 	if o.handlers["HEAD"] == nil {
 		o.handlers["HEAD"] = make(map[string]http.Handler)
 	}
