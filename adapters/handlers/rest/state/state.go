@@ -52,7 +52,7 @@ type State struct {
 	AnonymousAccess *anonymous.Client
 	APIKey          *apikey.Client
 	Authorizer      authorization.Authorizer
-	AuthzController *rbac.Manager
+	RbacManager     *rbac.Manager
 
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration

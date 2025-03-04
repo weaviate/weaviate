@@ -477,7 +477,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		EnableFQDNResolver:     appState.ServerConfig.Config.Raft.EnableFQDNResolver,
 		FQDNResolverTLD:        appState.ServerConfig.Config.Raft.FQDNResolverTLD,
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
-		AuthzController:        appState.AuthzController,
+		RbacManager:            appState.RbacManager,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
