@@ -61,7 +61,7 @@ func (v *ollama) GenerateAllResults(ctx context.Context, properties []*modulecap
 	return v.generate(ctx, cfg, forTask, generative.Blobs(properties), options, debug)
 }
 
-func (v *ollama) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+func (v *ollama) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	params := v.getParameters(cfg, options, imageProperties)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
@@ -122,7 +122,7 @@ func (v *ollama) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}, nil
 }
 
-func (v *ollama) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]string) ollamaparams.Params {
+func (v *ollama) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) ollamaparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params ollamaparams.Params
@@ -136,7 +136,7 @@ func (v *ollama) getParameters(cfg moduletools.ClassConfig, options interface{},
 		params.Model = settings.Model()
 	}
 
-	params.Images = generative.ParseImageProperties(params.Images, imagePropertiesArray)
+	params.Images = generative.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
 
 	return params
 }
@@ -163,7 +163,7 @@ type generateInput struct {
 	Prompt  string           `json:"prompt"`
 	Stream  bool             `json:"stream"`
 	Options *generateOptions `json:"options,omitempty"`
-	Images  []string         `json:"images,omitempty"`
+	Images  []*string        `json:"images,omitempty"`
 }
 
 type generateOptions struct {

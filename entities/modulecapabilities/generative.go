@@ -42,7 +42,7 @@ type GenerateResponse struct {
 // They must be differentiated at this point due to the different ways third-parties handle them.
 type GenerateProperties struct {
 	Text map[string]string
-	Blob map[string]string
+	Blob map[string]*string
 }
 
 // GenerativeClient defines generative client

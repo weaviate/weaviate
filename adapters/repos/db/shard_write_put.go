@@ -536,26 +536,14 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
 		if s.index.Config.TrackVectorDimensions {
-			if s.hasTargetVectors() {
-				for vecName, vec := range prevObject.Vectors {
-					if err := s.removeDimensionsForVecLSM(len(vec), status.oldDocID, vecName); err != nil {
-						return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
-					}
+			err = prevObject.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+				if err = s.removeDimensionsLSM(dims, status.oldDocID, targetVector); err != nil {
+					return fmt.Errorf("remove dimension tracking for vector %q: %w", targetVector, err)
 				}
-				var dims int
-				for vecName, vec := range prevObject.MultiVectors {
-					dims = 0
-					for _, v := range vec {
-						dims += len(v)
-					}
-					if err := s.removeDimensionsForVecLSM(dims, status.oldDocID, vecName); err != nil {
-						return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
-					}
-				}
-			} else {
-				if err := s.removeDimensionsLSM(len(prevObject.Vector), status.oldDocID); err != nil {
-					return fmt.Errorf("track dimensions (delete): %w", err)
-				}
+				return nil
+			})
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -567,26 +555,14 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 
 	if s.index.Config.TrackVectorDimensions {
-		if s.hasTargetVectors() {
-			for vecName, vec := range object.Vectors {
-				if err := s.extendDimensionTrackerForVecLSM(len(vec), status.docID, vecName); err != nil {
-					return fmt.Errorf("track dimensions of '%s': %w", vecName, err)
-				}
+		err = object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+			if err = s.extendDimensionTrackerLSM(dims, status.docID, targetVector); err != nil {
+				return fmt.Errorf("add dimension tracking for vector %q: %w", targetVector, err)
 			}
-			var dims int
-			for vecName, vec := range object.MultiVectors {
-				dims = 0
-				for _, v := range vec {
-					dims += len(v)
-				}
-				if err := s.extendDimensionTrackerForVecLSM(dims, status.docID, vecName); err != nil {
-					return fmt.Errorf("track dimensions of '%s': %w", vecName, err)
-				}
-			}
-		} else {
-			if err := s.extendDimensionTrackerLSM(len(object.Vector), status.docID); err != nil {
-				return fmt.Errorf("track dimensions: %w", err)
-			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 	}
 

@@ -333,8 +333,7 @@ func (l *LazyLoadShard) drop() error {
 
 		// cleanup dimensions
 		if idx.Config.TrackVectorDimensions {
-			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName,
-				idx.vectorIndexUserConfig, idx.vectorIndexUserConfigs)
+			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName, idx.vectorIndexUserConfigs)
 		}
 
 		// cleanup index checkpoints
@@ -398,14 +397,14 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) Dimensions(ctx context.Context) int {
+func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) int {
 	l.mustLoad()
-	return l.shard.Dimensions(ctx)
+	return l.shard.Dimensions(ctx, targetVector)
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, segments int) int {
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
 	l.mustLoad()
-	return l.shard.QuantizedDimensions(ctx, segments)
+	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
 
 func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
@@ -597,18 +596,11 @@ func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.Writ
 	return l.shard.filePutter(ctx, shardID)
 }
 
-func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64) error {
+func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
 	if err := l.Load(context.Background()); err != nil {
 		return err
 	}
-	return l.shard.extendDimensionTrackerLSM(dimLength, docID)
-}
-
-func (l *LazyLoadShard) extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error {
-	if err := l.Load(context.Background()); err != nil {
-		return err
-	}
-	return l.shard.extendDimensionTrackerForVecLSM(dimLength, docID, vecName)
+	return l.shard.extendDimensionTrackerLSM(dimLength, docID, targetVector)
 }
 
 func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
