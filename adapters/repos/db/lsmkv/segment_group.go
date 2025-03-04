@@ -139,6 +139,33 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	// Note: it's important to process first the compacted segments
 	// TODO: a single iteration may be possible
 
+	if strings.HasSuffix(cfg.dir, "_searchable") && os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") == "rollback" {
+		for _, entry := range list {
+			if filepath.Ext(entry.Name()) == ".mapcollection" {
+				// rollback the conversion
+				rollbackPath := strings.TrimSuffix(filepath.Join(sg.dir, entry.Name()), ".mapcollection")
+
+				// if rollbackPath exists, move it to a backup with the .inverted suffix
+				if _, err := os.Stat(rollbackPath); err == nil {
+					if err := os.Rename(rollbackPath, rollbackPath+".inverted"); err != nil {
+						return nil, fmt.Errorf("rollback conversion %q: %w", entry.Name(), err)
+					}
+				}
+
+				if err := os.Rename(filepath.Join(sg.dir, entry.Name()), rollbackPath); err != nil {
+					// don't return, log
+					sg.logger.WithError(err).WithField("action", "lsm_segment_init_rollback_conversion")
+					// return nil, fmt.Errorf("rollback conversion %q: %w", entry.Name(), err)
+				}
+			}
+		}
+
+		list, err = os.ReadDir(cfg.dir)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	for _, entry := range list {
 		if filepath.Ext(entry.Name()) != ".tmp" {
 			continue
@@ -331,7 +358,17 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		if err != nil {
 			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
 		}
+		if strings.HasSuffix(cfg.dir, "_searchable") && os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") == "rollback" && segment.strategy == segmentindex.StrategyInverted {
+			err = segment.close()
+			if err != nil {
+				return nil, fmt.Errorf("close segment %s: %w", entry.Name(), err)
+			}
 
+			if err := os.Rename(segment.path, segment.path+".inverted"); err != nil {
+				return nil, fmt.Errorf("rename segment %s: %w", segment.path, err)
+			}
+			continue
+		}
 		sg.segments[segmentIndex] = segment
 		segmentIndex++
 	}

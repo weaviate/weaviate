@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -186,6 +187,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	if b.memtableResizer != nil {
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
+	}
+
+	if strings.HasSuffix(b.dir, "_searchable") && os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") == "rollback" {
+		b.desiredStrategy = StrategyMapCollection
+		b.strategy = StrategyMapCollection
 	}
 
 	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
