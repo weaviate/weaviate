@@ -1692,8 +1692,8 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 	require.Equal(t, 60, index.maximumConnectionsLayerZero)
 	some := false
 	index.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
-		require.LessOrEqual(t, node.ConnectionLen(), index.maximumConnectionsLayerZero)
-		some = some || node.ConnectionLen() > index.maximumConnections
+		require.LessOrEqual(t, node.LevelLen(0), index.maximumConnectionsLayerZero)
+		some = some || node.LevelLen(0) > index.maximumConnections
 		return true
 	})
 	require.True(t, some)
@@ -1712,8 +1712,8 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 	require.Equal(t, 60, index.maximumConnectionsLayerZero)
 	some = false
 	index.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
-		require.LessOrEqual(t, node.ConnectionLen(), index.maximumConnectionsLayerZero)
-		some = some || node.ConnectionLen() > index.maximumConnections
+		require.LessOrEqual(t, node.LevelLen(0), index.maximumConnectionsLayerZero)
+		some = some || node.LevelLen(0) > index.maximumConnections
 		return true
 	})
 	require.True(t, some)

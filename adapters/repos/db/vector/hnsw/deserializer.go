@@ -227,7 +227,8 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 
 	node := res.Nodes.Get(source)
 	if node == nil {
-		res.Nodes.Set(graph.NewVertexWithConnections(source, int(level), make([][]uint64, level+1)))
+		node = graph.NewVertexWithConnections(source, int(level), make([][]uint64, level+1))
+		res.Nodes.Set(node)
 	}
 
 	return node.Edit(func(v *graph.VertexEditor) error {
@@ -259,7 +260,8 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 
 	node := res.Nodes.Get(source)
 	if node == nil {
-		res.Nodes.Set(graph.NewVertexWithConnections(source, 0, make([][]uint64, level+1)))
+		node = graph.NewVertexWithConnections(source, 0, make([][]uint64, level+1))
+		res.Nodes.Set(node)
 	}
 
 	node.Edit(func(node *graph.VertexEditor) error {
@@ -306,7 +308,8 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 
 	node := res.Nodes.Get(source)
 	if node == nil {
-		res.Nodes.Set(graph.NewVertexWithConnections(source, int(level), make([][]uint64, level+1)))
+		node = graph.NewVertexWithConnections(source, int(level), make([][]uint64, level+1))
+		res.Nodes.Set(node)
 	}
 
 	node.Edit(func(node *graph.VertexEditor) error {
@@ -411,7 +414,8 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		// we need to keep the replace info, meaning we have to explicitly create
 		// this node in order to be able to store the "clear links" information for
 		// it
-		res.Nodes.Set(graph.NewVertex(id, int(level)))
+		node = graph.NewVertex(id, int(level))
+		res.Nodes.Set(node)
 	}
 
 	node.Edit(func(v *graph.VertexEditor) error {
