@@ -224,7 +224,7 @@ func (s *Shard) hasTargetVectors() bool {
 	return hasTargetVectors(s.index.vectorIndexUserConfig, s.index.vectorIndexUserConfigs)
 }
 
-func (s *Shard) hasLegacyVector() bool {
+func (s *Shard) hasLegacyVectorIndex() bool {
 	return s.vectorIndex != nil
 }
 

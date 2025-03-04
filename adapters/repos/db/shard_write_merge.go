@@ -31,35 +31,33 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 		return err
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, vector := range merge.Vectors {
-			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-			vectorIndex := s.VectorIndexForName(targetVector)
-			if vectorIndex == nil {
-				return errors.Errorf("Validate vector index for update of %v for target vector %s: vector index not found", merge.ID, targetVector)
-			}
-			switch v := vector.(type) {
-			case []float32:
-				err := vectorIndex.ValidateBeforeInsert(v)
-				if err != nil {
-					return errors.Wrapf(err, "Validate vector index for update of %v for target vector %s", merge.ID, targetVector)
-				}
-			case [][]float32:
-				err := vectorIndex.ValidateMultiBeforeInsert(v)
-				if err != nil {
-					return errors.Wrapf(err, "Validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
-				}
-			default:
-				return errors.Errorf("Validate vector index for update of %v for target vector %s: unrecongnized vector type: %T", merge.ID, targetVector, vector)
-			}
+	for targetVector, vector := range merge.Vectors {
+		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+		vectorIndex := s.VectorIndexForName(targetVector)
+		if vectorIndex == nil {
+			return errors.Errorf("Validate vector index for update of %v for target vector %s: vector index not found", merge.ID, targetVector)
 		}
-	} else {
-		if merge.Vector != nil {
-			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-			err := s.vectorIndex.ValidateBeforeInsert(merge.Vector)
+		switch v := vector.(type) {
+		case []float32:
+			err := vectorIndex.ValidateBeforeInsert(v)
 			if err != nil {
-				return errors.Wrapf(err, "Validate vector index for update of %v", merge.ID)
+				return errors.Wrapf(err, "Validate vector index for update of %v for target vector %s", merge.ID, targetVector)
 			}
+		case [][]float32:
+			err := vectorIndex.ValidateMultiBeforeInsert(v)
+			if err != nil {
+				return errors.Wrapf(err, "Validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
+			}
+		default:
+			return errors.Errorf("Validate vector index for update of %v for target vector %s: unrecongnized vector type: %T", merge.ID, targetVector, vector)
+		}
+	}
+
+	if len(merge.Vector) > 0 {
+		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+		err := s.vectorIndex.ValidateBeforeInsert(merge.Vector)
+		if err != nil {
+			return errors.Wrapf(err, "Validate vector index for update of %v", merge.ID)
 		}
 	}
 
@@ -83,19 +81,19 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		return nil
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, vector := range obj.Vectors {
-			if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
-				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
-			}
+	for targetVector, vector := range obj.Vectors {
+		if err = s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
+			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 		}
-		for targetVector, vector := range obj.MultiVectors {
-			if err := s.updateMultiVectorIndexForName(ctx, vector, status, targetVector); err != nil {
-				return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
-			}
+	}
+	for targetVector, vector := range obj.MultiVectors {
+		if err = s.updateMultiVectorIndexForName(ctx, vector, status, targetVector); err != nil {
+			return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
 		}
-	} else {
-		if err := s.updateVectorIndex(ctx, obj.Vector, status); err != nil {
+	}
+
+	if s.hasLegacyVectorIndex() {
+		if err = s.updateVectorIndex(ctx, obj.Vector, status); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
 	}
