@@ -274,6 +274,7 @@ func TestMultiVectorBQHnsw(t *testing.T) {
 		}
 		uc.BQ = cfgBQ
 		err = vectorIndex.compress(uc)
+		require.Nil(t, err)
 	})
 
 	t.Run("inspect a query", func(t *testing.T) {
