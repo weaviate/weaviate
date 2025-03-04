@@ -133,22 +133,21 @@ func TestWithStaticUser(t *testing.T) {
 
 func TestSuspendAndActivate(t *testing.T) {
 	adminKey := "admin-key"
-	// adminUser := "admin-user"
+	adminUser := "admin-user"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).Start(ctx)
+	require.Nil(t, err)
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	dynamicUser := "dynamic-user"
-
-	//ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	//compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).Start(ctx)
-	//require.Nil(t, err)
-	//helper.SetupClient(compose.GetWeaviate().URI())
-	//
-	//defer func() {
-	//	helper.ResetClient()
-	//	require.NoError(t, compose.Terminate(ctx))
-	//	cancel()
-	//}()
-
-	helper.SetupClient("127.0.0.1:8081")
 
 	t.Run("suspend and activate without revocation", func(t *testing.T) {
 		helper.DeleteUser(t, dynamicUser, adminKey)
