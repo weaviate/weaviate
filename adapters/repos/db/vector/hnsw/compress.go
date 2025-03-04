@@ -118,14 +118,13 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.compressor.Preload(index, data[index])
 			})
 	} else {
-		h.compressor.GrowCache(uint64(len(data)))
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
-				if data[index] == nil {
+				if len(data[index]) == 0 {
 					return
 				}
-				docID, _ := h.cache.GetKeys(index)
-				h.compressor.PreloadMulti(docID, []uint64{index}, [][]float32{data[index]})
+				docID, relativeID := h.cache.GetKeys(index)
+				h.compressor.PreloadPassage(index, docID, relativeID, data[index])
 			})
 	}
 

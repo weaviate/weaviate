@@ -20,6 +20,7 @@ const DefaultDeletionInterval = 3 * time.Second
 
 type MultiCache[T any] interface {
 	PreloadMulti(docID uint64, ids []uint64, vecs [][]T)
+	PreloadPassage(id uint64, docID uint64, relativeID uint64, vec []T)
 	GetKeys(id uint64) (uint64, uint64)
 	SetKeys(id uint64, docID uint64, relativeID uint64)
 }

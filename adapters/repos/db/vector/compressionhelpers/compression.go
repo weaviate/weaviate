@@ -53,6 +53,7 @@ type VectorCompressor interface {
 	Delete(ctx context.Context, id uint64)
 	Preload(id uint64, vector []float32)
 	PreloadMulti(docID uint64, ids []uint64, vecs [][]float32)
+	PreloadPassage(id uint64, docID uint64, relativeID uint64, vec []float32)
 	GetKeys(id uint64) (uint64, uint64)
 	SetKeys(id uint64, docID uint64, relativeID uint64)
 	Prefetch(id uint64)
@@ -136,6 +137,15 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadMulti(docID uint64, ids 
 	}
 	compressor.cache.Grow(maxID)
 	compressor.cache.PreloadMulti(docID, ids, compressedVectors)
+}
+
+func (compressor *quantizedVectorsCompressor[T]) PreloadPassage(id, docID, relativeID uint64, vec []float32) {
+	compressedVector := compressor.quantizer.Encode(vec)
+	idBytes := make([]byte, 8)
+	compressor.storeId(idBytes, id)
+	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
+	compressor.cache.Grow(id)
+	compressor.cache.PreloadPassage(id, docID, relativeID, compressedVector)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) GetKeys(id uint64) (uint64, uint64) {
