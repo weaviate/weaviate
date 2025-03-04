@@ -41,6 +41,19 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	// check for user existence in case there had been a race between the check in the endpoint and here
+	users, err := m.dynUser.GetUsers(req.UserId)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	exists, err := m.dynUser.CheckUserIdentifierExists(req.UserIdentifier)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if len(users) > 0 || exists {
+		return fmt.Errorf("%w: user identifier %q already exists", ErrBadRequest, req.UserId)
+	}
+
 	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier)
 }
 

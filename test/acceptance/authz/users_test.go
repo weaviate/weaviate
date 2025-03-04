@@ -12,8 +12,13 @@
 package authz
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
+
+	"github.com/weaviate/weaviate/test/docker"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/users"
@@ -482,5 +487,53 @@ func TestUserPermissionReturns(t *testing.T) {
 		require.NotNil(t, roleRet)
 		require.Equal(t, *roleRet.Permissions[0].Users.Users, all)
 		require.Equal(t, *roleRet.Permissions[0].Action, action)
+	}
+}
+
+func TestRaceConcurrentUserCreation(t *testing.T) {
+	adminKey := "admin-key"
+	adminUser := "admin-user"
+	ctx := context.Background()
+
+	compose, err := docker.New().WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).
+		WithRBAC().WithRbacAdmins(adminUser).
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	for i := 0; i < 10; i++ {
+		var err1, err2 error
+		var resp1, resp2 *users.CreateUserCreated
+		name := fmt.Sprintf("user%d", i)
+		helper.DeleteUser(t, name, adminKey) // leftovers from previous runs
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		// send off two concurrent requests with the same role name, but different permissions.
+		// If the race is
+		//   - detected correctly, one of the two requests should fail and the resulting role should only have one permission
+		//   - NOT detected correctly, bot requests succeed and the resulting role has two permissions
+
+		go func() {
+			resp1, err1 = helper.Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(name), helper.CreateAuth(adminKey))
+			defer wg.Done()
+		}()
+		go func() {
+			resp2, err1 = helper.Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(name), helper.CreateAuth(adminKey))
+			defer wg.Done()
+		}()
+
+		wg.Wait()
+
+		// we expect one call to fail
+		require.True(t, (err1 != nil) || (err2 != nil))
+		require.True(t, (resp1 != nil) || (resp2 != nil))
 	}
 }

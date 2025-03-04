@@ -58,14 +58,7 @@ func NewDynamicApiKey() *DynamicApiKey {
 func (c *DynamicApiKey) CreateUser(userId, secureHash, userIdentifier string) error {
 	c.Lock()
 	defer c.Unlock()
-	_, secureKeyExists := c.secureKeyStorageById[userId]
-	_, identifierExists := c.identifierToId[userId]
-	_, usersExists := c.users[userId]
 
-	// Todo-Dynuser: Does this make sense? Error would end up with RAFT layer
-	if secureKeyExists || identifierExists || usersExists {
-		return fmt.Errorf("user %s already exists", userId)
-	}
 	c.secureKeyStorageById[userId] = secureHash
 	c.identifierToId[userIdentifier] = userId
 	c.idToIdentifier[userId] = userIdentifier
