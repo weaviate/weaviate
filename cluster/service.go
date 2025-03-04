@@ -99,14 +99,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	}
 
 	// If FQDN resolver is enabled make sure we're also using it for the bootstrapping process
-	nodeToAddressResolver := c.config.NodeToAddressResolver
-	if c.config.EnableFQDNResolver {
-		nodeToAddressResolver = resolver.NewFQDN(resolver.FQDNConfig{
-			// We don't need to specify more config as we are only using that resolver to resolve a node id to an IP
-			// overriding the default resolver using memberlist.
-			TLD: c.config.FQDNResolverTLD,
-		})
-	}
+	nodeToAddressResolver := c.config.ClusterStateReader
 
 	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
 	if err != nil {

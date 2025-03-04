@@ -96,6 +96,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			}).Info("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
+			st.replicationManager.StartReplicationEngine()
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
@@ -210,6 +211,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:
 		f = func() {
 			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
+		}
+
+	case api.ApplyRequest_TYPE_SHARD_REPLICATE:
+		f = func() {
+			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
 		}
 
 	default:

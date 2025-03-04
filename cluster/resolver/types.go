@@ -15,17 +15,21 @@ const (
 	invalidAddr = "256.256.256.256:99999999"
 )
 
-// NodeToAddress allows the resolver to compute node-id to ip addresses.
-type NodeToAddress interface {
+// ClusterStateReader allows the resolver to compute node-id to ip addresses.
+type ClusterStateReader interface {
 	// NodeAddress resolves node id into an ip address without the port.
 	NodeAddress(id string) string
+	// NodeHostname resolves a node id into an ip address with internal cluster api port
+	NodeHostname(nodeName string) (string, bool)
+	// LocalName returns the local node name
+	LocalName() string
 }
 
 type RaftConfig struct {
-	NodeToAddress     NodeToAddress
-	RaftPort          int
-	IsLocalHost       bool
-	NodeNameToPortMap map[string]int
+	ClusterStateReader ClusterStateReader
+	RaftPort           int
+	IsLocalHost        bool
+	NodeNameToPortMap  map[string]int
 }
 
 type FQDNConfig struct {

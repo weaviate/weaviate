@@ -33,6 +33,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -109,7 +110,7 @@ type Config struct {
 
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
 	ConsistencyWaitTimeout time.Duration
-	NodeToAddressResolver  resolver.NodeToAddress
+	ClusterStateReader     resolver.ClusterStateReader
 	// NodeSelector is the memberlist interface to RAFT
 	NodeSelector cluster.NodeSelector
 	Logger       *logrus.Logger
@@ -192,6 +193,9 @@ type Store struct {
 	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
 	authZManager *rbacRaft.Manager
 
+	// replicationManager is responsible for applying/querying the replication FSM used to handle replication operations
+	replicationManager *replication.Manager
+
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
@@ -203,10 +207,10 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 	// different methods.
 	var raftResolver types.RaftResolver
 	raftResolver = resolver.NewRaft(resolver.RaftConfig{
-		NodeToAddress:     cfg.NodeToAddressResolver,
-		RaftPort:          cfg.RaftPort,
-		IsLocalHost:       cfg.IsLocalHost,
-		NodeNameToPortMap: cfg.NodeNameToPortMap,
+		ClusterStateReader: cfg.ClusterStateReader,
+		RaftPort:           cfg.RaftPort,
+		IsLocalHost:        cfg.IsLocalHost,
+		NodeNameToPortMap:  cfg.NodeNameToPortMap,
 	})
 	if cfg.EnableFQDNResolver {
 		raftResolver = resolver.NewFQDN(resolver.FQDNConfig{
@@ -220,13 +224,14 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 
 	return Store{
-		cfg:           cfg,
-		log:           cfg.Logger,
-		candidates:    make(map[string]string, cfg.BootstrapExpect),
-		applyTimeout:  time.Second * 20,
-		raftResolver:  raftResolver,
-		schemaManager: schemaManager,
-		authZManager:  rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
+		cfg:                cfg,
+		log:                cfg.Logger,
+		candidates:         make(map[string]string, cfg.BootstrapExpect),
+		applyTimeout:       time.Second * 20,
+		raftResolver:       raftResolver,
+		schemaManager:      schemaManager,
+		authZManager:       rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
+		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader()),
 	}
 }
 
@@ -292,6 +297,12 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
+	// This raft state is currently clean (new cluster) so we can start the replication enginer right away.
+	// If the state isn't clean we'll wait for schema catchup to be detected and the DB to be reloaded from
+	// the schema to then start the replication engine.
+	if st.lastAppliedIndexToDB.Load() == 0 {
+		st.replicationManager.StartReplicationEngine()
+	}
 	st.log.WithFields(logrus.Fields{
 		"raft_applied_index":                st.raft.AppliedIndex(),
 		"raft_last_index":                   st.raft.LastIndex(),
