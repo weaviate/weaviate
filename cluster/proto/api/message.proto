@@ -51,7 +51,7 @@ message ApplyRequest {
     TYPE_ADD_TENANT = 16;
     TYPE_UPDATE_TENANT = 17;
     TYPE_DELETE_TENANT = 18;
-    TYPE_TENANT_PROCESS = 19;    
+    TYPE_TENANT_PROCESS = 19;
 
 
     TYPE_UPSERT_ROLES_PERMISSIONS = 60;
@@ -61,6 +61,8 @@ message ApplyRequest {
     TYPE_REVOKE_ROLES_FOR_USER = 64;
 
     TYPE_STORE_SCHEMA_V1 = 99;
+
+    TYPE_SHARD_REPLICATE = 200;
   }
   Type type = 1;
   string class = 2;
