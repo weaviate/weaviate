@@ -50,25 +50,25 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.R
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
-	return SchemaReader{
-		schema: s.schema,
+	return NewSchemaReader(
+		s.schema,
 		// Pass a versioned reader that will ignore all version and always return valid, we want to read the latest
 		// state and not have to wait on a version
-		versionedSchemaReader: VersionedSchemaReader{
+		VersionedSchemaReader{
 			schema:        s.schema,
 			WaitForUpdate: func(context.Context, uint64) error { return nil },
 		},
-	}
+	)
 }
 
 func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint64) error) SchemaReader {
-	return SchemaReader{
-		schema: s.schema,
-		versionedSchemaReader: VersionedSchemaReader{
+	return NewSchemaReader(
+		s.schema,
+		VersionedSchemaReader{
 			schema:        s.schema,
 			WaitForUpdate: f,
 		},
-	}
+	)
 }
 
 func (s *SchemaManager) SetIndexer(idx Indexer) {

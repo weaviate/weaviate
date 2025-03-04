@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -41,6 +42,7 @@ import (
 
 type DB struct {
 	logger            logrus.FieldLogger
+	router            *router.Router
 	schemaGetter      schemaUC.SchemaGetter
 	config            Config
 	indices           map[string]*Index
@@ -110,6 +112,10 @@ func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	db.schemaGetter = sg
+}
+
+func (db *DB) SetRouter(r *router.Router) {
+	db.router = r
 }
 
 func (db *DB) GetScheduler() *queue.Scheduler {

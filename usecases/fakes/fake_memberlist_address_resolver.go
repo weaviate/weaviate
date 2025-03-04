@@ -25,3 +25,7 @@ func (m *MockAddressResolver) NodeAddress(id string) string {
 	}
 	return "127.0.0.1"
 }
+
+func (m *MockAddressResolver) NodeHostname(id string) (string, bool) {
+	return "127.0.0.1:1234", true
+}
