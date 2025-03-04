@@ -220,6 +220,7 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 			require.Nil(t, err)
 			vectorIndex = index
 			err = vectorIndex.compress(userConfig)
+			require.NotNil(t, err, "Expected an error but got nil")
 			require.ErrorContains(t, err, "PQ and SQ compression are not supported in multivector mode")
 		}
 	})
