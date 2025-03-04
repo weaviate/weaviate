@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -176,7 +177,7 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 
 // Push pushes updates to all replicas of a specific shard
 func (c *coordinator[T]) Push(ctx context.Context,
-	cl ConsistencyLevel,
+	cl types.ConsistencyLevel,
 	ask readyOp,
 	com commitOp[T],
 ) (<-chan _Result[T], int, error) {
@@ -208,7 +209,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 //
 // Note that the first retry for a given host, may happen before c.pullBackOff.initial has passed
 func (c *coordinator[T]) Pull(ctx context.Context,
-	cl ConsistencyLevel,
+	cl types.ConsistencyLevel,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
 ) (<-chan _Result[T], rState, error) {

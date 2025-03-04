@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -95,7 +96,7 @@ func NewFinder(className string,
 
 // GetOne gets object which satisfies the giving consistency
 func (f *Finder) GetOne(ctx context.Context,
-	l ConsistencyLevel, shard string,
+	l types.ConsistencyLevel, shard string,
 	id strfmt.UUID,
 	props search.SelectProperties,
 	adds additional.Properties,
@@ -141,7 +142,7 @@ func (f *Finder) GetOne(ctx context.Context,
 }
 
 func (f *Finder) FindUUIDs(ctx context.Context,
-	className, shard string, filters *filters.LocalFilter, l ConsistencyLevel,
+	className, shard string, filters *filters.LocalFilter, l types.ConsistencyLevel,
 ) (uuids []strfmt.UUID, err error) {
 	c := newReadCoordinator[[]strfmt.UUID](f, shard,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
@@ -187,7 +188,7 @@ type ShardDesc struct {
 //
 // For each x in xs the fields BelongsToNode and BelongsToShard must be set non empty
 func (f *Finder) CheckConsistency(ctx context.Context,
-	l ConsistencyLevel, xs []*storobj.Object,
+	l types.ConsistencyLevel, xs []*storobj.Object,
 ) (retErr error) {
 	if len(xs) == 0 {
 		return nil
@@ -201,7 +202,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 		}
 	}
 
-	if l == One { // already consistent
+	if l == types.ConsistencyLevelOne { // already consistent
 		for i := range xs {
 			xs[i].IsConsistent = true
 		}
@@ -225,7 +226,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 
 // Exists checks if an object exists which satisfies the giving consistency
 func (f *Finder) Exists(ctx context.Context,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	shard string,
 	id strfmt.UUID,
 ) (bool, error) {
@@ -273,7 +274,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 // checkShardConsistency checks consistency for a set of objects belonging to a shard
 // It returns the most recent objects or and error
 func (f *Finder) checkShardConsistency(ctx context.Context,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	batch shardPart,
 ) ([]*storobj.Object, error) {
 	var (
@@ -316,7 +317,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("getting host %s", f.NodeName())
 	}
 
-	state, err := f.resolver.State(shardName, One, "")
+	state, err := f.resolver.State(shardName, types.ConsistencyLevelOne, "")
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}

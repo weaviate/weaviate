@@ -21,6 +21,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -98,7 +99,7 @@ func (r *Replicator) AllHostnames() []string {
 func (r *Replicator) PutObject(ctx context.Context,
 	shard string,
 	obj *storobj.Object,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObject), r.log)
@@ -130,7 +131,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 func (r *Replicator) MergeObject(ctx context.Context,
 	shard string,
 	doc *objects.MergeDocument,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opMergeObject), r.log)
@@ -166,7 +167,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 	deletionTime time.Time,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opDeleteObject), r.log)
@@ -197,7 +198,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 func (r *Replicator) PutObjects(ctx context.Context,
 	shard string,
 	objs []*storobj.Object,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObjects), r.log)
@@ -236,7 +237,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	uuids []strfmt.UUID,
 	deletionTime time.Time,
 	dryRun bool,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []objects.BatchSimpleObject {
 	coord := newCoordinator[DeleteBatchResponse](r, shard, r.requestID(opDeleteObjects), r.log)
@@ -284,7 +285,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 func (r *Replicator) AddReferences(ctx context.Context,
 	shard string,
 	refs []objects.BatchReference,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opAddReferences), r.log)

@@ -15,28 +15,8 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/cluster/router/types"
 )
-
-// ConsistencyLevel is an enum of all possible consistency level
-type ConsistencyLevel string
-
-const (
-	One    ConsistencyLevel = "ONE"
-	Quorum ConsistencyLevel = "QUORUM"
-	All    ConsistencyLevel = "ALL"
-)
-
-// cLevel returns min number of replicas to fulfill the consistency level
-func cLevel(l ConsistencyLevel, n int) int {
-	switch l {
-	case All:
-		return n
-	case Quorum:
-		return n/2 + 1
-	default:
-		return 1
-	}
-}
 
 var (
 	errNoReplicaFound = errors.New("no replica found")
@@ -52,7 +32,7 @@ type resolver struct {
 }
 
 // State returns replicas state
-func (r *resolver) State(shardName string, cl ConsistencyLevel, directCandidate string) (res rState, err error) {
+func (r *resolver) State(shardName string, cl types.ConsistencyLevel, directCandidate string) (res rState, err error) {
 	res.CLevel = cl
 	m, err := r.Schema.ResolveParentNodes(r.Class, shardName)
 	if err != nil {
@@ -93,7 +73,7 @@ func (r *resolver) State(shardName string, cl ConsistencyLevel, directCandidate 
 
 // rState replicas state
 type rState struct {
-	CLevel  ConsistencyLevel
+	CLevel  types.ConsistencyLevel
 	Level   int
 	Hosts   []string // successfully resolved names
 	NodeMap map[string]string
@@ -105,8 +85,8 @@ func (r *rState) Len() int {
 }
 
 // ConsistencyLevel returns consistency level if it is satisfied
-func (r *rState) ConsistencyLevel(l ConsistencyLevel) (int, error) {
-	level := cLevel(l, r.Len())
+func (r *rState) ConsistencyLevel(l types.ConsistencyLevel) (int, error) {
+	level := l.ToInt(r.Len())
 	if n := len(r.Hosts); level > n {
 		nodes := []string{}
 		for k, addr := range r.NodeMap {

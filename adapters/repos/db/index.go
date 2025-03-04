@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -280,8 +281,9 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return index.DeletionStrategy()
 	}
 
-	index.replicator = replica.NewReplicator(cfg.ClassName.String(),
-		sg, nodeResolver, getDeletionStrategy, replicaClient, logger)
+	// TODO: Fix replica router instantiation to be at the top level
+	replicaRouter := &router.Router{}
+	index.replicator = replica.NewReplicator(cfg.ClassName.String(), sg.NodeName(), replicaRouter, nodeResolver, getDeletionStrategy, replicaClient, logger)
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
