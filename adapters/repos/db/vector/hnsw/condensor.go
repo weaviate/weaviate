@@ -102,6 +102,9 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			return nil
 		})
 	})
+	if err != nil {
+		return err
+	}
 
 	if res.EntrypointChanged {
 		if err := c.SetEntryPointWithMaxLayer(res.Entrypoint,
