@@ -229,7 +229,7 @@ func addInjectHeadersIntoContext(next http.Handler) http.Handler {
 		ctx := r.Context()
 		changed := false
 		for k, v := range r.Header {
-			if strings.HasPrefix(k, "X-") {
+			if strings.HasPrefix(k, "X-") || k == "Authorization" {
 				ctx = context.WithValue(ctx, k, v)
 				changed = true
 			}

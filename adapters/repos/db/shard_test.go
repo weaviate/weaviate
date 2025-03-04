@@ -796,7 +796,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	shd.resetDimensionsLSM()
 
 	t.Run("count dimensions before insert", func(t *testing.T) {
-		dims := shd.Dimensions(ctx)
+		dims := shd.Dimensions(ctx, "")
 		require.Equal(t, 0, dims)
 	})
 
@@ -815,7 +815,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("count dimensions", func(t *testing.T) {
-		dims := shd.Dimensions(ctx)
+		dims := shd.Dimensions(ctx, "")
 		require.Equal(t, 3*amount, dims)
 	})
 
@@ -825,7 +825,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("count dimensions after reset", func(t *testing.T) {
-		dims := shd.Dimensions(ctx)
+		dims := shd.Dimensions(ctx, "")
 		require.Equal(t, 0, dims)
 	})
 
@@ -844,7 +844,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("count dimensions after reset and insert", func(t *testing.T) {
-		dims := shd.Dimensions(ctx)
+		dims := shd.Dimensions(ctx, "")
 		require.Equal(t, 3*amount, dims)
 	})
 
