@@ -19,6 +19,7 @@ import (
 	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/ivfpq"
 	sharding "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -66,18 +67,21 @@ const (
 	VectorIndexTypeEmpty VectorIndexType = iota
 	VectorIndexTypeHNSW
 	VectorIndexTypeFlat
+	VectorIndexTypeIVFPQ
 )
 
 var (
 	vectorIndexTypeToString = map[VectorIndexType]string{
 		VectorIndexTypeHNSW:  vIndex.VectorIndexTypeHNSW,
 		VectorIndexTypeFlat:  vIndex.VectorIndexTypeFLAT,
+		VectorIndexTypeIVFPQ: vIndex.VectorIndexTypeIVFPQ,
 		VectorIndexTypeEmpty: "",
 	}
 	stringToVectorIndexType = map[string]VectorIndexType{
-		vIndex.VectorIndexTypeHNSW: VectorIndexTypeHNSW,
-		vIndex.VectorIndexTypeFLAT: VectorIndexTypeFlat,
-		"":                         VectorIndexTypeEmpty,
+		vIndex.VectorIndexTypeHNSW:  VectorIndexTypeHNSW,
+		vIndex.VectorIndexTypeFLAT:  VectorIndexTypeFlat,
+		vIndex.VectorIndexTypeIVFPQ: VectorIndexTypeIVFPQ,
+		"":                          VectorIndexTypeEmpty,
 	}
 )
 
@@ -372,6 +376,8 @@ func CollectionFromClass(m models.Class) (Collection, error) {
 		c.VectorIndexConfig = m.VectorIndexConfig.(hnsw.UserConfig)
 	case VectorIndexTypeFlat:
 		c.VectorIndexConfig = m.VectorIndexConfig.(flat.UserConfig)
+	case VectorIndexTypeIVFPQ:
+		c.VectorIndexConfig = m.VectorIndexConfig.(ivfpq.UserConfig)
 	default:
 	}
 

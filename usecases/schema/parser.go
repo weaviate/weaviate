@@ -209,7 +209,7 @@ func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error 
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 	vectorIndexConfig interface{}, isMultiVector bool,
 ) (schemaConfig.VectorIndexConfig, error) {
-	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC {
+	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC && vectorIndexType != vectorindex.VectorIndexTypeIVFPQ {
 		return nil, errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
 			vectorIndexType)

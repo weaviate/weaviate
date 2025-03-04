@@ -70,7 +70,9 @@ func (i *invertedIndex) add(code []byte, id uint64) {
 }
 
 func (i *leave) add(code []byte, id uint64) {
+	i.locks.Lock(uint64(code[len(code)-1]))
 	i.ids = append(i.ids, id)
+	i.locks.Unlock(uint64(code[len(code)-1]))
 }
 
 func (i *invertedIndex) search(codes [][]byte, dists [][]float32, k int, heap *priorityqueue.Queue[byte], accDist float32) {
@@ -101,20 +103,26 @@ func (i *leave) search(codes [][]byte, dists [][]float32, k int, heap *priorityq
 	for _, id := range i.ids {
 		heap.Insert(id, accDist)
 	}
-	for heap.Len() > k {
+	for heap.Len() > k /*&& accDist < heap.Top().Dist*/ {
 		heap.Pop()
 	}
 }
 
+type segmentedEncoder interface {
+	Fit(vectors [][]float32) error
+	Encode(vector []float32) []byte
+	SortCodes(vec []float32) ([][]byte, [][]float32)
+}
+
 type IvfPQ struct {
-	pq             *compressionhelpers.ProductQuantizer
+	pq             segmentedEncoder
 	compressor     *compressionhelpers.ScalarQuantizer
 	compressedVecs [][]byte
 	invertedIndex  invertedIndexNode
 }
 
 func NewIvf(vectors [][]float32, distancer distancer.Provider) *IvfPQ {
-	segments := 4
+	segments := 3
 	cfg := hnsw.PQConfig{
 		Enabled:       true,
 		Segments:      segments,
@@ -147,35 +155,45 @@ func (ivf *IvfPQ) Add(id uint64, vector []float32) {
 
 func (ivf *IvfPQ) SearchByVector(ctx context.Context, searchVec []float32, k int) ([]uint64, []float32, error) {
 	codes, dists := ivf.pq.SortCodes(searchVec)
-	factor := 5000
-	compressedK := 13
-	heap := priorityqueue.NewMax[byte](k * factor)
-	ivf.invertedIndex.search(codes, dists, k*factor, heap, 0)
+	probing := 50_000
+	heap := priorityqueue.NewMax[byte](probing)
+	ivf.invertedIndex.search(codes, dists, probing, heap, 0)
+	compressedK := 15
 	cheap := priorityqueue.NewMax[byte](compressedK)
 	cdistancer := ivf.compressor.NewDistancer(searchVec)
-	for cheap.Len() < compressedK {
-		element := heap.Pop()
-		d, _ := cdistancer.Distance(ivf.compressedVecs[element.ID])
-		cheap.Insert(element.ID, d)
-	}
+
+	ids := make([]uint64, probing)
+	dist := make([]float32, probing)
+
+	j := probing
 	for heap.Len() > 0 {
-		element := heap.Pop()
-		d, _ := cdistancer.Distance(ivf.compressedVecs[element.ID])
-		if d < cheap.Top().Dist {
-			cheap.Pop()
-			cheap.Insert(element.ID, d)
-		}
-	}
-
-	ids := make([]uint64, compressedK)
-	dist := make([]float32, compressedK)
-
-	j := compressedK
-	for cheap.Len() > 0 {
 		j--
-		elem := cheap.Pop()
+		elem := heap.Pop()
 		ids[j] = elem.ID
 		dist[j] = elem.Dist
 	}
+
+	index := 0
+	for cheap.Len() < compressedK {
+		element := ids[index]
+		index++
+		d, _ := cdistancer.Distance(ivf.compressedVecs[element])
+		cheap.Insert(element, d)
+	}
+	limit := dist[index]
+	for index < probing {
+		if dist[index]-limit > 0.1 {
+			ids = ids[:index]
+			break
+		}
+		element := ids[index]
+		index++
+		d, _ := cdistancer.Distance(ivf.compressedVecs[element])
+		if d < cheap.Top().Dist {
+			cheap.Pop()
+			cheap.Insert(element, d)
+		}
+	}
+
 	return ids, dist, nil
 }

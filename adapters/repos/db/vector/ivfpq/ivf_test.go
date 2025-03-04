@@ -133,8 +133,8 @@ func loadHdf5Neighbors(file *hdf5.File, name string) [][]uint64 {
 func TestIVF(t *testing.T) {
 	log.Println("Starting...")
 	var ivf *ivfpq.IvfPQ
-	//file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-100k-openai-ada002.hdf5", hdf5.F_ACC_RDONLY)
-	file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
+	file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-100k-openai-ada002.hdf5", hdf5.F_ACC_RDONLY)
+	//file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
 	assert.Nil(t, err)
 	defer file.Close()
 	dataset, err := file.OpenDataset("train")
@@ -197,6 +197,7 @@ func TestIVF(t *testing.T) {
 			go func() {
 				defer wg1.Done()
 				ivf = ivfpq.NewIvf(vectors[:10_000], distancer.NewCosineDistanceProvider())
+				//ivf = ivfpq.NewIvfLSH(vectors[:10_000], distancer.NewCosineDistanceProvider())
 				log.Println("PQ trained...")
 			}()
 		}
@@ -221,27 +222,56 @@ func TestIVF(t *testing.T) {
 	neighbors := loadHdf5Neighbors(file, "neighbors")
 	testData := loadHdf5Float32(file, "test")
 
-	/*before = time.Now()
-	ids, _, _ := ivf.SearchByVector(context.Background(), testData[0], 10)
-	ellapsed := time.Since(before)
-	rec := float32(testinghelpers.MatchesInLists(neighbors[0][:10], ids)) / 10
-	log.Println(ellapsed)
-	log.Println(rec)*/
-
 	var wg2 sync.WaitGroup
 	rows = 500
 	recall := float32(0)
 	totaEllapsed := time.Duration(0)
 	lock := sync.Mutex{}
-	for i := 0; i < 10; i++ {
+	min, max := 100000, 0
+	average := 0.0
+	rmin, rmax := 100000, 0
+	raverage := 0.0
+	concurrencyLevel := 10
+	for i := 0; i < concurrencyLevel; i++ {
 		wg2.Add(1)
 		go func(id int) {
 			defer wg2.Done()
-			for current := id * (int(rows) / 10); current < (id+1)*(int(rows)/10); current++ {
+			for current := id * (int(rows) / concurrencyLevel); current < (id+1)*(int(rows)/concurrencyLevel); current++ {
 				before = time.Now()
 				ids, _, _ := ivf.SearchByVector(context.Background(), testData[current], 10)
 				ellapsed := time.Since(before)
 				rec := float32(testinghelpers.MatchesInLists(neighbors[current][:10], ids)) / 10
+
+				currNeighbors := neighbors[current][:10]
+				lastIndex := 0
+				for index, x := range ids {
+					found := false
+					for _, y := range currNeighbors {
+						if x == y {
+							found = true
+							break
+						}
+					}
+					if found {
+						lastIndex = index
+					}
+				}
+				rlastIndex := len(ids)
+				if min > lastIndex {
+					min = lastIndex
+				}
+				if max < lastIndex {
+					max = lastIndex
+				}
+				average += float64(lastIndex) / float64(rows)
+				if rmin > rlastIndex {
+					rmin = rlastIndex
+				}
+				if rmax < rlastIndex {
+					rmax = rlastIndex
+				}
+				raverage += float64(rlastIndex) / float64(rows)
+
 				lock.Lock()
 				totaEllapsed += ellapsed
 				recall += rec / float32(rows)
@@ -252,5 +282,7 @@ func TestIVF(t *testing.T) {
 	wg2.Wait()
 	log.Println("Latency: ", totaEllapsed.Milliseconds()/int64(rows), "ms")
 	log.Println("Recall: ", recall)
+	log.Println(min, max, average)
+	log.Println(rmin, rmax, raverage)
 	assert.Nil(t, ivf)
 }

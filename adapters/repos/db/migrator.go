@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ivfpq"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -621,6 +622,8 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 		return hnsw.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeFLAT:
 		return flat.ValidateUserConfigUpdate(old, updated)
+	case vectorindex.VectorIndexTypeIVFPQ:
+		return ivfpq.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
 	}

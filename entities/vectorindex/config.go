@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/ivfpq"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 	VectorIndexTypeHNSW    = "hnsw"
 	VectorIndexTypeFLAT    = "flat"
 	VectorIndexTypeDYNAMIC = "dynamic"
+	VectorIndexTypeIVFPQ   = "ivfpq"
 )
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -41,6 +43,8 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVe
 		return flat.ParseAndValidateConfig(input)
 	case VectorIndexTypeDYNAMIC:
 		return dynamic.ParseAndValidateConfig(input, isMultiVector)
+	case VectorIndexTypeIVFPQ:
+		return ivfpq.ParseAndValidateConfig(input)
 	default:
 		return nil, fmt.Errorf("invalid vector index %q. Supported types are hnsw and flat", vectorIndexType)
 	}

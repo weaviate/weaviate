@@ -67,6 +67,42 @@ func OptionalIntFromMap(in map[string]interface{}, name string,
 	return nil
 }
 
+// Tries to parse the int value from the map, if it overflows math.MaxInt64, it
+// uses math.MaxInt64 instead. This is to protect from rounding errors from
+// json marshalling where the type may be assumed as float64
+func OptionalFloatFromMap(in map[string]interface{}, name string,
+	setFn func(v float32),
+) error {
+	value, ok := in[name]
+	if !ok {
+		return nil
+	}
+
+	var asFloat64 float64
+	var err error
+
+	// depending on whether we get the results from disk or from the REST API,
+	// numbers may be represented slightly differently
+	switch typed := value.(type) {
+	case json.Number:
+		asFloat64, err = typed.Float64()
+	case float64:
+		asFloat64 = float64(typed)
+	}
+	if err != nil {
+		// try to recover from error
+		if errors.Is(err, strconv.ErrRange) {
+			setFn(math.MaxFloat32)
+			return nil
+		}
+
+		return errors.Wrapf(err, "json.Number to float32 for %q", name)
+	}
+
+	setFn(float32(asFloat64))
+	return nil
+}
+
 func OptionalBoolFromMap(in map[string]interface{}, name string,
 	setFn func(v bool),
 ) error {

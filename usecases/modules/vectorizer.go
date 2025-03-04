@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/ivfpq"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -547,7 +548,8 @@ func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string
 	hnswConfig, okHnsw := vectorIndexConfig.(hnsw.UserConfig)
 	_, okFlat := vectorIndexConfig.(flat.UserConfig)
 	_, okDynamic := vectorIndexConfig.(dynamic.UserConfig)
-	if !(okHnsw || okFlat || okDynamic) {
+	_, okivfpq := vectorIndexConfig.(ivfpq.UserConfig)
+	if !(okHnsw || okFlat || okDynamic || okivfpq) {
 		return hnsw.UserConfig{}, fmt.Errorf(errorVectorIndexType, vectorIndexConfig)
 	}
 	return hnswConfig, nil

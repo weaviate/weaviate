@@ -812,7 +812,7 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 
 func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 	switch vectorIndexType {
-	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC:
+	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeIVFPQ:
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",

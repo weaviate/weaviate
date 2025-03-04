@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ivfpq"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -28,6 +29,7 @@ import (
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	ivfpqent "github.com/weaviate/weaviate/entities/vectorindex/ivfpq"
 	"go.etcd.io/bbolt"
 )
 
@@ -135,6 +137,33 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
 		}
 		vectorIndex = vi
+	case vectorindex.VectorIndexTypeIVFPQ:
+		ivfpqUserConfig, ok := vectorIndexUserConfig.(ivfpqent.UserConfig)
+		if !ok {
+			return nil, errors.Errorf("ivfpq vector index: config is not ifv.UserConfig: %T",
+				vectorIndexUserConfig)
+		}
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+
+		// a shard can actually have multiple vector indexes:
+		// - the main index, which is used for all normal object vectors
+		// - a geo property index for each geo prop in the schema
+		//
+		// here we label the main vector index as such.
+		vecIdxID := s.vectorIndexID(targetVector)
+
+		vi, err := ivfpq.New(ivfpq.Config{
+			ID:               vecIdxID,
+			TargetVector:     targetVector,
+			RootPath:         s.path(),
+			Logger:           s.index.logger,
+			DistanceProvider: distProv,
+			AllocChecker:     s.index.allocChecker,
+		}, ivfpqUserConfig, s.store)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
+		}
+		vectorIndex = vi
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		dynamicUserConfig, ok := vectorIndexUserConfig.(dynamicent.UserConfig)
 		if !ok {
@@ -178,8 +207,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC)
+		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\"]",
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeIVFPQ)
 	}
 	defer vectorIndex.PostStartup()
 	return vectorIndex, nil
