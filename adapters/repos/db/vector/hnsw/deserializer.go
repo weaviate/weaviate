@@ -96,6 +96,10 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		}
 	}
 
+	if out.Nodes == nil {
+		out.Nodes = graph.NewNodes(cache.InitialSize)
+	}
+
 	for {
 		ct, err := d.ReadCommitType(fd)
 		if err != nil {
@@ -420,6 +424,7 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 
 	node.Edit(func(v *graph.VertexEditor) error {
 		v.EnsureLevel(int(level))
+		v.ResetConnectionsAtLevel(int(level))
 		return nil
 	})
 

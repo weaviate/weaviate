@@ -651,7 +651,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
 		require.Nil(t, err)
 
-		assert.Contains(t, res.Nodes, graph.NewVertexWithConnections(0, 3, make([][]uint64, 4)))
+		assert.Equal(t, res.Nodes.Get(0), graph.NewVertexWithConnections(0, 3, make([][]uint64, 4)))
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
 	})
@@ -775,21 +775,22 @@ func readFromCommitLogs(t *testing.T, fileNames ...string) *hnsw {
 // nil nodes by starting from the last and stopping as soon as a node is not
 // nil
 func removeTrailingNilNodes(in *graph.Nodes) *graph.Nodes {
-	l := in.Len()
+	end := in.Len() - 1
+
 	in.IterReverse(func(id uint64, node *graph.Vertex) bool {
-		if node == nil {
-			l--
-		}
-
-		return node == nil
+		end = int(id)
+		return false
 	})
 
-	nodes := make([]*graph.Vertex, l)
+	if end == in.Len()-1 {
+		return in
+	}
 
-	in.Iter(func(id uint64, node *graph.Vertex) bool {
-		nodes[id] = node
-		return true
-	})
+	nodes := make([]*graph.Vertex, in.Len())
+
+	for i := 0; i < end; i++ {
+		nodes[i] = in.Get(uint64(i))
+	}
 
 	return graph.NewNodesWith(nodes)
 }
