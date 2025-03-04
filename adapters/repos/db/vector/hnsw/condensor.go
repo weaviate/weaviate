@@ -81,26 +81,25 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			}
 		}
 
-		return node.Edit(func(node *graph.VertexEditor) error {
-			lvl := node.Level()
-			for i := 0; i < lvl; i++ {
-				level := i
-				links := node.ConnectionsAtLevel(level)
-				if res.ReplaceLinks(node.ID(), uint16(level)) {
-					if err := c.SetLinksAtLevel(node.ID(), level, links); err != nil {
-						return errors.Wrapf(err,
-							"write links for node %d at level %d to commit log", node.ID(), level)
-					}
-				} else {
-					if err := c.AddLinksAtLevel(node.ID(), uint16(level), links); err != nil {
-						return errors.Wrapf(err,
-							"write links for node %d at level %d to commit log", node.ID(), level)
-					}
+		maxLevel := node.ConnectionLen()
+		var links []uint64
+		for level := 0; level < maxLevel; level++ {
+			links = node.CopyLevel(links, level)
+
+			if res.ReplaceLinks(node.ID(), uint16(level)) {
+				if err := c.SetLinksAtLevel(node.ID(), level, links); err != nil {
+					return errors.Wrapf(err,
+						"write links for node %d at level %d to commit log", node.ID(), level)
+				}
+			} else {
+				if err := c.AddLinksAtLevel(node.ID(), uint16(level), links); err != nil {
+					return errors.Wrapf(err,
+						"write links for node %d at level %d to commit log", node.ID(), level)
 				}
 			}
+		}
 
-			return nil
-		})
+		return nil
 	})
 	if err != nil {
 		return err

@@ -592,6 +592,9 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 }
 
 func (h *hnsw) isEmpty() bool {
+	h.RLock()
+	defer h.RUnlock()
+
 	return h.nodes.IsEmpty(h.entryPointID)
 }
 
