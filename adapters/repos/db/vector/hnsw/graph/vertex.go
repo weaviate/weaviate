@@ -143,23 +143,6 @@ func (v *Vertex) CopyLevel(buf []uint64, level int) []uint64 {
 }
 
 // TODO: remove from here
-func (v *Vertex) ConnectionsAtLowerLevels(level int, visitedNodes map[NodeLevel]bool) []NodeLevel {
-	v.m.Lock()
-	defer v.m.Unlock()
-
-	var connections []NodeLevel
-	for i := level; i >= 0; i-- {
-		for _, nodeID := range v.connections[i] {
-			if !visitedNodes[NodeLevel{nodeID, i}] {
-				connections = append(connections, NodeLevel{nodeID, i})
-			}
-		}
-	}
-
-	return connections
-}
-
-// TODO: remove from here
 func (v *Vertex) ConnectionsPointTo(needles helpers.AllowList) bool {
 	v.m.Lock()
 	defer v.m.Unlock()
@@ -299,9 +282,4 @@ func (v *VertexEditor) ResetConnectionsWith(connections [][]uint64) {
 
 func (v *VertexEditor) ResetConnectionsAtLevel(level int) {
 	v.v.connections[level] = v.v.connections[level][:0]
-}
-
-type NodeLevel struct {
-	NodeID uint64
-	Level  int
 }

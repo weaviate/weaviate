@@ -802,22 +802,33 @@ type Index interface {
 	CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) error
 }
 
+type nodeLevel struct {
+	nodeID uint64
+	level  int
+}
+
 func (h *hnsw) calculateUnreachablePoints() []uint64 {
 	h.RLock()
 	defer h.RUnlock()
 
-	visitedPairs := make(map[graph.NodeLevel]bool)
-	candidateList := []graph.NodeLevel{{NodeID: h.entryPointID, Level: h.currentMaximumLayer}}
+	visitedPairs := make(map[nodeLevel]bool)
+	candidateList := []nodeLevel{{nodeID: h.entryPointID, level: h.currentMaximumLayer}}
 
 	for len(candidateList) > 0 {
 		currentNode := candidateList[len(candidateList)-1]
 		candidateList = candidateList[:len(candidateList)-1]
 		if !visitedPairs[currentNode] {
 			visitedPairs[currentNode] = true
-			node := h.nodes.Get(currentNode.NodeID)
+			node := h.nodes.Get(currentNode.nodeID)
 			if node != nil {
-				neighbors := node.ConnectionsAtLowerLevels(currentNode.Level, visitedPairs)
-				candidateList = append(candidateList, neighbors...)
+				for i := currentNode.level; i >= 0; i-- {
+					node.IterConnections(i, func(neighborID uint64) bool {
+						if !visitedPairs[nodeLevel{nodeID: neighborID, level: i}] {
+							candidateList = append(candidateList, nodeLevel{nodeID: neighborID, level: i})
+						}
+						return true
+					})
+				}
 			}
 		}
 	}
@@ -825,7 +836,7 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 	visitedNodes := make(map[uint64]bool, len(visitedPairs))
 	for k, v := range visitedPairs {
 		if v {
-			visitedNodes[k.NodeID] = true
+			visitedNodes[k.nodeID] = true
 		}
 	}
 
