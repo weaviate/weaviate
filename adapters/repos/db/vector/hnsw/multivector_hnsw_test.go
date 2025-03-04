@@ -251,7 +251,7 @@ func TestMultiVectorBQHnsw(t *testing.T) {
 			EFConstruction: efConstruction,
 			EF:             ef,
 			Multivector:    ent.MultivectorConfig{Enabled: true},
-			//BQ:             ent.BQConfig{Enabled: true},
+			// BQ:             ent.BQConfig{Enabled: true},
 		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		vectorIndex = index

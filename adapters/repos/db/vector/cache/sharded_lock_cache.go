@@ -534,7 +534,6 @@ func (s *shardedMultipleLockCache[T]) GetKeysNoLock(id uint64) (uint64, uint64) 
 }
 
 func (s *shardedMultipleLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
-
 	s.shardedLocks.RLock(id)
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
@@ -633,7 +632,6 @@ func (s *shardedMultipleLockCache[T]) Prefetch(id uint64) {
 }
 
 func (s *shardedMultipleLockCache[T]) PreloadMulti(docID uint64, ids []uint64, vecs [][]T) {
-
 	atomic.AddInt64(&s.count, int64(len(ids)))
 	for i, id := range ids {
 		s.shardedLocks.Lock(id)
