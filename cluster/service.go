@@ -82,7 +82,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("open raft store: %w", err)
 	}
 
-	nodeToAddressResolver := c.config.NodeToAddressResolver
+	nodeToAddressResolver := c.config.ClusterStateReader
 	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
 	if err != nil {
 		return err
