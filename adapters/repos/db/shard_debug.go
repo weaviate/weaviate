@@ -43,18 +43,18 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return errors.Wrap(err, "drop vector index")
 	}
 
-	if s.hasTargetVectors() {
-		s.vectorIndexes[targetVector], err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfigs[targetVector])
-		if err != nil {
-			return errors.Wrap(err, "init vector index")
-		}
-		vidx = s.vectorIndexes[targetVector]
-	} else {
+	if targetVector == "" {
 		s.vectorIndex, err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfig)
 		if err != nil {
 			return errors.Wrap(err, "init vector index")
 		}
 		vidx = s.vectorIndex
+	} else {
+		s.vectorIndexes[targetVector], err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfigs[targetVector])
+		if err != nil {
+			return errors.Wrap(err, "init vector index")
+		}
+		vidx = s.vectorIndexes[targetVector]
 	}
 
 	q.ResetWith(vidx)
