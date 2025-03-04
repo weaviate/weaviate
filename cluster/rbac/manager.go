@@ -27,11 +27,11 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ  *rbac.RBAC
+	authZ  *rbac.Manager
 	logger logrus.FieldLogger
 }
 
-func NewManager(authZ *rbac.RBAC, logger logrus.FieldLogger) *Manager {
+func NewManager(authZ *rbac.Manager, logger logrus.FieldLogger) *Manager {
 	return &Manager{authZ: authZ, logger: logger}
 }
 

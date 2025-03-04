@@ -144,7 +144,7 @@ type Config struct {
 	FQDNResolverTLD    string
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
-	AuthzController *rbac.RBAC
+	AuthzController *rbac.Manager
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,

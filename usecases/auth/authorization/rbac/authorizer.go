@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-func (m *RBAC) authorize(principal *models.Principal, verb string, skipAudit bool, resources ...string) error {
+func (m *Manager) authorize(principal *models.Principal, verb string, skipAudit bool, resources ...string) error {
 	if principal == nil {
 		return errors.NewUnauthenticated()
 	}
@@ -82,19 +82,19 @@ func (m *RBAC) authorize(principal *models.Principal, verb string, skipAudit boo
 }
 
 // Authorize verify if the user has access to a resource to do specific action
-func (m *RBAC) Authorize(principal *models.Principal, verb string, resources ...string) error {
+func (m *Manager) Authorize(principal *models.Principal, verb string, resources ...string) error {
 	return m.authorize(principal, verb, false, resources...)
 }
 
 // AuthorizeSilent verify if the user has access to a resource to do specific action without audit logs
 // to be used internally
-func (m *RBAC) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
+func (m *Manager) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
 	return m.authorize(principal, verb, true, resources...)
 }
 
 // FilterAuthorizedResources authorize the passed resources with best effort approach, it will return
 // list of allowed resources, if none, it will return an empty slice
-func (m *RBAC) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+func (m *Manager) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
 	if principal == nil {
 		return nil, errors.NewUnauthenticated()
 	}

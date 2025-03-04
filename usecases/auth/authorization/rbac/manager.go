@@ -25,21 +25,21 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
-type RBAC struct {
+type Manager struct {
 	casbin *casbin.SyncedCachedEnforcer
 	logger logrus.FieldLogger
 }
 
-func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger) (*RBAC, error) {
+func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger) (*Manager, error) {
 	csbin, err := Init(rbac, rbacStoragePath)
 	if err != nil {
 		return nil, err
 	}
 
-	return &RBAC{csbin, logger}, nil
+	return &Manager{csbin, logger}, nil
 }
 
-func (m *RBAC) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
+func (m *Manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
 		// e.g. : g, user:wv_internal_empty, role:roleName
@@ -59,7 +59,7 @@ func (m *RBAC) UpsertRolesPermissions(roles map[string][]authorization.Policy) e
 	return m.casbin.InvalidateCache()
 }
 
-func (m *RBAC) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
+func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
 	var (
 		casbinStoragePolicies    [][][]string
 		casbinStoragePoliciesMap = make(map[string]struct{})
@@ -107,7 +107,7 @@ func (m *RBAC) GetRoles(names ...string) (map[string][]authorization.Policy, err
 	return conv.CasbinPolicies(casbinStoragePolicies...)
 }
 
-func (m *RBAC) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
+func (m *Manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
 	for _, permission := range permissions {
 		ok, err := m.casbin.RemoveNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
 		if err != nil {
@@ -123,11 +123,11 @@ func (m *RBAC) RemovePermissions(roleName string, permissions []*authorization.P
 	return m.casbin.InvalidateCache()
 }
 
-func (m *RBAC) HasPermission(roleName string, permission *authorization.Policy) (bool, error) {
+func (m *Manager) HasPermission(roleName string, permission *authorization.Policy) (bool, error) {
 	return m.casbin.HasNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
 }
 
-func (m *RBAC) DeleteRoles(roles ...string) error {
+func (m *Manager) DeleteRoles(roles ...string) error {
 	for _, roleName := range roles {
 		// remove role
 		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
@@ -154,7 +154,7 @@ func (m *RBAC) DeleteRoles(roles ...string) error {
 
 // AddRolesFroUser NOTE: user has to be prefixed by user:, group:, key: etc.
 // see func PrefixUserName(user) it will prefix username and nop-op if already prefixed
-func (m *RBAC) AddRolesForUser(user string, roles []string) error {
+func (m *Manager) AddRolesForUser(user string, roles []string) error {
 	for _, role := range roles {
 		if _, err := m.casbin.AddRoleForUser(conv.PrefixDefaultToUser(user), conv.PrefixRoleName(role)); err != nil {
 			return err
@@ -168,7 +168,7 @@ func (m *RBAC) AddRolesForUser(user string, roles []string) error {
 	return m.casbin.InvalidateCache()
 }
 
-func (m *RBAC) GetRolesForUser(userName string) (map[string][]authorization.Policy, error) {
+func (m *Manager) GetRolesForUser(userName string) (map[string][]authorization.Policy, error) {
 	rolesNames, err := m.casbin.GetRolesForUser(conv.PrefixUserName(userName))
 	if err != nil {
 		return nil, err
@@ -180,7 +180,7 @@ func (m *RBAC) GetRolesForUser(userName string) (map[string][]authorization.Poli
 	return m.GetRoles(rolesNames...)
 }
 
-func (m *RBAC) GetUsersForRole(roleName string) ([]string, error) {
+func (m *Manager) GetUsersForRole(roleName string) ([]string, error) {
 	pusers, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(roleName))
 	if err != nil {
 		return nil, err
@@ -197,7 +197,7 @@ func (m *RBAC) GetUsersForRole(roleName string) ([]string, error) {
 	return users, err
 }
 
-func (m *RBAC) RevokeRolesForUser(userName string, roles ...string) error {
+func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 	for _, roleName := range roles {
 		if _, err := m.casbin.DeleteRoleForUser(conv.PrefixDefaultToUser(userName), conv.PrefixRoleName(roleName)); err != nil {
 			return err
@@ -213,7 +213,7 @@ func (m *RBAC) RevokeRolesForUser(userName string, roles ...string) error {
 // w.r.t.
 // source code https://github.com/casbin/casbin/blob/master/enforcer.go#L872
 // issue https://github.com/casbin/casbin/issues/710
-func (m *RBAC) checkPermissions(principal *models.Principal, resource, verb string) (bool, error) {
+func (m *Manager) checkPermissions(principal *models.Principal, resource, verb string) (bool, error) {
 	// first check group permissions
 	for _, group := range principal.Groups {
 		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb)
