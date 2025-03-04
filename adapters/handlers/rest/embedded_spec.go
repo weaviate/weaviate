@@ -6661,6 +6661,44 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
+    "ShardCopyReplicaRequest": {
+      "description": "Request body to add a replica of given shard of a given collection",
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the shard",
+          "type": "string"
+        },
+        "destinationNodeName": {
+          "description": "The node to add a copy of the replica on",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be copied",
+          "type": "string"
+        },
+        "sourceNodeName": {
+          "description": "The node containing the replica",
+          "type": "string"
+        }
+      }
+    },
+    "ShardDeleteReplicaRequest": {
+      "description": "Request body to delete a replica of given shard of a given collection",
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the replica to be delete",
+          "type": "string"
+        },
+        "nodeName": {
+          "description": "The node containing the replica to be deleted",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be deleted",
+          "type": "string"
+        }
+      }
+    },
     "ShardStatus": {
       "description": "The status of a single shard",
       "properties": {
@@ -14300,6 +14338,44 @@ func init() {
     "SchemaHistory": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
+    },
+    "ShardCopyReplicaRequest": {
+      "description": "Request body to add a replica of given shard of a given collection",
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the shard",
+          "type": "string"
+        },
+        "destinationNodeName": {
+          "description": "The node to add a copy of the replica on",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be copied",
+          "type": "string"
+        },
+        "sourceNodeName": {
+          "description": "The node containing the replica",
+          "type": "string"
+        }
+      }
+    },
+    "ShardDeleteReplicaRequest": {
+      "description": "Request body to delete a replica of given shard of a given collection",
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the replica to be delete",
+          "type": "string"
+        },
+        "nodeName": {
+          "description": "The node containing the replica to be deleted",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be deleted",
+          "type": "string"
+        }
+      }
     },
     "ShardStatus": {
       "description": "The status of a single shard",

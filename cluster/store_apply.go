@@ -96,6 +96,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			}).Info("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
+			st.replicationManager.StartReplicationEngine()
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
@@ -232,6 +233,12 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.dynUserManager.ActivateUser(&cmd)
 		}
+
+	case api.ApplyRequest_TYPE_SHARD_REPLICATE:
+		f = func() {
+			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
+		}
+
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart

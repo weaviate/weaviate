@@ -38,6 +38,7 @@ type NodeSelector interface {
 	LocalName() string
 	// NodeHostname return hosts address for a specific node name
 	NodeHostname(name string) (string, bool)
+	AllHostnames() []string
 }
 
 type State struct {
