@@ -30,6 +30,7 @@ import (
 //
 // swagger:model UserInfo
 type UserInfo struct {
+
 	// activity status of the returned user
 	// Required: true
 	Active *bool `json:"active"`
@@ -75,6 +76,7 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 }
 
 func (m *UserInfo) validateActive(formats strfmt.Registry) error {
+
 	if err := validate.Required("active", "body", m.Active); err != nil {
 		return err
 	}
@@ -83,6 +85,7 @@ func (m *UserInfo) validateActive(formats strfmt.Registry) error {
 }
 
 func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
+
 	if err := validate.Required("roles", "body", m.Roles); err != nil {
 		return err
 	}
@@ -91,6 +94,7 @@ func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
 }
 
 func (m *UserInfo) validateUserID(formats strfmt.Registry) error {
+
 	if err := validate.Required("user_id", "body", m.UserID); err != nil {
 		return err
 	}
@@ -128,6 +132,7 @@ func (m *UserInfo) validateUserTypeEnum(path, location string, value string) err
 }
 
 func (m *UserInfo) validateUserType(formats strfmt.Registry) error {
+
 	if err := validate.Required("user_type", "body", m.UserType); err != nil {
 		return err
 	}
