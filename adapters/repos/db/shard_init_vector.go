@@ -32,7 +32,7 @@ import (
 )
 
 func (s *Shard) initShardVectors(ctx context.Context) error {
-	if s.hasTargetVectors() {
+	if len(s.index.vectorIndexUserConfigs) > 0 {
 		if err := s.initTargetVectors(ctx); err != nil {
 			return err
 		}
@@ -220,18 +220,8 @@ func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 	return s.dynamicVectorIndexDB, nil
 }
 
-func (s *Shard) hasTargetVectors() bool {
-	return hasTargetVectors(s.index.vectorIndexUserConfig, s.index.vectorIndexUserConfigs)
-}
-
 func (s *Shard) hasLegacyVectorIndex() bool {
 	return s.vectorIndex != nil
-}
-
-// target vectors and legacy vector are (supposed to be) exclusive
-// method allows to distinguish which of them is configured for the class
-func hasTargetVectors(cfg schemaConfig.VectorIndexConfig, targetCfgs map[string]schemaConfig.VectorIndexConfig) bool {
-	return len(targetCfgs) != 0
 }
 
 func (s *Shard) initTargetVectors(ctx context.Context) error {
