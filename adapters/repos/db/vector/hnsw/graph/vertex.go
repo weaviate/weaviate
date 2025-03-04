@@ -76,6 +76,7 @@ func (v *Vertex) MaxLevel() int {
 func (v *Vertex) LevelLen(level int) int {
 	v.m.Lock()
 	if level >= len(v.connections) {
+		v.m.Unlock()
 		return 0
 	}
 	l := len(v.connections[level])
