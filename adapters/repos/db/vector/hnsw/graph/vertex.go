@@ -142,6 +142,7 @@ func (v *Vertex) CopyLevel(buf []uint64, level int) []uint64 {
 	return buf
 }
 
+// TODO: remove from here
 func (v *Vertex) ConnectionsAtLowerLevels(level int, visitedNodes map[NodeLevel]bool) []NodeLevel {
 	v.m.Lock()
 	defer v.m.Unlock()
@@ -158,6 +159,7 @@ func (v *Vertex) ConnectionsAtLowerLevels(level int, visitedNodes map[NodeLevel]
 	return connections
 }
 
+// TODO: remove from here
 func (v *Vertex) ConnectionsPointTo(needles helpers.AllowList) bool {
 	v.m.Lock()
 	defer v.m.Unlock()

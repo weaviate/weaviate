@@ -108,9 +108,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		}
 		levels[i] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
 	}
-	h.RLock()
 	if maxId >= uint64(h.nodes.Len()) {
-		h.RUnlock()
 		h.Lock()
 		if maxId >= uint64(h.nodes.Len()) {
 			err := h.growIndexToAccomodateNode(maxId, h.logger)
@@ -120,8 +118,6 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 			}
 		}
 		h.Unlock()
-	} else {
-		h.RUnlock()
 	}
 
 	for i := range ids {
@@ -196,9 +192,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 		maxId := counter + uint64(numVectors)
 
-		h.RLock()
 		if maxId >= uint64(h.nodes.Len()) {
-			h.RUnlock()
 			h.Lock()
 			if maxId >= uint64(h.nodes.Len()) {
 				err := h.growIndexToAccomodateNode(maxId, h.logger)
@@ -208,8 +202,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 				}
 			}
 			h.Unlock()
-		} else {
-			h.RUnlock()
 		}
 
 		h.RLock()
