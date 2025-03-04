@@ -1771,7 +1771,7 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 	vectorIndex.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
 		assert.NotEqual(t, uint64(0), id%2)
 
-		for level := range node.ConnectionLen() {
+		for level := range node.MaxLevel() {
 			node.IterConnections(level, func(u uint64) bool {
 				assert.NotEqual(t, uint64(0), u%2)
 				if u%2 == 0 {

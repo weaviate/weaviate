@@ -35,7 +35,7 @@ func dumpIndex(index *hnsw, labels ...string) {
 	index.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
 		fmt.Printf("  Node %d\n", node.ID())
 
-		for level := range node.ConnectionLen() {
+		for level := range node.MaxLevel() {
 			buf = node.CopyLevel(buf, level)
 			fmt.Printf("    Level %d: Connections: %v\n", level, buf)
 		}

@@ -81,7 +81,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			}
 		}
 
-		maxLevel := node.ConnectionLen()
+		maxLevel := node.MaxLevel()
 		var links []uint64
 		for level := 0; level < maxLevel; level++ {
 			links = node.CopyLevel(links, level)

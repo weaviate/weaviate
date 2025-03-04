@@ -864,7 +864,7 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 
 	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
 		l := node.Level()
-		if l == 0 && node.ConnectionLen() == 0 {
+		if l == 0 && node.MaxLevel() == 0 {
 			return true
 		}
 		c, ok := distributionLayers[l]

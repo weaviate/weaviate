@@ -39,7 +39,7 @@ func (h *hnsw) Dump(labels ...string) {
 	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
 		fmt.Printf("  Node %d (level %d)\n", node.ID(), node.Level())
 
-		for level := range node.ConnectionLen() {
+		for level := range node.MaxLevel() {
 			buf = node.CopyLevel(buf, level)
 			fmt.Printf("    Level %d: Connections: %v\n", level, buf)
 		}
@@ -187,7 +187,7 @@ func (h *hnsw) ValidateLinkIntegrity() {
 	defer h.Unlock()
 
 	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
-		for level := range node.ConnectionLen() {
+		for level := range node.MaxLevel() {
 			m := h.maximumConnections
 			if level == 0 {
 				m = h.maximumConnectionsLayerZero

@@ -68,7 +68,7 @@ func (v *Vertex) Level() int {
 	return l
 }
 
-func (v *Vertex) ConnectionLen() int {
+func (v *Vertex) MaxLevel() int {
 	v.m.Lock()
 	l := len(v.connections)
 	v.m.Unlock()
@@ -104,7 +104,7 @@ func (v *Vertex) IterConnections(level int, fn func(uint64) bool) {
 // The returned slice is a copy of the internal slice, so it can be modified
 // without affecting the internal state.
 // Do not use this method for large graphs, use IterConnections instead,
-// in combination with ConnectionLen.
+// in combination with MaxLevel.
 func (v *Vertex) CopyConnections() [][]uint64 {
 	v.m.Lock()
 	defer v.m.Unlock()
@@ -197,7 +197,7 @@ func (v *VertexEditor) Level() int {
 	return v.v.level
 }
 
-func (v *VertexEditor) ConnectionLen() int {
+func (v *VertexEditor) MaxLevel() int {
 	return len(v.v.connections)
 }
 

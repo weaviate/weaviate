@@ -669,7 +669,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			strategy = RRE
 		} else {
 			counter := float32(0)
-			connLen := entryPointNode.ConnectionLen()
+			connLen := entryPointNode.MaxLevel()
 			if connLen < 1 {
 				strategy = ACORN
 			} else {

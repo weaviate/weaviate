@@ -728,7 +728,7 @@ func (h *hnsw) isOnlyNode(id uint64, denyList helpers.AllowList) bool {
 			return true
 		}
 
-		l := node.ConnectionLen()
+		l := node.MaxLevel()
 		if l > 0 {
 			isOnlyNode = false
 			return false
