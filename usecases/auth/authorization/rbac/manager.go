@@ -31,15 +31,24 @@ type manager struct {
 }
 
 func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger) (*manager, error) {
-	casbin, err := Init(rbac, rbacStoragePath)
+	csbin, err := Init(rbac, rbacStoragePath)
 	if err != nil {
 		return nil, err
 	}
 
-	return &manager{casbin, logger}, nil
+	return &manager{csbin, logger}, nil
 }
 
-func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
+// there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
+func (m *manager) UpdateRolesPermissions(roles map[string][]authorization.Policy) error {
+	return m.upsertRolesPermissions(roles)
+}
+
+func (m *manager) CreateRolesPermissions(roles map[string][]authorization.Policy) error {
+	return m.upsertRolesPermissions(roles)
+}
+
+func (m *manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
 		// e.g. : g, user:wv_internal_empty, role:roleName
