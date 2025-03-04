@@ -107,18 +107,21 @@ func (h *hnsw) generateGraphConnections(testCase int) {
 		// Node 0
 		node0 := h.nodes.Get(0)
 		node0.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
 			v.SetConnectionsAtLevel(1, []uint64{1, 2})
 			return nil
 		})
 		// Node 1
 		node1 := h.nodes.Get(1)
 		node1.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
 			v.SetConnectionsAtLevel(1, []uint64{3})
 			return nil
 		})
 		// Node 2
 		node2 := h.nodes.Get(2)
 		node2.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
 			v.SetConnectionsAtLevel(1, []uint64{4})
 			return nil
 		})
@@ -140,12 +143,14 @@ func (h *hnsw) generateGraphConnections(testCase int) {
 		// Node 0
 		node0 := h.nodes.Get(0)
 		node0.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
 			v.SetConnectionsAtLevel(0, []uint64{1})
 			return nil
 		})
 		// Node 1
 		node1 := h.nodes.Get(1)
 		node1.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
 			v.SetConnectionsAtLevel(0, []uint64{3})
 			v.SetConnectionsAtLevel(1, []uint64{2})
 			return nil
@@ -168,6 +173,7 @@ func (h *hnsw) generateGraphConnections(testCase int) {
 		// Node 0
 		node0 := h.nodes.Get(0)
 		node0.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
 			v.SetConnectionsAtLevel(0, []uint64{1})
 			return nil
 		})
@@ -204,6 +210,7 @@ func (h *hnsw) generateGraphConnections(testCase int) {
 		// Node 0
 		node0 := h.nodes.Get(0)
 		node0.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
 			v.SetConnectionsAtLevel(1, []uint64{1, 2})
 			return nil
 		})
