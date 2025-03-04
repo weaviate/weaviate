@@ -53,7 +53,7 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 		}
 	}
 
-	if len(merge.Vector) > 0 {
+	if len(merge.Vector) > 0 && s.hasLegacyVectorIndex() {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
 		err := s.vectorIndex.ValidateBeforeInsert(merge.Vector)
 		if err != nil {
