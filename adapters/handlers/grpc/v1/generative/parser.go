@@ -112,7 +112,7 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 		generative.Options = p.mistral(query.GetMistral())
 		p.providerName = mistralParams.Name
 	case *pb.GenerativeProvider_Nvidia:
-		options = p.nvidia(query.GetNvidia())
+		generative.Options = p.nvidia(query.GetNvidia())
 		p.providerName = nvidiaParams.Name
 	case *pb.GenerativeProvider_Ollama:
 		generative.Options = p.ollama(query.GetOllama())
