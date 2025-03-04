@@ -39,7 +39,16 @@ func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger
 	return &Manager{csbin, logger}, nil
 }
 
-func (m *Manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
+// there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
+func (m *Manager) UpdateRolesPermissions(roles map[string][]authorization.Policy) error {
+	return m.upsertRolesPermissions(roles)
+}
+
+func (m *Manager) CreateRolesPermissions(roles map[string][]authorization.Policy) error {
+	return m.upsertRolesPermissions(roles)
+}
+
+func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
 		// e.g. : g, user:wv_internal_empty, role:roleName

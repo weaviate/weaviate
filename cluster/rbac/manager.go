@@ -16,8 +16,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
-
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -27,11 +25,11 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ  *rbac.Manager
+	authZ  authorization.Controller
 	logger logrus.FieldLogger
 }
 
-func NewManager(authZ *rbac.Manager, logger logrus.FieldLogger) *Manager {
+func NewManager(authZ authorization.Controller, logger logrus.FieldLogger) *Manager {
 	return &Manager{authZ: authZ, logger: logger}
 }
 
@@ -169,7 +167,7 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 		return err
 	}
 
-	return m.authZ.UpsertRolesPermissions(reqMigrated.Roles)
+	return m.authZ.UpdateRolesPermissions(reqMigrated.Roles) // update is upsert, naming is to satisfy interface
 }
 
 func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {

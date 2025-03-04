@@ -242,7 +242,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			if tt.expectedError == "" {
 				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
-				controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
+				controller.On("upsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 			}
 
 			h := &authZHandlers{

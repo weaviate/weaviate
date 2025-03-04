@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
 	"github.com/prometheus/client_golang/prometheus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -34,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 )
 
 const (
@@ -144,7 +145,7 @@ type Config struct {
 	FQDNResolverTLD    string
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
-	RbacManager *rbac.Manager
+	AuthzController authorization.Controller
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -225,7 +226,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
 		schemaManager: schemaManager,
-		authZManager:  rbacRaft.NewManager(cfg.RbacManager, cfg.Logger),
+		authZManager:  rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
 	}
 }
 
