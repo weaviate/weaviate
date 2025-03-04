@@ -39,7 +39,7 @@ func TestSuccessSuspend(t *testing.T) {
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
-			dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user"}}, nil)
+			dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user", Active: true}}, nil)
 			dynUser.On("SuspendUser", "user", test.revokeKey).Return(nil)
 
 			h := dynUserHandler{
