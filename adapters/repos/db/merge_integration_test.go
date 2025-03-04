@@ -973,14 +973,14 @@ func TestMerge_ObjectWithNamedVectors(t *testing.T) {
 		},
 	}, nil, 0))
 
-	var (
-		updatedNamedVec = randVector(10)
-		updatedMultiVec = [][]float32{
+	newVectors := models.Vectors{
+		namedVecName: randVector(10),
+		multiVecName: [][]float32{
 			randVector(10),
 			randVector(10),
 			randVector(10),
-		}
-	)
+		},
+	}
 
 	require.NoError(t, db.Merge(ctx, objects.MergeDocument{
 		Class: class.Class,
@@ -989,19 +989,13 @@ func TestMerge_ObjectWithNamedVectors(t *testing.T) {
 			"text":   "test2",
 			"number": 2,
 		},
-		Vectors: models.Vectors{
-			namedVecName: updatedNamedVec,
-			multiVecName: updatedMultiVec,
-		},
+		Vectors: newVectors,
 	}, nil, "", 0))
 
 	object, err := db.ObjectByID(context.Background(), objectID, nil, additional.Properties{}, "")
 	require.NoError(t, err)
 
-	require.Equal(t, models.Vectors{
-		"vec1":     updatedNamedVec,
-		"multivec": updatedMultiVec,
-	}, object.Vectors)
+	require.Equal(t, newVectors, object.Vectors)
 }
 
 func noopVectorizerConfig() any {
