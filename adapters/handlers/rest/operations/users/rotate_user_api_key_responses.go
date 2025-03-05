@@ -213,7 +213,7 @@ func (o *RotateUserAPIKeyNotFound) WriteResponse(rw http.ResponseWriter, produce
 const RotateUserAPIKeyUnprocessableEntityCode int = 422
 
 /*
-RotateUserAPIKeyUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+RotateUserAPIKeyUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
 
 swagger:response rotateUserApiKeyUnprocessableEntity
 */

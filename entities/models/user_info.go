@@ -31,6 +31,10 @@ import (
 // swagger:model UserInfo
 type UserInfo struct {
 
+	// activity status of the returned user
+	// Required: true
+	Active *bool `json:"active"`
+
 	// The role names associated to the user
 	// Required: true
 	Roles []string `json:"roles"`
@@ -49,6 +53,10 @@ type UserInfo struct {
 func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateActive(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateRoles(formats); err != nil {
 		res = append(res, err)
 	}
@@ -64,6 +72,15 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *UserInfo) validateActive(formats strfmt.Registry) error {
+
+	if err := validate.Required("active", "body", m.Active); err != nil {
+		return err
+	}
+
 	return nil
 }
 

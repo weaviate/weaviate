@@ -78,3 +78,42 @@ func (s *Raft) DeleteUser(userId string) error {
 	}
 	return nil
 }
+
+func (s *Raft) ActivateUser(userId string) error {
+	req := cmd.ActivateUsersRequest{
+		UserId:  userId,
+		Version: cmd.DynUserLatestCommandPolicyVersion,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_ACTIVATE_USER,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) DeactivateUser(userId string, revokeKey bool) error {
+	req := cmd.SuspendUserRequest{
+		UserId:    userId,
+		RevokeKey: revokeKey,
+		Version:   cmd.DynUserLatestCommandPolicyVersion,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_SUSPEND_USER,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}

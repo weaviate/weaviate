@@ -69,6 +69,8 @@ func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesG
 	api.UsersDeleteUserHandler = users.DeleteUserHandlerFunc(h.deleteUser)
 	api.UsersGetUserInfoHandler = users.GetUserInfoHandlerFunc(h.getUser)
 	api.UsersRotateUserAPIKeyHandler = users.RotateUserAPIKeyHandlerFunc(h.rotateKey)
+	api.UsersDeactivateUserHandler = users.DeactivateUserHandlerFunc(h.deactivateUser)
+	api.UsersActivateUserHandler = users.ActivateUserHandlerFunc(h.activateUser)
 }
 
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
@@ -229,6 +231,77 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 	return users.NewDeleteUserNoContent()
+}
+
+func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+		return users.NewDeactivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if h.staticUserExists(params.UserID) {
+		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+	}
+
+	if h.isRootUser(params.UserID) {
+		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot deactivate root user")))
+	}
+
+	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
+	if err != nil {
+		return users.NewDeactivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
+	}
+
+	if len(existingUser) == 0 {
+		return users.NewDeactivateUserNotFound()
+	}
+
+	if !existingUser[params.UserID].Active {
+		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("user already deactivated")))
+	}
+
+	revokeKey := false
+	if params.Body.RevokeKey != nil {
+		revokeKey = *params.Body.RevokeKey
+	}
+
+	if err := h.dynamicUser.DeactivateUser(params.UserID, revokeKey); err != nil {
+		return users.NewDeactivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("deactivate user: %w", err)))
+	}
+
+	return users.NewDeactivateUserOK()
+}
+
+func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+		return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if h.staticUserExists(params.UserID) {
+		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+	}
+
+	if h.isRootUser(params.UserID) {
+		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot activate root user")))
+	}
+
+	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
+	if err != nil {
+		return users.NewActivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
+	}
+
+	if len(existingUser) == 0 {
+		return users.NewActivateUserNotFound()
+	}
+
+	if existingUser[params.UserID].Active {
+		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("user already activated")))
+	}
+
+	if err := h.dynamicUser.ActivateUser(params.UserID); err != nil {
+		return users.NewActivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("activate user: %w", err)))
+	}
+
+	return users.NewActivateUserOK()
 }
 
 func (h *dynUserHandler) staticUserExists(newUser string) bool {

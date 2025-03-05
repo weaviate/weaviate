@@ -51,9 +51,13 @@
             "static"
           ],
           "description": "type of the returned user"
+        },
+        "active":{
+          "type": "boolean",
+          "description": "activity status of the returned user"
         }
       },
-      "required": ["user_id", "user_type", "roles"]
+      "required": ["user_id", "user_type", "roles", "active"]
     },
     "UserApiKey": {
       "type": "object",
@@ -2888,6 +2892,133 @@
             "schema": {
               "$ref": "#/definitions/UserApiKey"
             }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/users/{user_id}/activate": {
+      "post": {
+        "summary": "activate a deactivated user",
+        "operationId": "activateUser",
+        "x-serviceIds": [
+          "weaviate.users.activateUser"
+        ],
+        "tags": [
+          "users"
+        ],
+        "parameters": [
+          {
+            "description": "user id",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User successfully activated"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/users/{user_id}/deactivate": {
+      "post": {
+        "summary": "deactivate a user",
+        "operationId": "deactivateUser",
+        "x-serviceIds": [
+          "weaviate.users.deactivateUser"
+        ],
+        "tags": [
+          "users"
+        ],
+        "parameters": [
+          {
+            "description": "user id",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "revoke_key": {
+                  "type":"boolean",
+                  "description": "if the key should be revoked when deactivating the user",
+                  "default": false
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "users successfully deactivated"
           },
           "400": {
             "description": "Malformed request.",

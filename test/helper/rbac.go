@@ -89,6 +89,20 @@ func RotateKey(t *testing.T, userId, key string) string {
 	return *resp.Payload.Apikey
 }
 
+func DeactivateUser(t *testing.T, key, userId string, revokeKey bool) {
+	t.Helper()
+	resp, err := Client(t).Users.DeactivateUser(users.NewDeactivateUserParams().WithUserID(userId).WithBody(users.DeactivateUserBody{RevokeKey: &revokeKey}), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.NoError(t, err)
+}
+
+func ActivateUser(t *testing.T, key, userId string) {
+	t.Helper()
+	resp, err := Client(t).Users.ActivateUser(users.NewActivateUserParams().WithUserID(userId), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.NoError(t, err)
+}
+
 func DeleteRole(t *testing.T, key, role string) {
 	t.Helper()
 	resp, err := Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID(role), CreateAuth(key))

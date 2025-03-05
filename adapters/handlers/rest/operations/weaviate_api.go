@@ -72,6 +72,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
 		}),
+		UsersActivateUserHandler: users.ActivateUserHandlerFunc(func(params users.ActivateUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.ActivateUser has not yet been implemented")
+		}),
 		AuthzAddPermissionsHandler: authz.AddPermissionsHandlerFunc(func(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AddPermissions has not yet been implemented")
 		}),
@@ -122,6 +125,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		UsersCreateUserHandler: users.CreateUserHandlerFunc(func(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.CreateUser has not yet been implemented")
+		}),
+		UsersDeactivateUserHandler: users.DeactivateUserHandlerFunc(func(params users.DeactivateUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.DeactivateUser has not yet been implemented")
 		}),
 		AuthzDeleteRoleHandler: authz.DeleteRoleHandlerFunc(func(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.DeleteRole has not yet been implemented")
@@ -354,6 +360,8 @@ type WeaviateAPI struct {
 
 	// WellKnownGetWellKnownOpenidConfigurationHandler sets the operation handler for the get well known openid configuration operation
 	WellKnownGetWellKnownOpenidConfigurationHandler well_known.GetWellKnownOpenidConfigurationHandler
+	// UsersActivateUserHandler sets the operation handler for the activate user operation
+	UsersActivateUserHandler users.ActivateUserHandler
 	// AuthzAddPermissionsHandler sets the operation handler for the add permissions operation
 	AuthzAddPermissionsHandler authz.AddPermissionsHandler
 	// AuthzAssignRoleToGroupHandler sets the operation handler for the assign role to group operation
@@ -388,6 +396,8 @@ type WeaviateAPI struct {
 	AuthzCreateRoleHandler authz.CreateRoleHandler
 	// UsersCreateUserHandler sets the operation handler for the create user operation
 	UsersCreateUserHandler users.CreateUserHandler
+	// UsersDeactivateUserHandler sets the operation handler for the deactivate user operation
+	UsersDeactivateUserHandler users.DeactivateUserHandler
 	// AuthzDeleteRoleHandler sets the operation handler for the delete role operation
 	AuthzDeleteRoleHandler authz.DeleteRoleHandler
 	// UsersDeleteUserHandler sets the operation handler for the delete user operation
@@ -583,6 +593,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.WellKnownGetWellKnownOpenidConfigurationHandler == nil {
 		unregistered = append(unregistered, "well_known.GetWellKnownOpenidConfigurationHandler")
 	}
+	if o.UsersActivateUserHandler == nil {
+		unregistered = append(unregistered, "users.ActivateUserHandler")
+	}
 	if o.AuthzAddPermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.AddPermissionsHandler")
 	}
@@ -633,6 +646,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.UsersCreateUserHandler == nil {
 		unregistered = append(unregistered, "users.CreateUserHandler")
+	}
+	if o.UsersDeactivateUserHandler == nil {
+		unregistered = append(unregistered, "users.DeactivateUserHandler")
 	}
 	if o.AuthzDeleteRoleHandler == nil {
 		unregistered = append(unregistered, "authz.DeleteRoleHandler")
@@ -903,6 +919,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/users/{user_id}/activate"] = users.NewActivateUser(o.context, o.UsersActivateUserHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/authz/roles/{id}/add-permissions"] = authz.NewAddPermissions(o.context, o.AuthzAddPermissionsHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -968,6 +988,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/users/{user_id}"] = users.NewCreateUser(o.context, o.UsersCreateUserHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/users/{user_id}/deactivate"] = users.NewDeactivateUser(o.context, o.UsersDeactivateUserHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
