@@ -139,12 +139,17 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 			sumDimensions = 0
 		)
 
-		_ = s.ForEachVectorIndex(func(targetVector string, _ VectorIndex) error {
+		if s.hasLegacyVectorIndex() {
 			dimensions, segments := s.calcDimensionsAndSegments(ctx, s.index.vectorIndexUserConfig, "")
 			sumDimensions += dimensions
 			sumSegments += segments
-			return nil
-		})
+		}
+
+		for vecName, vecCfg := range s.index.vectorIndexUserConfigs {
+			dimensions, segments := s.calcDimensionsAndSegments(ctx, vecCfg, vecName)
+			sumDimensions += dimensions
+			sumSegments += segments
+		}
 
 		sendVectorSegmentsMetric(s.promMetrics, className, s.name, sumSegments)
 		sendVectorDimensionsMetric(s.promMetrics, className, s.name, sumDimensions)
