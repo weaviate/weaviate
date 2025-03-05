@@ -27,40 +27,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// SuspendUserHandlerFunc turns a function with the right signature into a suspend user handler
-type SuspendUserHandlerFunc func(SuspendUserParams, *models.Principal) middleware.Responder
+// DeactivateUserHandlerFunc turns a function with the right signature into a deactivate user handler
+type DeactivateUserHandlerFunc func(DeactivateUserParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn SuspendUserHandlerFunc) Handle(params SuspendUserParams, principal *models.Principal) middleware.Responder {
+func (fn DeactivateUserHandlerFunc) Handle(params DeactivateUserParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// SuspendUserHandler interface for that can handle valid suspend user params
-type SuspendUserHandler interface {
-	Handle(SuspendUserParams, *models.Principal) middleware.Responder
+// DeactivateUserHandler interface for that can handle valid deactivate user params
+type DeactivateUserHandler interface {
+	Handle(DeactivateUserParams, *models.Principal) middleware.Responder
 }
 
-// NewSuspendUser creates a new http.Handler for the suspend user operation
-func NewSuspendUser(ctx *middleware.Context, handler SuspendUserHandler) *SuspendUser {
-	return &SuspendUser{Context: ctx, Handler: handler}
+// NewDeactivateUser creates a new http.Handler for the deactivate user operation
+func NewDeactivateUser(ctx *middleware.Context, handler DeactivateUserHandler) *DeactivateUser {
+	return &DeactivateUser{Context: ctx, Handler: handler}
 }
 
 /*
-	SuspendUser swagger:route POST /users/{user_id}/suspend users suspendUser
+	DeactivateUser swagger:route POST /users/{user_id}/deactivate users deactivateUser
 
-suspend a user
+deactivate a user
 */
-type SuspendUser struct {
+type DeactivateUser struct {
 	Context *middleware.Context
-	Handler SuspendUserHandler
+	Handler DeactivateUserHandler
 }
 
-func (o *SuspendUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *DeactivateUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewSuspendUserParams()
+	var Params = NewDeactivateUserParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -84,27 +84,27 @@ func (o *SuspendUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 }
 
-// SuspendUserBody suspend user body
+// DeactivateUserBody deactivate user body
 //
-// swagger:model SuspendUserBody
-type SuspendUserBody struct {
+// swagger:model DeactivateUserBody
+type DeactivateUserBody struct {
 
-	// if the key should be deactivated when suspending the user
-	DeactivateKey *bool `json:"deactivate_key,omitempty" yaml:"deactivate_key,omitempty"`
+	// if the key should be revoked when deactivating the user
+	RevokeKey *bool `json:"revoke_key,omitempty" yaml:"revoke_key,omitempty"`
 }
 
-// Validate validates this suspend user body
-func (o *SuspendUserBody) Validate(formats strfmt.Registry) error {
+// Validate validates this deactivate user body
+func (o *DeactivateUserBody) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this suspend user body based on context it is used
-func (o *SuspendUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this deactivate user body based on context it is used
+func (o *DeactivateUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (o *SuspendUserBody) MarshalBinary() ([]byte, error) {
+func (o *DeactivateUserBody) MarshalBinary() ([]byte, error) {
 	if o == nil {
 		return nil, nil
 	}
@@ -112,8 +112,8 @@ func (o *SuspendUserBody) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (o *SuspendUserBody) UnmarshalBinary(b []byte) error {
-	var res SuspendUserBody
+func (o *DeactivateUserBody) UnmarshalBinary(b []byte) error {
+	var res DeactivateUserBody
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

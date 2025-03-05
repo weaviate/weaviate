@@ -23,8 +23,8 @@ import (
 	"strings"
 )
 
-// SuspendUserURL generates an URL for the suspend user operation
-type SuspendUserURL struct {
+// DeactivateUserURL generates an URL for the deactivate user operation
+type DeactivateUserURL struct {
 	UserID string
 
 	_basePath string
@@ -35,7 +35,7 @@ type SuspendUserURL struct {
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *SuspendUserURL) WithBasePath(bp string) *SuspendUserURL {
+func (o *DeactivateUserURL) WithBasePath(bp string) *DeactivateUserURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -43,21 +43,21 @@ func (o *SuspendUserURL) WithBasePath(bp string) *SuspendUserURL {
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *SuspendUserURL) SetBasePath(bp string) {
+func (o *DeactivateUserURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *SuspendUserURL) Build() (*url.URL, error) {
+func (o *DeactivateUserURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/users/{user_id}/suspend"
+	var _path = "/users/{user_id}/deactivate"
 
 	userID := o.UserID
 	if userID != "" {
 		_path = strings.Replace(_path, "{user_id}", userID, -1)
 	} else {
-		return nil, errors.New("userId is required on SuspendUserURL")
+		return nil, errors.New("userId is required on DeactivateUserURL")
 	}
 
 	_basePath := o._basePath
@@ -70,7 +70,7 @@ func (o *SuspendUserURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *SuspendUserURL) Must(u *url.URL, err error) *url.URL {
+func (o *DeactivateUserURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -81,17 +81,17 @@ func (o *SuspendUserURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *SuspendUserURL) String() string {
+func (o *DeactivateUserURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *SuspendUserURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *DeactivateUserURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on SuspendUserURL")
+		return nil, errors.New("scheme is required for a full url on DeactivateUserURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on SuspendUserURL")
+		return nil, errors.New("host is required for a full url on DeactivateUserURL")
 	}
 
 	base, err := o.Build()
@@ -105,6 +105,6 @@ func (o *SuspendUserURL) BuildFull(scheme, host string) (*url.URL, error) {
 }
 
 // StringFull returns the string representation of a complete url
-func (o *SuspendUserURL) StringFull(scheme, host string) string {
+func (o *DeactivateUserURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }

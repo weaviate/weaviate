@@ -26,7 +26,7 @@ type DynamicUser interface {
 	CreateUser(userId, secureHash, userIdentifier string) error
 	DeleteUser(userId string) error
 	ActivateUser(userId string) error
-	SuspendUser(userId string, revokeKey bool) error
+	DeactivateUser(userId string, revokeKey bool) error
 	GetUsers(userIds ...string) (map[string]*User, error)
 	RotateKey(userId, secureHash string) error
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
@@ -108,7 +108,7 @@ func (c *DynamicApiKey) ActivateUser(userId string) error {
 	return nil
 }
 
-func (c *DynamicApiKey) SuspendUser(userId string, revokeKey bool) error {
+func (c *DynamicApiKey) DeactivateUser(userId string, revokeKey bool) error {
 	c.Lock()
 	defer c.Unlock()
 	if revokeKey {

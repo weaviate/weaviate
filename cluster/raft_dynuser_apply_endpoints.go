@@ -98,7 +98,7 @@ func (s *Raft) ActivateUser(userId string) error {
 	return nil
 }
 
-func (s *Raft) SuspendUser(userId string, revokeKey bool) error {
+func (s *Raft) DeactivateUser(userId string, revokeKey bool) error {
 	req := cmd.SuspendUserRequest{
 		UserId:    userId,
 		RevokeKey: revokeKey,

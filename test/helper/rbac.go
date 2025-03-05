@@ -89,9 +89,9 @@ func RotateKey(t *testing.T, userId, key string) string {
 	return *resp.Payload.Apikey
 }
 
-func SuspendUser(t *testing.T, key, userId string, deactivateKey bool) {
+func DeactivateUser(t *testing.T, key, userId string, revokeKey bool) {
 	t.Helper()
-	resp, err := Client(t).Users.SuspendUser(users.NewSuspendUserParams().WithUserID(userId).WithBody(users.SuspendUserBody{DeactivateKey: &deactivateKey}), CreateAuth(key))
+	resp, err := Client(t).Users.DeactivateUser(users.NewDeactivateUserParams().WithUserID(userId).WithBody(users.DeactivateUserBody{RevokeKey: &revokeKey}), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.NoError(t, err)
 }

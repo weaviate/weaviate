@@ -126,6 +126,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		UsersCreateUserHandler: users.CreateUserHandlerFunc(func(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.CreateUser has not yet been implemented")
 		}),
+		UsersDeactivateUserHandler: users.DeactivateUserHandlerFunc(func(params users.DeactivateUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.DeactivateUser has not yet been implemented")
+		}),
 		AuthzDeleteRoleHandler: authz.DeleteRoleHandlerFunc(func(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.DeleteRole has not yet been implemented")
 		}),
@@ -261,9 +264,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsUpdateHandler: schema.SchemaObjectsUpdateHandlerFunc(func(params schema.SchemaObjectsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsUpdate has not yet been implemented")
 		}),
-		UsersSuspendUserHandler: users.SuspendUserHandlerFunc(func(params users.SuspendUserParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation users.SuspendUser has not yet been implemented")
-		}),
 		SchemaTenantExistsHandler: schema.TenantExistsHandlerFunc(func(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantExists has not yet been implemented")
 		}),
@@ -396,6 +396,8 @@ type WeaviateAPI struct {
 	AuthzCreateRoleHandler authz.CreateRoleHandler
 	// UsersCreateUserHandler sets the operation handler for the create user operation
 	UsersCreateUserHandler users.CreateUserHandler
+	// UsersDeactivateUserHandler sets the operation handler for the deactivate user operation
+	UsersDeactivateUserHandler users.DeactivateUserHandler
 	// AuthzDeleteRoleHandler sets the operation handler for the delete role operation
 	AuthzDeleteRoleHandler authz.DeleteRoleHandler
 	// UsersDeleteUserHandler sets the operation handler for the delete user operation
@@ -486,8 +488,6 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsShardsUpdateHandler schema.SchemaObjectsShardsUpdateHandler
 	// SchemaSchemaObjectsUpdateHandler sets the operation handler for the schema objects update operation
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
-	// UsersSuspendUserHandler sets the operation handler for the suspend user operation
-	UsersSuspendUserHandler users.SuspendUserHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
 	SchemaTenantExistsHandler schema.TenantExistsHandler
 	// SchemaTenantsCreateHandler sets the operation handler for the tenants create operation
@@ -647,6 +647,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.UsersCreateUserHandler == nil {
 		unregistered = append(unregistered, "users.CreateUserHandler")
 	}
+	if o.UsersDeactivateUserHandler == nil {
+		unregistered = append(unregistered, "users.DeactivateUserHandler")
+	}
 	if o.AuthzDeleteRoleHandler == nil {
 		unregistered = append(unregistered, "authz.DeleteRoleHandler")
 	}
@@ -781,9 +784,6 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsUpdateHandler")
-	}
-	if o.UsersSuspendUserHandler == nil {
-		unregistered = append(unregistered, "users.SuspendUserHandler")
 	}
 	if o.SchemaTenantExistsHandler == nil {
 		unregistered = append(unregistered, "schema.TenantExistsHandler")
@@ -988,6 +988,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/users/{user_id}"] = users.NewCreateUser(o.context, o.UsersCreateUserHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/users/{user_id}/deactivate"] = users.NewDeactivateUser(o.context, o.UsersDeactivateUserHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
@@ -1168,10 +1172,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}"] = schema.NewSchemaObjectsUpdate(o.context, o.SchemaSchemaObjectsUpdateHandler)
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
-	o.handlers["POST"]["/users/{user_id}/suspend"] = users.NewSuspendUser(o.context, o.UsersSuspendUserHandler)
 	if o.handlers["HEAD"] == nil {
 		o.handlers["HEAD"] = make(map[string]http.Handler)
 	}

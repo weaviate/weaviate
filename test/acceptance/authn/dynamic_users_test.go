@@ -156,7 +156,7 @@ func TestSuspendAndActivate(t *testing.T) {
 		info := helper.GetInfoForOwnUser(t, apiKey)
 		require.NotNil(t, info)
 
-		helper.SuspendUser(t, adminKey, dynamicUser, false)
+		helper.DeactivateUser(t, adminKey, dynamicUser, false)
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(apiKey))
 		require.Error(t, err)
 
@@ -172,7 +172,7 @@ func TestSuspendAndActivate(t *testing.T) {
 		info := helper.GetInfoForOwnUser(t, apiKey)
 		require.NotNil(t, info)
 
-		helper.SuspendUser(t, adminKey, dynamicUser, true)
+		helper.DeactivateUser(t, adminKey, dynamicUser, true)
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(apiKey))
 		require.Error(t, err)
 
@@ -192,7 +192,7 @@ func TestSuspendAndActivate(t *testing.T) {
 		info := helper.GetInfoForOwnUser(t, apiKey)
 		require.NotNil(t, info)
 
-		helper.SuspendUser(t, adminKey, dynamicUser, true)
+		helper.DeactivateUser(t, adminKey, dynamicUser, true)
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(apiKey))
 		require.Error(t, err)
 
@@ -210,7 +210,7 @@ func TestSuspendAndActivate(t *testing.T) {
 			info := helper.GetInfoForOwnUser(t, apiKey)
 			require.NotNil(t, info)
 
-			helper.SuspendUser(t, adminKey, dynamicUser, deactivateKey)
+			helper.DeactivateUser(t, adminKey, dynamicUser, deactivateKey)
 			helper.DeleteUser(t, dynamicUser, adminKey)
 
 			// create new user with same name, should not be suspended anymore
@@ -222,9 +222,9 @@ func TestSuspendAndActivate(t *testing.T) {
 	t.Run("double suspend", func(t *testing.T) {
 		helper.DeleteUser(t, dynamicUser, adminKey)
 		helper.CreateUser(t, dynamicUser, adminKey)
-		helper.SuspendUser(t, adminKey, dynamicUser, false)
+		helper.DeactivateUser(t, adminKey, dynamicUser, false)
 		// suspend again
-		_, err := helper.Client(t).Users.SuspendUser(users.NewSuspendUserParams().WithUserID(dynamicUser), helper.CreateAuth(adminKey))
+		_, err := helper.Client(t).Users.DeactivateUser(users.NewDeactivateUserParams().WithUserID(dynamicUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 	})
 

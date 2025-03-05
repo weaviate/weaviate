@@ -45,6 +45,8 @@ type ClientService interface {
 
 	CreateUser(params *CreateUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CreateUserCreated, error)
 
+	DeactivateUser(params *DeactivateUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeactivateUserOK, error)
+
 	DeleteUser(params *DeleteUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteUserNoContent, error)
 
 	GetOwnInfo(params *GetOwnInfoParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetOwnInfoOK, error)
@@ -53,13 +55,11 @@ type ClientService interface {
 
 	RotateUserAPIKey(params *RotateUserAPIKeyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RotateUserAPIKeyOK, error)
 
-	SuspendUser(params *SuspendUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SuspendUserOK, error)
-
 	SetTransport(transport runtime.ClientTransport)
 }
 
 /*
-ActivateUser activates a suspended user
+ActivateUser activates a deactivated user
 */
 func (a *Client) ActivateUser(params *ActivateUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ActivateUserOK, error) {
 	// TODO: Validate the params before sending
@@ -133,6 +133,45 @@ func (a *Client) CreateUser(params *CreateUserParams, authInfo runtime.ClientAut
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for createUser: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+DeactivateUser deactivates a user
+*/
+func (a *Client) DeactivateUser(params *DeactivateUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeactivateUserOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewDeactivateUserParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "deactivateUser",
+		Method:             "POST",
+		PathPattern:        "/users/{user_id}/deactivate",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &DeactivateUserReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*DeactivateUserOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for deactivateUser: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
@@ -289,45 +328,6 @@ func (a *Client) RotateUserAPIKey(params *RotateUserAPIKeyParams, authInfo runti
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for rotateUserApiKey: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-SuspendUser suspends a user
-*/
-func (a *Client) SuspendUser(params *SuspendUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SuspendUserOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewSuspendUserParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "suspendUser",
-		Method:             "POST",
-		PathPattern:        "/users/{user_id}/suspend",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &SuspendUserReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*SuspendUserOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for suspendUser: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

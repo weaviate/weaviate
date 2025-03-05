@@ -2928,7 +2928,7 @@
     },
     "/users/{user_id}/activate": {
       "post": {
-        "summary": "activate a suspended user",
+        "summary": "activate a deactivated user",
         "operationId": "activateUser",
         "x-serviceIds": [
           "weaviate.users.activateUser"
@@ -2982,12 +2982,12 @@
         }
       }
     },
-    "/users/{user_id}/suspend": {
+    "/users/{user_id}/deactivate": {
       "post": {
-        "summary": "suspend a user",
-        "operationId": "suspendUser",
+        "summary": "deactivate a user",
+        "operationId": "deactivateUser",
         "x-serviceIds": [
-          "weaviate.users.suspendUser"
+          "weaviate.users.deactivateUser"
         ],
         "tags": [
           "users"
@@ -3007,9 +3007,9 @@
             "schema": {
               "type": "object",
               "properties": {
-                "deactivate_key": {
+                "revoke_key": {
                   "type":"boolean",
-                  "description": "if the key should be deactivated when suspending the user",
+                  "description": "if the key should be revoked when deactivating the user",
                   "default": false
                 }
               }
@@ -3018,7 +3018,7 @@
         ],
         "responses": {
           "200": {
-            "description": "users successfully suspended"
+            "description": "users successfully deactivated"
           },
           "400": {
             "description": "Malformed request.",

@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func TestSuccessSuspend(t *testing.T) {
+func TestSuccessDeactivate(t *testing.T) {
 	tests := []struct {
 		revokeKey bool
 	}{
@@ -40,21 +40,21 @@ func TestSuccessSuspend(t *testing.T) {
 			authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user", Active: true}}, nil)
-			dynUser.On("SuspendUser", "user", test.revokeKey).Return(nil)
+			dynUser.On("DeactivateUser", "user", test.revokeKey).Return(nil)
 
 			h := dynUserHandler{
 				dynamicUser: dynUser,
 				authorizer:  authorizer,
 			}
 
-			res := h.suspendUser(users.SuspendUserParams{UserID: "user", Body: users.SuspendUserBody{DeactivateKey: &test.revokeKey}}, principal)
-			_, ok := res.(*users.SuspendUserOK)
+			res := h.deactivateUser(users.DeactivateUserParams{UserID: "user", Body: users.DeactivateUserBody{RevokeKey: &test.revokeKey}}, principal)
+			_, ok := res.(*users.DeactivateUserOK)
 			assert.True(t, ok)
 		})
 	}
 }
 
-func TestSuspendNotFound(t *testing.T) {
+func TestDeactivateNotFound(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
@@ -66,12 +66,12 @@ func TestSuspendNotFound(t *testing.T) {
 		authorizer:  authorizer,
 	}
 
-	res := h.suspendUser(users.SuspendUserParams{UserID: "user"}, principal)
-	_, ok := res.(*users.SuspendUserNotFound)
+	res := h.deactivateUser(users.DeactivateUserParams{UserID: "user"}, principal)
+	_, ok := res.(*users.DeactivateUserNotFound)
 	assert.True(t, ok)
 }
 
-func TestSuspendBadParameters(t *testing.T) {
+func TestDeactivateBadParameters(t *testing.T) {
 	tests := []struct {
 		name          string
 		user          string
@@ -79,7 +79,7 @@ func TestSuspendBadParameters(t *testing.T) {
 	}{
 		{name: "static user", user: "static-user"},
 		{name: "root user", user: "root-user"},
-		{name: "suspended user", user: "suspended-user", getUserReturn: map[string]*apikey.User{"suspended-user": {Id: "suspended-user", Active: false}}},
+		{name: "Deactivateed user", user: "Deactivateed-user", getUserReturn: map[string]*apikey.User{"Deactivateed-user": {Id: "Deactivateed-user", Active: false}}},
 	}
 
 	for _, test := range tests {
@@ -99,8 +99,8 @@ func TestSuspendBadParameters(t *testing.T) {
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}},
 			}
 
-			res := h.suspendUser(users.SuspendUserParams{UserID: test.user}, principal)
-			_, ok := res.(*users.SuspendUserUnprocessableEntity)
+			res := h.deactivateUser(users.DeactivateUserParams{UserID: test.user}, principal)
+			_, ok := res.(*users.DeactivateUserUnprocessableEntity)
 			assert.True(t, ok)
 		})
 	}

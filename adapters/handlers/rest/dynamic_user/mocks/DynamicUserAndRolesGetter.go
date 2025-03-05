@@ -89,6 +89,24 @@ func (_m *DynamicUserAndRolesGetter) CreateUser(userId string, secureHash string
 	return r0
 }
 
+// DeactivateUser provides a mock function with given fields: userId, revokeKey
+func (_m *DynamicUserAndRolesGetter) DeactivateUser(userId string, revokeKey bool) error {
+	ret := _m.Called(userId, revokeKey)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeactivateUser")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, bool) error); ok {
+		r0 = rf(userId, revokeKey)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DeleteUser provides a mock function with given fields: userId
 func (_m *DynamicUserAndRolesGetter) DeleteUser(userId string) error {
 	ret := _m.Called(userId)
@@ -209,24 +227,6 @@ func (_m *DynamicUserAndRolesGetter) RotateKey(userId string, secureHash string)
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string) error); ok {
 		r0 = rf(userId, secureHash)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// SuspendUser provides a mock function with given fields: userId, revokeKey
-func (_m *DynamicUserAndRolesGetter) SuspendUser(userId string, revokeKey bool) error {
-	ret := _m.Called(userId, revokeKey)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SuspendUser")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, bool) error); ok {
-		r0 = rf(userId, revokeKey)
 	} else {
 		r0 = ret.Error(0)
 	}

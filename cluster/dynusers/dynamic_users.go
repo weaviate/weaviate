@@ -77,7 +77,7 @@ func (m *Manager) SuspendUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.SuspendUser(req.UserId, req.RevokeKey)
+	return m.dynUser.DeactivateUser(req.UserId, req.RevokeKey)
 }
 
 func (m *Manager) RotateKey(c *cmd.ApplyRequest) error {

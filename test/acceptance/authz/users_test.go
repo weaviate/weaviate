@@ -397,22 +397,22 @@ func TestUserEndpoint(t *testing.T) {
 		require.Equal(t, *otherTestUser.UserID, otherTestUserName)
 	})
 
-	t.Run("Update (rotate, suspend, activate) user", func(t *testing.T) {
+	t.Run("Update (rotate, Deactivate, activate) user", func(t *testing.T) {
 		otherTestUser := "otherTestUser"
 		helper.DeleteUser(t, otherTestUser, adminKey)
 		defer helper.DeleteUser(t, otherTestUser, adminKey)
 		helper.CreateUser(t, otherTestUser, adminKey)
 
-		// rotate, suspend and activate are all update
+		// rotate, Deactivate and activate are all update
 		_, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(otherTestUser), helper.CreateAuth(testKey))
 		require.Error(t, err)
 		var rotateUserForbidden *users.RotateUserAPIKeyForbidden
 		assert.True(t, errors.As(err, &rotateUserForbidden))
 
-		_, err = helper.Client(t).Users.SuspendUser(users.NewSuspendUserParams().WithUserID(otherTestUser), helper.CreateAuth(testKey))
+		_, err = helper.Client(t).Users.DeactivateUser(users.NewDeactivateUserParams().WithUserID(otherTestUser), helper.CreateAuth(testKey))
 		require.Error(t, err)
-		var suspendUserForbidden *users.SuspendUserForbidden
-		assert.True(t, errors.As(err, &suspendUserForbidden))
+		var DeactivateUserForbidden *users.DeactivateUserForbidden
+		assert.True(t, errors.As(err, &DeactivateUserForbidden))
 
 		_, err = helper.Client(t).Users.ActivateUser(users.NewActivateUserParams().WithUserID(otherTestUser), helper.CreateAuth(testKey))
 		require.Error(t, err)
@@ -426,7 +426,7 @@ func TestUserEndpoint(t *testing.T) {
 		otherTestUserApiKey := helper.RotateKey(t, otherTestUser, testKey)
 		require.Greater(t, len(otherTestUserApiKey), 10)
 
-		helper.SuspendUser(t, testKey, otherTestUser, false)
+		helper.DeactivateUser(t, testKey, otherTestUser, false)
 		helper.ActivateUser(t, testKey, otherTestUser)
 	})
 
