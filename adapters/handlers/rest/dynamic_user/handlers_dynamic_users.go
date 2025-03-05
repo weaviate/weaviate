@@ -40,7 +40,7 @@ type dynUserHandler struct {
 
 type DynamicUserAndRolesGetter interface {
 	apikey.DynamicUser
-	GetRolesForUser(user string) (map[string][]authorization.Policy, error)
+	GetRolesForUser(user string, userTypes models.UserTypes) (map[string][]authorization.Policy, error)
 	RevokeRolesForUser(userName string, roles ...string) error
 }
 
@@ -92,7 +92,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		}
 	}
 
-	existedRoles, err := h.dynamicUser.GetRolesForUser(params.UserID)
+	existedRoles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypesDb)
 	if err != nil {
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("get roles: %w", err)))
 	}
@@ -212,7 +212,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot delete root user")))
 	}
 
-	roles, err := h.dynamicUser.GetRolesForUser(params.UserID)
+	roles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypesDb)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -221,8 +221,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		for name := range roles {
 			roleNames = append(roleNames, name)
 		}
-
-		if err := h.dynamicUser.RevokeRolesForUser(conv.PrefixUserName(params.UserID), roleNames...); err != nil {
+		if err := h.dynamicUser.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, models.UserTypesDb), roleNames...); err != nil {
 			return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 	}

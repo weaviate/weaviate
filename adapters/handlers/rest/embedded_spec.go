@@ -775,6 +775,9 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "user_type"
+              ],
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to user",
@@ -782,6 +785,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "user_type": {
+                  "$ref": "#/definitions/UserTypes"
                 }
               }
             }
@@ -845,6 +851,9 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "user_type"
+              ],
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from the key or user",
@@ -852,6 +861,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "user_type": {
+                  "$ref": "#/definitions/UserTypes"
                 }
               }
             }
@@ -908,6 +920,22 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "user_type"
+              ],
+              "properties": {
+                "user_type": {
+                  "$ref": "#/definitions/UserTypes"
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -6134,6 +6162,9 @@ func init() {
             "type": "string"
           }
         },
+        "user_type": {
+          "$ref": "#/definitions/UserTypes"
+        },
         "username": {
           "description": "The username that was extracted either from the authentication information",
           "type": "string"
@@ -6723,6 +6754,14 @@ func init() {
           "type": "string"
         }
       }
+    },
+    "UserTypes": {
+      "description": "the type of user",
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ]
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
@@ -7799,6 +7838,9 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "user_type"
+              ],
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to user",
@@ -7806,6 +7848,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "user_type": {
+                  "$ref": "#/definitions/UserTypes"
                 }
               }
             }
@@ -7869,6 +7914,9 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "user_type"
+              ],
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from the key or user",
@@ -7876,6 +7924,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "user_type": {
+                  "$ref": "#/definitions/UserTypes"
                 }
               }
             }
@@ -7932,6 +7983,22 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "user_type"
+              ],
+              "properties": {
+                "user_type": {
+                  "$ref": "#/definitions/UserTypes"
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -13568,6 +13635,9 @@ func init() {
             "type": "string"
           }
         },
+        "user_type": {
+          "$ref": "#/definitions/UserTypes"
+        },
         "username": {
           "description": "The username that was extracted either from the authentication information",
           "type": "string"
@@ -14157,6 +14227,14 @@ func init() {
           "type": "string"
         }
       }
+    },
+    "UserTypes": {
+      "description": "the type of user",
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ]
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",

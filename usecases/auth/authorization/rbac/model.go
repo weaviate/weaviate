@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
@@ -126,7 +128,7 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		if strings.TrimSpace(conf.RootUsers[i]) == "" {
 			continue
 		}
-		if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(conf.RootUsers[i]), conv.PrefixRoleName(authorization.Root)); err != nil {
+		if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypesDb), conv.PrefixRoleName(authorization.Root)); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}

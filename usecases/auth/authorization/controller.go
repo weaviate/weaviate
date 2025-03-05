@@ -11,12 +11,14 @@
 
 package authorization
 
+import "github.com/weaviate/weaviate/entities/models"
+
 type Controller interface {
 	UpsertRolesPermissions(roles map[string][]Policy) error
 	GetRoles(names ...string) (map[string][]Policy, error)
 	DeleteRoles(roles ...string) error
 	AddRolesForUser(user string, roles []string) error
-	GetRolesForUser(user string) (map[string][]Policy, error)
+	GetRolesForUser(user string, userType models.UserTypes) (map[string][]Policy, error)
 	GetUsersForRole(role string) ([]string, error)
 	RevokeRolesForUser(user string, roles ...string) error
 	RemovePermissions(role string, permissions []*Policy) error

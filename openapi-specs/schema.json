@@ -5,6 +5,11 @@
     "application/json"
   ],
   "definitions": {
+    "UserTypes": {
+      "type": "string",
+      "enum": ["db", "oidc"],
+      "description": "the type of user"
+    },
     "UserOwnInfo": {
       "type": "object",
       "properties": {
@@ -281,6 +286,9 @@
           "items": {
             "type": "string"
           }
+        },
+        "user_type": {
+          "$ref": "#/definitions/UserTypes"
         }
       }
     },
@@ -3536,6 +3544,20 @@
             "name": "id",
             "required": true,
             "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "user_type": {
+                  "$ref": "#/definitions/UserTypes"
+                }
+              },
+              "required": ["user_type"]
+            }
           }
         ],
         "responses": {
@@ -3603,8 +3625,12 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "user_type": {
+                   "$ref": "#/definitions/UserTypes"
                 }
-              }
+              },
+              "required": ["user_type"]
             }
           }
         ],
@@ -3673,8 +3699,12 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "user_type": {
+                  "$ref": "#/definitions/UserTypes"
                 }
-              }
+              },
+              "required": ["user_type"]
             }
           }
         ],

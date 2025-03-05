@@ -17,11 +17,15 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
 	"io"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -132,7 +136,6 @@ func (o *GetRolesForUserOK) GetPayload() models.RolesListResponse {
 }
 
 func (o *GetRolesForUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -198,7 +201,6 @@ func (o *GetRolesForUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -219,8 +221,7 @@ GetRolesForUserUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type GetRolesForUserUnauthorized struct {
-}
+type GetRolesForUserUnauthorized struct{}
 
 // IsSuccess returns true when this get roles for user unauthorized response has a 2xx status code
 func (o *GetRolesForUserUnauthorized) IsSuccess() bool {
@@ -261,7 +262,6 @@ func (o *GetRolesForUserUnauthorized) String() string {
 }
 
 func (o *GetRolesForUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -322,7 +322,6 @@ func (o *GetRolesForUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -343,8 +342,7 @@ GetRolesForUserNotFound describes a response with status code 404, with default 
 
 no role found for user
 */
-type GetRolesForUserNotFound struct {
-}
+type GetRolesForUserNotFound struct{}
 
 // IsSuccess returns true when this get roles for user not found response has a 2xx status code
 func (o *GetRolesForUserNotFound) IsSuccess() bool {
@@ -385,7 +383,6 @@ func (o *GetRolesForUserNotFound) String() string {
 }
 
 func (o *GetRolesForUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -446,7 +443,6 @@ func (o *GetRolesForUserInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetRolesForUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,5 +450,99 @@ func (o *GetRolesForUserInternalServerError) readResponse(response runtime.Clien
 		return err
 	}
 
+	return nil
+}
+
+/*
+GetRolesForUserBody get roles for user body
+swagger:model GetRolesForUserBody
+*/
+type GetRolesForUserBody struct {
+	// user type
+	// Required: true
+	UserType *models.UserTypes `json:"user_type"`
+}
+
+// Validate validates this get roles for user body
+func (o *GetRolesForUserBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateUserType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *GetRolesForUserBody) validateUserType(formats strfmt.Registry) error {
+	if err := validate.Required("body"+"."+"user_type", "body", o.UserType); err != nil {
+		return err
+	}
+
+	if err := validate.Required("body"+"."+"user_type", "body", o.UserType); err != nil {
+		return err
+	}
+
+	if o.UserType != nil {
+		if err := o.UserType.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("body" + "." + "user_type")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("body" + "." + "user_type")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this get roles for user body based on the context it is used
+func (o *GetRolesForUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateUserType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *GetRolesForUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+	if o.UserType != nil {
+		if err := o.UserType.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("body" + "." + "user_type")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("body" + "." + "user_type")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *GetRolesForUserBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *GetRolesForUserBody) UnmarshalBinary(b []byte) error {
+	var res GetRolesForUserBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
 	return nil
 }

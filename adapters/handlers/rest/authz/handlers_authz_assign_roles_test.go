@@ -36,17 +36,19 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 	controller := mocks.NewControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
+	userType := models.UserTypesDb
 	principal := &models.Principal{Username: "user1"}
 	params := authz.AssignRoleToUserParams{
 		ID: "user1",
 		Body: authz.AssignRoleToUserBody{
-			Roles: []string{"testRole"},
+			Roles:    []string{"testRole"},
+			UserType: &userType,
 		},
 	}
 
 	authorizer.On("Authorize", principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(params.ID)[0]).Return(nil)
 	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
-	controller.On("AddRolesForUser", conv.PrefixUserName(params.ID), params.Body.Roles).Return(nil)
+	controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(params.ID, *params.Body.UserType), params.Body.Roles).Return(nil)
 
 	h := &authZHandlers{
 		authorizer:     authorizer,
@@ -465,13 +467,16 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 		expectedError string
 	}
 
+	userType := models.UserTypesDb
+
 	tests := []testCase{
 		{
 			name: "internal server error from assigning",
 			params: authz.AssignRoleToUserParams{
 				ID: "testUser",
 				Body: authz.AssignRoleToUserBody{
-					Roles: []string{"testRole"},
+					Roles:    []string{"testRole"},
+					UserType: &userType,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -483,7 +488,8 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			params: authz.AssignRoleToUserParams{
 				ID: "testUser",
 				Body: authz.AssignRoleToUserBody{
-					Roles: []string{"testRole"},
+					Roles:    []string{"testRole"},
+					UserType: &userType,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -502,7 +508,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
 			if tt.getRolesErr == nil {
-				controller.On("AddRolesForUser", conv.PrefixUserName(tt.params.ID), tt.params.Body.Roles).Return(tt.assignErr)
+				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, *tt.params.Body.UserType), tt.params.Body.Roles).Return(tt.assignErr)
 			}
 
 			h := &authZHandlers{

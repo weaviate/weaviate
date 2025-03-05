@@ -91,7 +91,7 @@ func (c *StaticApiKey) ValidateAndExtract(token string, scopes []string) (*model
 	}
 
 	return &models.Principal{
-		Username: c.getUser(tokenPos),
+		Username: c.getUser(tokenPos), UserType: models.UserTypesDb,
 	}, nil
 }
 

@@ -17,18 +17,20 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/validate"
 )
 
 // NewGetRolesForUserParams creates a new GetRolesForUserParams object
 //
 // There are no default values defined in the spec.
 func NewGetRolesForUserParams() GetRolesForUserParams {
-
 	return GetRolesForUserParams{}
 }
 
@@ -37,10 +39,14 @@ func NewGetRolesForUserParams() GetRolesForUserParams {
 //
 // swagger:parameters getRolesForUser
 type GetRolesForUserParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*
+	  Required: true
+	  In: body
+	*/
+	Body GetRolesForUserBody
 	/*user name
 	  Required: true
 	  In: path
@@ -56,6 +62,34 @@ func (o *GetRolesForUserParams) BindRequest(r *http.Request, route *middleware.M
 	var res []error
 
 	o.HTTPRequest = r
+
+	if runtime.HasBody(r) {
+		defer r.Body.Close()
+		var body GetRolesForUserBody
+		if err := route.Consumer.Consume(r.Body, &body); err != nil {
+			if err == io.EOF {
+				res = append(res, errors.Required("body", "body", ""))
+			} else {
+				res = append(res, errors.NewParseError("body", "body", "", err))
+			}
+		} else {
+			// validate body object
+			if err := body.Validate(route.Formats); err != nil {
+				res = append(res, err)
+			}
+
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
+			if len(res) == 0 {
+				o.Body = body
+			}
+		}
+	} else {
+		res = append(res, errors.Required("body", "body", ""))
+	}
 
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {

@@ -47,7 +47,7 @@ func TestSuccessList(t *testing.T) {
 			if test.userType == userTypeDynamic {
 				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId}}, nil)
 			}
-			dynUser.On("GetRolesForUser", test.userId).Return(
+			dynUser.On("GetRolesForUser", test.userId, models.UserTypesDb).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
 
 			h := dynUserHandler{
@@ -123,7 +123,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(tt.GetUserReturnValue, tt.GetUserReturnErr)
 			if tt.GetUserReturnErr == nil {
-				dynUser.On("GetRolesForUser", "user").Return(nil, tt.GetRolesReturn)
+				dynUser.On("GetRolesForUser", "user", models.UserTypesDb).Return(nil, tt.GetRolesReturn)
 			}
 
 			h := dynUserHandler{

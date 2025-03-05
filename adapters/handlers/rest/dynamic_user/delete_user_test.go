@@ -32,8 +32,8 @@ func TestDeleteSuccess(t *testing.T) {
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
-	dynUser.On("GetRolesForUser", "user").Return(map[string][]authorization.Policy{"role": {}}, nil)
-	dynUser.On("RevokeRolesForUser", conv.PrefixUserName("user"), "role").Return(nil)
+	dynUser.On("GetRolesForUser", "user", models.UserTypesDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
+	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", models.UserTypesDb), "role").Return(nil)
 	dynUser.On("DeleteUser", "user").Return(nil)
 
 	h := dynUserHandler{
