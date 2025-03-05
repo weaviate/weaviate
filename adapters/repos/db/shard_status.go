@@ -47,34 +47,19 @@ func (s *Shard) GetStatus() storagestate.Status {
 		return s.status.Status
 	}
 
-	if s.hasTargetVectors() {
-		if len(s.queues) == 0 {
-			return s.status.Status
-		}
-
-		for _, q := range s.queues {
-			if q.Size() > 0 {
-				s.status.Status = storagestate.StatusIndexing
-				return storagestate.StatusIndexing
-			}
-		}
-
-		s.status.Status = storagestate.StatusReady
-		return storagestate.StatusReady
-	}
-
-	if s.queue == nil {
+	if len(s.queues) == 0 && !s.hasLegacyVectorIndex() {
 		return s.status.Status
 	}
 
-	if s.queue.Size() > 0 {
-		s.status.Status = storagestate.StatusIndexing
-		return storagestate.StatusIndexing
-	}
-
-	s.status.Status = storagestate.StatusReady
-
-	return storagestate.StatusReady
+	status := storagestate.StatusReady
+	_ = s.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+		if queue.Size() > 0 {
+			status = storagestate.StatusIndexing
+		}
+		return nil
+	})
+	s.status.Status = status
+	return status
 }
 
 // Same implem for for a regular shard, this only differ in lazy loaded shards

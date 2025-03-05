@@ -248,8 +248,8 @@ func Test_DimensionTracking(t *testing.T) {
 	t.Run("verify dimensions after initial import", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 12800, shard.Dimensions(context.Background()))
-			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), 64))
+			assert.Equal(t, 12800, shard.Dimensions(context.Background(), ""))
+			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), "", 64))
 			return nil
 		})
 	})
@@ -271,8 +271,8 @@ func Test_DimensionTracking(t *testing.T) {
 	t.Run("verify dimensions after delete", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 11520, shard.Dimensions(context.Background()))
-			assert.Equal(t, 5760, shard.QuantizedDimensions(context.Background(), 64))
+			assert.Equal(t, 11520, shard.Dimensions(context.Background(), ""))
+			assert.Equal(t, 5760, shard.QuantizedDimensions(context.Background(), "", 64))
 			return nil
 		})
 	})
@@ -320,10 +320,10 @@ func Test_DimensionTracking(t *testing.T) {
 	t.Run("verify dimensions after first set of updates", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 6400, shard.Dimensions(context.Background()))
-			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), 64))
-			assert.Equal(t, 1600, shard.QuantizedDimensions(context.Background(), 32))
-			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), 0))
+			assert.Equal(t, 6400, shard.Dimensions(context.Background(), ""))
+			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 64))
+			assert.Equal(t, 1600, shard.QuantizedDimensions(context.Background(), "", 32))
+			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 0))
 			return nil
 		})
 	})
@@ -371,11 +371,11 @@ func Test_DimensionTracking(t *testing.T) {
 	t.Run("verify dimensions after more updates", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 12800, shard.Dimensions(context.Background()))
-			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), 64))
-			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), 32))
+			assert.Equal(t, 12800, shard.Dimensions(context.Background(), ""))
+			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), "", 64))
+			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 32))
 			// segments = 0, will use 128/2 = 64 segments and so value should be 6400
-			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), 0))
+			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), "", 0))
 			return nil
 		})
 	})
@@ -756,4 +756,199 @@ func Test_MultiDimensionTrackingMetrics(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestTotalDimensionTrackingMetrics(t *testing.T) {
+	const (
+		objectCount         = 100
+		multiVecCard        = 3
+		dimensionsPerVector = 64
+	)
+
+	for _, tt := range []struct {
+		name              string
+		vectorConfig      func() enthnsw.UserConfig
+		namedVectorConfig func() enthnsw.UserConfig
+		multiVectorConfig func() enthnsw.UserConfig
+
+		expectDimensions float64
+		expectSegments   float64
+	}{
+		{
+			name:         "legacy",
+			vectorConfig: enthnsw.NewDefaultUserConfig,
+
+			expectDimensions: dimensionsPerVector * objectCount,
+		},
+		{
+			name:              "named",
+			namedVectorConfig: enthnsw.NewDefaultUserConfig,
+
+			expectDimensions: dimensionsPerVector * objectCount,
+		},
+		{
+			name:              "multi",
+			multiVectorConfig: enthnsw.NewDefaultUserConfig,
+
+			expectDimensions: multiVecCard * dimensionsPerVector * objectCount,
+		},
+		{
+			name: "named_with_bq",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.BQ.Enabled = true
+				return cfg
+			},
+
+			expectSegments: (dimensionsPerVector / 8) * objectCount,
+		},
+		{
+			name: "named_with_pq",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.PQ.Enabled = true
+				cfg.PQ.Segments = 10
+				return cfg
+			},
+
+			expectSegments: 10 * objectCount,
+		},
+		{
+			name: "named_with_pq_zero_segments",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.PQ.Enabled = true
+				return cfg
+			},
+			expectSegments: (dimensionsPerVector / 2) * objectCount,
+		},
+		{
+			name: "multi_and_bq_named",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.BQ.Enabled = true
+				return cfg
+			},
+			multiVectorConfig: enthnsw.NewDefaultUserConfig,
+			expectDimensions:  multiVecCard * dimensionsPerVector * objectCount,
+			expectSegments:    (dimensionsPerVector / 8) * objectCount,
+		},
+
+		// TODO(faustas): add mixed vectors cases when support is added
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var (
+				class = &models.Class{
+					Class:               tt.name,
+					InvertedIndexConfig: invertedConfig(),
+					VectorConfig:        map[string]models.VectorConfig{},
+				}
+
+				namedVectorName = "namedVector"
+				multiVectorName = "multiVector"
+
+				legacyVec []float32
+				namedVecs map[string][]float32
+				multiVecs map[string][][]float32
+			)
+
+			if tt.vectorConfig != nil {
+				class.VectorIndexConfig = tt.vectorConfig()
+				legacyVec = randVector(dimensionsPerVector)
+			}
+
+			if tt.namedVectorConfig != nil {
+				class.VectorConfig[namedVectorName] = models.VectorConfig{
+					VectorIndexConfig: tt.namedVectorConfig(),
+				}
+				namedVecs = map[string][]float32{
+					namedVectorName: randVector(dimensionsPerVector),
+				}
+			}
+
+			if tt.multiVectorConfig != nil {
+				config := tt.multiVectorConfig()
+				config.Multivector = enthnsw.MultivectorConfig{Enabled: true}
+				class.VectorConfig[multiVectorName] = models.VectorConfig{
+					VectorIndexConfig: config,
+				}
+
+				multiVecs = map[string][][]float32{}
+				for range multiVecCard {
+					multiVecs[multiVectorName] = append(multiVecs[multiVectorName], randVector(dimensionsPerVector))
+				}
+			}
+
+			var (
+				db        = createTestDatabaseWithClass(t, class)
+				shardName = getSingleShardNameFromRepo(db, class.Class)
+
+				insertData = func() {
+					for i := range objectCount {
+						obj := &models.Object{
+							Class: tt.name,
+							ID:    intToUUID(i),
+						}
+						err := db.PutObject(context.Background(), obj, legacyVec, namedVecs, multiVecs, nil, 0)
+						require.Nil(t, err)
+					}
+					publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
+				}
+
+				removeData = func() {
+					for i := range objectCount {
+						err := db.DeleteObject(context.Background(), class.Class, intToUUID(i), time.Now(), nil, "", 0)
+						require.NoError(t, err)
+					}
+					publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
+				}
+
+				assertTotalMetrics = func(expectDims, expectSegs float64) {
+					metrics := monitoring.GetMetrics()
+					metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(class.Class, shardName)
+					require.NoError(t, err)
+					require.Equal(t, expectDims, testutil.ToFloat64(metric))
+
+					metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(class.Class, shardName)
+					require.NoError(t, err)
+					require.Equal(t, expectSegs, testutil.ToFloat64(metric))
+				}
+			)
+
+			insertData()
+			assertTotalMetrics(tt.expectDimensions, tt.expectSegments)
+			removeData()
+			assertTotalMetrics(0, 0)
+			insertData()
+			assertTotalMetrics(tt.expectDimensions, tt.expectSegments)
+			require.NoError(t, db.DeleteIndex(schema.ClassName(class.Class)))
+			assertTotalMetrics(0, 0)
+		})
+	}
+}
+
+func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
+	db, err := New(logrus.New(), Config{
+		RootPath:                  t.TempDir(),
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor())
+	require.Nil(t, err)
+
+	db.SetSchemaGetter(&fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
+		shardState: singleShardState(),
+	})
+
+	require.Nil(t, db.WaitForStartup(testCtx()))
+	t.Cleanup(func() {
+		require.NoError(t, db.Shutdown(context.Background()))
+	})
+
+	return db
+}
+
+func intToUUID(i int) strfmt.UUID {
+	return strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 }

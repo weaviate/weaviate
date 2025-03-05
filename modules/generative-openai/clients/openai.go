@@ -90,7 +90,7 @@ func (v *openai) GenerateAllResults(ctx context.Context, properties []*modulecap
 	return v.generate(ctx, cfg, forTask, generative.Blobs(properties), options, debug)
 }
 
-func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	params := v.getParameters(cfg, options, imageProperties)
 	isAzure := config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID)
 	debugInformation := v.getDebugInformation(debug, prompt)
@@ -174,7 +174,7 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}, nil
 }
 
-func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]string) openaiparams.Params {
+func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) openaiparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params openaiparams.Params
@@ -221,7 +221,7 @@ func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{},
 		params.MaxTokens = &maxTokens
 	}
 
-	params.Images = generative.ParseImageProperties(params.Images, imagePropertiesArray)
+	params.Images = generative.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
 
 	return params
 }
@@ -299,9 +299,10 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params) (gener
 				Text: prompt,
 			})
 			for i := range params.Images {
+				url := fmt.Sprintf("data:image/jpeg;base64,%s", *params.Images[i])
 				imageInput = append(imageInput, contentImage{
 					Type:     "image_url",
-					ImageURL: contentImageURL{URL: fmt.Sprintf("data:image/jpeg;base64,%s", params.Images[i])},
+					ImageURL: contentImageURL{URL: &url},
 				})
 			}
 			content = imageInput
@@ -451,11 +452,11 @@ type contentText struct {
 
 type contentImage struct {
 	Type     string          `json:"type"`
-	ImageURL contentImageURL `json:"image_url"`
+	ImageURL contentImageURL `json:"image_url,omitempty"`
 }
 
 type contentImageURL struct {
-	URL string `json:"url"`
+	URL *string `json:"url"`
 }
 
 type generateResponse struct {

@@ -66,7 +66,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
 	}
-	promMetrics.NewUnloadedshard(class.Class)
+	promMetrics.NewUnloadedshard()
 	return &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
 			promMetrics:      promMetrics,
@@ -119,11 +119,6 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 	defer l.shardLoadLimiter.Release()
 
-	if l.shardOpts.class == nil {
-		l.shardOpts.promMetrics.StartLoadingShard("unknown class")
-	} else {
-		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
-	}
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler, l.shardOpts.indexCheckpoints)
 	if err != nil {
@@ -133,11 +128,6 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 	l.shard = shard
 	l.loaded = true
-	if l.shardOpts.class == nil {
-		l.shardOpts.promMetrics.FinishLoadingShard("unknown class")
-	} else {
-		l.shardOpts.promMetrics.FinishLoadingShard(l.shardOpts.class.Class)
-	}
 
 	return nil
 }
@@ -343,8 +333,7 @@ func (l *LazyLoadShard) drop() error {
 
 		// cleanup dimensions
 		if idx.Config.TrackVectorDimensions {
-			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName,
-				idx.vectorIndexUserConfig, idx.vectorIndexUserConfigs)
+			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName, idx.vectorIndexUserConfigs)
 		}
 
 		// cleanup index checkpoints
@@ -408,14 +397,14 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) Dimensions(ctx context.Context) int {
+func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) int {
 	l.mustLoad()
-	return l.shard.Dimensions(ctx)
+	return l.shard.Dimensions(ctx, targetVector)
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, segments int) int {
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
 	l.mustLoad()
-	return l.shard.QuantizedDimensions(ctx, segments)
+	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
 
 func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
@@ -543,11 +532,6 @@ func (l *LazyLoadShard) VectorIndexes() map[string]VectorIndex {
 	return l.shard.VectorIndexes()
 }
 
-func (l *LazyLoadShard) hasTargetVectors() bool {
-	l.mustLoad()
-	return l.shard.hasTargetVectors()
-}
-
 func (l *LazyLoadShard) Versioner() *shardVersioner {
 	l.mustLoad()
 	return l.shard.Versioner()
@@ -607,18 +591,11 @@ func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.Writ
 	return l.shard.filePutter(ctx, shardID)
 }
 
-func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64) error {
+func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
 	if err := l.Load(context.Background()); err != nil {
 		return err
 	}
-	return l.shard.extendDimensionTrackerLSM(dimLength, docID)
-}
-
-func (l *LazyLoadShard) extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error {
-	if err := l.Load(context.Background()); err != nil {
-		return err
-	}
-	return l.shard.extendDimensionTrackerForVecLSM(dimLength, docID, vecName)
+	return l.shard.extendDimensionTrackerLSM(dimLength, docID, targetVector)
 }
 
 func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {

@@ -116,7 +116,6 @@ type ShardLike interface {
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
 	GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool)
 	GetVectorIndex(targetVector string) (VectorIndex, bool)
-	hasTargetVectors() bool
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
@@ -134,11 +133,10 @@ type ShardLike interface {
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	// TODO tests only
-	Dimensions(ctx context.Context) int // dim(vector)*number vectors
-	// TODO tests only
-	QuantizedDimensions(ctx context.Context, segments int) int
-	extendDimensionTrackerLSM(dimLength int, docID uint64) error
-	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
+	Dimensions(ctx context.Context, targetVector string) int // dim(vector)*number vectors
+	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
+
+	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
 	publishDimensionMetrics(ctx context.Context)
 	resetDimensionsLSM() error
 

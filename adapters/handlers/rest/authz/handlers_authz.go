@@ -484,7 +484,7 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if !h.isRootUser(principal.Username) {
+	if !h.isRootUser(principal) {
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("assigning: only root users can assign roles to groups")))
 	}
 
@@ -684,7 +684,7 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if !h.isRootUser(principal.Username) {
+	if !h.isRootUser(principal) {
 		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: only root users can revoke roles from groups")))
 	}
 
@@ -752,8 +752,13 @@ func (h *authZHandlers) validateRootGroup(name string) error {
 }
 
 // isRootUser checks that the provided username belongs to the root users list
-func (h *authZHandlers) isRootUser(name string) bool {
-	return slices.Contains(h.rbacconfig.RootUsers, name)
+func (h *authZHandlers) isRootUser(principal *models.Principal) bool {
+	for _, groupName := range principal.Groups {
+		if slices.Contains(h.rbacconfig.RootGroups, groupName) {
+			return true
+		}
+	}
+	return slices.Contains(h.rbacconfig.RootUsers, principal.Username)
 }
 
 // validateRootRole validates that enduser do not touch the internal root role
