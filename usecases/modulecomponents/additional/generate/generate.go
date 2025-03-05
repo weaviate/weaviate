@@ -49,7 +49,7 @@ func NewGeneric(
 		defaultProviderName:            defaultProviderName,
 		maximumNumberOfGoroutines:      maximumNumberOfGoroutines,
 		logger:                         logger,
-		isDynamicRAGSyntaxEnabled:      entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX")),
+		isDynamicRAGSyntaxEnabled:      entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_RUNTIME_RAG_CONFIG")),
 	}
 }
 
