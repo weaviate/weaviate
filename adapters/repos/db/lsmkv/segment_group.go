@@ -868,7 +868,8 @@ func (sg *SegmentGroup) convertToInverted(shouldAbort cyclemanager.ShouldAbortCa
 				segmentStats.total = 0
 				segmentStats.lock.Unlock()
 			}
-
+			// resume normal compactions
+			return sg.compactOrCleanup(shouldAbort)
 		}
 
 		return converted
