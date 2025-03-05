@@ -190,6 +190,10 @@ func (v *VertexEditor) EnsureLevel(level int) {
 }
 
 func (v *VertexEditor) ConnectionsAtLevel(level int) []uint64 {
+	if level >= len(v.v.connections) {
+		return nil
+	}
+
 	return v.v.connections[level]
 }
 
@@ -218,6 +222,8 @@ func (v *VertexEditor) SetConnectionsAtLevel(level int, connections []uint64) (o
 }
 
 func (v *VertexEditor) AppendConnectionAtLevel(level int, connection uint64, maxConns int) {
+	v.EnsureLevel(level)
+
 	if len(v.v.connections[level]) == cap(v.v.connections[level]) && maxConns > 0 {
 		// if the len is the capacity, this  means a new array needs to be
 		// allocated to back this slice. The go runtime would do this
@@ -264,5 +270,7 @@ func (v *VertexEditor) ResetConnectionsWith(connections [][]uint64) {
 }
 
 func (v *VertexEditor) ResetConnectionsAtLevel(level int) {
+	v.EnsureLevel(level)
+
 	v.v.connections[level] = v.v.connections[level][:0]
 }
