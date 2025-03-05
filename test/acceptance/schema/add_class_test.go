@@ -502,8 +502,8 @@ func TestMaximumAllowedCollectionsCount(t *testing.T) {
 		params = clschema.NewSchemaObjectsCreateParams().WithObjectClass(c2)
 		resp, err = helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestFail(t, resp, err, func() {
-			parsed, ok := err.(*clschema.SchemaObjectsCreateUnprocessableEntity)
-			require.True(t, ok, "error should be unprocessable entity")
+			var parsed *clschema.SchemaObjectsCreateUnprocessableEntity
+			require.True(t, errors.As(err, &parsed), "error should be unprocessable entity")
 			assert.Contains(t, parsed.Payload.Error[0].Message, "maximum number of collections")
 		})
 	})
@@ -584,8 +584,8 @@ func TestMaximumAllowedCollectionsCount(t *testing.T) {
 		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
 		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestFail(t, resp, err, func() {
-			parsed, ok := err.(*clschema.SchemaObjectsCreateUnprocessableEntity)
-			require.True(t, ok, "error should be unprocessable entity")
+			var parsed *clschema.SchemaObjectsCreateUnprocessableEntity
+			require.True(t, errors.As(err, &parsed), "error should be unprocessable entity")
 			assert.Contains(t, parsed.Payload.Error[0].Message, "maximum number of collections")
 		})
 
