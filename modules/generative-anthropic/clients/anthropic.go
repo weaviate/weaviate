@@ -195,8 +195,13 @@ func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface
 		params.StopSequences = settings.StopSequences()
 	}
 	if params.MaxTokens == nil {
-		maxTokens := settings.GetMaxTokensForModel(params.Model)
-		params.MaxTokens = &maxTokens
+		// respect module config settings
+		maxTokens := settings.MaxTokens()
+		if maxTokens == nil {
+			// fallback to default values
+			maxTokens = settings.GetMaxTokensForModel(params.Model)
+		}
+		params.MaxTokens = maxTokens
 	}
 
 	params.Images = generative.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
