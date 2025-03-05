@@ -49,7 +49,7 @@ func NewGeneric(
 		defaultProviderName:            defaultProviderName,
 		maximumNumberOfGoroutines:      maximumNumberOfGoroutines,
 		logger:                         logger,
-		isDynamicRAGSyntaxEnabled:      entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX")),
+		isDynamicRAGSyntaxEnabled:      isDynamicRAGSyntaxEnabled(),
 	}
 }
 
@@ -80,4 +80,11 @@ func (p *GenerateProvider) AdditionalPropertyFn(ctx context.Context,
 		return p.generateResult(ctx, in, parameters, limit, argumentModuleParams, cfg)
 	}
 	return nil, errors.New("wrong parameters")
+}
+
+func isDynamicRAGSyntaxEnabled() bool {
+	if entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_RUNTIME_RAG_CONFIG")) {
+		return true
+	}
+	return entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX"))
 }

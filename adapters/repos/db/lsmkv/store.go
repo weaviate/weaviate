@@ -286,7 +286,7 @@ type rollbackFunc func(context.Context, *Bucket) error
 
 func (s *Store) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	listFiles := func(ctx context.Context, b *Bucket) (interface{}, error) {
-		basePath, err := filepath.Rel(basePath, b.dir)
+		basePath, err := filepath.Rel(basePath, b.GetDir())
 		if err != nil {
 			return nil, fmt.Errorf("bucket relative path: %w", err)
 		}
@@ -506,6 +506,20 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return errors.Wrapf(err, "failed renaming bucket '%s' to '%s'", bucketName, replacementBucketName)
 	}
 
+	replacementBucket.flushLock.Lock()
+	defer replacementBucket.flushLock.Unlock()
+
+	if replacementBucket.flushing != nil {
+		return fmt.Errorf("bucket '%s' can not be renamed before flushing", replacementBucketName)
+	}
+
+	replacementBucket.dir = newReplacementBucketDir
+
+	err = replacementBucket.setNewActiveMemtable()
+	if err != nil {
+		return fmt.Errorf("switch active memtable: %w", err)
+	}
+
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
 
@@ -535,19 +549,39 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	if newBucket != nil {
 		return fmt.Errorf("bucket '%s' already exists", newBucketName)
 	}
+
+	if !currBucket.isReadOnly() {
+		return fmt.Errorf("bucket '%s' must be in %s mode to be renamed", bucketName, storagestate.StatusReadOnly)
+	}
+
+	currBucketDir := currBucket.dir
+	newBucketDir := s.bucketDir(newBucketName)
+
+	currBucket.flushLock.Lock()
+	defer currBucket.flushLock.Unlock()
+
+	if currBucket.flushing != nil {
+		return fmt.Errorf("bucket '%s' can not be renamed before flushing", bucketName)
+	}
+
+	currBucket.dir = newBucketDir
+
+	err := currBucket.setNewActiveMemtable()
+	if err != nil {
+		return fmt.Errorf("switch active memtable: %w", err)
+	}
+
 	s.bucketsByName[newBucketName] = currBucket
 	delete(s.bucketsByName, bucketName)
 	s.bucketsByStrategy[currBucket.strategy][newBucketName] = currBucket
 	delete(s.bucketsByStrategy[currBucket.strategy], bucketName)
-
-	currBucketDir := currBucket.dir
-	newBucketDir := s.bucketDir(newBucketName)
 
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
 	}
 
 	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)
+
 	return nil
 }
 
@@ -555,18 +589,6 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 	updatePath := func(src string) string {
 		return strings.Replace(src, bucketDir, newBucketDir, 1)
 	}
-
-	bucket.flushLock.Lock()
-	bucket.dir = newBucketDir
-	if bucket.active != nil {
-		bucket.active.path = updatePath(bucket.active.path)
-		bucket.active.commitlog.path = updatePath(bucket.active.commitlog.path)
-	}
-	if bucket.flushing != nil {
-		bucket.flushing.path = updatePath(bucket.flushing.path)
-		bucket.flushing.commitlog.path = updatePath(bucket.flushing.commitlog.path)
-	}
-	bucket.flushLock.Unlock()
 
 	segments, release := bucket.disk.getAndLockSegments()
 	defer release()
