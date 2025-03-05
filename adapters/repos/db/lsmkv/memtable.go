@@ -437,8 +437,8 @@ func (m *Memtable) writeWAL() error {
 }
 
 func (m *Memtable) GetTombstones() (*sroar.Bitmap, error) {
-	if m.strategy != StrategyInverted {
-		return nil, errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
+	if m.strategy != StrategyInverted && m.strategy != StrategyMapCollection {
+		return nil, errors.Errorf("tombstones only supported for strategies %q, %q", StrategyInverted, StrategyMapCollection)
 	}
 
 	m.RLock()
