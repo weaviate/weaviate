@@ -89,7 +89,8 @@ AssignRoleToUserOK describes a response with status code 200, with default heade
 
 Role assigned successfully
 */
-type AssignRoleToUserOK struct{}
+type AssignRoleToUserOK struct {
+}
 
 // IsSuccess returns true when this assign role to user o k response has a 2xx status code
 func (o *AssignRoleToUserOK) IsSuccess() bool {
@@ -130,6 +131,7 @@ func (o *AssignRoleToUserOK) String() string {
 }
 
 func (o *AssignRoleToUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -190,6 +192,7 @@ func (o *AssignRoleToUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -210,7 +213,8 @@ AssignRoleToUserUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type AssignRoleToUserUnauthorized struct{}
+type AssignRoleToUserUnauthorized struct {
+}
 
 // IsSuccess returns true when this assign role to user unauthorized response has a 2xx status code
 func (o *AssignRoleToUserUnauthorized) IsSuccess() bool {
@@ -251,6 +255,7 @@ func (o *AssignRoleToUserUnauthorized) String() string {
 }
 
 func (o *AssignRoleToUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -311,6 +316,7 @@ func (o *AssignRoleToUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -378,6 +384,7 @@ func (o *AssignRoleToUserNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -445,6 +452,7 @@ func (o *AssignRoleToUserInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *AssignRoleToUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -460,6 +468,7 @@ AssignRoleToUserBody assign role to user body
 swagger:model AssignRoleToUserBody
 */
 type AssignRoleToUserBody struct {
+
 	// the roles that assigned to user
 	Roles []string `json:"roles"`
 
@@ -483,6 +492,7 @@ func (o *AssignRoleToUserBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *AssignRoleToUserBody) validateUserType(formats strfmt.Registry) error {
+
 	if err := validate.Required("body"+"."+"user_type", "body", o.UserType); err != nil {
 		return err
 	}
@@ -520,6 +530,7 @@ func (o *AssignRoleToUserBody) ContextValidate(ctx context.Context, formats strf
 }
 
 func (o *AssignRoleToUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+
 	if o.UserType != nil {
 		if err := o.UserType.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

@@ -62,7 +62,7 @@ func (o *AssignRoleToUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewAssignRoleToUserParams()
+	var Params = NewAssignRoleToUserParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -83,12 +83,14 @@ func (o *AssignRoleToUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }
 
 // AssignRoleToUserBody assign role to user body
 //
 // swagger:model AssignRoleToUserBody
 type AssignRoleToUserBody struct {
+
 	// the roles that assigned to user
 	Roles []string `json:"roles" yaml:"roles"`
 
@@ -112,6 +114,7 @@ func (o *AssignRoleToUserBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *AssignRoleToUserBody) validateUserType(formats strfmt.Registry) error {
+
 	if err := validate.Required("body"+"."+"user_type", "body", o.UserType); err != nil {
 		return err
 	}
@@ -149,6 +152,7 @@ func (o *AssignRoleToUserBody) ContextValidate(ctx context.Context, formats strf
 }
 
 func (o *AssignRoleToUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+
 	if o.UserType != nil {
 		if err := o.UserType.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
