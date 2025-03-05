@@ -96,8 +96,6 @@ type PrometheusMetrics struct {
 	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
 	VectorDimensionsSum                *prometheus.GaugeVec
 	VectorSegmentsSum                  *prometheus.GaugeVec
-	VectorDimensionsSumByVector        *prometheus.GaugeVec
-	VectorSegmentsSumByVector          *prometheus.GaugeVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -554,14 +552,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_segments_sum",
 			Help: "Total segments in a shard if quantization enabled",
 		}, []string{"class_name", "shard_name"}),
-		VectorDimensionsSumByVector: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "vector_dimensions_sum_by_vector",
-			Help: "Total dimensions in a shard for target vector",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		VectorSegmentsSumByVector: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "vector_segments_sum_by_vector",
-			Help: "Total segments in a shard for target vector if quantization enabled",
-		}, []string{"class_name", "shard_name", "target_vector"}),
 
 		// Startup metrics
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{

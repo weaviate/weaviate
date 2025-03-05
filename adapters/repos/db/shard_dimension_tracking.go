@@ -139,20 +139,12 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 			sumDimensions = 0
 		)
 
-		if s.hasLegacyVectorIndex() {
+		_ = s.ForEachVectorIndex(func(targetVector string, _ VectorIndex) error {
 			dimensions, segments := s.calcDimensionsAndSegments(ctx, s.index.vectorIndexUserConfig, "")
 			sumDimensions += dimensions
 			sumSegments += segments
-		}
-
-		for vecName, vecCfg := range s.index.vectorIndexUserConfigs {
-			dimensions, segments := s.calcDimensionsAndSegments(ctx, vecCfg, vecName)
-			sendVectorDimensionsForVecMetric(s.promMetrics, className, s.name, vecName, dimensions)
-			sendVectorSegmentsForVecMetric(s.promMetrics, className, s.name, vecName, segments)
-
-			sumDimensions += dimensions
-			sumSegments += segments
-		}
+			return nil
+		})
 
 		sendVectorSegmentsMetric(s.promMetrics, className, s.name, sumSegments)
 		sendVectorDimensionsMetric(s.promMetrics, className, s.name, sumDimensions)
@@ -174,19 +166,11 @@ func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConf
 }
 
 func (s *Shard) clearDimensionMetrics() {
-	clearDimensionMetrics(s.promMetrics, s.index.Config.ClassName.String(),
-		s.name, s.index.vectorIndexUserConfigs)
+	clearDimensionMetrics(s.promMetrics, s.index.Config.ClassName.String(), s.name)
 }
 
-func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName string, targetCfgs map[string]schemaConfig.VectorIndexConfig,
-) {
+func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
 	if promMetrics != nil {
-		for targetVector := range targetCfgs {
-			sendVectorDimensionsForVecMetric(promMetrics, className, shardName, targetVector, 0)
-			sendVectorSegmentsForVecMetric(promMetrics, className, shardName, targetVector, 0)
-		}
-
 		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
 		sendVectorSegmentsMetric(promMetrics, className, shardName, 0)
 	}
@@ -197,16 +181,6 @@ func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
 ) {
 	metric, err := promMetrics.VectorSegmentsSum.
 		GetMetricWithLabelValues(className, shardName)
-	if err == nil {
-		metric.Set(float64(count))
-	}
-}
-
-func sendVectorSegmentsForVecMetric(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName, targetVector string, count int,
-) {
-	metric, err := promMetrics.VectorSegmentsSumByVector.
-		GetMetricWithLabelValues(className, shardName, targetVector)
 	if err == nil {
 		metric.Set(float64(count))
 	}
@@ -225,24 +199,6 @@ func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
 	// observes only the sum
 	metric, err := promMetrics.VectorDimensionsSum.
 		GetMetricWithLabelValues(className, shardName)
-	if err == nil {
-		metric.Set(float64(count))
-	}
-}
-
-func sendVectorDimensionsForVecMetric(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName, targetVector string, count int,
-) {
-	// Important: Never group classes/shards for this metric. We need the
-	// granularity here as this tracks an absolute value per shard that changes
-	// independently over time.
-	//
-	// If we need to reduce metrics further, an alternative could be to not
-	// make dimension tracking shard-centric, but rather make it node-centric.
-	// Then have a single metric that aggregates all dimensions first, then
-	// observes only the sum
-	metric, err := promMetrics.VectorDimensionsSumByVector.
-		GetMetricWithLabelValues(className, shardName, targetVector)
 	if err == nil {
 		metric.Set(float64(count))
 	}
