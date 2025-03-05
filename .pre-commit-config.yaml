@@ -16,17 +16,17 @@ repos:
         entry: ./tools/linter_go_routines.sh
         language: system
         types: [ go ]
-      # - id: golangci-lint
-      #   name: golangci-lint
-      #   description: Fast linters runner for Go. Note that only modified files are linted, so linters like 'unused' that need to scan all files won't work as expected.
-      #   entry: golangci-lint run --new-from-rev HEAD
-      #   types: [go]
-      #   language: golang
-      #   # Please make sure to update the version in the .github/workflows/linter.yml file when updating this version.
-      #   additional_dependencies:
-      #     - github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
-      #   require_serial: true
-      #   pass_filenames: false
+      - id: golangci-lint
+        name: golangci-lint
+        description: Fast linters runner for Go. Note that only modified files are linted, so linters like 'unused' that need to scan all files won't work as expected.
+        entry: golangci-lint run --new-from-rev HEAD
+        types: [go]
+        language: golang
+        # Please make sure to update the version in the .github/workflows/linter.yml file when updating this version.
+        additional_dependencies:
+          - github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
+        require_serial: true
+        pass_filenames: false
   - repo: https://github.com/psf/black
     rev: 24.2.0
     hooks:
