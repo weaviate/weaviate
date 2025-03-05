@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"slices"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -129,7 +128,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 }
 
 // notify attempts to notify all nodes in remoteNodes that this server is ready to bootstrap
-func (b *Bootstrapper) notify(ctx context.Context, remoteNodes []string) (err error) {
+func (b *Bootstrapper) notify(ctx context.Context, remoteNodes map[string]string) (err error) {
 	if entSentry.Enabled() {
 		span := sentry.StartSpan(ctx, "raft.bootstrap.notify",
 			sentry.WithOpName("notify"),
@@ -151,14 +150,13 @@ func (b *Bootstrapper) notify(ctx context.Context, remoteNodes []string) (err er
 
 // ResolveRemoteNodes returns a list of remoteNodes addresses resolved using addrResolver. The nodes id used are
 // taken from serverPortMap keys and ports from the values
-func ResolveRemoteNodes(addrResolver resolver.NodeToAddress, serverPortMap map[string]int) []string {
-	candidates := make([]string, 0, len(serverPortMap))
+func ResolveRemoteNodes(addrResolver resolver.NodeToAddress, serverPortMap map[string]int) map[string]string {
+	candidates := make(map[string]string, len(serverPortMap))
 	for name, raftPort := range serverPortMap {
 		if addr := addrResolver.NodeAddress(name); addr != "" {
-			candidates = append(candidates, fmt.Sprintf("%s:%d", addr, raftPort))
+			candidates[name] = fmt.Sprintf("%s:%d", addr, raftPort)
 		}
 	}
-	slices.Sort(candidates)
 	return candidates
 }
 

@@ -52,6 +52,7 @@ func GetInfoForOwnUser(t *testing.T, key string) *models.UserOwnInfo {
 }
 
 func DeleteRole(t *testing.T, key, role string) {
+	t.Helper()
 	resp, err := Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID(role), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)

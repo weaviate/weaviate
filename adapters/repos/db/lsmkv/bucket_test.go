@@ -184,7 +184,7 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 		WithSecondaryKey(0, []byte("bonjour"))))
 	require.Nil(t, b.FlushMemtable())
 
-	files, err := os.ReadDir(b.dir)
+	files, err := os.ReadDir(b.GetDir())
 	require.Nil(t, err)
 
 	_, ok := findFileWithExt(files, ".bloom")
@@ -194,7 +194,7 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 	assert.True(t, ok)
 	b.Shutdown(ctx)
 
-	b2, err := NewBucketCreator().NewBucket(ctx, b.dir, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, b.GetDir(), "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)

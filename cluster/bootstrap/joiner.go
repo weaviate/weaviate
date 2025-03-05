@@ -43,7 +43,7 @@ func NewJoiner(peerJoiner PeerJoiner, localNodeID string, localRaftAddr string, 
 // Do will attempt to send to any nodes in remoteNodes a JoinPeerRequest for j.localNodeID with the address j.localRaftAddr.
 // Will join as voter if j.voter is true, non voter otherwise.
 // Returns the leader address if a cluster was joined or an error otherwise.
-func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes []string) (string, error) {
+func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[string]string) (string, error) {
 	if entSentry.Enabled() {
 		span := sentry.StartSpan(ctx, "raft.bootstrap.join",
 			sentry.WithOpName("join"),
