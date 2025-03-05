@@ -4336,7 +4336,6 @@ func init() {
           {
             "name": "body",
             "in": "body",
-            "required": true,
             "schema": {
               "type": "object",
               "properties": {
@@ -11483,7 +11482,6 @@ func init() {
           {
             "name": "body",
             "in": "body",
-            "required": true,
             "schema": {
               "type": "object",
               "properties": {

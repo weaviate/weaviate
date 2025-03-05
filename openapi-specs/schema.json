@@ -3003,7 +3003,7 @@
           {
             "in": "body",
             "name": "body",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "object",
               "properties": {

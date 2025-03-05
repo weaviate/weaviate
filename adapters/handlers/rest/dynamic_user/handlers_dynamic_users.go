@@ -259,7 +259,12 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("user already deactivated")))
 	}
 
-	if err := h.dynamicUser.DeactivateUser(params.UserID, *params.Body.RevokeKey); err != nil {
+	revokeKey := false
+	if params.Body.RevokeKey != nil {
+		revokeKey = *params.Body.RevokeKey
+	}
+
+	if err := h.dynamicUser.DeactivateUser(params.UserID, revokeKey); err != nil {
 		return users.NewDeactivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("deactivate user: %w", err)))
 	}
 
