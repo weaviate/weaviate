@@ -28,6 +28,7 @@ type segmentInvertedData struct {
 	lockInvertedData sync.RWMutex
 
 	tombstones       *sroar.Bitmap
+	tombstonesOg     *sroar.Bitmap
 	tombstonesLoaded bool
 
 	propertyLengths       map[uint64]uint32
@@ -65,8 +66,10 @@ func (s *segment) loadTombstones() (*sroar.Bitmap, error) {
 	}
 
 	bitmap := sroar.FromBuffer(buffer)
+	tombstonesOg := sroar.FromBufferWithCopy(buffer)
 
 	s.invertedData.tombstones = bitmap
+	s.invertedData.tombstonesOg = tombstonesOg
 	s.invertedData.tombstonesLoaded = true
 	return bitmap, nil
 }
@@ -134,6 +137,28 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 	defer s.invertedData.lockInvertedData.RUnlock()
 
 	return s.invertedData.tombstones, nil
+}
+
+func (s *segment) GetOgTombstones() (*sroar.Bitmap, error) {
+	if s.strategy != segmentindex.StrategyInverted {
+		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
+	}
+
+	s.invertedData.lockInvertedData.RLock()
+	loaded := s.invertedData.tombstonesLoaded
+	s.invertedData.lockInvertedData.RUnlock()
+	if !loaded {
+		_, err := s.loadTombstones()
+		if err != nil {
+			return nil, err
+		}
+		return s.invertedData.tombstonesOg, nil
+	}
+
+	s.invertedData.lockInvertedData.RLock()
+	defer s.invertedData.lockInvertedData.RUnlock()
+
+	return s.invertedData.tombstonesOg, nil
 }
 
 func (s *segment) GetPropertyLengths() (map[uint64]uint32, error) {
