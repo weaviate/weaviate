@@ -88,7 +88,7 @@ message QueryRequest {
     TYPE_HAS_PERMISSION = 30;
     TYPE_GET_ROLES = 31;
     TYPE_GET_ROLES_FOR_USER = 32;
-    TYPE_GET_USERS_FOR_ROLE= 33;  
+    TYPE_GET_USERS_FOR_ROLE= 33;
   }
 
   Type type = 1;
