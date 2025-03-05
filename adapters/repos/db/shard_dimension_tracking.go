@@ -139,7 +139,7 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 			sumDimensions = 0
 		)
 
-		if s.hasLegacyVector() {
+		if s.hasLegacyVectorIndex() {
 			dimensions, segments := s.calcDimensionsAndSegments(ctx, s.index.vectorIndexUserConfig, "")
 			sumDimensions += dimensions
 			sumSegments += segments

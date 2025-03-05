@@ -116,7 +116,6 @@ type ShardLike interface {
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
 	GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool)
 	GetVectorIndex(targetVector string) (VectorIndex, bool)
-	hasTargetVectors() bool
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
