@@ -398,9 +398,35 @@ func convertMapCollectionSegment(leftSegmentInv *segment, rightSegmentInv *segme
 		return false, errors.Wrap(err, "create left segment mapcollection")
 	}
 
+	defer func() {
+		if err := leftSegment.close(); err != nil {
+			sg.logger.WithError(err).WithFields(logrus.Fields{
+				"action": "lsm_conversion_mapcollection_inverted",
+				"path":   leftSegmentMapPath,
+			}).Error("failed to close left segment mapcollection")
+		}
+	}()
+
 	rightSegment, err := newSegment(rightSegmentMapPath, sg.logger, nil, nil, segmentConfig)
 	if err != nil {
 		return false, errors.Wrap(err, "create right segment mapcollection")
+	}
+
+	defer func() {
+		if err := rightSegment.close(); err != nil {
+			sg.logger.WithError(err).WithFields(logrus.Fields{
+				"action": "lsm_conversion_mapcollection_inverted",
+				"path":   rightSegmentMapPath,
+			}).Error("failed to close right segment mapcollection")
+		}
+	}()
+
+	if leftSegmentInv.level != leftSegment.level {
+		return false, errors.Errorf("left segment level mismatch: %d != %d", leftSegmentInv.level, leftSegment.level)
+	}
+
+	if rightSegmentInv.level != rightSegment.level {
+		return false, errors.Errorf("right segment level mismatch: %d != %d", rightSegmentInv.level, rightSegment.level)
 	}
 
 	scratchSpacePath := rightSegment.path + ".mapcollection.compaction.scratch.d"
