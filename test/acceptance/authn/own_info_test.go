@@ -241,7 +241,7 @@ func TestAuthnGetOwnInfoWithRBACAndOIDC(t *testing.T) {
 				}},
 			},
 		)
-		helper.AssignRoleToUser(t, tokenAdmin, testingRole, customUser)
+		helper.AssignRoleToUserOIDC(t, tokenAdmin, testingRole, customUser)
 	})
 
 	t.Run("Get own roles - existing roles", func(t *testing.T) {
