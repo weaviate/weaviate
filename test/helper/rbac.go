@@ -120,8 +120,20 @@ func GetRoleByName(t *testing.T, key, role string) *models.Role {
 
 func AssignRoleToUser(t *testing.T, key, role, user string) {
 	t.Helper()
+	userType := models.UserTypesDb
 	resp, err := Client(t).Authz.AssignRoleToUser(
-		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}}),
+		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, UserType: &userType}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+func AssignRoleToUserOIDC(t *testing.T, key, role, user string) {
+	t.Helper()
+	userType := models.UserTypesOidc
+	resp, err := Client(t).Authz.AssignRoleToUser(
+		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, UserType: &userType}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)

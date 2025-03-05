@@ -34,20 +34,24 @@ import (
 )
 
 func TestRbacWithOIDC(t *testing.T) {
+	customKey := "custom-key"
 	tests := []struct {
-		name  string
-		image *docker.Compose
+		name          string
+		image         *docker.Compose
+		nameCollision bool
 	}{
 		{
 			name: "RBAC with OIDC",
 			image: docker.New().
 				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
+			nameCollision: false,
 		},
 		{
 			name: "RBAC with OIDC and API key",
 			image: docker.New().
 				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key"),
+			nameCollision: false,
 		},
 		{
 			name: "RBAC with OIDC and API key overlapping user names",
@@ -55,7 +59,8 @@ func TestRbacWithOIDC(t *testing.T) {
 				WithWeaviate().WithMockOIDC().
 				WithRBAC().WithRbacAdmins("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key").
-				WithApiKey().WithUserApiKey("custom-user", "custom-key"),
+				WithApiKey().WithUserApiKey("custom-user", customKey),
+			nameCollision: true,
 		},
 	}
 
@@ -79,15 +84,15 @@ func TestRbacWithOIDC(t *testing.T) {
 			tokenCustom, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
 
 			// prepare roles to assign later
-			className := strings.Replace(t.Name(), "/", "", 1) + "Class"
+			all := "*"
 			readSchemaAction := authorization.ReadCollections
 			createSchemaAction := authorization.CreateCollections
 			createSchemaRoleName := "createSchema"
 			createSchemaRole := &models.Role{
 				Name: &createSchemaRoleName,
 				Permissions: []*models.Permission{
-					{Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &className}},
-					{Action: &createSchemaAction, Collections: &models.PermissionCollections{Collection: &className}},
+					{Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &all}},
+					{Action: &createSchemaAction, Collections: &models.PermissionCollections{Collection: &all}},
 				},
 			}
 			helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
@@ -95,18 +100,30 @@ func TestRbacWithOIDC(t *testing.T) {
 			defer helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
 
 			// custom-user does not have any roles/permissions
-			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+			err = createClass(t, &models.Class{Class: "testingOidc"}, helper.CreateAuth(tokenCustom))
 			require.Error(t, err)
 			var forbidden *clschema.SchemaObjectsCreateForbidden
 			require.True(t, errors.As(err, &forbidden))
 
-			// assigning to user just works, no matter if user is using OIDC or API keys
-			helper.AssignRoleToUser(t, tokenAdmin, createSchemaRoleName, "custom-user")
-			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+			// assigning to OIDC user
+			helper.AssignRoleToUserOIDC(t, tokenAdmin, createSchemaRoleName, "custom-user")
+			err = createClass(t, &models.Class{Class: "testingOidc"}, helper.CreateAuth(tokenCustom))
 			require.NoError(t, err)
 
 			// assign role to non-existing user => no error (if OIDC is enabled)
-			helper.AssignRoleToUser(t, tokenAdmin, createSchemaRoleName, "i-dont-exist")
+			helper.AssignRoleToUserOIDC(t, tokenAdmin, createSchemaRoleName, "i-dont-exist")
+
+			if test.nameCollision {
+				// api key user does NOT have the rights, even though it has the same name
+				err = createClass(t, &models.Class{Class: "testingApiKey"}, helper.CreateAuth(customKey))
+				require.Error(t, err)
+				var forbidden *clschema.SchemaObjectsCreateForbidden
+				require.True(t, errors.As(err, &forbidden))
+
+				helper.AssignRoleToUser(t, tokenAdmin, createSchemaRoleName, "custom-user")
+				err = createClass(t, &models.Class{Class: "testingApiKey"}, helper.CreateAuth(customKey))
+				require.NoError(t, err)
+			}
 		})
 	}
 }
