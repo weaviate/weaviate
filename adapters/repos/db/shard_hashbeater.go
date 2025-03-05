@@ -442,11 +442,12 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 			}
 
 			obj := &objects.VObject{
-				ID:              replicaObj.ID,
-				LatestObject:    &replicaObj.Object.Object,
-				Vector:          replicaObj.Object.Vector,
-				Vectors:         vectors,
-				StaleUpdateTime: remoteStaleUpdateTime[replicaObj.ID.String()],
+				ID:                      replicaObj.ID,
+				LastUpdateTimeUnixMilli: replicaObj.LastUpdateTimeUnixMilli,
+				LatestObject:            &replicaObj.Object.Object,
+				Vector:                  replicaObj.Object.Vector,
+				Vectors:                 vectors,
+				StaleUpdateTime:         remoteStaleUpdateTime[replicaObj.ID.String()],
 			}
 
 			mergeObjs = append(mergeObjs, obj)
