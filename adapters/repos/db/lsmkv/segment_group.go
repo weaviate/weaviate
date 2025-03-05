@@ -821,7 +821,7 @@ func (sg *SegmentGroup) convertToInverted(shouldAbort cyclemanager.ShouldAbortCa
 
 	convert := func() bool {
 		startTime := time.Now()
-		converted, isLast, path, metrics, err := sg.convertOnce()
+		converted, isLast, path, metrics, err := sg.convertOnce(shouldAbort)
 		took := time.Since(startTime).Seconds()
 
 		prop := strings.Split(sg.dir, "/")[len(strings.Split(sg.dir, "/"))-1]

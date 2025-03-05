@@ -69,8 +69,12 @@ func ConvertSegments(path string) error {
 		logger:                  logger,
 	}
 
+	shouldAbort := func() bool {
+		return false
+	}
+
 	for {
-		ok, last, path, metrics, err := sg.convertOnce()
+		ok, last, path, metrics, err := sg.convertOnce(shouldAbort)
 		if err != nil {
 			return fmt.Errorf("error during conversion: %w", err)
 		}

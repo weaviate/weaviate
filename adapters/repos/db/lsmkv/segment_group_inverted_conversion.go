@@ -62,7 +62,7 @@ func (sg *SegmentGroup) findInvertedConversionCandidates() (*segment, *sroar.Bit
 	return nil, nil, 0, nil
 }
 
-func (sg *SegmentGroup) convertOnce() (bool, bool, string, *convertedInvertedStats, error) {
+func (sg *SegmentGroup) convertOnce(shouldAbort func() bool) (bool, bool, string, *convertedInvertedStats, error) {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 	if len(sg.segments) == 0 {
@@ -95,14 +95,22 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, string, *convertedInvertedSta
 			// necessary. Compactions can simply resume when the cluster has been
 			// scaled.
 			sg.logger.WithFields(logrus.Fields{
-				"action": "lsm_compaction",
-				"event":  "compaction_skipped_oom",
+				"action": "lsm_conversion_mapcollection_inverted",
+				"event":  "conversion_skipped_oom",
 				"path":   sg.dir,
 			}).WithError(err).
 				Warnf("skipping conversion due to memory pressure")
 
 			return false, false, segment.path, nil, fmt.Errorf("skipping conversion due to memory pressure: %w", err)
 		}
+	}
+
+	if shouldAbort() {
+		sg.logger.WithFields(logrus.Fields{
+			"action": "lsm_conversion_mapcollection_inverted",
+			"path":   sg.dir,
+		}).Warnf("skipping conversion due to shouldAbort")
+		return false, false, "", nil, fmt.Errorf("skipping conversion due to shouldAbort")
 	}
 
 	path := filepath.Join(sg.dir, "segment-"+segmentID(segment.path)+".db.tmp")
@@ -138,7 +146,7 @@ func (sg *SegmentGroup) convertOnce() (bool, bool, string, *convertedInvertedSta
 		defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
 	}
 	start := time.Now()
-	if err := c.do(); err != nil {
+	if err := c.do(shouldAbort); err != nil {
 		return false, false, segment.path, nil, err
 	}
 

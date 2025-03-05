@@ -100,7 +100,7 @@ func newConvertedInverted(w io.WriteSeeker,
 	}
 }
 
-func (c *convertedInverted) do() error {
+func (c *convertedInverted) do(shouldAbort func() bool) error {
 	var err error
 
 	if err := c.init(); err != nil {
@@ -110,13 +110,21 @@ func (c *convertedInverted) do() error {
 	c.tombstonesToWrite = sroar.NewBitmap()
 	c.propertyLengthsToWrite = make(map[uint64]uint32)
 
-	kis, err := c.writeKeys()
+	if shouldAbort() {
+		return errors.Wrap(err, "shouldAbort")
+	}
+
+	kis, err := c.writeKeys(shouldAbort)
 	if err != nil {
 		return errors.Wrap(err, "write keys")
 	}
 
 	tombstones := sroar.Or(c.tombstonesToWrite, c.tombstonesToClean)
 	tombstoneOffset := c.offset
+
+	if shouldAbort() {
+		return errors.Wrap(err, "shouldAbort")
+	}
 
 	_, err = c.writeTombstones(tombstones)
 	if err != nil {
@@ -236,11 +244,10 @@ func (c *convertedInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 	return b.Len() + 8 + 8 + 8, nil
 }
 
-func (c *convertedInverted) writeKeys() ([]segmentindex.Key, error) {
+func (c *convertedInverted) writeKeys(shouldAbort func() bool) ([]segmentindex.Key, error) {
 	key1, value1, _ := c.c1.first()
 
-	// the (dummy) header was already written, this is our initial offset
-
+	i := 0
 	var kis []segmentindex.Key
 
 	for {
@@ -249,6 +256,10 @@ func (c *convertedInverted) writeKeys() ([]segmentindex.Key, error) {
 		}
 
 		if values, skip := c.cleanupValues(value1); !skip {
+			i += 1
+			if i%100 == 0 && shouldAbort() {
+				return nil, errors.New("should abort")
+			}
 			ki, err := c.writeIndividualNode(c.offset, key1, values, c.propertyLengthsToWrite)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (key1 smaller)")
