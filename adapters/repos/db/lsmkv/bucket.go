@@ -1624,19 +1624,19 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		var tombstones *sroar.Bitmap
 		var err error
 		if j == len(segmentsDisk)-1 {
-			tombstones = allTombstones[0].Or(allTombstones[1])
+			tombstones = sroar.NewBitmap()
 		} else {
 			tombstones, err = segmentsDisk[j+1].GetTombstones()
 			if err != nil {
 				release()
 				return nil, func() {}, err
 			}
-			if b.flushing != nil {
-				tombstones.Or(allTombstones[0])
-			}
-			if b.active != nil {
-				tombstones.Or(allTombstones[1])
-			}
+		}
+		if b.flushing != nil {
+			tombstones.Or(allTombstones[0])
+		}
+		if b.active != nil {
+			tombstones.Or(allTombstones[1])
 		}
 
 		for i, key := range query {
