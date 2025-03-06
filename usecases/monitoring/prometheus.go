@@ -33,7 +33,11 @@ type Config struct {
 	MetricsNamespace string `json:"metrics_namespace" yaml:"metrics_namespace" long:"metrics_namespace" default:""`
 }
 
+// NOTE: Do not add any new metrics to this global `PrometheusMetrics` struct.
+// Instead add your metrics close the corresponding component.
 type PrometheusMetrics struct {
+	Registerer prometheus.Registerer
+
 	BatchTime                           *prometheus.HistogramVec
 	BatchSizeBytes                      *prometheus.SummaryVec
 	BatchSizeObjects                    prometheus.Summary

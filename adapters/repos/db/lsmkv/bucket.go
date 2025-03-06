@@ -282,6 +282,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 }
 
 func (b *Bucket) GetDir() string {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
 	return b.dir
 }
 
@@ -1054,7 +1056,7 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 func (b *Bucket) setNewActiveMemtable() error {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
-	cl, err := newCommitLogger(path)
+	cl, err := newLazyCommitLogger(path)
 	if err != nil {
 		return errors.Wrap(err, "init commit logger")
 	}
@@ -1139,7 +1141,7 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {
-	defer GlobalBucketRegistry.Remove(b.dir)
+	defer GlobalBucketRegistry.Remove(b.GetDir())
 
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err
@@ -1179,7 +1181,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 // flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	b.flushLock.RLock()
-	commitLogSize := b.active.commitlog.Size()
+	commitLogSize := b.active.commitlog.size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
 	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
@@ -1207,7 +1209,7 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
 			b.logger.WithField("action", "lsm_memtable_flush").
-				WithField("path", b.dir).
+				WithField("path", b.GetDir()).
 				WithError(err).
 				Errorf("flush and switch failed")
 			return false
@@ -1292,11 +1294,24 @@ func (b *Bucket) isReadOnly() bool {
 func (b *Bucket) FlushAndSwitch() error {
 	before := time.Now()
 
+	bucketPath := b.GetDir()
+
 	b.logger.WithField("action", "lsm_memtable_flush_start").
-		WithField("path", b.dir).
+		WithField("path", bucketPath).
 		Trace("start flush and switch")
-	if err := b.atomicallySwitchMemtable(); err != nil {
-		return fmt.Errorf("switch active memtable: %w", err)
+
+	switched, err := b.atomicallySwitchMemtable()
+	if err != nil {
+		b.logger.WithField("action", "lsm_memtable_flush_start").
+			WithField("path", bucketPath).
+			Error(err)
+		return fmt.Errorf("flush and switch: %w", err)
+	}
+	if !switched {
+		b.logger.WithField("action", "lsm_memtable_flush_start").
+			WithField("path", bucketPath).
+			Trace("flush and switch not needed")
+		return nil
 	}
 
 	if err := b.flushing.flush(); err != nil {
@@ -1335,15 +1350,34 @@ func (b *Bucket) FlushAndSwitch() error {
 
 	took := time.Since(before)
 	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", b.dir).
+		WithField("path", bucketPath).
 		Trace("finish flush and switch")
 
 	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", b.dir).
+		WithField("path", bucketPath).
 		WithField("took", took).
 		Debugf("flush and switch took %s\n", took)
 
 	return nil
+}
+
+func (b *Bucket) atomicallySwitchMemtable() (bool, error) {
+	b.flushLock.Lock()
+	defer b.flushLock.Unlock()
+
+	if b.active.size == 0 {
+		return false, nil
+	}
+
+	flushing := b.active
+
+	err := b.setNewActiveMemtable()
+	if err != nil {
+		return false, fmt.Errorf("switch active memtable: %w", err)
+	}
+	b.flushing = flushing
+
+	return true, nil
 }
 
 func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
@@ -1380,14 +1414,6 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg *segment) error {
 	}
 
 	return nil
-}
-
-func (b *Bucket) atomicallySwitchMemtable() error {
-	b.flushLock.Lock()
-	defer b.flushLock.Unlock()
-
-	b.flushing = b.active
-	return b.setNewActiveMemtable()
 }
 
 func (b *Bucket) Strategy() string {

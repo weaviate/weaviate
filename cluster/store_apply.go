@@ -12,7 +12,6 @@
 package cluster
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
@@ -22,7 +21,6 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -49,11 +47,6 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 
 	// Always call Error first otherwise the response can't  be read from the future
 	if err := fut.Error(); err != nil {
-		// If the current node is not the leader (it might have changed recently) return ErrNotLeader to ensure that we
-		// will retry the apply to the leader
-		if errors.Is(err, raft.ErrNotLeader) {
-			return 0, types.ErrNotLeader
-		}
 		return 0, err
 	}
 
@@ -122,7 +115,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	cmd.Version = l.Index
 	// Report only when not ready the progress made on applying log entries. This help users with big schema and long
 	// startup time to keep track of progress.
-	if !st.Ready() {
+	// We check for ready state and index <= lastAppliedIndexToDB because just checking ready state would mean this log line
+	// would keep printing if the node has caught up but there's no leader in the cluster.
+	// This can happen for example if quorum is lost briefly.
+	// By checking lastAppliedIndexToDB we ensure that we never print past that index
+	if !st.Ready() && l.Index <= st.lastAppliedIndexToDB.Load() {
 		st.log.Infof("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
 	}
 	st.log.WithFields(logrus.Fields{

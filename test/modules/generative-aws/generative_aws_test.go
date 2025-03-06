@@ -116,6 +116,11 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				name:            "meta.llama3-70b-instruct-v1:0",
 				generativeModel: "meta.llama3-70b-instruct-v1:0",
 			},
+			{
+				name:               "absent module config",
+				generativeModel:    "meta.llama3-70b-instruct-v1:0",
+				absentModuleConfig: true,
+			},
 			// Mistral AI
 			{
 				name:            "mistral.mistral-7b-instruct-v0:2",
@@ -128,11 +133,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			{
 				name:            "mistral.mistral-large-2402-v1:0",
 				generativeModel: "mistral.mistral-large-2402-v1:0",
-			},
-			{
-				name:               "absent module config",
-				generativeModel:    "ai21.j2-mid-v1",
-				absentModuleConfig: true,
 			},
 		}
 		for _, tt := range tests {
@@ -188,41 +188,71 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
-				t.Run("create a tweet with params using grpc", func(t *testing.T) {
-					aws := &pb.GenerativeAWS{
+
+				params := func() *pb.GenerativeAWS {
+					params := &pb.GenerativeAWS{
 						Model:       grpchelper.ToPtr(tt.generativeModel),
 						Temperature: grpchelper.ToPtr(0.9),
 					}
 					if tt.absentModuleConfig {
-						aws.Region = grpchelper.ToPtr(region)
-						aws.Service = grpchelper.ToPtr("bedrock")
+						params.Region = grpchelper.ToPtr(region)
+						params.Service = grpchelper.ToPtr("bedrock")
 					}
+					return params
+				}
+
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
 					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
 						ReturnMetadata: false, // no metadata for aws
-						Kind:           &pb.GenerativeProvider_Aws{Aws: aws},
+						Kind:           &pb.GenerativeProvider_Aws{Aws: params()},
 					})
 				})
 				if tt.withImages {
 					t.Run("image prompt", func(t *testing.T) {
 						t.Run("graphql", func(t *testing.T) {
 							prompt := "Caption image"
-							params := "aws:{images:\"image\"}"
+							params := "aws:{imageProperties:\"image\"}"
 							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
 						})
-						t.Run("grpc", func(t *testing.T) {
-							prompt := "Describe image"
-							aws := &pb.GenerativeAWS{
-								Model:       grpchelper.ToPtr(tt.generativeModel),
-								Temperature: grpchelper.ToPtr(0.9),
-								Images:      &pb.TextArray{Values: []string{"image"}},
-							}
-							if tt.absentModuleConfig {
-								aws.Region = grpchelper.ToPtr(region)
-								aws.Service = grpchelper.ToPtr("bedrock")
-							}
-							planets.CreatePromptTestWithParamsGRPC(t, class.Class, prompt, &pb.GenerativeProvider{
-								ReturnMetadata: false, // no metadata for aws
-								Kind:           &pb.GenerativeProvider_Aws{Aws: aws},
+
+						singlePrompt := "Give a short answer: What's on the image?"
+						groupPrompt := "Give a short answer: What are on the following images?"
+
+						t.Run("grpc server stored images", func(t *testing.T) {
+							params := params()
+							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: false,
+								Kind:           &pb.GenerativeProvider_Aws{Aws: params},
+							})
+						})
+
+						t.Run("grpc user provided images", func(t *testing.T) {
+							earth, err := planets.GetImageBlob(dataFolderPath, "earth")
+							require.NoError(t, err)
+							mars, err := planets.GetImageBlob(dataFolderPath, "mars")
+							require.NoError(t, err)
+
+							params := params()
+							params.Images = &pb.TextArray{Values: []string{earth, mars}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: false,
+								Kind:           &pb.GenerativeProvider_Aws{Aws: params},
+							})
+						})
+
+						t.Run("grpc mixed images", func(t *testing.T) {
+							earth, err := planets.GetImageBlob(dataFolderPath, "earth")
+							require.NoError(t, err)
+							mars, err := planets.GetImageBlob(dataFolderPath, "mars")
+							require.NoError(t, err)
+
+							params := params()
+							params.Images = &pb.TextArray{Values: []string{earth, mars}}
+							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: false,
+								Kind:           &pb.GenerativeProvider_Aws{Aws: params},
 							})
 						})
 					})

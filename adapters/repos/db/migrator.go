@@ -132,6 +132,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			ReplicationFactor:                   class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
+			ShardLoadLimiter:                    m.db.shardLoadLimiter,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will

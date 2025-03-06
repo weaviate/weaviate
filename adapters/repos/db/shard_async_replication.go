@@ -677,14 +677,15 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 
 	objectProgationStart := time.Now()
 
-	localObjects := 0
-	remoteObjects := 0
-	objectsPropagated := 0
+	localObjectsCount := 0
+	remoteObjectsCount := 0
+	objectsToPropagate := make([]*objects.VObject, 0, config.propagationLimit)
+	localUpdateTimeByUUID := make(map[string]int64, config.propagationLimit)
 
 	ctx, cancel := context.WithTimeout(ctx, config.propagationTimeout)
 	defer cancel()
 
-	for objectsPropagated < config.propagationLimit {
+	for len(objectsToPropagate) < config.propagationLimit {
 		initialLeaf, finalLeaf, err := rangeReader.Next()
 		if err != nil {
 			if errors.Is(err, hashtree.ErrNoMoreRanges) {
@@ -693,29 +694,62 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 			return nil, fmt.Errorf("reading collected differences: %w", err)
 		}
 
-		localObjs, remoteObjs, propagations, err := s.stepsTowardsShardConsistency(
+		localObjsCountWithinRange, remoteObjsCountWithinRange, objsPropagateWithinRange, err := s.objectsToPropagateWithinRange(
 			ctx,
 			config,
 			shardDiffReader.Host,
 			initialLeaf,
 			finalLeaf,
-			config.propagationLimit-objectsPropagated,
+			config.propagationLimit-len(objectsToPropagate),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("achieving shard consistency: %w", err)
+			return nil, fmt.Errorf("collecting local objects to be propagated: %w", err)
 		}
 
-		localObjects += localObjs
-		remoteObjects += remoteObjs
-		objectsPropagated += propagations
+		localObjectsCount += localObjsCountWithinRange
+		remoteObjectsCount += remoteObjsCountWithinRange
+
+		objectsToPropagate = append(objectsToPropagate, objsPropagateWithinRange...)
+
+		for _, obj := range objsPropagateWithinRange {
+			localUpdateTimeByUUID[obj.ID.String()] = obj.LastUpdateTimeUnixMilli
+		}
+	}
+
+	if len(objectsToPropagate) > 0 {
+		resp, err := s.propagateObjects(ctx, config, shardDiffReader.Host, objectsToPropagate)
+		if err != nil {
+			return nil, fmt.Errorf("propagating local objects: %w", err)
+		}
+
+		for _, r := range resp {
+			// NOTE: deleted objects are not propagated but locally deleted when conflict is detected
+
+			deletionStrategy := s.index.DeletionStrategy()
+
+			if !r.Deleted ||
+				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
+				continue
+			}
+
+			if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
+				(deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
+					r.UpdateTime > localUpdateTimeByUUID[r.ID]) {
+
+				err := s.DeleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime))
+				if err != nil {
+					return nil, fmt.Errorf("deleting local objects: %w", err)
+				}
+			}
+		}
 	}
 
 	return &hashBeatHostStats{
 		host:                shardDiffReader.Host,
 		diffCalculationTook: diffCalculationTook,
-		localObjects:        localObjects,
-		remoteObjects:       remoteObjects,
-		objectsPropagated:   objectsPropagated,
+		localObjects:        localObjectsCount,
+		remoteObjects:       remoteObjectsCount,
+		objectsPropagated:   len(objectsToPropagate),
 		objectProgationTook: time.Since(objectProgationStart),
 	}, nil
 }
@@ -747,9 +781,11 @@ func incToNextLexValue(b []byte) bool {
 	return true
 }
 
-func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncReplicationConfig,
+func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncReplicationConfig,
 	host string, initialLeaf, finalLeaf uint64, limit int,
-) (localObjects, remoteObjects, propagations int, err error) {
+) (localObjectsCount int, remoteObjectsCount int, objectsToPropagate []*objects.VObject, err error) {
+	objectsToPropagate = make([]*objects.VObject, 0, limit)
+
 	hashtreeHeight := config.hashtreeHeight
 
 	finalUUIDBytes := make([]byte, 16)
@@ -758,7 +794,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 
 	finalUUID, err := uuidFromBytes(finalUUIDBytes)
 	if err != nil {
-		return localObjects, remoteObjects, propagations, err
+		return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
 	}
 
 	currLocalUUIDBytes := make([]byte, 16)
@@ -768,17 +804,17 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 
 	for shouldContinueFetchingLocalData && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
 		if ctx.Err() != nil {
-			return localObjects, remoteObjects, propagations, ctx.Err()
+			return localObjectsCount, remoteObjectsCount, objectsToPropagate, ctx.Err()
 		}
 
 		currLocalUUID, err := uuidFromBytes(currLocalUUIDBytes)
 		if err != nil {
-			return localObjects, remoteObjects, propagations, err
+			return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
 		}
 
 		allLocalDigests, err := s.index.DigestObjectsInRange(ctx, s.name, currLocalUUID, finalUUID, config.diffBatchSize)
 		if err != nil {
-			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
+			return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("fetching local object digests: %w", err)
 		}
 
 		// filter out too recent local digests to avoid object propagation when all the nodes may be alive
@@ -804,7 +840,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 
 		lastLocalUUIDBytes, err := bytesFromUUID(lastLocalUUID)
 		if err != nil {
-			return localObjects, remoteObjects, propagations, err
+			return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
 		}
 
 		localDigestsByUUID := make(map[string]replica.RepairResponse, len(localDigests))
@@ -813,25 +849,25 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 			localDigestsByUUID[d.ID] = d
 		}
 
-		localObjects += len(localDigestsByUUID)
+		localObjectsCount += len(localDigestsByUUID)
 
 		remoteStaleUpdateTime := make(map[string]int64, len(localDigestsByUUID))
 
 		// fetch digests from remote host in order to avoid sending unnecessary objects
 		for currRemoteUUIDBytes := currLocalUUIDBytes; bytes.Compare(currRemoteUUIDBytes, lastLocalUUIDBytes) < 1; {
 			if ctx.Err() != nil {
-				return localObjects, remoteObjects, propagations, ctx.Err()
+				return localObjectsCount, remoteObjectsCount, objectsToPropagate, ctx.Err()
 			}
 
 			currRemoteUUID, err := uuidFromBytes(currRemoteUUIDBytes)
 			if err != nil {
-				return localObjects, remoteObjects, propagations, err
+				return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
 			}
 
 			remoteDigests, err := s.index.replicator.DigestObjectsInRange(ctx,
 				s.name, host, currRemoteUUID, lastLocalUUID, config.diffBatchSize)
 			if err != nil {
-				return localObjects, remoteObjects, propagations, fmt.Errorf("fetching remote object digests: %w", err)
+				return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("fetching remote object digests: %w", err)
 			}
 
 			if len(remoteDigests) == 0 {
@@ -839,7 +875,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 				break
 			}
 
-			remoteObjects += len(remoteDigests)
+			remoteObjectsCount += len(remoteDigests)
 
 			for _, d := range remoteDigests {
 				localDigest, ok := localDigestsByUUID[d.ID]
@@ -872,7 +908,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 
 			lastRemoteUUIDBytes, err := bytesFromUUID(lastRemoteUUID)
 			if err != nil {
-				return localObjects, remoteObjects, propagations, err
+				return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
 			}
 
 			overflow := incToNextLexValue(lastRemoteUUIDBytes)
@@ -905,10 +941,8 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 
 		localObjs, err := s.MultiObjectByID(ctx, wrapIDsInMulti(uuids))
 		if err != nil {
-			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local objects: %w", err)
+			return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("fetching local objects: %w", err)
 		}
-
-		mergeObjs := make([]*objects.VObject, 0, len(localObjs))
 
 		for _, obj := range localObjs {
 			if obj == nil {
@@ -934,43 +968,10 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 				StaleUpdateTime:         remoteStaleUpdateTime[obj.ID().String()],
 			}
 
-			mergeObjs = append(mergeObjs, obj)
+			objectsToPropagate = append(objectsToPropagate, obj)
 		}
 
-		if len(mergeObjs) == 0 {
-			// no more local objects need to be propagated in this iteration
-			continue
-		}
-
-		resp, err := s.propagateObjects(ctx, config, host, mergeObjs)
-		if err != nil {
-			return localObjects, remoteObjects, propagations, fmt.Errorf("propagating local objects: %w", err)
-		}
-
-		for _, r := range resp {
-			// NOTE: deleted objects are not propagated but locally deleted when conflict is detected
-
-			deletionStrategy := s.index.DeletionStrategy()
-
-			if !r.Deleted ||
-				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
-				continue
-			}
-
-			if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
-				(deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
-					r.UpdateTime > localDigestsByUUID[r.ID].UpdateTime) {
-
-				err := s.DeleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime))
-				if err != nil {
-					return localObjects, remoteObjects, propagations, fmt.Errorf("deleting local objects: %w", err)
-				}
-			}
-		}
-
-		propagations += len(mergeObjs)
-
-		if propagations >= limit {
+		if len(objectsToPropagate) >= limit {
 			break
 		}
 	}
@@ -978,7 +979,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 	// Note: propagations == 0 means local shard is laying behind remote shard,
 	// the local shard may receive recent objects when remote shard propagates them
 
-	return localObjects, remoteObjects, propagations, nil
+	return localObjectsCount, remoteObjectsCount, objectsToPropagate, nil
 }
 
 func (s *Shard) propagateObjects(ctx context.Context, config asyncReplicationConfig, host string, objs []*objects.VObject) (res []replica.RepairResponse, err error) {

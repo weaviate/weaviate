@@ -19,12 +19,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -33,8 +33,6 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-openai/config"
 	openaiparams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildUrlFn(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
 	if isAzure {
@@ -76,24 +74,24 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 	}
 }
 
-func (v *openai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *openai) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.generate(ctx, cfg, forPrompt, textProperties, options, debug)
+	return v.generate(ctx, cfg, forPrompt, generative.Blobs([]*modulecapabilities.GenerateProperties{properties}), options, debug)
 }
 
-func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *openai) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
-	return v.generate(ctx, cfg, forTask, nil, options, debug)
+	return v.generate(ctx, cfg, forTask, generative.Blobs(properties), options, debug)
 }
 
-func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, textProperties map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	params := v.getParameters(cfg, options, textProperties)
+func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options, imageProperties)
 	isAzure := config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
@@ -176,7 +174,7 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}, nil
 }
 
-func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{}, textProperties map[string]string) openaiparams.Params {
+func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) openaiparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params openaiparams.Params
@@ -223,15 +221,7 @@ func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{},
 		params.MaxTokens = &maxTokens
 	}
 
-	if len(params.Images) > 0 && len(textProperties) > 0 {
-		images := make([]string, len(params.Images))
-		for i, imageProperty := range params.Images {
-			if image, ok := textProperties[imageProperty]; ok {
-				images[i] = image
-			}
-		}
-		params.Images = images
-	}
+	params.Images = generative.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
 
 	return params
 }
@@ -267,15 +257,15 @@ func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params)
 	deploymentID := params.DeploymentID
 	resourceName := params.ResourceName
 
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
 
-	if headerDeploymentID := v.getValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
+	if headerDeploymentID := modulecomponents.GetValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
 		deploymentID = headerDeploymentID
 	}
 
-	if headerResourceName := v.getValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
+	if headerResourceName := modulecomponents.GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
 		resourceName = headerResourceName
 	}
 
@@ -309,9 +299,10 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params) (gener
 				Text: prompt,
 			})
 			for i := range params.Images {
+				url := fmt.Sprintf("data:image/jpeg;base64,%s", *params.Images[i])
 				imageInput = append(imageInput, contentImage{
 					Type:     "image_url",
-					ImageURL: contentImageURL{URL: fmt.Sprintf("data:image/jpeg;base64,%s", params.Images[i])},
+					ImageURL: contentImageURL{URL: &url},
 				})
 			}
 			content = imageInput
@@ -391,30 +382,6 @@ func (v *openai) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, s
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
-func (v *openai) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *openai) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
-}
-
 func (v *openai) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 	var apiKey, envVarValue, envVar string
 
@@ -432,7 +399,7 @@ func (v *openai) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 }
 
 func (v *openai) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {
-	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
+	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
 	if envVarValue != "" {
@@ -441,22 +408,8 @@ func (v *openai) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, 
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
-func (v *openai) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-
-	return ""
-}
-
 func (v *openai) getOpenAIOrganization(ctx context.Context) string {
-	if value := v.getValueFromContext(ctx, "X-Openai-Organization"); value != "" {
+	if value := modulecomponents.GetValueFromContext(ctx, "X-Openai-Organization"); value != "" {
 		return value
 	}
 	return v.openAIOrganization
@@ -499,11 +452,11 @@ type contentText struct {
 
 type contentImage struct {
 	Type     string          `json:"type"`
-	ImageURL contentImageURL `json:"image_url"`
+	ImageURL contentImageURL `json:"image_url,omitempty"`
 }
 
 type contentImageURL struct {
-	URL string `json:"url"`
+	URL *string `json:"url"`
 }
 
 type generateResponse struct {

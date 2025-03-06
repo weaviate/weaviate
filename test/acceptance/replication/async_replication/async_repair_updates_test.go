@@ -20,7 +20,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -91,6 +93,21 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, node)
 		time.Sleep(5 * time.Second)
+	})
+
+	t.Run("verify that all nodes are running", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verbose := verbosity.OutputVerbose
+			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			resp, err := body.Payload, clientErr
+			require.NoError(ct, err)
+			require.Len(ct, resp.Nodes, clusterSize)
+			for _, n := range resp.Nodes {
+				require.NotNil(ct, n.Status)
+				assert.Equal(ct, "HEALTHY", *n.Status)
+			}
+		}, 15*time.Second, 500*time.Millisecond)
 	})
 
 	t.Run(fmt.Sprintf("assert node %d has all the objects at its latest version", node), func(t *testing.T) {

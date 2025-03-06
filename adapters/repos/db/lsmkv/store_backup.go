@@ -38,7 +38,7 @@ func (s *Store) PauseCompaction(ctx context.Context) error {
 
 	// TODO common_cycle_manager maybe not necessary, or to be replaced with store pause stats
 	for _, b := range s.bucketsByName {
-		label := b.dir
+		label := b.GetDir()
 		if monitoring.GetMetrics().Group {
 			label = "n/a"
 		}

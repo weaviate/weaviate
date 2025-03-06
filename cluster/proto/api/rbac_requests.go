@@ -40,8 +40,9 @@ const (
 )
 
 type CreateRolesRequest struct {
-	Roles   map[string][]authorization.Policy
-	Version int
+	Roles        map[string][]authorization.Policy
+	RoleCreation bool
+	Version      int
 }
 
 type DeleteRolesRequest struct {

@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -29,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-google/config"
 	googleparams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 )
 
 type harmCategory string
@@ -110,8 +110,6 @@ var (
 	FINISH_REASON_SPII               = "SPII"
 )
 
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
-
 func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string {
 	if useGenerativeAI {
 		// Generative AI endpoints, for more context check out this link:
@@ -153,24 +151,24 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 	}
 }
 
-func (v *google) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *google) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.generate(ctx, cfg, forPrompt, textProperties, options, debug)
+	return v.generate(ctx, cfg, forPrompt, generative.Blobs([]*modulecapabilities.GenerateProperties{properties}), options, debug)
 }
 
-func (v *google) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *google) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
-	return v.generate(ctx, cfg, forTask, nil, options, debug)
+	return v.generate(ctx, cfg, forTask, generative.Blobs(properties), options, debug)
 }
 
-func (v *google) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, textProperties map[string]string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	params := v.getParameters(cfg, options, textProperties)
+func (v *google) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options, imageProperties)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
 	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(params.ApiEndpoint)
@@ -247,7 +245,7 @@ func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte, 
 	}, nil
 }
 
-func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{}, textProperties map[string]string) googleparams.Params {
+func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) googleparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params googleparams.Params
@@ -291,17 +289,7 @@ func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{},
 		params.MaxTokens = &maxTokens
 	}
 
-	if len(params.Images) > 0 && len(textProperties) > 0 {
-		images := make([]string, len(params.Images))
-		for i, imageProperty := range params.Images {
-			if image, ok := textProperties[imageProperty]; ok {
-				images[i] = image
-			} else {
-				images[i] = imageProperty
-			}
-		}
-		params.Images = images
-	}
+	params.Images = generative.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
 
 	return params
 }
@@ -511,30 +499,6 @@ func (v *google) getGeminiPayload(prompt string, params googleparams.Params) any
 	return input
 }
 
-func (v *google) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *google) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
-}
-
 func (v *google) getApiKey(ctx context.Context, useGenerativeAIEndpoint bool) (string, error) {
 	return v.googleApiKey.GetApiKey(ctx, v.apiKey, useGenerativeAIEndpoint, v.useGoogleAuth)
 }
@@ -706,8 +670,8 @@ type part struct {
 }
 
 type inlineData struct {
-	MimeType string `json:"mime_type,omitempty"`
-	Data     string `json:"data,omitempty"`
+	MimeType string  `json:"mime_type,omitempty"`
+	Data     *string `json:"data,omitempty"`
 }
 
 type safetySetting struct {
