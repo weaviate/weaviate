@@ -1603,10 +1603,10 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			return nil, nil, func() {}, err
 		}
 
-		if b.flushing != nil {
+		if allTombstones[0] != nil {
 			tombstones.Or(allTombstones[0])
 		}
-		if b.active != nil {
+		if allTombstones[1] != nil {
 			tombstones.Or(allTombstones[1])
 		}
 		for i, key := range query {
