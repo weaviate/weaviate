@@ -377,11 +377,6 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.metrics.size(m.size)
 	m.updateDirtyAt()
 
-	if m.strategy == StrategyInverted {
-		docID := binary.BigEndian.Uint64(pair.Key)
-		m.tombstones.Set(docID)
-	}
-
 	return nil
 }
 
