@@ -21,6 +21,7 @@ import (
 	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -177,7 +178,9 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		useBloomFilter:        cfg.useBloomFilter,
 		calcCountNetAdditions: cfg.calcCountNetAdditions,
 		invertedHeader:        invertedHeader,
-		invertedData:          &segmentInvertedData{},
+		invertedData: &segmentInvertedData{
+			tombstones: sroar.NewBitmap(),
+		},
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
