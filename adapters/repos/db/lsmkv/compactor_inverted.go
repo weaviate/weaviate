@@ -287,15 +287,14 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 				return nil, err
 			}
 
-			if values, skip := c.cleanupValues(mergedPairs); !skip {
-				ki, err := c.writeIndividualNode(c.offset, key2, values, c.propertyLengthsToWrite)
-				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (equal keys)")
-				}
-
-				c.offset = ki.ValueEnd
-				kis = append(kis, ki)
+			ki, err := c.writeIndividualNode(c.offset, key2, mergedPairs, c.propertyLengthsToWrite)
+			if err != nil {
+				return nil, errors.Wrap(err, "write individual node (equal keys)")
 			}
+
+			c.offset = ki.ValueEnd
+			kis = append(kis, ki)
+
 			// advance both!
 			key1, value1, _ = c.c1.next()
 			key2, value2, _ = c.c2.next()
