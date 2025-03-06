@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentindex.Key, *sroar.Bitmap, error) {
@@ -37,7 +36,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 	actuallyWritten := 0
 	actuallyWrittenKeys := make(map[string]struct{})
-	tombstones := roaringset.NewBitmap()
+	tombstones := m.tombstones
 
 	docIdsLengths := make(map[uint64]uint32)
 	propLengthSum := uint64(0)
