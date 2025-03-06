@@ -1499,6 +1499,18 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 }
 
 func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, func(), error) {
+	release := func() {}
+
+	defer func() {
+		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+			if r := recover(); r != nil {
+				b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
+				debug.PrintStack()
+				release()
+			}
+		}
+	}()
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1507,16 +1519,6 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	// Panics at this level are caught and the lock is released in the defer function.
 	// The lock is released after the blockmax search is done, and panics are also handled.
 	segmentsDisk, release := b.disk.getAndLockSegments()
-
-	defer func() {
-		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
-			if r := recover(); r != nil {
-				b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
-				release()
-				debug.PrintStack()
-			}
-		}
-	}()
 
 	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))
