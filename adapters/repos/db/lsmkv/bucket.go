@@ -19,9 +19,12 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
+
+	entcfg "github.com/weaviate/weaviate/entities/config"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -1506,9 +1509,12 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	segmentsDisk, release := b.disk.getAndLockSegments()
 
 	defer func() {
-		if r := recover(); r != nil {
-			b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
-			release()
+		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+			if r := recover(); r != nil {
+				b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
+				release()
+				debug.PrintStack()
+			}
 		}
 	}()
 
