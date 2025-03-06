@@ -81,6 +81,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	// also check for existing static users if request comes from root
 	isStaticUser := h.isRequestFromRootUser(principal) && h.staticUserExists(params.UserID)
 
+	active := true
 	if !isStaticUser {
 		existingDynamicUsers, err := h.dynamicUser.GetUsers(params.UserID)
 		if err != nil {
@@ -90,6 +91,8 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		if len(existingDynamicUsers) == 0 {
 			return users.NewGetUserInfoNotFound()
 		}
+		user := existingDynamicUsers[params.UserID]
+		active = user.Active
 	}
 
 	existedRoles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypesDb)
@@ -107,7 +110,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		userType = userTypeStatic
 	}
 
-	return users.NewGetUserInfoOK().WithPayload(&models.UserInfo{UserID: &params.UserID, Roles: roles, UserType: &userType})
+	return users.NewGetUserInfoOK().WithPayload(&models.UserInfo{UserID: &params.UserID, Roles: roles, UserType: &userType, Active: &active})
 }
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {

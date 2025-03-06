@@ -32,19 +32,16 @@ DeleteUserNoContent Successfully deleted.
 
 swagger:response deleteUserNoContent
 */
-type DeleteUserNoContent struct {
-}
+type DeleteUserNoContent struct{}
 
 // NewDeleteUserNoContent creates DeleteUserNoContent with default headers values
 func NewDeleteUserNoContent() *DeleteUserNoContent {
-
 	return &DeleteUserNoContent{}
 }
 
 // WriteResponse to the client
 func (o *DeleteUserNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -58,7 +55,6 @@ DeleteUserBadRequest Malformed request.
 swagger:response deleteUserBadRequest
 */
 type DeleteUserBadRequest struct {
-
 	/*
 	  In: Body
 	*/
@@ -67,7 +63,6 @@ type DeleteUserBadRequest struct {
 
 // NewDeleteUserBadRequest creates DeleteUserBadRequest with default headers values
 func NewDeleteUserBadRequest() *DeleteUserBadRequest {
-
 	return &DeleteUserBadRequest{}
 }
 
@@ -84,7 +79,6 @@ func (o *DeleteUserBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *DeleteUserBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -102,19 +96,16 @@ DeleteUserUnauthorized Unauthorized or invalid credentials.
 
 swagger:response deleteUserUnauthorized
 */
-type DeleteUserUnauthorized struct {
-}
+type DeleteUserUnauthorized struct{}
 
 // NewDeleteUserUnauthorized creates DeleteUserUnauthorized with default headers values
 func NewDeleteUserUnauthorized() *DeleteUserUnauthorized {
-
 	return &DeleteUserUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *DeleteUserUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -128,7 +119,6 @@ DeleteUserForbidden Forbidden
 swagger:response deleteUserForbidden
 */
 type DeleteUserForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -137,7 +127,6 @@ type DeleteUserForbidden struct {
 
 // NewDeleteUserForbidden creates DeleteUserForbidden with default headers values
 func NewDeleteUserForbidden() *DeleteUserForbidden {
-
 	return &DeleteUserForbidden{}
 }
 
@@ -154,7 +143,6 @@ func (o *DeleteUserForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *DeleteUserForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -172,19 +160,16 @@ DeleteUserNotFound user not found
 
 swagger:response deleteUserNotFound
 */
-type DeleteUserNotFound struct {
-}
+type DeleteUserNotFound struct{}
 
 // NewDeleteUserNotFound creates DeleteUserNotFound with default headers values
 func NewDeleteUserNotFound() *DeleteUserNotFound {
-
 	return &DeleteUserNotFound{}
 }
 
 // WriteResponse to the client
 func (o *DeleteUserNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -198,7 +183,6 @@ DeleteUserUnprocessableEntity Request body is well-formed (i.e., syntactically c
 swagger:response deleteUserUnprocessableEntity
 */
 type DeleteUserUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -207,7 +191,6 @@ type DeleteUserUnprocessableEntity struct {
 
 // NewDeleteUserUnprocessableEntity creates DeleteUserUnprocessableEntity with default headers values
 func NewDeleteUserUnprocessableEntity() *DeleteUserUnprocessableEntity {
-
 	return &DeleteUserUnprocessableEntity{}
 }
 
@@ -224,7 +207,6 @@ func (o *DeleteUserUnprocessableEntity) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *DeleteUserUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -243,7 +225,6 @@ DeleteUserInternalServerError An error has occurred while trying to fulfill the 
 swagger:response deleteUserInternalServerError
 */
 type DeleteUserInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -252,7 +233,6 @@ type DeleteUserInternalServerError struct {
 
 // NewDeleteUserInternalServerError creates DeleteUserInternalServerError with default headers values
 func NewDeleteUserInternalServerError() *DeleteUserInternalServerError {
-
 	return &DeleteUserInternalServerError{}
 }
 
@@ -269,7 +249,6 @@ func (o *DeleteUserInternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *DeleteUserInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload
