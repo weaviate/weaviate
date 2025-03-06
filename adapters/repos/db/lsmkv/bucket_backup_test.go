@@ -14,6 +14,8 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"os"
+	"path"
 	"path/filepath"
 	"testing"
 
@@ -66,30 +68,39 @@ func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOpti
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logrus.New(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
-	t.Run("insert contents into bucket", func(t *testing.T) {
-		for i := 0; i < 10; i++ {
-			err := b.Put([]byte(fmt.Sprint(i)), []byte(fmt.Sprint(i)))
-			require.Nil(t, err)
-		}
-		b.FlushMemtable() // flush memtable to generate .db files
-	})
+	for i := 0; i < 10; i++ {
+		err := b.Put([]byte(fmt.Sprint(i)), []byte(fmt.Sprint(i)))
+		require.NoError(t, err)
+	}
 
-	t.Run("assert expected bucket contents", func(t *testing.T) {
-		files, err := b.ListFiles(ctx, dirName)
-		assert.Nil(t, err)
-		assert.Len(t, files, 3)
+	// flush memtable to generate .db files
+	err = b.FlushMemtable()
+	require.NoError(t, err)
 
-		exts := make([]string, 3)
-		for i, file := range files {
-			exts[i] = filepath.Ext(file)
-		}
-		assert.Contains(t, exts, ".db")    // the segment itself
-		assert.Contains(t, exts, ".bloom") // the segment's bloom filter
-		assert.Contains(t, exts, ".cna")   // the segment's count net additions
-	})
+	// create an arbitrary directory and file that is a leftover of some old process
+	leftoverDir := path.Join(dirName, "scratch_leftover")
+	require.NoError(t, os.MkdirAll(leftoverDir, 0o755))
+	require.NoError(t, os.WriteFile(path.Join(leftoverDir, "partial_segment.db"), []byte("some data"), 0o644))
 
-	err = b.Shutdown(context.Background())
-	require.Nil(t, err)
+	files, err := b.ListFiles(ctx, dirName)
+	assert.NoError(t, err)
+	assert.Len(t, files, 3)
+
+	// make sure all these files are accessible to prove that the paths are correct
+	for _, file := range files {
+		_, err = os.Stat(file)
+		require.NoError(t, err)
+	}
+
+	exts := make([]string, 3)
+	for i, file := range files {
+		exts[i] = filepath.Ext(file)
+	}
+	assert.Contains(t, exts, ".db")    // the segment itself
+	assert.Contains(t, exts, ".bloom") // the segment's bloom filter
+	assert.Contains(t, exts, ".cna")   // the segment's count net additions
+
+	require.NoError(t, b.Shutdown(context.Background()))
 }
