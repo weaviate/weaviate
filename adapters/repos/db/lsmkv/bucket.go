@@ -1643,7 +1643,19 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {
 		segment := segmentsDisk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
-		tombstones, err := segment.GetTombstones()
+
+		var tombstones *sroar.Bitmap
+		var err error
+		if j == len(segmentsDisk)-1 {
+			tombstones = sroar.NewBitmap()
+		} else {
+			tombstones, err = segmentsDisk[j+1].GetTombstones()
+			if err != nil {
+				release()
+				return nil, nil, func() {}, err
+			}
+		}
+
 		if err != nil {
 			release()
 			return nil, nil, func() {}, err
