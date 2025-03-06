@@ -12,7 +12,6 @@
 package sync
 
 import (
-	"reflect"
 	"sync"
 	"testing"
 
@@ -20,9 +19,11 @@ import (
 )
 
 func mutexLocked(m *sync.Mutex) bool {
-	const mLocked = 1
-	state := reflect.ValueOf(m).Elem().FieldByName("state")
-	return state.Int()&mLocked == mLocked
+	rlocked := m.TryLock()
+	if rlocked {
+		defer m.Unlock()
+	}
+	return !rlocked
 }
 
 func rwMutexLocked(m *sync.RWMutex) bool {
