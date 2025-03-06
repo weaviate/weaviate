@@ -94,7 +94,7 @@ func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, err
 			a.classSearcher, a.stopwords, a.shardVersion, a.isFallbackToSearchable,
 			a.tenant, a.nestedCrossRefLimit, a.bitmapFactory).
 			DocIDs(ctx, a.params.Filters, additional.Properties{},
-				a.params.ClassName)
+				a.params.ClassName, nil) // FIXME: usertokens
 		if err != nil {
 			return nil, fmt.Errorf("retrieve doc IDs from searcher: %w", err)
 		}

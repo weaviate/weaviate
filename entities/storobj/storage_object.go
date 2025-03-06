@@ -57,6 +57,7 @@ type Object struct {
 	DocID             uint64
 	Vectors           map[string][]float32   `json:"vectors"`
 	MultiVectors      map[string][][]float32 `json:"multivectors"`
+	Tokens            []string               `json:"tokens"`
 }
 
 func New(docID uint64) *Object {
@@ -103,6 +104,7 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 		VectorLen:         len(vector),
 		Vectors:           vecs,
 		MultiVectors:      multiVectors,
+		Tokens:            object.Tokens,
 	}
 }
 

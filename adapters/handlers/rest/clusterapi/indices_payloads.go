@@ -449,6 +449,7 @@ type searchParametersPayload struct {
 	TargetVectors     []string                     `json:"TargetVectors"`
 	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
 	Properties        []string                     `json:"properties"`
+	Tokens            []string                     `json:"tokens"`
 }
 
 func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
@@ -537,7 +538,7 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
-	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, error,
+	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, []string, error,
 ) {
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
@@ -548,7 +549,7 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, fl
 	}
 
 	return par.SearchVectors, par.TargetVectors, par.Distance, par.Limit,
-		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, err
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, par.Tokens, err
 }
 
 func (p searchParamsPayload) MIME() string {

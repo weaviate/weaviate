@@ -1332,7 +1332,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
-	properties []string,
+	properties []string, userTokens []string,
 ) ([]*storobj.Object, []float32, error) {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
@@ -1367,7 +1367,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
-		filters, keywordRanking, sort, cursor, addlProps, shardNames, properties)
+		filters, keywordRanking, sort, cursor, addlProps, shardNames, properties, userTokens)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1454,7 +1454,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, shards []string, properties []string,
+	addlProps additional.Properties, shards []string, properties []string, userTokens []string,
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
@@ -1481,7 +1481,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				defer release()
 				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
-				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
+				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties, userTokens)
 				if err != nil {
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err)
@@ -1581,7 +1581,7 @@ func (i *Index) mergeGroups(objects []*storobj.Object, dists []float32,
 func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVectors []models.Vector,
 	targetVectors []string, dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
-	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
+	shard ShardLike, targetCombination *dto.TargetCombination, properties []string, userTokens []string,
 ) ([]*storobj.Object, []float32, error) {
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
@@ -1589,7 +1589,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
 	}
 	res, resDists, err := shard.ObjectVectorSearch(
-		ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, targetCombination, properties)
+		ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, targetCombination, properties, userTokens)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -1625,7 +1625,7 @@ func (i *Index) targetShardNames(ctx context.Context, tenant string) ([]string, 
 func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vector,
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
-	targetCombination *dto.TargetCombination, properties []string, shardName string,
+	targetCombination *dto.TargetCombination, properties []string, shardName string, userTokens []string,
 ) ([]*storobj.Object, []float32, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
@@ -1638,7 +1638,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	localCtx := helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 	localShardResult, localShardScores, err := shard.ObjectVectorSearch(
-		localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties)
+		localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, userTokens)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -1703,7 +1703,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.Vector,
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort,
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
-	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
+	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string, userTokens []string,
 ) ([]*storobj.Object, []float32, error) {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
@@ -1722,7 +1722,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard != nil {
 			defer release()
 			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
-				sort, groupBy, additionalProps, shard, targetCombination, properties)
+				sort, groupBy, additionalProps, shard, targetCombination, properties, userTokens)
 		}
 	}
 
@@ -1759,7 +1759,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard != nil {
 			localSearches++
 			eg.Go(func() error {
-				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName, userTokens)
 				if err1 != nil {
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err1)
@@ -1848,7 +1848,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	searchVectors []models.Vector, targetVectors []string, distance float32, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
-	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
+	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, userTokens []string,
 ) ([]*storobj.Object, []float32, error) {
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -1876,7 +1876,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	if len(searchVectors) == 0 {
-		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
+		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties, userTokens)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1885,7 +1885,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	res, resDists, err := shard.ObjectVectorSearch(
-		ctx, searchVectors, targetVectors, distance, limit, filters, sort, groupBy, additional, targetCombination, properties)
+		ctx, searchVectors, targetVectors, distance, limit, filters, sort, groupBy, additional, targetCombination, properties, userTokens)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}

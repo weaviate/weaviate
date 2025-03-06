@@ -125,6 +125,12 @@ type ObjectsListParams struct {
 	*/
 	Tenant *string
 
+	/* Tokens.
+
+	   The tokens to be used for the query
+	*/
+	Tokens []string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -277,6 +283,17 @@ func (o *ObjectsListParams) SetTenant(tenant *string) {
 	o.Tenant = tenant
 }
 
+// WithTokens adds the tokens to the objects list params
+func (o *ObjectsListParams) WithTokens(tokens []string) *ObjectsListParams {
+	o.SetTokens(tokens)
+	return o
+}
+
+// SetTokens adds the tokens to the objects list params
+func (o *ObjectsListParams) SetTokens(tokens []string) {
+	o.Tokens = tokens
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -418,6 +435,11 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 			if err := r.SetQueryParam("tenant", qTenant); err != nil {
 				return err
 			}
+		}
+	}
+	if o.Tokens != nil {
+		if err := r.SetBodyParam(o.Tokens); err != nil {
+			return err
 		}
 	}
 

@@ -52,6 +52,7 @@ message Hybrid {
   NearTextSearch near_text = 8;  // targets in msg is ignored and should not be set for hybrid
   NearVector near_vector = 9;  // same as above. Use the target vector in the hybrid message
   Targets targets = 10;
+  repeated string tokens = 11;
 
   // only vector distance, but keep it extendable
   oneof threshold {
@@ -150,4 +151,5 @@ message NearIMUSearch {
 message BM25 {
   string query = 1;
   repeated string properties = 2;
+  repeated string tokens = 3;
 }

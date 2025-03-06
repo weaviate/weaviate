@@ -31,7 +31,7 @@ import (
 // GetObject Class from the connected DB
 func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
-	replProps *additional.ReplicationProperties, tenant string,
+	replProps *additional.ReplicationProperties, tenant string, userTokens []string,
 ) (*models.Object, error) {
 	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id))
 	if err != nil {
@@ -56,7 +56,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 // GetObjects Class from the connected DB
 func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
-	addl additional.Properties, tenant string,
+	addl additional.Properties, tenant string, userTokens []string,
 ) ([]*models.Object, error) {
 	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", tenant, ""))
 	if err != nil {
@@ -66,7 +66,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
-	objects, err := m.getObjectsFromRepo(ctx, offset, limit, sort, order, after, addl, tenant)
+	objects, err := m.getObjectsFromRepo(ctx, offset, limit, sort, order, after, addl, tenant, userTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 
 func (m *Manager) getObjectsFromRepo(ctx context.Context,
 	offset, limit *int64, sort, order *string, after *string,
-	additional additional.Properties, tenant string,
+	additional additional.Properties, tenant string, userTokens []string,
 ) ([]*models.Object, error) {
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
@@ -159,7 +159,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 		return nil, NewErrInternal("list objects: after parameter not allowed, cursor must be specific to one class, set class query param")
 	}
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
-		nil, m.getSort(sort, order), additional, tenant)
+		nil, m.getSort(sort, order), additional, tenant, userTokens)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}

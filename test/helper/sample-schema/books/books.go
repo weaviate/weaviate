@@ -235,6 +235,13 @@ func objects(className string) []*models.Object {
 		{
 			Class: className,
 			ID:    TheLordOfTheIceGarden,
+			Tokens: []string{
+				"The", "Lord", "of", "the", "Ice", "Garden",
+				"(Polish:", "Pan", "Lodowego", "Ogrodu)",
+				"is", "a", "four-volume", "science", "fiction",
+				"and", "fantasy", "novel", "by", "Polish",
+				"writer", "Jaroslaw", "Grzedowicz.",
+			},
 			Properties: map[string]interface{}{
 				"title":       "The Lord of the Ice Garden",
 				"tags":        []string{"three", "three", "three"},
@@ -250,15 +257,12 @@ func batchObjects(className string) []*pb.BatchObject {
 		{
 			Collection: className,
 			Uuid:       Dune.String(),
+			Tokens:     []string{"dune", "is", "a", "1965", "epic", "science", "fiction", "novel", "by", "american", "author", "frank", "herbert"},
 			Properties: &pb.BatchObject_Properties{
 				NonRefProperties: &structpb.Struct{
 					Fields: map[string]*structpb.Value{
-						"title":       structpb.NewStringValue("Dune"),
-						"description": structpb.NewStringValue("Dune is a 1965 epic science fiction novel by American author Frank Herbert."),
-					},
-					Terms: map[string]*structpb.Value{
-						"title":       structpb.NewStringValue("dune"),
-						"description": structpb.NewStringValue("dune", "is", "a", "1965", "epic", "science", "fiction", "novel", "by", "american", "author", "frank", "herbert"),
+						"title":       structpb.NewStringValue("lalala"),
+						"description": structpb.NewStringValue("lalalala"),
 					},
 				},
 				ObjectProperties: []*pb.ObjectProperties{{

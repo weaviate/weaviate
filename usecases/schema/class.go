@@ -660,7 +660,7 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
 				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase,
-				models.PropertyTokenizationTrigram:
+				models.PropertyTokenizationTrigram, models.PropertyTokenizationUser:
 				return nil
 			case models.PropertyTokenizationGse:
 				if !entcfg.Enabled(os.Getenv("USE_GSE")) && !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {

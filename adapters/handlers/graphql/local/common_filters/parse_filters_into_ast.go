@@ -176,5 +176,5 @@ type WhereFilter struct {
 	ValueString   interface{}                 `json:"valueString,omitempty"`
 	ValueText     interface{}                 `json:"valueText,omitempty"`
 	ValueGeoRange *models.WhereFilterGeoRange `json:"valueGeoRange,omitempty"`
-	ValueTerms    *models.WhereFilterTerms    `json:"valueTerms,omitempty"`
+	ValueTerms    []string                    `json:"valueTerms,omitempty"`
 }

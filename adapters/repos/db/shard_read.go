@@ -264,7 +264,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	additional additional.Properties, properties []string,
+	additional additional.Properties, properties []string, userTokens []string,
 ) ([]*storobj.Object, []float32, error) {
 	var err error
 
@@ -307,7 +307,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 				s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 				s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit,
 				s.bitmapFactory).
-				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
+				DocIDs(ctx, filters, additional, s.index.Config.ClassName, userTokens)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -338,7 +338,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties)
+		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties, userTokens)
 	return objs, nil, err
 }
 
@@ -372,7 +372,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, userTokens []string) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
 	defer func() {
@@ -397,7 +397,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	var allowList helpers.AllowList
 	if filters != nil {
 		beforeFilter := time.Now()
-		list, err := s.buildAllowList(ctx, filters, additional)
+		list, err := s.buildAllowList(ctx, filters, additional, userTokens)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -631,11 +631,11 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 	return sortedDocIDs, sortedDists, nil
 }
 
-func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
+func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties, userTokens []string) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
+		DocIDs(ctx, filters, addl, s.index.Config.ClassName, userTokens)
 	if err != nil {
 		return nil, errors.Wrap(err, "build inverted filter allow list")
 	}

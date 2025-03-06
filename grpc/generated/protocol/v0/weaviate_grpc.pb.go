@@ -12,12 +12,11 @@ import (
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-// Requires gRPC-Go v1.32.0 or later.
-const _ = grpc.SupportPackageIsVersion7
+// Requires gRPC-Go v1.64.0 or later.
+const _ = grpc.SupportPackageIsVersion9
 
 const (
 	Weaviate_Search_FullMethodName       = "/weaviategrpc.Weaviate/Search"
-	Weaviate_SearchV1_FullMethodName     = "/weaviategrpc.Weaviate/SearchV1"
 	Weaviate_BatchObjects_FullMethodName = "/weaviategrpc.Weaviate/BatchObjects"
 )
 
@@ -38,17 +37,9 @@ func NewWeaviateClient(cc grpc.ClientConnInterface) WeaviateClient {
 }
 
 func (c *weaviateClient) Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SearchReply)
-	err := c.cc.Invoke(ctx, Weaviate_Search_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *weaviateClient) SearchV1(ctx context.Context, in *SearchRequestV1, opts ...grpc.CallOption) (*SearchReplyV1, error) {
-	out := new(SearchReplyV1)
-	err := c.cc.Invoke(ctx, Weaviate_SearchV1_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, Weaviate_Search_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +47,9 @@ func (c *weaviateClient) SearchV1(ctx context.Context, in *SearchRequestV1, opts
 }
 
 func (c *weaviateClient) BatchObjects(ctx context.Context, in *BatchObjectsRequest, opts ...grpc.CallOption) (*BatchObjectsReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BatchObjectsReply)
-	err := c.cc.Invoke(ctx, Weaviate_BatchObjects_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, Weaviate_BatchObjects_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -66,16 +58,19 @@ func (c *weaviateClient) BatchObjects(ctx context.Context, in *BatchObjectsReque
 
 // WeaviateServer is the server API for Weaviate service.
 // All implementations must embed UnimplementedWeaviateServer
-// for forward compatibility
+// for forward compatibility.
 type WeaviateServer interface {
 	Search(context.Context, *SearchRequest) (*SearchReply, error)
 	BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error)
 	mustEmbedUnimplementedWeaviateServer()
 }
 
-// UnimplementedWeaviateServer must be embedded to have forward compatible implementations.
-type UnimplementedWeaviateServer struct {
-}
+// UnimplementedWeaviateServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedWeaviateServer struct{}
 
 func (UnimplementedWeaviateServer) Search(context.Context, *SearchRequest) (*SearchReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Search not implemented")
@@ -84,6 +79,7 @@ func (UnimplementedWeaviateServer) BatchObjects(context.Context, *BatchObjectsRe
 	return nil, status.Errorf(codes.Unimplemented, "method BatchObjects not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
+func (UnimplementedWeaviateServer) testEmbeddedByValue()                  {}
 
 // UnsafeWeaviateServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to WeaviateServer will
@@ -93,6 +89,13 @@ type UnsafeWeaviateServer interface {
 }
 
 func RegisterWeaviateServer(s grpc.ServiceRegistrar, srv WeaviateServer) {
+	// If the following call pancis, it indicates UnimplementedWeaviateServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
 	s.RegisterService(&Weaviate_ServiceDesc, srv)
 }
 
@@ -110,24 +113,6 @@ func _Weaviate_Search_Handler(srv interface{}, ctx context.Context, dec func(int
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WeaviateServer).Search(ctx, req.(*SearchRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Weaviate_SearchV1_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SearchRequestV1)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(WeaviateServer).SearchV1(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Weaviate_SearchV1_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WeaviateServer).SearchV1(ctx, req.(*SearchRequestV1))
 	}
 	return interceptor(ctx, in, info, handler)
 }

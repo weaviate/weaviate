@@ -231,9 +231,9 @@ func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
 }
 
 func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, additional additional.Properties, tenant string,
+	sort []filters.Sort, additional additional.Properties, tenant string, userTokens []string,
 ) (search.Results, error) {
-	args := f.Called(offset, limit, sort, filters, additional)
+	args := f.Called(offset, limit, sort, filters, additional, userTokens)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 

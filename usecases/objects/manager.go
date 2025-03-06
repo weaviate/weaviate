@@ -131,7 +131,7 @@ type VectorRepo interface {
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties, tenant string) (*search.Result, error)
 	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-		sort []filters.Sort, additional additional.Properties, tenant string) (search.Results, error)
+		sort []filters.Sort, additional additional.Properties, tenant string, userTokens []string) (search.Results, error)
 	AddReference(ctx context.Context, source *crossref.RefSource,
 		target *crossref.Ref, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error
 	Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error
