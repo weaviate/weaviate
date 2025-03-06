@@ -1014,6 +1014,11 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 		Tombstone: true,
 	}
 
+	if b.active.strategy == StrategyInverted {
+		docID := binary.BigEndian.Uint64(mapKey)
+		b.active.tombstones.Set(docID)
+	}
+
 	return b.active.appendMapSorted(rowKey, pair)
 }
 
