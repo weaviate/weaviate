@@ -39,6 +39,7 @@ var schemaTests = []struct {
 	{name: "AddInvalidPropertyDuringCreation", fn: testAddInvalidPropertyDuringCreation},
 	{name: "AddInvalidPropertyWithEmptyDataTypeDuringCreation", fn: testAddInvalidPropertyWithEmptyDataTypeDuringCreation},
 	{name: "DropProperty", fn: testDropProperty},
+	{name: "GetSchemaExcludeWellknown", fn: testExcludeWellknown},
 }
 
 func testAddObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
@@ -364,6 +365,30 @@ func testDropProperty(t *testing.T, handler *Handler, fakeSchemaManager *fakeSch
 	// Now drop the property
 	handler.DeleteClassProperty(context.Background(), nil, "Car", "color")
 	// TODO: add the mock necessary to verify that the property is deleted
+}
+
+func testExcludeWellknown(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
+	t.Parallel()
+
+	class := &models.Class{
+		Class:      "Wellknown_Synthetic",
+		Vectorizer: "text2vec-contextionary",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+	}
+
+	fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{
+		Classes: []*models.Class{class},
+	})
+
+	s := handler.schemaReader.ReadOnlySchema()
+	excludedS := handler.stripWellknownCollections(schema.Schema{
+		Objects: &s,
+	})
+	assert.Len(t, excludedS.Objects.Classes, 0)
 }
 
 // This grant parent test setups up the temporary directory needed for the tests.
