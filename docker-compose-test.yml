@@ -33,6 +33,7 @@ services:
       DISABLE_TELEMETRY: true
       DISABLE_RECOVERY_ON_PANIC: true
       QUERY_MAXIMUM_RESULTS: 10005
+      MAXIMUM_ALLOWED_COLLECTIONS_COUNT: -1
 
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in
