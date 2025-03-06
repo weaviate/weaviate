@@ -1621,18 +1621,24 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {
 		segment := segmentsDisk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
-		tombstones, err := segment.GetTombstones()
-		if err != nil {
-			release()
-			return nil, func() {}, err
+		var tombstones *sroar.Bitmap
+		var err error
+		if j == len(segmentsDisk)-1 {
+			tombstones = allTombstones[0].Or(allTombstones[1])
+		} else {
+			tombstones, err = segmentsDisk[j+1].GetTombstones()
+			if err != nil {
+				release()
+				return nil, func() {}, err
+			}
+			if b.flushing != nil {
+				tombstones.Or(allTombstones[0])
+			}
+			if b.active != nil {
+				tombstones.Or(allTombstones[1])
+			}
 		}
 
-		if b.flushing != nil {
-			tombstones.Or(allTombstones[0])
-		}
-		if b.active != nil {
-			tombstones.Or(allTombstones[1])
-		}
 		for i, key := range query {
 
 			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, tombstones, filterDocIds, averagePropLength, config)
