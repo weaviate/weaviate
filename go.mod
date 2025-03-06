@@ -68,7 +68,7 @@ require (
 	github.com/weaviate/sroar v0.0.9
 	github.com/weaviate/tiktoken-go v0.0.2
 	github.com/willf/bloom v2.0.3+incompatible
-	go.etcd.io/bbolt v1.3.11
+	go.etcd.io/bbolt v1.4.0
 	golang.org/x/net v0.34.0
 	golang.org/x/oauth2 v0.25.0
 	golang.org/x/sync v0.11.0
@@ -223,5 +223,4 @@ require (
 )
 
 go 1.22.0
-
 toolchain go1.23.4
