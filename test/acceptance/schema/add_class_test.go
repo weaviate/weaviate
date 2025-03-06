@@ -508,10 +508,9 @@ func TestMaximumAllowedCollectionsCount(t *testing.T) {
 		})
 	})
 
-	t.Run("with unlimited collections (-1)", func(t *testing.T) {
+	t.Run("with default limit (unlimited collections)", func(t *testing.T) {
 		// Start a single node with unlimited collections
 		compose, err := docker.New().With3NodeCluster().
-			WithWeaviateEnv("MAXIMUM_ALLOWED_COLLECTIONS_COUNT", "-1").
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
@@ -545,9 +544,10 @@ func TestMaximumAllowedCollectionsCount(t *testing.T) {
 		}
 	})
 
-	t.Run("with default limit (100)", func(t *testing.T) {
+	t.Run("with limit (100)", func(t *testing.T) {
 		// Start a single node with default limit
 		compose, err := docker.New().With3NodeCluster().
+			WithWeaviateEnv("MAXIMUM_ALLOWED_COLLECTIONS_COUNT", "100").
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {

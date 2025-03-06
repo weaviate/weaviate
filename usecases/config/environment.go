@@ -889,7 +889,7 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultMinimumReplicationFactor            = 1
-	DefaultMaximumAllowedCollectionsCount      = 100
+	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
 )
 
 const VectorizerModuleNone = "none"
