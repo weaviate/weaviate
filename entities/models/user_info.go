@@ -41,12 +41,12 @@ type UserInfo struct {
 
 	// The user id of the given user
 	// Required: true
-	UserID *string `json:"user_id"`
+	UserID *string `json:"userId"`
 
 	// type of the returned user
 	// Required: true
 	// Enum: [dynamic static]
-	UserType *string `json:"user_type"`
+	UserType *string `json:"userType"`
 }
 
 // Validate validates this user info
@@ -95,7 +95,7 @@ func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
 
 func (m *UserInfo) validateUserID(formats strfmt.Registry) error {
 
-	if err := validate.Required("user_id", "body", m.UserID); err != nil {
+	if err := validate.Required("userId", "body", m.UserID); err != nil {
 		return err
 	}
 
@@ -133,12 +133,12 @@ func (m *UserInfo) validateUserTypeEnum(path, location string, value string) err
 
 func (m *UserInfo) validateUserType(formats strfmt.Registry) error {
 
-	if err := validate.Required("user_type", "body", m.UserType); err != nil {
+	if err := validate.Required("userType", "body", m.UserType); err != nil {
 		return err
 	}
 
 	// value enum
-	if err := m.validateUserTypeEnum("user_type", "body", *m.UserType); err != nil {
+	if err := m.validateUserTypeEnum("userType", "body", *m.UserType); err != nil {
 		return err
 	}
 

@@ -96,7 +96,7 @@ type AssignRoleToUserBody struct {
 
 	// user type
 	// Required: true
-	UserType *models.UserTypes `json:"user_type" yaml:"user_type"`
+	UserType *models.UserTypes `json:"userType" yaml:"userType"`
 }
 
 // Validate validates this assign role to user body
@@ -115,20 +115,20 @@ func (o *AssignRoleToUserBody) Validate(formats strfmt.Registry) error {
 
 func (o *AssignRoleToUserBody) validateUserType(formats strfmt.Registry) error {
 
-	if err := validate.Required("body"+"."+"user_type", "body", o.UserType); err != nil {
+	if err := validate.Required("body"+"."+"userType", "body", o.UserType); err != nil {
 		return err
 	}
 
-	if err := validate.Required("body"+"."+"user_type", "body", o.UserType); err != nil {
+	if err := validate.Required("body"+"."+"userType", "body", o.UserType); err != nil {
 		return err
 	}
 
 	if o.UserType != nil {
 		if err := o.UserType.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("body" + "." + "user_type")
+				return ve.ValidateName("body" + "." + "userType")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("body" + "." + "user_type")
+				return ce.ValidateName("body" + "." + "userType")
 			}
 			return err
 		}
@@ -156,9 +156,9 @@ func (o *AssignRoleToUserBody) contextValidateUserType(ctx context.Context, form
 	if o.UserType != nil {
 		if err := o.UserType.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("body" + "." + "user_type")
+				return ve.ValidateName("body" + "." + "userType")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("body" + "." + "user_type")
+				return ce.ValidateName("body" + "." + "userType")
 			}
 			return err
 		}

@@ -469,7 +469,7 @@ type GetRolesForUserBody struct {
 
 	// user type
 	// Required: true
-	UserType *models.UserTypes `json:"user_type"`
+	UserType *models.UserTypes `json:"userType"`
 }
 
 // Validate validates this get roles for user body
@@ -488,20 +488,20 @@ func (o *GetRolesForUserBody) Validate(formats strfmt.Registry) error {
 
 func (o *GetRolesForUserBody) validateUserType(formats strfmt.Registry) error {
 
-	if err := validate.Required("body"+"."+"user_type", "body", o.UserType); err != nil {
+	if err := validate.Required("body"+"."+"userType", "body", o.UserType); err != nil {
 		return err
 	}
 
-	if err := validate.Required("body"+"."+"user_type", "body", o.UserType); err != nil {
+	if err := validate.Required("body"+"."+"userType", "body", o.UserType); err != nil {
 		return err
 	}
 
 	if o.UserType != nil {
 		if err := o.UserType.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("body" + "." + "user_type")
+				return ve.ValidateName("body" + "." + "userType")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("body" + "." + "user_type")
+				return ce.ValidateName("body" + "." + "userType")
 			}
 			return err
 		}
@@ -529,9 +529,9 @@ func (o *GetRolesForUserBody) contextValidateUserType(ctx context.Context, forma
 	if o.UserType != nil {
 		if err := o.UserType.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("body" + "." + "user_type")
+				return ve.ValidateName("body" + "." + "userType")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("body" + "." + "user_type")
+				return ce.ValidateName("body" + "." + "userType")
 			}
 			return err
 		}

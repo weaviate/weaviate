@@ -33,7 +33,7 @@ type Principal struct {
 	Groups []string `json:"groups"`
 
 	// user type
-	UserType UserTypes `json:"user_type,omitempty"`
+	UserType UserTypes `json:"userType,omitempty"`
 
 	// The username that was extracted either from the authentication information
 	Username string `json:"username,omitempty"`
@@ -60,9 +60,9 @@ func (m *Principal) validateUserType(formats strfmt.Registry) error {
 
 	if err := m.UserType.Validate(formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("user_type")
+			return ve.ValidateName("userType")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("user_type")
+			return ce.ValidateName("userType")
 		}
 		return err
 	}
@@ -88,9 +88,9 @@ func (m *Principal) contextValidateUserType(ctx context.Context, formats strfmt.
 
 	if err := m.UserType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("user_type")
+			return ve.ValidateName("userType")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("user_type")
+			return ce.ValidateName("userType")
 		}
 		return err
 	}

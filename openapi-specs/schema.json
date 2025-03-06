@@ -45,11 +45,11 @@
             "type": "string"
           }
         },
-        "user_id": {
+        "userId": {
           "type": "string",
           "description": "The user id of the given user"
         },
-        "user_type":{
+        "userType":{
           "type": "string",
           "enum": [
             "dynamic",
@@ -62,7 +62,8 @@
           "description": "activity status of the returned user"
         }
       },
-      "required": ["user_id", "user_type", "roles", "active"]
+      "required": [
+        "userId", "userType", "roles", "active"]
     },
     "UserApiKey": {
       "type": "object",
@@ -287,7 +288,7 @@
             "type": "string"
           }
         },
-        "user_type": {
+        "userType": {
           "$ref": "#/definitions/UserTypes"
         }
       }
@@ -3552,11 +3553,11 @@
             "schema": {
               "type": "object",
               "properties": {
-                "user_type": {
+                "userType": {
                   "$ref": "#/definitions/UserTypes"
                 }
               },
-              "required": ["user_type"]
+              "required": ["userType"]
             }
           }
         ],
@@ -3626,11 +3627,11 @@
                     "type": "string"
                   }
                 },
-                "user_type": {
+                "userType": {
                    "$ref": "#/definitions/UserTypes"
                 }
               },
-              "required": ["user_type"]
+              "required": ["userType"]
             }
           }
         ],
@@ -3700,11 +3701,11 @@
                     "type": "string"
                   }
                 },
-                "user_type": {
+                "userType": {
                   "$ref": "#/definitions/UserTypes"
                 }
               },
-              "required": ["user_type"]
+              "required": ["userType"]
             }
           }
         ],

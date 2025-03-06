@@ -776,7 +776,7 @@ func init() {
             "schema": {
               "type": "object",
               "required": [
-                "user_type"
+                "userType"
               ],
               "properties": {
                 "roles": {
@@ -786,7 +786,7 @@ func init() {
                     "type": "string"
                   }
                 },
-                "user_type": {
+                "userType": {
                   "$ref": "#/definitions/UserTypes"
                 }
               }
@@ -852,7 +852,7 @@ func init() {
             "schema": {
               "type": "object",
               "required": [
-                "user_type"
+                "userType"
               ],
               "properties": {
                 "roles": {
@@ -862,7 +862,7 @@ func init() {
                     "type": "string"
                   }
                 },
-                "user_type": {
+                "userType": {
                   "$ref": "#/definitions/UserTypes"
                 }
               }
@@ -928,10 +928,10 @@ func init() {
             "schema": {
               "type": "object",
               "required": [
-                "user_type"
+                "userType"
               ],
               "properties": {
-                "user_type": {
+                "userType": {
                   "$ref": "#/definitions/UserTypes"
                 }
               }
@@ -6162,7 +6162,7 @@ func init() {
             "type": "string"
           }
         },
-        "user_type": {
+        "userType": {
           "$ref": "#/definitions/UserTypes"
         },
         "username": {
@@ -6697,8 +6697,8 @@ func init() {
     "UserInfo": {
       "type": "object",
       "required": [
-        "user_id",
-        "user_type",
+        "userId",
+        "userType",
         "roles",
         "active"
       ],
@@ -6714,11 +6714,11 @@ func init() {
             "type": "string"
           }
         },
-        "user_id": {
+        "userId": {
           "description": "The user id of the given user",
           "type": "string"
         },
-        "user_type": {
+        "userType": {
           "description": "type of the returned user",
           "type": "string",
           "enum": [
@@ -7839,7 +7839,7 @@ func init() {
             "schema": {
               "type": "object",
               "required": [
-                "user_type"
+                "userType"
               ],
               "properties": {
                 "roles": {
@@ -7849,7 +7849,7 @@ func init() {
                     "type": "string"
                   }
                 },
-                "user_type": {
+                "userType": {
                   "$ref": "#/definitions/UserTypes"
                 }
               }
@@ -7915,7 +7915,7 @@ func init() {
             "schema": {
               "type": "object",
               "required": [
-                "user_type"
+                "userType"
               ],
               "properties": {
                 "roles": {
@@ -7925,7 +7925,7 @@ func init() {
                     "type": "string"
                   }
                 },
-                "user_type": {
+                "userType": {
                   "$ref": "#/definitions/UserTypes"
                 }
               }
@@ -7991,10 +7991,10 @@ func init() {
             "schema": {
               "type": "object",
               "required": [
-                "user_type"
+                "userType"
               ],
               "properties": {
-                "user_type": {
+                "userType": {
                   "$ref": "#/definitions/UserTypes"
                 }
               }
@@ -13635,7 +13635,7 @@ func init() {
             "type": "string"
           }
         },
-        "user_type": {
+        "userType": {
           "$ref": "#/definitions/UserTypes"
         },
         "username": {
@@ -14170,8 +14170,8 @@ func init() {
     "UserInfo": {
       "type": "object",
       "required": [
-        "user_id",
-        "user_type",
+        "userId",
+        "userType",
         "roles",
         "active"
       ],
@@ -14187,11 +14187,11 @@ func init() {
             "type": "string"
           }
         },
-        "user_id": {
+        "userId": {
           "description": "The user id of the given user",
           "type": "string"
         },
-        "user_type": {
+        "userType": {
           "description": "type of the returned user",
           "type": "string",
           "enum": [
