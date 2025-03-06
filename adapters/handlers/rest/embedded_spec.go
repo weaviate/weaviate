@@ -4272,6 +4272,9 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "404": {
+            "description": "user not found"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
@@ -11456,6 +11459,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "404": {
+            "description": "user not found"
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",

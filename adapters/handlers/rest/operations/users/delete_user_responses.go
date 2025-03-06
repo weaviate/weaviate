@@ -164,6 +164,31 @@ func (o *DeleteUserForbidden) WriteResponse(rw http.ResponseWriter, producer run
 	}
 }
 
+// DeleteUserNotFoundCode is the HTTP code returned for type DeleteUserNotFound
+const DeleteUserNotFoundCode int = 404
+
+/*
+DeleteUserNotFound user not found
+
+swagger:response deleteUserNotFound
+*/
+type DeleteUserNotFound struct {
+}
+
+// NewDeleteUserNotFound creates DeleteUserNotFound with default headers values
+func NewDeleteUserNotFound() *DeleteUserNotFound {
+
+	return &DeleteUserNotFound{}
+}
+
+// WriteResponse to the client
+func (o *DeleteUserNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(404)
+}
+
 // DeleteUserUnprocessableEntityCode is the HTTP code returned for type DeleteUserUnprocessableEntity
 const DeleteUserUnprocessableEntityCode int = 422
 

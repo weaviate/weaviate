@@ -211,7 +211,13 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 	if h.isRootUser(params.UserID) {
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot delete root user")))
 	}
-
+	existingUsers, err := h.dynamicUser.GetUsers(params.UserID)
+	if err != nil {
+		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+	if len(existingUsers) == 0 {
+		return users.NewDeleteUserNotFound()
+	}
 	roles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypesDb)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
