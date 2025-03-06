@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestSetClassDefaults(t *testing.T) {
@@ -151,6 +152,116 @@ func TestSetClassDefaults(t *testing.T) {
 		assert.Equal(t, expected, class,
 			"the defaults were set from config")
 	})
+
+	t.Run("named vector, without user-provided values", func(t *testing.T) {
+		class := &models.Class{
+			Class: "Foo",
+			Properties: []*models.Property{{
+				Name:         "Foo",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			}},
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					Vectorizer: map[string]interface{}{"my-module": map[string]interface{}{}},
+				},
+			},
+		}
+		expected := &models.Class{
+			Class: "Foo",
+			Properties: []*models.Property{{
+				Name:         "Foo",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				ModuleConfig: map[string]interface{}{
+					"my-module": map[string]interface{}{
+						"per-prop-1": "prop default value",
+						"per-prop-2": "prop default value",
+					},
+				},
+			}},
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					Vectorizer: map[string]interface{}{
+						"my-module": map[string]interface{}{
+							"per-class-prop-1": "some default value",
+							"per-class-prop-2": "some default value",
+						},
+					},
+				},
+			},
+		}
+
+		p := NewProvider(logger)
+		p.Register(&dummyModuleClassConfigurator{
+			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
+				name: "my-module",
+			},
+		})
+		p.SetClassDefaults(class)
+
+		assert.Equal(t, expected, class, "the defaults were set from config")
+	})
+
+	t.Run("mixed vector, without user-provided values", func(t *testing.T) {
+		class := &models.Class{
+			Class: "Foo",
+			Properties: []*models.Property{{
+				Name:         "Foo",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			}},
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					Vectorizer: map[string]interface{}{"my-module": map[string]interface{}{}},
+				},
+			},
+			Vectorizer:        "my-module",
+			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		}
+		expected := &models.Class{
+			Class: "Foo",
+			Properties: []*models.Property{{
+				Name:         "Foo",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				ModuleConfig: map[string]interface{}{
+					"my-module": map[string]interface{}{
+						"per-prop-1": "prop default value",
+						"per-prop-2": "prop default value",
+					},
+				},
+			}},
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					Vectorizer: map[string]interface{}{
+						"my-module": map[string]interface{}{
+							"per-class-prop-1": "some default value",
+							"per-class-prop-2": "some default value",
+						},
+					},
+				},
+			},
+			Vectorizer: "my-module",
+			ModuleConfig: map[string]interface{}{
+				"my-module": map[string]interface{}{
+					"per-class-prop-1": "some default value",
+					"per-class-prop-2": "some default value",
+				},
+			},
+			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		}
+
+		p := NewProvider(logger)
+		p.Register(&dummyModuleClassConfigurator{
+			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
+				name: "my-module",
+			},
+		})
+		p.SetClassDefaults(class)
+
+		assert.Equal(t, expected, class, "the defaults were set from config")
+	})
 }
 
 func TestValidateClass(t *testing.T) {
@@ -271,6 +382,76 @@ func TestSetSinglePropertyDefaults(t *testing.T) {
 	p.Register(&dummyModuleClassConfigurator{
 		dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 			name: "my-module",
+		},
+	})
+	p.SetSinglePropertyDefaults(class, prop)
+
+	assert.Equal(t, expected, prop,
+		"user specified module config is used, for rest the default value is used")
+}
+
+func TestSetSinglePropertyDefaults_MixedVectors(t *testing.T) {
+	class := &models.Class{
+		Class: "Foo",
+		Properties: []*models.Property{{
+			Name:         "Foo",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
+			ModuleConfig: map[string]interface{}{
+				"my-module": map[string]interface{}{
+					"per-prop-1": "prop overwritten by user",
+				},
+			},
+		}},
+		Vectorizer: "my-module",
+		ModuleConfig: map[string]interface{}{
+			"my-module": map[string]interface{}{
+				"per-class-prop-1": "overwritten by user",
+			},
+		},
+		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		VectorConfig: map[string]models.VectorConfig{
+			"vec1": {
+				Vectorizer: map[string]interface{}{
+					"my-module-2": map[string]interface{}{},
+				},
+			},
+		},
+	}
+	prop := &models.Property{
+		DataType: []string{"boolean"},
+		ModuleConfig: map[string]interface{}{
+			"my-module": map[string]interface{}{
+				"per-prop-1": "overwritten by user",
+			},
+		},
+		Name: "newProp",
+	}
+	expected := &models.Property{
+		DataType: []string{"boolean"},
+		ModuleConfig: map[string]interface{}{
+			"my-module": map[string]interface{}{
+				"per-prop-1": "overwritten by user",
+				"per-prop-2": "prop default value",
+			},
+			"my-module-2": map[string]interface{}{
+				"per-prop-1": "prop default value",
+				"per-prop-2": "prop default value",
+			},
+		},
+		Name: "newProp",
+	}
+
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger)
+	p.Register(&dummyModuleClassConfigurator{
+		dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
+			name: "my-module",
+		},
+	})
+	p.Register(&dummyModuleClassConfigurator{
+		dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
+			name: "my-module-2",
 		},
 	})
 	p.SetSinglePropertyDefaults(class, prop)
