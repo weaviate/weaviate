@@ -274,11 +274,7 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 		}
 		if bytes.Equal(key1, key2) {
 
-			value1Clean, skip := c.cleanupValues(value1)
-			if skip {
-				key1, value1, _ = c.c1.next()
-				continue
-			}
+			value1Clean, _ := c.cleanupValues(value1)
 
 			sim.reset([][]MapPair{value1Clean, value2})
 			mergedPairs, err := sim.
@@ -287,15 +283,21 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 				return nil, err
 			}
 
-			if values, skip := c.cleanupValues(mergedPairs); !skip {
-				ki, err := c.writeIndividualNode(c.offset, key2, values, c.propertyLengthsToWrite)
-				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (equal keys)")
-				}
-
-				c.offset = ki.ValueEnd
-				kis = append(kis, ki)
+			if len(mergedPairs) == 0 {
+				// skip key if no values left
+				key1, value1, _ = c.c1.next()
+				key2, value2, _ = c.c2.next()
+				continue
 			}
+
+			ki, err := c.writeIndividualNode(c.offset, key2, mergedPairs, c.propertyLengthsToWrite)
+			if err != nil {
+				return nil, errors.Wrap(err, "write individual node (equal keys)")
+			}
+
+			c.offset = ki.ValueEnd
+			kis = append(kis, ki)
+
 			// advance both!
 			key1, value1, _ = c.c1.next()
 			key2, value2, _ = c.c2.next()
