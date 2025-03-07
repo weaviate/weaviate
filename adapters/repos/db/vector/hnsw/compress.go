@@ -86,7 +86,6 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.compressor, err = compressionhelpers.NewHNSWPQMultiCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
 					h.allocChecker)
-
 			}
 			if err != nil {
 				h.pqConfig.Enabled = false
@@ -125,7 +124,6 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.compressor.Preload(index, data[index])
 			})
 	} else {
-		//h.compressor.GrowCache(uint64(len(data)))
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
 				if len(data[index]) == 0 {
