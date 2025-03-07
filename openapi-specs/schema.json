@@ -5,7 +5,7 @@
     "application/json"
   ],
   "definitions": {
-    "UserInfo": {
+    "UserOwnInfo": {
       "type": "object",
       "properties": {
         "groups": {
@@ -2652,7 +2652,7 @@
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/UserOwnInfo"
             }
           },
           "401": {

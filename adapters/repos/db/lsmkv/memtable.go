@@ -34,7 +34,7 @@ type Memtable struct {
 	primaryIndex       *binarySearchTree
 	roaringSet         *roaringset.BinarySearchTree
 	roaringSetRange    *roaringsetrange.Memtable
-	commitlog          *commitLogger
+	commitlog          memtableCommitLogger
 	size               uint64
 	path               string
 	strategy           string
@@ -51,7 +51,7 @@ type Memtable struct {
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
-	cl *commitLogger, metrics *Metrics, logger logrus.FieldLogger,
+	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
 	enableChecksumValidation bool,
 ) (*Memtable, error) {
 	m := &Memtable{
@@ -376,11 +376,6 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.size += uint64(len(key) + len(valuesForCommitLog))
 	m.metrics.size(m.size)
 	m.updateDirtyAt()
-
-	if m.strategy == StrategyInverted {
-		docID := binary.BigEndian.Uint64(pair.Key)
-		m.tombstones.Set(docID)
-	}
 
 	return nil
 }

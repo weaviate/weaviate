@@ -93,11 +93,12 @@ func WithChecksumsDisabled(disable bool) SegmentFileOption {
 // NewSegmentFile creates a new instance of SegmentFile.
 // Be sure to include a writer or reader option depending on your needs.
 func NewSegmentFile(opts ...SegmentFileOption) *SegmentFile {
-	s := &SegmentFile{}
+	s := &SegmentFile{
+		checksumsDisabled: true,
+	}
 	for _, opt := range opts {
 		opt(s)
 	}
-	s.checksumsDisabled = true
 	return s
 }
 

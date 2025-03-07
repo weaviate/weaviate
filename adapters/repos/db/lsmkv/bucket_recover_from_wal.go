@@ -52,7 +52,37 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 			continue
 		}
 
+		path := filepath.Join(b.dir, fileInfo.Name())
+
+		stat, err := os.Stat(path)
+		if err != nil {
+			return errors.Wrap(err, "stat commit log")
+		}
+
+		if stat.Size() == 0 {
+			logOnceWhenRecoveringFromWAL.Do(func() {
+				b.logger.WithField("action", "lsm_recover_from_active_wal").
+					WithField("path", b.dir).
+					Warning("empty write-ahead-log found. Did weaviate crash prior to this? Nothing to recover from this file.")
+			})
+
+			err := os.Remove(path)
+			if err != nil {
+				return errors.Wrap(err, "remove empty wal file")
+			}
+
+			continue
+		}
+
 		walFileNames = append(walFileNames, fileInfo.Name())
+	}
+
+	if len(walFileNames) > 0 {
+		logOnceWhenRecoveringFromWAL.Do(func() {
+			b.logger.WithField("action", "lsm_recover_from_active_wal").
+				WithField("path", b.dir).
+				Warning("active write-ahead-log found. Did weaviate crash prior to this?")
+		})
 	}
 
 	// recover from each log
@@ -68,32 +98,11 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		cl.pause()
 		defer cl.unpause()
 
-		stat, err := cl.file.Stat()
-		if err != nil {
-			return errors.Wrap(err, "stat commit log")
-		}
-
-		if stat.Size() == 0 {
-			b.logger.WithField("action", "lsm_recover_from_active_wal").
-				WithField("path", path).
-				Warning("empty write-ahead-log found. Did weaviate crash prior to this or the tenant on/loaded from the cloud? Nothing to recover from this file.")
-			continue
-		}
-
 		mt, err := newMemtable(path, b.strategy, b.secondaryIndices,
 			cl, b.metrics, b.logger, b.enableChecksumValidation)
 		if err != nil {
 			return err
 		}
-
-		logOnceWhenRecoveringFromWAL.Do(func() {
-			b.logger.WithField("action", "lsm_recover_from_active_wal").
-				Warning("active write-ahead-log found. Did weaviate crash prior to this?")
-		})
-
-		b.logger.WithField("action", "lsm_recover_from_active_wal").
-			WithField("path", path).
-			Debug("active write-ahead-log found. Did weaviate crash prior to this or the tenant on/loaded from the cloud? Trying to recover...")
 
 		meteredReader := diskio.NewMeteredReader(bufio.NewReader(cl.file), b.metrics.TrackStartupReadWALDiskIO)
 

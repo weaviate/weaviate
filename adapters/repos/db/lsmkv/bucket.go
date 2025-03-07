@@ -19,10 +19,13 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	entcfg "github.com/weaviate/weaviate/entities/config"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -286,6 +289,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 }
 
 func (b *Bucket) GetDir() string {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
 	return b.dir
 }
 
@@ -1016,6 +1021,11 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 		Tombstone: true,
 	}
 
+	if b.active.strategy == StrategyInverted {
+		docID := binary.BigEndian.Uint64(mapKey)
+		b.active.tombstones.Set(docID)
+	}
+
 	return b.active.appendMapSorted(rowKey, pair)
 }
 
@@ -1053,7 +1063,7 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 func (b *Bucket) setNewActiveMemtable() error {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
-	cl, err := newCommitLogger(path)
+	cl, err := newLazyCommitLogger(path)
 	if err != nil {
 		return errors.Wrap(err, "init commit logger")
 	}
@@ -1138,7 +1148,7 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {
-	defer GlobalBucketRegistry.Remove(b.dir)
+	defer GlobalBucketRegistry.Remove(b.GetDir())
 
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err
@@ -1178,7 +1188,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 // flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	b.flushLock.RLock()
-	commitLogSize := b.active.commitlog.Size()
+	commitLogSize := b.active.commitlog.size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
 	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
@@ -1206,7 +1216,7 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
 			b.logger.WithField("action", "lsm_memtable_flush").
-				WithField("path", b.dir).
+				WithField("path", b.GetDir()).
 				WithError(err).
 				Errorf("flush and switch failed")
 			return false
@@ -1291,11 +1301,24 @@ func (b *Bucket) isReadOnly() bool {
 func (b *Bucket) FlushAndSwitch() error {
 	before := time.Now()
 
+	bucketPath := b.GetDir()
+
 	b.logger.WithField("action", "lsm_memtable_flush_start").
-		WithField("path", b.dir).
+		WithField("path", bucketPath).
 		Trace("start flush and switch")
-	if err := b.atomicallySwitchMemtable(); err != nil {
-		return fmt.Errorf("switch active memtable: %w", err)
+
+	switched, err := b.atomicallySwitchMemtable()
+	if err != nil {
+		b.logger.WithField("action", "lsm_memtable_flush_start").
+			WithField("path", bucketPath).
+			Error(err)
+		return fmt.Errorf("flush and switch: %w", err)
+	}
+	if !switched {
+		b.logger.WithField("action", "lsm_memtable_flush_start").
+			WithField("path", bucketPath).
+			Trace("flush and switch not needed")
+		return nil
 	}
 
 	if err := b.flushing.flush(); err != nil {
@@ -1334,15 +1357,34 @@ func (b *Bucket) FlushAndSwitch() error {
 
 	took := time.Since(before)
 	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", b.dir).
+		WithField("path", bucketPath).
 		Trace("finish flush and switch")
 
 	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", b.dir).
+		WithField("path", bucketPath).
 		WithField("took", took).
 		Debugf("flush and switch took %s\n", took)
 
 	return nil
+}
+
+func (b *Bucket) atomicallySwitchMemtable() (bool, error) {
+	b.flushLock.Lock()
+	defer b.flushLock.Unlock()
+
+	if b.active.size == 0 {
+		return false, nil
+	}
+
+	flushing := b.active
+
+	err := b.setNewActiveMemtable()
+	if err != nil {
+		return false, fmt.Errorf("switch active memtable: %w", err)
+	}
+	b.flushing = flushing
+
+	return true, nil
 }
 
 func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
@@ -1379,14 +1421,6 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg *segment) error {
 	}
 
 	return nil
-}
-
-func (b *Bucket) atomicallySwitchMemtable() error {
-	b.flushLock.Lock()
-	defer b.flushLock.Unlock()
-
-	b.flushing = b.active
-	return b.setNewActiveMemtable()
 }
 
 func (b *Bucket) Strategy() string {
@@ -1506,7 +1540,19 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }
 
-func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, func(), error) {
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
+	release := func() {}
+
+	defer func() {
+		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+			if r := recover(); r != nil {
+				b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
+				debug.PrintStack()
+				release()
+			}
+		}
+	}()
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1525,7 +1571,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))
-
+	idfCounts := make(map[string]uint64, len(query))
 	// flusing memtable
 	output[len(segmentsDisk)] = make([]*SegmentBlockMax, 0, len(query))
 
@@ -1551,7 +1597,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			tombstones, err := b.active.GetTombstones()
 			if err != nil {
 				release()
-				return nil, func() {}, err
+				return nil, nil, func() {}, err
 			}
 			allTombstones[1] = tombstones
 
@@ -1571,7 +1617,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			tombstones, err := b.flushing.GetTombstones()
 			if err != nil {
 				release()
-				return nil, func() {}, err
+				return nil, nil, func() {}, err
 			}
 
 			allTombstones[0] = tombstones
@@ -1597,21 +1643,35 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 		flushing.idf = idfs[i]
 		flushing.currentBlockImpact = float32(idfs[i])
+
+		idfCounts[queryTerm] = n
 	}
 
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {
 		segment := segmentsDisk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
-		tombstones, err := segment.GetTombstones()
-		if err != nil {
-			release()
-			return nil, func() {}, err
+
+		var tombstones *sroar.Bitmap
+		var err error
+		if j == len(segmentsDisk)-1 {
+			tombstones = sroar.NewBitmap()
+		} else {
+			tombstones, err = segmentsDisk[j+1].GetTombstones()
+			if err != nil {
+				release()
+				return nil, nil, func() {}, err
+			}
 		}
 
-		if b.flushing != nil {
+		if err != nil {
+			release()
+			return nil, nil, func() {}, err
+		}
+
+		if allTombstones[0] != nil {
 			tombstones.Or(allTombstones[0])
 		}
-		if b.active != nil {
+		if allTombstones[1] != nil {
 			tombstones.Or(allTombstones[1])
 		}
 		for i, key := range query {
@@ -1623,7 +1683,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 
 	}
-	return output, release, nil
+	return output, idfCounts, release, nil
 }
 
 func fillTerm(memtable *Memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {

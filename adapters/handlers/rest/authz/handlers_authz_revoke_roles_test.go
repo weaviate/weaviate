@@ -113,6 +113,16 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 			},
 		},
 		{
+			name:      "successful revocation via root group",
+			principal: &models.Principal{Username: "not-root-user", Groups: []string{"root-group"}},
+			params: authz.RevokeRoleFromGroupParams{
+				ID: "user1",
+				Body: authz.RevokeRoleFromGroupBody{
+					Roles: []string{"testRole"},
+				},
+			},
+		},
+		{
 			name: "revoke another user not configured admin role",
 			params: authz.RevokeRoleFromGroupParams{
 				ID: "user1",
@@ -152,7 +162,7 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 				apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
 				logger:         logger,
 				rbacconfig: rbacconf.Config{
-					RootUsers: []string{"root-user"},
+					RootUsers: []string{"root-user"}, RootGroups: []string{"root-group"},
 				},
 			}
 			res := h.revokeRoleFromGroup(tt.params, tt.principal)
@@ -468,7 +478,7 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 					Roles: []string{"testRole"},
 				},
 			},
-			principal:     &models.Principal{Username: "user1"},
+			principal:     &models.Principal{Username: "user1", Groups: []string{"testGroup"}},
 			authorizeErr:  fmt.Errorf("authorization error"),
 			expectedError: "authorization error",
 		},

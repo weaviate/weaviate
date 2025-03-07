@@ -114,16 +114,16 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "create POST request")
 	}
-	apiKey, err := v.getApiKey(ctx)
+	token, err := v.getToken(ctx)
 	if err != nil {
-		return nil, nil, 0, errors.Wrap(err, "Weaviate API key")
+		return nil, nil, 0, errors.Wrap(err, "authentication token")
 	}
 	clusterURL, err := v.getClusterURL(ctx)
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "cluster URL")
 	}
 
-	req.Header.Set("Authorization", apiKey)
+	req.Header.Set("Authorization", token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Add("Request-Source", "unspecified:weaviate")
 	req.Header.Add("X-Weaviate-Embedding-Model", model)
@@ -173,7 +173,7 @@ func (v *vectorizer) getEmbeddingsRequest(texts []string, isSearchQuery bool, di
 }
 
 func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
-	key, err := v.getApiKey(ctx)
+	key, err := v.getToken(ctx)
 	if err != nil {
 		return [32]byte{}
 	}
@@ -216,16 +216,15 @@ func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) 
 	return fmt.Sprintf(errorTemplate, statusCode, errResp.Detail)
 }
 
-func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Weaviate-Api-Key"); apiKey != "" {
-		return apiKey, nil
+func (v *vectorizer) getToken(ctx context.Context) (string, error) {
+	if token := modulecomponents.GetValueFromContext(ctx, "Authorization"); token != "" {
+		return token, nil
 	}
 	if v.apiKey != "" {
-		return v.apiKey, nil
+		return fmt.Sprintf("Bearer %s", v.apiKey), nil
 	}
-	return "", errors.New("no api key found " +
-		"neither in request header: X-Weaviate-Api-Key " +
-		"nor in environment variable under WEAVIATE_APIKEY")
+	return "", errors.New("neither authentication token found in request header: Authorization " +
+		"nor api key in environment variable under WEAVIATE_APIKEY")
 }
 
 func (v *vectorizer) getClusterURL(ctx context.Context) (string, error) {

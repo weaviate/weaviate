@@ -212,6 +212,8 @@ type Index struct {
 
 	replicationConfigLock sync.RWMutex
 
+	shardLoadLimiter ShardLoadLimiter
+
 	closeLock sync.RWMutex
 	closed    bool
 }
@@ -271,6 +273,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		indexCheckpoints:       indexCheckpoints,
 		allocChecker:           allocChecker,
 		shardCreateLocks:       esync.NewKeyLocker(),
+		shardLoadLimiter:       cfg.ShardLoadLimiter,
 	}
 
 	getDeletionStrategy := func() string {
@@ -321,6 +324,11 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 			shardName := shardName // prevent loop variable capture
 			eg.Go(func() error {
+				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
+					return fmt.Errorf("acquiring permit to load shard: %w", err)
+				}
+				defer i.shardLoadLimiter.Release()
+
 				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
@@ -350,7 +358,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			continue
 		}
 
-		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker)
+		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter)
 		i.shards.Store(shardName, shard)
 	}
 
@@ -433,6 +441,11 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
 		}
 
+		if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
+			return nil, fmt.Errorf("acquiring permit to load shard: %w", err)
+		}
+		defer i.shardLoadLimiter.Release()
+
 		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
@@ -441,7 +454,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		return shard, nil
 	}
 
-	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker)
+	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter)
 	return shard, nil
 }
 
@@ -638,6 +651,7 @@ type IndexConfig struct {
 	ForceFullReplicasSearch             bool
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
+	ShardLoadLimiter                    ShardLoadLimiter
 }
 
 func indexID(class schema.ClassName) string {

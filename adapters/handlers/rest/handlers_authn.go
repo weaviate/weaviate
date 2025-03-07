@@ -66,7 +66,7 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 		"user":      principal.Username,
 	}).Info("own info requested")
 
-	return users.NewGetOwnInfoOK().WithPayload(&models.UserInfo{
+	return users.NewGetOwnInfoOK().WithPayload(&models.UserOwnInfo{
 		Groups:   principal.Groups,
 		Roles:    roles,
 		Username: &principal.Username,
