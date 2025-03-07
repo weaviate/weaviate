@@ -319,6 +319,27 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			return false, err
 		}
 	case segmentindex.StrategyInverted:
+		if os.Getenv("MIGRATE_TO_INVERTED_SEARCHABLE") == "true" {
+			segmentConfig := segmentConfig{
+				mmapContents:             sg.mmapContents,
+				useBloomFilter:           false,
+				calcCountNetAdditions:    sg.calcCountNetAdditions,
+				overwriteDerived:         false,
+				enableChecksumValidation: true,
+			}
+			ok, err := convertMapCollectionSegment(leftSegment, rightSegment, sg, level, secondaryIndices, cleanupTombstones, segmentConfig)
+			// only log errors and proceed with the next compaction
+			if err != nil {
+				sg.logger.WithError(err).Error("failed to convert map collection segment")
+			}
+
+			// only log and proceed with the next compaction
+			if ok {
+				sg.logger.WithField("action", "segment_conversion").Infof("Segment %q converted successfully", path)
+			}
+
+		}
+
 		c := newCompactorInverted(f,
 			leftSegment.newInvertedCursorReusable(),
 			rightSegment.newInvertedCursorReusable(),
@@ -332,6 +353,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		if err := c.do(); err != nil {
 			return false, err
 		}
+
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
 	}
@@ -348,6 +370,145 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		return false, errors.Wrap(err, "replace compacted segments")
 	}
 
+	return true, nil
+}
+
+func segmentIDMapCollection(path string) string {
+	filename := filepath.Base(path)
+	return strings.TrimSuffix(strings.TrimPrefix(filename, "segment-"), ".db.mapcollection")
+}
+
+func convertMapCollectionSegment(leftSegmentInv *segment, rightSegmentInv *segment, sg *SegmentGroup, level uint16, secondaryIndices uint16, cleanupTombstones bool, segmentConfig segmentConfig) (bool, error) {
+	leftSegmentMapPath := leftSegmentInv.path + ".mapcollection"
+	rightSegmentMapPath := rightSegmentInv.path + ".mapcollection"
+
+	// sum of the sizes of the two files
+	s1, err := os.Stat(leftSegmentMapPath)
+	if err != nil {
+		return false, errors.Wrap(err, "left segment mapcollection file does not exist")
+	}
+
+	s2, err := os.Stat(rightSegmentMapPath)
+	if err != nil {
+		return false, errors.Wrap(err, "right segment mapcollection file does not exist")
+	}
+
+	// don't compact the largest segments, as this is a long process that will
+	// take up a lot of disk space in the intermediate steps
+	if s1.Size()+s2.Size() > sg.maxSegmentSize {
+		return false, errors.Errorf("sum of the sizes of the two files exceeds the max segment size: %d > %d", s1.Size()+s2.Size(), sg.maxSegmentSize)
+	}
+
+	// both files exist, we can proceed with the migration
+
+	leftSegment, err := newSegment(leftSegmentMapPath, sg.logger, nil, nil, segmentConfig)
+	if err != nil {
+		return false, errors.Wrap(err, "create left segment mapcollection")
+	}
+
+	defer func() {
+		if err := leftSegment.close(); err != nil {
+			sg.logger.WithError(err).WithFields(logrus.Fields{
+				"action": "lsm_conversion_mapcollection_inverted",
+				"path":   leftSegmentMapPath,
+			}).Error("failed to close left segment mapcollection")
+		}
+	}()
+
+	rightSegment, err := newSegment(rightSegmentMapPath, sg.logger, nil, nil, segmentConfig)
+	if err != nil {
+		return false, errors.Wrap(err, "create right segment mapcollection")
+	}
+
+	defer func() {
+		if err := rightSegment.close(); err != nil {
+			sg.logger.WithError(err).WithFields(logrus.Fields{
+				"action": "lsm_conversion_mapcollection_inverted",
+				"path":   rightSegmentMapPath,
+			}).Error("failed to close right segment mapcollection")
+		}
+	}()
+
+	if leftSegmentInv.level != leftSegment.level {
+		return false, errors.Errorf("left segment level mismatch: %d != %d", leftSegmentInv.level, leftSegment.level)
+	}
+
+	if rightSegmentInv.level != rightSegment.level {
+		return false, errors.Errorf("right segment level mismatch: %d != %d", rightSegmentInv.level, rightSegment.level)
+	}
+
+	scratchSpacePath := rightSegment.path + ".mapcollection.compaction.scratch.d"
+
+	path := filepath.Join(sg.dir, "segment-"+segmentIDMapCollection(leftSegment.path)+"_"+segmentIDMapCollection(rightSegment.path)+".db.mapcollection.tmp")
+
+	f, err := os.Create(path)
+	if err != nil {
+		return false, err
+	}
+
+	c := newCompactorMapCollection(f,
+		leftSegment.newCollectionCursorReusable(),
+		rightSegment.newCollectionCursorReusable(),
+		level, secondaryIndices, scratchSpacePath,
+		sg.mapRequiresSorting, cleanupTombstones,
+		sg.enableChecksumValidation)
+
+	pathLabel := "n/a"
+	if sg.metrics != nil && !sg.metrics.groupClasses {
+		pathLabel = sg.dir
+	}
+	if sg.metrics != nil {
+		sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
+		defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
+	}
+
+	if err := c.do(); err != nil {
+		return false, err
+	}
+
+	if err := f.Sync(); err != nil {
+		return false, errors.Wrap(err, "fsync compacted segment file")
+	}
+
+	if err := f.Close(); err != nil {
+		return false, errors.Wrap(err, "close compacted segment file")
+	}
+
+	if err := leftSegment.close(); err != nil {
+		return false, errors.Wrap(err, "close disk segment")
+	}
+
+	if err := rightSegment.close(); err != nil {
+		return false, errors.Wrap(err, "close disk segment")
+	}
+
+	if err := leftSegment.markForDeletion(); err != nil {
+		return false, errors.Wrap(err, "drop disk segment")
+	}
+
+	if err := rightSegment.markForDeletion(); err != nil {
+		return false, errors.Wrap(err, "drop disk segment")
+	}
+
+	err = diskio.Fsync(sg.dir)
+	if err != nil {
+		return false, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
+	}
+
+	_, err = sg.stripTmpExtension(path, segmentIDMapCollection(leftSegment.path), segmentIDMapCollection(rightSegment.path))
+	if err != nil {
+		return false, errors.Wrap(err, "strip .tmp extension of new segment")
+	}
+
+	if err := sg.deleteOldSegmentsNonBlocking(leftSegment, rightSegment); err != nil {
+		sg.logger.WithError(err).WithFields(logrus.Fields{
+			"action":     "lsm_replace_compacted_segments_delete_files",
+			"file_left":  leftSegment.path,
+			"file_right": rightSegment.path,
+		}).Error("failed to delete file already marked for deletion")
+	}
+
+	sg.logger.WithField("action", "migration").Infof("Map collection segment converted successfully from %q to %q", leftSegmentInv.path, rightSegmentInv.path)
 	return true, nil
 }
 
