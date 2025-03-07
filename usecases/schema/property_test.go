@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -35,6 +36,7 @@ func TestHandler_AddProperty(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 		dataTypes := []schema.DataType{
@@ -91,6 +93,7 @@ func TestHandler_AddProperty(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 
@@ -132,6 +135,7 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 		dataTypes := []schema.DataType{
@@ -404,6 +408,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	}
 	fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&refClass)
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil).Twice()
 	fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 	_, _, err := handler.AddClass(ctx, nil, &class)
 	require.NoError(t, err)

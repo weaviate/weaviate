@@ -134,19 +134,15 @@ func (s *Shard) initDimensionTracking() {
 func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 	if s.promMetrics != nil {
 		var (
-			className     = s.index.Config.ClassName.String()
+			className = s.index.Config.ClassName.String()
+			configs   = s.index.GetVectorIndexConfigs()
+
 			sumSegments   = 0
 			sumDimensions = 0
 		)
 
-		if s.hasLegacyVectorIndex() {
-			dimensions, segments := s.calcDimensionsAndSegments(ctx, s.index.vectorIndexUserConfig, "")
-			sumDimensions += dimensions
-			sumSegments += segments
-		}
-
-		for vecName, vecCfg := range s.index.vectorIndexUserConfigs {
-			dimensions, segments := s.calcDimensionsAndSegments(ctx, vecCfg, vecName)
+		for targetVector, config := range configs {
+			dimensions, segments := s.calcDimensionsAndSegments(ctx, config, targetVector)
 			sumDimensions += dimensions
 			sumSegments += segments
 		}

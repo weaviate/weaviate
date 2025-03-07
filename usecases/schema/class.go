@@ -135,6 +135,20 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
+	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount()
+	if err != nil {
+		h.logger.WithField("error", err).Error("could not query the collections count")
+	}
+
+	if h.config.MaximumAllowedCollectionsCount != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= h.config.MaximumAllowedCollectionsCount {
+		return nil, 0, fmt.Errorf(
+			"cannot create collection: maximum number of collections (%d) reached - "+
+				"please consider switching to multi-tenancy or increasing the collection count limit - "+
+				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
+				"when working with multiple collections and tenants",
+			h.config.MaximumAllowedCollectionsCount)
+	}
+
 	shardState, err := sharding.InitState(cls.Class,
 		cls.ShardingConfig.(shardingcfg.Config),
 		h.clusterState.LocalName(), h.schemaManager.StorageCandidates(), cls.ReplicationConfig.Factor,
