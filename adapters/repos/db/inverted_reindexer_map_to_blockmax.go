@@ -460,7 +460,13 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) startIngestBuckets(ctx context.
 	// tombstones need to be kept
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, disableCompaction)
 	bucketOpts = append(bucketOpts, lsmkv.WithKeepTombstones(true))
-	return t.startBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
+	if err := t.startBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts); err != nil {
+		return err
+	}
+	for i := range props {
+		shard.markInvertedSearchableProperties(props[i])
+	}
+	return nil
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) startMapBuckets(ctx context.Context,
@@ -787,8 +793,8 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) mapBucketName(propName string) 
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) findPropsToReindex(shard ShardLike) []string {
 	propNames := []string{}
-	for name, bucket := range shard.Store().GetBucketsByStrategy(lsmkv.StrategyMapCollection) {
-		if bucket.DesiredStrategy() == lsmkv.StrategyInverted {
+	for name, bucket := range shard.Store().GetBucketsByName() {
+		if bucket.Strategy() == lsmkv.StrategyMapCollection && bucket.DesiredStrategy() == lsmkv.StrategyInverted {
 			propName, indexType := GetPropNameAndIndexTypeFromBucketName(name)
 
 			switch indexType {
