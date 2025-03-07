@@ -753,13 +753,16 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 }
 
 func (h *Handler) validateVectorSettings(class *models.Class) error {
-	if !hasTargetVectors(class) {
-		if err := h.validateVectorizer(class.Vectorizer); err != nil {
-			return err
-		}
+	// legacy vector index is optional, therefore, validate it only if present
+	if class.VectorIndexType != "" {
 		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
 		}
+
+		if err := h.validateVectorizer(class.Vectorizer); err != nil {
+			return err
+		}
+
 		if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
 			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer))
 			if err != nil {
@@ -769,14 +772,6 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 				return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 			}
 		}
-		return nil
-	}
-
-	if class.Vectorizer != "" {
-		return fmt.Errorf("class.vectorizer %q can not be set if class.vectorConfig is configured", class.Vectorizer)
-	}
-	if class.VectorIndexType != "" {
-		return fmt.Errorf("class.vectorIndexType %q can not be set if class.vectorConfig is configured", class.VectorIndexType)
 	}
 
 	for name, cfg := range class.VectorConfig {
