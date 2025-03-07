@@ -396,9 +396,6 @@ type Raft struct {
 
 	EnableOneNodeRecovery bool
 	ForceOneNodeRecovery  bool
-
-	EnableFQDNResolver bool
-	FQDNResolverTLD    string
 }
 
 func (r *Raft) Validate() error {
