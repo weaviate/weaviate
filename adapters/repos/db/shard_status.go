@@ -47,7 +47,7 @@ func (s *Shard) GetStatus() storagestate.Status {
 		return s.status.Status
 	}
 
-	if len(s.queues) == 0 && !s.hasLegacyVector() {
+	if len(s.queues) == 0 && !s.hasLegacyVectorIndex() {
 		return s.status.Status
 	}
 
