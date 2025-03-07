@@ -31,10 +31,12 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
-	customKey := "custom-key"
+	// customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	defer down()
+	//_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	//defer down()
+
+	helper.SetupClient("127.0.0.1:8081")
 
 	t.Run("all roles", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
@@ -52,7 +54,7 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	})
 
 	t.Run("get roles for non existing user", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("notExists"), helper.CreateAuth(adminKey))
+		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("notExists").WithBody(authz.GetRolesForUserBody{UserType: models.NewUserTypes(models.UserTypesDb)}), helper.CreateAuth(adminKey))
 		require.NotNil(t, err)
 		var targetErr *authz.GetRolesForUserNotFound
 		require.True(t, errors.As(err, &targetErr))
