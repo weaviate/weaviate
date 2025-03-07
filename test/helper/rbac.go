@@ -148,8 +148,10 @@ func AssignRoleToUserOIDC(t *testing.T, key, role, user string) {
 }
 
 func RevokeRoleFromUser(t *testing.T, key, role, user string) {
+	userType := models.UserTypesDb
+
 	resp, err := Client(t).Authz.RevokeRoleFromUser(
-		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}}),
+		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, UserType: &userType}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
