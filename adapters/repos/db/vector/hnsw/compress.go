@@ -93,9 +93,15 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			}
 		} else if cfg.SQ.Enabled {
 			var err error
-			h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
-				h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-				h.allocChecker)
+			if !h.multivector.Load() {
+				h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
+					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
+					h.allocChecker)
+			} else {
+				h.compressor, err = compressionhelpers.NewHNSWSQMultiCompressor(
+					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
+					h.allocChecker)
+			}
 			if err != nil {
 				h.sqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
