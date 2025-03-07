@@ -52,19 +52,21 @@ type Replier struct {
 	logger     logrus.FieldLogger
 }
 
-type generativeQueryParamsGetter interface {
+type generativeQueryParams interface {
 	ProviderName() string
-	ReturnMetadata() bool
+	ReturnMetadataForSingle() bool
+	ReturnMetadataForGrouped() bool
+	Debug() bool
 }
 
 func NewReplier(uses123 bool,
 	uses125 bool,
 	uses127 bool,
-	generativeParams generativeQueryParamsGetter,
+	generativeQueryParams generativeQueryParams,
 	logger logrus.FieldLogger,
 ) *Replier {
 	return &Replier{
-		generative: generative.NewReplier(logger, generativeParams.ProviderName, generativeParams.ReturnMetadata, uses127),
+		generative: generative.NewReplier(logger, generativeQueryParams, uses127),
 		mapper:     &Mapper{uses125: uses125},
 		uses123:    uses123,
 		logger:     logger,
