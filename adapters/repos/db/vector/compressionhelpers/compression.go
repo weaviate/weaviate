@@ -59,6 +59,7 @@ type VectorCompressor interface {
 	Prefetch(id uint64)
 	CountVectors() int64
 	PrefillCache()
+	PrefillMultiCache(docIDVectors map[uint64][]uint64)
 
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
 	NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
@@ -306,6 +307,57 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	}).Info("prefilled compressed vector cache")
 }
 
+func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors map[uint64][]uint64) {
+	before := time.Now()
+
+	parallel := 2 * runtime.GOMAXPROCS(0)
+	maxID := uint64(0)
+	vecs := make([]VecAndID[T], 0, 10_000)
+
+	it := NewParallelIterator(
+		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM),
+		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytesWithSubsliceBuffer,
+		compressor.logger)
+	channel := it.IterateAll()
+	if channel == nil {
+		return // nothing to do
+	}
+
+	for v := range channel {
+		vecs = append(vecs, v...)
+	}
+
+	for i := range vecs {
+		if vecs[i].Id > maxID {
+			maxID = vecs[i].Id
+		}
+	}
+
+	compressor.cache.Grow(maxID)
+
+	nodeIDMappings := make([]cache.CacheKeys, len(vecs))
+	for docID := range docIDVectors {
+		for relativeID, id := range docIDVectors[docID] {
+			nodeIDMappings[id] = cache.CacheKeys{
+				DocID:      docID,
+				RelativeID: uint64(relativeID),
+			}
+		}
+	}
+
+	for _, vec := range vecs {
+		compressor.cache.PreloadPassage(vec.Id, nodeIDMappings[vec.Id].DocID, nodeIDMappings[vec.Id].RelativeID, vec.Vec)
+	}
+
+	took := time.Since(before)
+	compressor.logger.WithFields(logrus.Fields{
+		"action": "hnsw_compressed_vector_cache_prefill",
+		"count":  len(vecs),
+		"maxID":  maxID,
+		"took":   took,
+	}).Info("prefilled compressed vector cache for multivector")
+
+}
 func (compressor *quantizedVectorsCompressor[T]) PersistCompression(logger CommitLogger) {
 	compressor.quantizer.PersistCompression(logger)
 }
