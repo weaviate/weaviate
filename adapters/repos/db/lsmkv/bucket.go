@@ -19,9 +19,12 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
+
+	entcfg "github.com/weaviate/weaviate/entities/config"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -1011,6 +1014,11 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 		Tombstone: true,
 	}
 
+	if b.active.strategy == StrategyInverted {
+		docID := binary.BigEndian.Uint64(mapKey)
+		b.active.tombstones.Set(docID)
+	}
+
 	return b.active.appendMapSorted(rowKey, pair)
 }
 
@@ -1525,7 +1533,19 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }
 
-func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, func(), error) {
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
+	release := func() {}
+
+	defer func() {
+		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+			if r := recover(); r != nil {
+				b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
+				debug.PrintStack()
+				release()
+			}
+		}
+	}()
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1544,7 +1564,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))
-
+	idfCounts := make(map[string]uint64, len(query))
 	// flusing memtable
 	output[len(segmentsDisk)] = make([]*SegmentBlockMax, 0, len(query))
 
@@ -1570,7 +1590,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			tombstones, err := b.active.GetTombstones()
 			if err != nil {
 				release()
-				return nil, func() {}, err
+				return nil, nil, func() {}, err
 			}
 			allTombstones[1] = tombstones
 
@@ -1590,7 +1610,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			tombstones, err := b.flushing.GetTombstones()
 			if err != nil {
 				release()
-				return nil, func() {}, err
+				return nil, nil, func() {}, err
 			}
 
 			allTombstones[0] = tombstones
@@ -1616,21 +1636,35 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 		flushing.idf = idfs[i]
 		flushing.currentBlockImpact = float32(idfs[i])
+
+		idfCounts[queryTerm] = n
 	}
 
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {
 		segment := segmentsDisk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
-		tombstones, err := segment.GetTombstones()
-		if err != nil {
-			release()
-			return nil, func() {}, err
+
+		var tombstones *sroar.Bitmap
+		var err error
+		if j == len(segmentsDisk)-1 {
+			tombstones = sroar.NewBitmap()
+		} else {
+			tombstones, err = segmentsDisk[j+1].GetTombstones()
+			if err != nil {
+				release()
+				return nil, nil, func() {}, err
+			}
 		}
 
-		if b.flushing != nil {
+		if err != nil {
+			release()
+			return nil, nil, func() {}, err
+		}
+
+		if allTombstones[0] != nil {
 			tombstones.Or(allTombstones[0])
 		}
-		if b.active != nil {
+		if allTombstones[1] != nil {
 			tombstones.Or(allTombstones[1])
 		}
 		for i, key := range query {
@@ -1642,7 +1676,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 
 	}
-	return output, release, nil
+	return output, idfCounts, release, nil
 }
 
 func fillTerm(memtable *Memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {
