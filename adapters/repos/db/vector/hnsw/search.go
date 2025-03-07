@@ -258,9 +258,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			break
 		}
 
-		h.shardedNodeLocks.RLock(candidate.ID)
-		candidateNode := h.nodes[candidate.ID]
-		h.shardedNodeLocks.RUnlock(candidate.ID)
+		candidateNode := h.nodes.Get(candidate.ID)
 
 		if candidateNode == nil {
 			// could have been a node that already had a tombstone attached and was
@@ -268,34 +266,16 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			continue
 		}
 
-		candidateNode.Lock()
-		if candidateNode.level < level {
+		if candidateNode.Level() < level {
 			// a node level could have been downgraded as part of a delete-reassign,
 			// but the connections pointing to it not yet cleaned up. In this case
 			// the node doesn't have any outgoing connections at this level and we
 			// must discard it.
-			candidateNode.Unlock()
 			continue
 		}
 
 		if strategy != ACORN {
-			if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
-				// How is it possible that we could ever have more connections than the
-				// allowed maximum? It is not anymore, but there was a bug that allowed
-				// this to happen in versions prior to v1.12.0:
-				// https://github.com/weaviate/weaviate/issues/1868
-				//
-				// As a result the length of this slice is entirely unpredictable and we
-				// can no longer retrieve it from the pool. Instead we need to fallback
-				// to allocating a new slice.
-				//
-				// This was discovered as part of
-				// https://github.com/weaviate/weaviate/issues/1897
-				connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
-			} else {
-				connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
-			}
-			copy(connectionsReusable, candidateNode.connections[level])
+			connectionsReusable = candidateNode.CopyLevel(connectionsReusable, level)
 		} else {
 			connectionsReusable = sliceConnectionsReusable.Slice
 			pendingNextRound := slicePendingNextRound.Slice
@@ -304,8 +284,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			realLen := 0
 			index := 0
 
-			pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
-			copy(pendingNextRound, candidateNode.connections[level])
+			pendingNextRound = candidateNode.CopyLevel(pendingNextRound, level)
 			hop := 1
 			maxHops := 2
 			for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
@@ -336,24 +315,20 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					}
 					visitedExp.Visit(nodeId)
 
-					h.RLock()
-					h.shardedNodeLocks.RLock(nodeId)
-					node := h.nodes[nodeId]
-					h.shardedNodeLocks.RUnlock(nodeId)
-					h.RUnlock()
+					node := h.nodes.Get(nodeId)
 					if node == nil {
 						continue
 					}
-					for _, expId := range node.connections[level] {
+					node.IterConnections(level, func(expId uint64) bool {
 						if visitedExp.Visited(expId) {
-							continue
+							return true
 						}
 						if visited.Visited(expId) {
-							continue
+							return true
 						}
 
 						if realLen >= 8*h.maximumConnectionsLayerZero {
-							break
+							return false
 						}
 
 						if allowList.Contains(expId) {
@@ -364,14 +339,15 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 							visitedExp.Visit(expId)
 							pendingNextRound = append(pendingNextRound, expId)
 						}
-					}
+
+						return true
+					})
 				}
 				hop++
 			}
 			slicePendingNextRound.Slice = pendingNextRound
 			connectionsReusable = connectionsReusable[:realLen]
 		}
-		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {
 			if ok := visited.Visited(neighborID); ok {
@@ -656,7 +632,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		// deleted), and not under maintenance is a viable candidate
 		for res.Len() > 0 {
 			cand := res.Pop()
-			n := h.nodeByID(cand.ID)
+			n := h.nodes.Get(cand.ID)
 			if n == nil {
 				// we have found a node in results that is nil. This means it was
 				// deleted, but not cleaned up properly. Make sure to add a tombstone to
@@ -669,7 +645,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 				continue
 			}
 
-			if !n.isUnderMaintenance() {
+			if !n.IsUnderMaintenance() {
 				entryPointID = cand.ID
 				entryPointDistance = cand.Dist
 				break
@@ -686,26 +662,25 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	eps := priorityqueue.NewMin[any](10)
 	eps.Insert(entryPointID, entryPointDistance)
 	var strategy FilterStrategy
-	h.shardedNodeLocks.RLock(entryPointID)
-	entryPointNode := h.nodes[entryPointID]
-	h.shardedNodeLocks.RUnlock(entryPointID)
+	entryPointNode := h.nodes.Get(entryPointID)
 	useAcorn := h.acornEnabled(allowList)
 	if useAcorn {
 		if entryPointNode == nil {
 			strategy = RRE
 		} else {
 			counter := float32(0)
-			entryPointNode.Lock()
-			if len(entryPointNode.connections) < 1 {
+			connLen := entryPointNode.MaxLevel()
+			if connLen < 1 {
 				strategy = ACORN
 			} else {
-				for _, id := range entryPointNode.connections[0] {
+				entryPointNode.IterConnections(0, func(id uint64) bool {
 					if allowList.Contains(id) {
 						counter++
 					}
-				}
-				entryPointNode.Unlock()
-				if counter/float32(len(h.nodes[entryPointID].connections[0])) > float32(h.acornFilterRatio) {
+
+					return true
+				})
+				if counter/float32(entryPointNode.LevelLen(0)) > float32(h.acornFilterRatio) {
 					strategy = RRE
 				} else {
 					strategy = ACORN
@@ -719,11 +694,9 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	if allowList != nil && useAcorn {
 		it := allowList.Iterator()
 		idx, ok := it.Next()
-		h.shardedNodeLocks.RLockAll()
-		for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
+		for ok && h.hasTombstone(idx) && h.nodes.Get(idx) == nil {
 			idx, ok = it.Next()
 		}
-		h.shardedNodeLocks.RUnlockAll()
 
 		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
 		eps.Insert(idx, entryPointDistance)
@@ -865,8 +838,9 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 	if h.compressed.Load() {
 		dist, returnFn := h.compressor.NewDistancer(queryVector)
 		f := func(nodeID uint64) (float32, error) {
-			if int(nodeID) > len(h.nodes) {
-				return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, len(h.nodes))
+			l := h.nodes.Len()
+			if int(nodeID) > l {
+				return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, l)
 			}
 
 			return dist.DistanceToNode(nodeID)
@@ -876,8 +850,9 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 	} else {
 		distancer := h.distancerProvider.New(queryVector)
 		f := func(nodeID uint64) (float32, error) {
-			if int(nodeID) > len(h.nodes) {
-				return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, len(h.nodes))
+			l := h.nodes.Len()
+			if int(nodeID) > l {
+				return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, l)
 			}
 			return h.distanceToFloatNode(distancer, nodeID)
 		}
