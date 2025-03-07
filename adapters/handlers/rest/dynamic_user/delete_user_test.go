@@ -15,6 +15,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
@@ -35,6 +37,7 @@ func TestDeleteSuccess(t *testing.T) {
 	dynUser.On("GetRolesForUser", "user", models.UserTypesDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
 	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", models.UserTypesDb), "role").Return(nil)
 	dynUser.On("DeleteUser", "user").Return(nil)
+	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
