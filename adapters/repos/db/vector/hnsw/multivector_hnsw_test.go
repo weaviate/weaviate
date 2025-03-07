@@ -174,7 +174,8 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 					Distribution: ent.PQEncoderDistributionLogNormal,
 				},
 				Centroids:     256,
-				TrainingLimit: 100_000},
+				TrainingLimit: 100_000,
+			},
 		},
 		{
 			MaxConnections:        maxConnections,
