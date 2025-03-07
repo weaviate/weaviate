@@ -16,6 +16,8 @@ import (
 	"math/rand"
 	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 )
 
 func dumpIndex(index *hnsw, labels ...string) {
@@ -29,16 +31,17 @@ func dumpIndex(index *hnsw, labels ...string) {
 	fmt.Printf("Max Level: %d\n", index.currentMaximumLayer)
 	fmt.Printf("Tombstones %v\n", index.tombstones)
 	fmt.Printf("\nNodes and Connections:\n")
-	for _, node := range index.nodes {
-		if node == nil {
-			continue
+	var buf []uint64
+	index.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
+		fmt.Printf("  Node %d\n", node.ID())
+
+		for level := range node.MaxLevel() {
+			buf = node.CopyLevel(buf, level)
+			fmt.Printf("    Level %d: Connections: %v\n", level, buf)
 		}
 
-		fmt.Printf("  Node %d\n", node.id)
-		for level, conns := range node.connections {
-			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
-		}
-	}
+		return true
+	})
 
 	fmt.Printf("--------------------------------------------------\n")
 }

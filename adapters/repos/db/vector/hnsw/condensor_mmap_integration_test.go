@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -37,10 +38,10 @@ func TestMmapCondensor(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("add redundant data to the original log", func(t *testing.T) {
-		uncondensed.AddNode(&vertex{id: 0, level: 3})
-		uncondensed.AddNode(&vertex{id: 1, level: 3})
-		uncondensed.AddNode(&vertex{id: 2, level: 3})
-		uncondensed.AddNode(&vertex{id: 3, level: 3})
+		uncondensed.AddNode(graph.NewVertex(0, 3))
+		uncondensed.AddNode(graph.NewVertex(1, 3))
+		uncondensed.AddNode(graph.NewVertex(2, 3))
+		uncondensed.AddNode(graph.NewVertex(3, 3))
 
 		// below are some pointless connection replacements, we expect that most of
 		// these will be gone after condensing, this gives us a good way of testing
@@ -82,10 +83,10 @@ func TestMmapCondensor(t *testing.T) {
 	})
 
 	t.Run("create a hypothetical perfect log", func(t *testing.T) {
-		perfect.AddNode(&vertex{id: 0, level: 3})
-		perfect.AddNode(&vertex{id: 1, level: 3})
-		perfect.AddNode(&vertex{id: 2, level: 3})
-		perfect.AddNode(&vertex{id: 3, level: 3})
+		perfect.AddNode(graph.NewVertex(0, 3))
+		perfect.AddNode(graph.NewVertex(1, 3))
+		perfect.AddNode(graph.NewVertex(2, 3))
+		perfect.AddNode(graph.NewVertex(3, 3))
 
 		// below are some pointless connection replacements, we expect that most of
 		// these will be gone after condensing, this gives us a good way of testing
@@ -146,7 +147,7 @@ func TestMmapCondensor(t *testing.T) {
 // 	require.Nil(t, err)
 
 // 	t.Run("add data, but do not set an entrypoint", func(t *testing.T) {
-// 		uncondensed.AddNode(&vertex{id: 0, level: 3})
+// 		uncondensed.AddNode(graph.NewVertex(0, 3))
 
 // 		require.Nil(t, uncondensed.Flush())
 // 	})
@@ -179,7 +180,7 @@ func TestMmapCondensor(t *testing.T) {
 // 		res, err := NewDeserializer(logger).Do(bufr, &initialState)
 // 		require.Nil(t, err)
 
-// 		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint64{}})
+// 		assert.Contains(t, res.Nodes, graph.NewVertex(0, 3 )connections: map[int][]uint64{}})
 // 		assert.Equal(t, uint64(17), res.Entrypoint)
 // 		assert.Equal(t, uint16(3), res.Level)
 

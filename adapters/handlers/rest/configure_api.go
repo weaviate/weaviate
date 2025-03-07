@@ -20,6 +20,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
+	"regexp"
 	goruntime "runtime"
 	"runtime/debug"
 	"strconv"
@@ -36,6 +37,7 @@ import (
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -210,6 +212,18 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.GRPCServerMetrics = monitoring.NewGRPCServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
 
 		appState.TenantActivity = tenantactivity.NewHandler()
+
+		// Since we are scraping prometheus.DefaultRegisterer, it already has
+		// a go collector configured by default in internal module init().
+		// However, the go collector configured by default is missing some interesting metrics,
+		// therefore, we have to first unregister it so there are no duplicate metric declarations
+		// and then register extended collector once again.
+		prometheus.Unregister(collectors.NewGoCollector())
+		prometheus.MustRegister(collectors.NewGoCollector(
+			collectors.WithGoCollectorRuntimeMetrics(collectors.GoRuntimeMetricsRule{
+				Matcher: regexp.MustCompile(`/sched/latencies:seconds`),
+			}),
+		))
 
 		// export build tags to prometheus metric
 		build.SetPrometheusBuildInfo()

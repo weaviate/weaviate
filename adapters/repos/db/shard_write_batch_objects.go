@@ -396,7 +396,7 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 		return
 	}
 
-	if object.Vector != nil || len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
+	if len(object.Vector) > 0 || len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
 		// By this time all required deletes (e.g. because of DocID changes) have
 		// already been grouped and performed in bulk. Only the insertions are
 		// left. The motivation for this change is explained in
@@ -416,25 +416,22 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 		// shard.updateVectorIndex which would also handle the delete as required
 		// for a non-batch update. Instead a new method has been introduced that
 		// ignores deletes.
-		if ob.shard.hasTargetVectors() {
-			if len(object.Vectors) > 0 {
-				if err := ob.shard.updateVectorIndexesIgnoreDelete(ctx, object.Vectors, status); err != nil {
-					ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
-					return
-				}
+		if len(object.Vectors) > 0 {
+			if err := ob.shard.updateVectorIndexesIgnoreDelete(ctx, object.Vectors, status); err != nil {
+				ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+				return
 			}
-			if len(object.MultiVectors) > 0 {
-				if err := ob.shard.updateMultiVectorIndexesIgnoreDelete(ctx, object.MultiVectors, status); err != nil {
-					ob.setErrorAtIndex(errors.Wrap(err, "insert to multi vector index"), index)
-					return
-				}
+		}
+		if len(object.MultiVectors) > 0 {
+			if err := ob.shard.updateMultiVectorIndexesIgnoreDelete(ctx, object.MultiVectors, status); err != nil {
+				ob.setErrorAtIndex(errors.Wrap(err, "insert to multi vector index"), index)
+				return
 			}
-		} else {
-			if object.Vector != nil {
-				if err := ob.shard.updateVectorIndexIgnoreDelete(ctx, object.Vector, status); err != nil {
-					ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
-					return
-				}
+		}
+		if len(object.Vector) > 0 {
+			if err := ob.shard.updateVectorIndexIgnoreDelete(ctx, object.Vector, status); err != nil {
+				ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+				return
 			}
 		}
 	}

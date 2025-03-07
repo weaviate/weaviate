@@ -55,18 +55,18 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return nil
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, vector := range object.Vectors {
-			if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
-				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
-			}
+	for targetVector, vector := range object.Vectors {
+		if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
+			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 		}
-		for targetVector, multiVector := range object.MultiVectors {
-			if err := s.updateMultiVectorIndexForName(ctx, multiVector, status, targetVector); err != nil {
-				return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
-			}
+	}
+	for targetVector, multiVector := range object.MultiVectors {
+		if err := s.updateMultiVectorIndexForName(ctx, multiVector, status, targetVector); err != nil {
+			return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
 		}
-	} else {
+	}
+
+	if s.hasLegacyVectorIndex() {
 		if err := s.updateVectorIndex(ctx, object.Vector, status); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
@@ -236,32 +236,27 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
-	if s.hasTargetVectors() {
-		if len(obj.Vectors) > 0 {
-			for targetVector, vector := range obj.Vectors {
-				if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
-					if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
-						return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
-					}
-				}
+	for targetVector, vector := range obj.Vectors {
+		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+			if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
+				return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
 			}
 		}
-		if len(obj.MultiVectors) > 0 {
-			for targetVector, vector := range obj.MultiVectors {
-				if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
-					if err := vectorIndex.ValidateMultiBeforeInsert(vector); err != nil {
-						return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
-					}
-				}
+	}
+
+	for targetVector, vector := range obj.MultiVectors {
+		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+			if err := vectorIndex.ValidateMultiBeforeInsert(vector); err != nil {
+				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
 			}
 		}
-	} else {
-		if obj.Vector != nil {
-			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-			err := s.vectorIndex.ValidateBeforeInsert(obj.Vector)
-			if err != nil {
-				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
-			}
+	}
+
+	if len(obj.Vector) > 0 && s.hasLegacyVectorIndex() {
+		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+		err := s.vectorIndex.ValidateBeforeInsert(obj.Vector)
+		if err != nil {
+			return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
 		}
 	}
 

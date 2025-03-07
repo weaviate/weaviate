@@ -14,7 +14,9 @@ package authz
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -991,4 +993,75 @@ func TestAuthzRoleFilteredTenantPermissions(t *testing.T) {
 		require.Equal(t, 1, len(tenants.Payload))
 		require.Equal(t, allowedTenant, tenants.Payload[0].Name)
 	})
+}
+
+func TestRaceConcurrentRoleCreation(t *testing.T) {
+	ctx := context.Background()
+
+	adminKey := "admin-key"
+	adminUser := "admin-user"
+
+	compose, err := docker.New().WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).
+		WithRBAC().WithRbacAdmins(adminUser).
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	for i := 0; i < 10; i++ {
+		var err1, err2 error
+		name := fmt.Sprintf("role%d", i)
+		helper.DeleteRole(t, adminKey, name) // leftovers from previous runs
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		// send off two concurrent requests with the same role name, but different permissions.
+		// If the race is
+		//   - detected correctly, one of the two requests should fail and the resulting role should only have one permission
+		//   - NOT detected correctly, bot requests succeed and the resulting role has two permissions
+
+		go func() {
+			_, err1 = helper.Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &name,
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.CreateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection1"),
+						},
+					},
+				},
+			}), helper.CreateAuth(adminKey))
+			defer wg.Done()
+		}()
+		go func() {
+			_, err2 = helper.Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &name,
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.DeleteCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection1"),
+						},
+					},
+				},
+			}), helper.CreateAuth(adminKey))
+
+			defer wg.Done()
+		}()
+
+		wg.Wait()
+		require.True(t, (err1 != nil) || (err2 != nil)) // we expect one call to fail
+
+		role := helper.GetRoleByName(t, adminKey, name)
+		require.NotNil(t, role)
+		require.Len(t, role.Permissions, 1)
+
+	}
 }

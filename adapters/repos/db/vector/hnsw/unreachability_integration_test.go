@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -104,71 +105,145 @@ func (h *hnsw) generateGraphConnections(testCase int) {
 		h.entryPointID = 0
 		h.currentMaximumLayer = 1
 		// Node 0
-		h.nodes[0].upgradeToLevelNoLock(1)
-		h.nodes[0].setConnectionsAtLevel(1, []uint64{1, 2})
+		node0 := h.nodes.Get(0)
+		node0.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			v.SetConnectionsAtLevel(1, []uint64{1, 2})
+			return nil
+		})
 		// Node 1
-		h.nodes[1].upgradeToLevelNoLock(1)
-		h.nodes[1].setConnectionsAtLevel(1, []uint64{3})
+		node1 := h.nodes.Get(1)
+		node1.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			v.SetConnectionsAtLevel(1, []uint64{3})
+			return nil
+		})
 		// Node 2
-		h.nodes[2].upgradeToLevelNoLock(1)
-		h.nodes[2].setConnectionsAtLevel(1, []uint64{4})
+		node2 := h.nodes.Get(2)
+		node2.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			v.SetConnectionsAtLevel(1, []uint64{4})
+			return nil
+		})
 		// Node 3
-		h.nodes[3].upgradeToLevelNoLock(1)
+		node3 := h.nodes.Get(3)
+		node3.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			return nil
+		})
 		// Node 4
-		h.nodes[4].upgradeToLevelNoLock(1)
+		node4 := h.nodes.Get(4)
+		node4.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			return nil
+		})
 	case 2:
 		h.entryPointID = 0
 		h.currentMaximumLayer = 1
 		// Node 0
-		h.nodes[0].upgradeToLevelNoLock(1)
-		h.nodes[0].setConnectionsAtLevel(0, []uint64{1})
+		node0 := h.nodes.Get(0)
+		node0.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			v.SetConnectionsAtLevel(0, []uint64{1})
+			return nil
+		})
 		// Node 1
-		h.nodes[1].upgradeToLevelNoLock(1)
-		h.nodes[1].setConnectionsAtLevel(0, []uint64{3})
-		h.nodes[1].setConnectionsAtLevel(1, []uint64{2})
+		node1 := h.nodes.Get(1)
+		node1.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			v.SetConnectionsAtLevel(0, []uint64{3})
+			v.SetConnectionsAtLevel(1, []uint64{2})
+			return nil
+		})
 		// Node 2
-		h.nodes[2].upgradeToLevelNoLock(1)
+		node2 := h.nodes.Get(2)
+		node2.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			return nil
+		})
 		// Node 3
-		h.nodes[3].setConnectionsAtLevel(0, []uint64{4})
+		node3 := h.nodes.Get(3)
+		node3.Edit(func(v *graph.VertexEditor) error {
+			v.SetConnectionsAtLevel(0, []uint64{4})
+			return nil
+		})
 	case 3:
 		h.entryPointID = 0
 		h.currentMaximumLayer = 1
 		// Node 0
-		h.nodes[0].upgradeToLevelNoLock(1)
-		h.nodes[0].setConnectionsAtLevel(0, []uint64{1})
+		node0 := h.nodes.Get(0)
+		node0.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			v.SetConnectionsAtLevel(0, []uint64{1})
+			return nil
+		})
 		// Node 1
-		h.nodes[1].setConnectionsAtLevel(0, []uint64{2})
+		node1 := h.nodes.Get(1)
+		node1.Edit(func(v *graph.VertexEditor) error {
+			v.SetConnectionsAtLevel(0, []uint64{2})
+			return nil
+		})
 		// Node 2
-		h.nodes[2].setConnectionsAtLevel(0, []uint64{3})
+		node2 := h.nodes.Get(2)
+		node2.Edit(func(v *graph.VertexEditor) error {
+			v.SetConnectionsAtLevel(0, []uint64{3})
+			return nil
+		})
 		// Node 3
-		h.nodes[3].setConnectionsAtLevel(0, []uint64{4})
+		node3 := h.nodes.Get(3)
+		node3.Edit(func(v *graph.VertexEditor) error {
+			v.SetConnectionsAtLevel(0, []uint64{4})
+			return nil
+		})
 	case 4:
 		h.entryPointID = 0
 		h.currentMaximumLayer = 2
 		// Node 0
-		h.nodes[0].upgradeToLevelNoLock(2)
+		node0 := h.nodes.Get(0)
+		node0.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(2)
+			return nil
+		})
 	case 5:
 		h.entryPointID = 0
 		h.currentMaximumLayer = 1
 		// Node 0
-		h.nodes[0].upgradeToLevelNoLock(1)
-		h.nodes[0].setConnectionsAtLevel(1, []uint64{1, 2})
+		node0 := h.nodes.Get(0)
+		node0.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			v.SetConnectionsAtLevel(1, []uint64{1, 2})
+			return nil
+		})
 		// Node 1
-		h.nodes[1].upgradeToLevelNoLock(1)
-		h.nodes[1].setConnectionsAtLevel(0, []uint64{3})
+		node1 := h.nodes.Get(1)
+		node1.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			v.SetConnectionsAtLevel(0, []uint64{3})
+			return nil
+		})
 		// Node 2
-		h.nodes[2].upgradeToLevelNoLock(1)
+		node2 := h.nodes.Get(2)
+		node2.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(1)
+			return nil
+		})
 		// Node 3
-		h.nodes[3].setConnectionsAtLevel(0, []uint64{4})
+		node3 := h.nodes.Get(3)
+		node3.Edit(func(v *graph.VertexEditor) error {
+			v.SetConnectionsAtLevel(0, []uint64{4})
+			return nil
+		})
 	}
 }
 
 func (h *hnsw) cleanConnections() {
-	for i := 0; i < len(h.nodes); i++ {
-		if h.nodes[i] == nil {
-			continue
-		}
-		h.nodes[i].connections = make([][]uint64, 1)
-		h.nodes[i].level = 0
-	}
+	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
+		node.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(0)
+			v.ResetConnectionsWith(make([][]uint64, 1))
+			return nil
+		})
+
+		return true
+	})
 }
