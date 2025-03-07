@@ -906,7 +906,7 @@ func init() {
         ]
       }
     },
-    "/authz/users/{id}/roles": {
+    "/authz/users/{id}/roles/{userType}": {
       "get": {
         "tags": [
           "authz"
@@ -922,20 +922,15 @@ func init() {
             "required": true
           },
           {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "required": [
-                "userType"
-              ],
-              "properties": {
-                "userType": {
-                  "$ref": "#/definitions/UserTypes"
-                }
-              }
-            }
+            "enum": [
+              "oidc",
+              "db"
+            ],
+            "type": "string",
+            "description": "The type of user",
+            "name": "userType",
+            "in": "path",
+            "required": true
           }
         ],
         "responses": {
@@ -7978,7 +7973,7 @@ func init() {
         ]
       }
     },
-    "/authz/users/{id}/roles": {
+    "/authz/users/{id}/roles/{userType}": {
       "get": {
         "tags": [
           "authz"
@@ -7994,20 +7989,15 @@ func init() {
             "required": true
           },
           {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "required": [
-                "userType"
-              ],
-              "properties": {
-                "userType": {
-                  "$ref": "#/definitions/UserTypes"
-                }
-              }
-            }
+            "enum": [
+              "oidc",
+              "db"
+            ],
+            "type": "string",
+            "description": "The type of user",
+            "name": "userType",
+            "in": "path",
+            "required": true
           }
         ],
         "responses": {

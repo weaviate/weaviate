@@ -40,7 +40,7 @@ func GetRoles(t *testing.T, key string) []*models.Role {
 func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
 	t.Helper()
 	userType := models.UserTypesDb
-	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithBody(authz.GetRolesForUserBody{UserType: &userType}), CreateAuth(key))
+	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload

@@ -3531,7 +3531,7 @@
         }
       }
     },
-    "/authz/users/{id}/roles": {
+    "/authz/users/{id}/roles/{userType}": {
       "get": {
         "summary": "get roles assigned to user",
         "operationId": "getRolesForUser",
@@ -3550,18 +3550,12 @@
             "type": "string"
           },
           {
-            "in": "body",
-            "name": "body",
+            "in": "path",
+            "name": "userType",
             "required": true,
-            "schema": {
-              "type": "object",
-              "properties": {
-                "userType": {
-                  "$ref": "#/definitions/UserTypes"
-                }
-              },
-              "required": ["userType"]
-            }
+            "type": "string",
+            "enum": ["oidc", "db"],
+            "description": "The type of user"
           }
         ],
         "responses": {

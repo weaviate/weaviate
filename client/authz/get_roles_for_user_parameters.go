@@ -71,15 +71,17 @@ GetRolesForUserParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type GetRolesForUserParams struct {
-
-	// Body.
-	Body GetRolesForUserBody
-
 	/* ID.
 
 	   user name
 	*/
 	ID string
+
+	/* UserType.
+
+	   The type of user
+	*/
+	UserType string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -134,17 +136,6 @@ func (o *GetRolesForUserParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithBody adds the body to the get roles for user params
-func (o *GetRolesForUserParams) WithBody(body GetRolesForUserBody) *GetRolesForUserParams {
-	o.SetBody(body)
-	return o
-}
-
-// SetBody adds the body to the get roles for user params
-func (o *GetRolesForUserParams) SetBody(body GetRolesForUserBody) {
-	o.Body = body
-}
-
 // WithID adds the id to the get roles for user params
 func (o *GetRolesForUserParams) WithID(id string) *GetRolesForUserParams {
 	o.SetID(id)
@@ -156,19 +147,31 @@ func (o *GetRolesForUserParams) SetID(id string) {
 	o.ID = id
 }
 
+// WithUserType adds the userType to the get roles for user params
+func (o *GetRolesForUserParams) WithUserType(userType string) *GetRolesForUserParams {
+	o.SetUserType(userType)
+	return o
+}
+
+// SetUserType adds the userType to the get roles for user params
+func (o *GetRolesForUserParams) SetUserType(userType string) {
+	o.UserType = userType
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *GetRolesForUserParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
 	var res []error
-	if err := r.SetBodyParam(o.Body); err != nil {
-		return err
-	}
 
 	// path param id
 	if err := r.SetPathParam("id", o.ID); err != nil {
+		return err
+	}
+
+	// path param userType
+	if err := r.SetPathParam("userType", o.UserType); err != nil {
 		return err
 	}
 

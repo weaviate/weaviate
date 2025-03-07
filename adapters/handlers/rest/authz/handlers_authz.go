@@ -517,12 +517,21 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 }
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
-	ownUser := params.ID == principal.Username && *params.Body.UserType == principal.UserType
+	ownUser := params.ID == principal.Username && params.UserType == string(principal.UserType)
 
 	if !ownUser {
 		if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.ID)...); err != nil {
 			return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
+	}
+
+	var userType models.UserTypes
+	if params.UserType == string(models.UserTypesOidc) {
+		userType = models.UserTypesOidc
+	} else if params.UserType == string(models.UserTypesDb) {
+		userType = models.UserTypesDb
+	} else {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown userType: %v", params.UserType)))
 	}
 
 	exists, err := h.userExists(params.ID)
@@ -533,7 +542,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserNotFound()
 	}
 
-	existingRoles, err := h.controller.GetRolesForUser(params.ID, *params.Body.UserType)
+	existingRoles, err := h.controller.GetRolesForUser(params.ID, userType)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
 	}

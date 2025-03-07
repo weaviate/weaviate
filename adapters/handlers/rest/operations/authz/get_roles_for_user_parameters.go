@@ -17,11 +17,9 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
-	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/validate"
@@ -31,7 +29,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewGetRolesForUserParams() GetRolesForUserParams {
-
 	return GetRolesForUserParams{}
 }
 
@@ -40,20 +37,19 @@ func NewGetRolesForUserParams() GetRolesForUserParams {
 //
 // swagger:parameters getRolesForUser
 type GetRolesForUserParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
-	  Required: true
-	  In: body
-	*/
-	Body GetRolesForUserBody
 	/*user name
 	  Required: true
 	  In: path
 	*/
 	ID string
+	/*The type of user
+	  Required: true
+	  In: path
+	*/
+	UserType string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -65,36 +61,13 @@ func (o *GetRolesForUserParams) BindRequest(r *http.Request, route *middleware.M
 
 	o.HTTPRequest = r
 
-	if runtime.HasBody(r) {
-		defer r.Body.Close()
-		var body GetRolesForUserBody
-		if err := route.Consumer.Consume(r.Body, &body); err != nil {
-			if err == io.EOF {
-				res = append(res, errors.Required("body", "body", ""))
-			} else {
-				res = append(res, errors.NewParseError("body", "body", "", err))
-			}
-		} else {
-			// validate body object
-			if err := body.Validate(route.Formats); err != nil {
-				res = append(res, err)
-			}
-
-			ctx := validate.WithOperationRequest(r.Context())
-			if err := body.ContextValidate(ctx, route.Formats); err != nil {
-				res = append(res, err)
-			}
-
-			if len(res) == 0 {
-				o.Body = body
-			}
-		}
-	} else {
-		res = append(res, errors.Required("body", "body", ""))
-	}
-
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	rUserType, rhkUserType, _ := route.Params.GetOK("userType")
+	if err := o.bindUserType(rUserType, rhkUserType, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -113,6 +86,33 @@ func (o *GetRolesForUserParams) bindID(rawData []string, hasKey bool, formats st
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.ID = raw
+
+	return nil
+}
+
+// bindUserType binds and validates parameter UserType from path.
+func (o *GetRolesForUserParams) bindUserType(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: true
+	// Parameter is provided by construction from the route
+	o.UserType = raw
+
+	if err := o.validateUserType(formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateUserType carries on validations for parameter UserType
+func (o *GetRolesForUserParams) validateUserType(formats strfmt.Registry) error {
+	if err := validate.EnumCase("userType", "path", o.UserType, []interface{}{"oidc", "db"}, true); err != nil {
+		return err
+	}
 
 	return nil
 }
