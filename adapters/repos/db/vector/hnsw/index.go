@@ -315,10 +315,6 @@ func New(cfg Config, uc ent.UserConfig,
 
 	index.multivector.Store(uc.Multivector.Enabled)
 
-	if uc.Multivector.Enabled && uc.SQ.Enabled {
-		return nil, errors.New("PQ and SQ compression are not supported in multivector mode")
-	}
-
 	if uc.BQ.Enabled {
 		var err error
 		if !uc.Multivector.Enabled {

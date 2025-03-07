@@ -162,18 +162,27 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 
 	userConfigTest := []ent.UserConfig{
 		{
-			MaxConnections: maxConnections,
-			EFConstruction: efConstruction,
-			EF:             ef,
-			Multivector:    ent.MultivectorConfig{Enabled: true},
-			PQ:             ent.PQConfig{Enabled: true},
+			MaxConnections:        maxConnections,
+			EFConstruction:        efConstruction,
+			EF:                    ef,
+			VectorCacheMaxObjects: 1e12,
+			Multivector:           ent.MultivectorConfig{Enabled: true},
+			PQ: ent.PQConfig{
+				Enabled: true,
+				Encoder: ent.PQEncoder{
+					Type:         ent.PQEncoderTypeKMeans,
+					Distribution: ent.PQEncoderDistributionLogNormal,
+				},
+				Centroids:     256,
+				TrainingLimit: 100_000},
 		},
 		{
-			MaxConnections: maxConnections,
-			EFConstruction: efConstruction,
-			EF:             ef,
-			Multivector:    ent.MultivectorConfig{Enabled: true},
-			SQ:             ent.SQConfig{Enabled: true},
+			MaxConnections:        maxConnections,
+			EFConstruction:        efConstruction,
+			EF:                    ef,
+			VectorCacheMaxObjects: 1e12,
+			Multivector:           ent.MultivectorConfig{Enabled: true},
+			SQ:                    ent.SQConfig{Enabled: true},
 		},
 	}
 
@@ -185,14 +194,16 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 				MakeCommitLoggerThunk: MakeNoopCommitLogger,
 				DistanceProvider:      distancer.NewDotProductProvider(),
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-					docID, relativeID := vectorIndex.cache.GetKeys(id)
-					return multiVectors[docID][relativeID], nil
+					return []float32{0}, errors.New("can not use VectorForIDThunk with multivector")
+				},
+				MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+					return multiVectors[id], nil
 				},
 				TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
 					return multiVectors[id], nil
 				},
 			}, userConfig, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
-			require.ErrorContains(t, err, "PQ and SQ compression are not supported in multivector mode")
+			require.Nil(t, err)
 		}
 	})
 
@@ -204,8 +215,10 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 				MakeCommitLoggerThunk: MakeNoopCommitLogger,
 				DistanceProvider:      distancer.NewDotProductProvider(),
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-					docID, relativeID := vectorIndex.cache.GetKeys(id)
-					return multiVectors[docID][relativeID], nil
+					return []float32{0}, errors.New("can not use VectorForIDThunk with multivector")
+				},
+				MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+					return multiVectors[id], nil
 				},
 				TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
 					return multiVectors[id], nil
@@ -219,9 +232,10 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 				cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 			require.Nil(t, err)
 			vectorIndex = index
+			err = vectorIndex.AddMulti(context.Background(), 0, multiVectors[0])
+			require.Nil(t, err)
 			err = vectorIndex.compress(userConfig)
-			require.NotNil(t, err, "Expected an error but got nil")
-			require.ErrorContains(t, err, "PQ and SQ compression are not supported in multivector mode")
+			require.Nil(t, err)
 		}
 	})
 }
