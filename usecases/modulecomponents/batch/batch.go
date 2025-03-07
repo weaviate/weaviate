@@ -201,7 +201,7 @@ func (b *Batch) batchWorker() {
 			stats.WithLabelValues(b.label, "concurrent_batches").Set(float64(b.concurrentBatches.Load()))
 			stats.WithLabelValues(b.label, "repeats_for_scheduling").Set(float64(repeats))
 
-			if rateLimit.CanSendFullBatch(expectedNumRequests, job.tokenSum) {
+			if rateLimit.CanSendFullBatch(expectedNumRequests, job.tokenSum, repeats > 0, b.label) {
 				b.concurrentBatches.Add(1)
 				monitoring.GetMetrics().T2VBatches.WithLabelValues(b.label).Inc()
 				jobCopy := job.copy()
