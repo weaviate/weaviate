@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -112,14 +113,15 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	className := req.Class.Class
 	ctx := context.Background()
 
-	if hasTargetVectors(req.Class) {
-		if err := e.migrator.UpdateVectorIndexConfigs(ctx, className, asVectorIndexConfigs(req.Class)); err != nil {
-			return fmt.Errorf("vector index configs update: %w", err)
-		}
-	} else {
-		if err := e.migrator.UpdateVectorIndexConfig(ctx,
-			className, asVectorIndexConfig(req.Class)); err != nil {
+	if cfg, ok := req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+		if err := e.migrator.UpdateVectorIndexConfig(ctx, className, cfg); err != nil {
 			return fmt.Errorf("vector index config update: %w", err)
+		}
+	}
+
+	if cfgs := asVectorIndexConfigs(req.Class); cfgs != nil {
+		if err := e.migrator.UpdateVectorIndexConfigs(ctx, className, cfgs); err != nil {
+			return fmt.Errorf("vector index configs update: %w", err)
 		}
 	}
 
