@@ -141,9 +141,6 @@ type Config struct {
 	// WARNING: This should be run on *actual* one node cluster only.
 	ForceOneNodeRecovery bool
 
-	EnableFQDNResolver bool
-	FQDNResolverTLD    string
-
 	// 	AuthzController to manage RBAC commands and apply it to casbin
 	AuthzController authorization.Controller
 }
@@ -208,15 +205,6 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		IsLocalHost:       cfg.IsLocalHost,
 		NodeNameToPortMap: cfg.NodeNameToPortMap,
 	})
-	if cfg.EnableFQDNResolver {
-		raftResolver = resolver.NewFQDN(resolver.FQDNConfig{
-			TLD:               cfg.FQDNResolverTLD,
-			RaftPort:          cfg.RaftPort,
-			IsLocalHost:       cfg.IsLocalHost,
-			NodeNameToPortMap: cfg.NodeNameToPortMap,
-		})
-	}
-
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 
 	return Store{
