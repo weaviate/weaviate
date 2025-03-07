@@ -453,7 +453,13 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) startIngestBuckets(ctx context.
 	// tombstones need to be kept
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted)
 	bucketOpts = append(bucketOpts, lsmkv.WithKeepTombstones(true))
-	return t.startBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
+	if err := t.startBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts); err != nil {
+		return err
+	}
+	for i := range props {
+		shard.markInvertedSearchableProperties(props[i])
+	}
+	return nil
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) startMapBuckets(ctx context.Context,

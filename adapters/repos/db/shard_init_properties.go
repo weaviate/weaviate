@@ -129,11 +129,13 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketSearchableFromPropNameLSM(prop.Name),
-			searchableBucketOpts...,
-		); err != nil {
+		bucketName := helpers.BucketSearchableFromPropNameLSM(prop.Name)
+		if err := s.store.CreateOrLoadBucket(ctx, bucketName, searchableBucketOpts...); err != nil {
 			return err
+		}
+
+		if actualStrategy := s.store.Bucket(bucketName).Strategy(); actualStrategy == lsmkv.StrategyInverted {
+			s.markInvertedSearchableProperties(prop.Name)
 		}
 	}
 
@@ -290,4 +292,17 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		s.segmentCleanupConfig(),
 	)
+}
+
+func (s *Shard) markInvertedSearchableProperties(propNames ...string) {
+	s.searchableInvertedPropNamesLock.Lock()
+	s.searchableInvertedPropNames = append(s.searchableInvertedPropNames, propNames...)
+	s.searchableInvertedPropNamesLock.Unlock()
+}
+
+func (s *Shard) getInvertedSearchableProperties() []string {
+	// since slice is only appended, it should be safe to return it that way
+	s.searchableInvertedPropNamesLock.Lock()
+	defer s.searchableInvertedPropNamesLock.Unlock()
+	return s.searchableInvertedPropNames
 }
