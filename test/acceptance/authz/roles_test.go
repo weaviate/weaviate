@@ -246,7 +246,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get roles for user after assignment", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser), clientAuth)
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser).WithUserType(string(models.UserTypesDb)), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 2, len(res.Payload))
 
