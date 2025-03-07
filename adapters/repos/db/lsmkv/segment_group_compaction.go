@@ -382,13 +382,21 @@ func convertMapCollectionSegment(leftSegmentInv *segment, rightSegmentInv *segme
 	leftSegmentMapPath := leftSegmentInv.path + ".mapcollection"
 	rightSegmentMapPath := rightSegmentInv.path + ".mapcollection"
 
-	// if both files exist
-	if _, err := os.Stat(leftSegmentMapPath); err != nil {
+	// sum of the sizes of the two files
+	s1, err := os.Stat(leftSegmentMapPath)
+	if err != nil {
 		return false, errors.Wrap(err, "left segment mapcollection file does not exist")
 	}
 
-	if _, err := os.Stat(rightSegmentMapPath); err != nil {
+	s2, err := os.Stat(rightSegmentMapPath)
+	if err != nil {
 		return false, errors.Wrap(err, "right segment mapcollection file does not exist")
+	}
+
+	// don't compact the largest segments, as this is a long process that will
+	// take up a lot of disk space in the intermediate steps
+	if s1.Size()+s2.Size() > sg.maxSegmentSize {
+		return false, errors.Errorf("sum of the sizes of the two files exceeds the max segment size: %d > %d", s1.Size()+s2.Size(), sg.maxSegmentSize)
 	}
 
 	// both files exist, we can proceed with the migration
