@@ -47,7 +47,9 @@ import (
 type generativeParser interface {
 	Extract(req *pb.GenerativeSearch, class *models.Class) *generate.Params
 	ProviderName() string
-	ReturnMetadata() bool
+	ReturnMetadataForSingle() bool
+	ReturnMetadataForGrouped() bool
+	Debug() bool
 }
 
 type Parser struct {

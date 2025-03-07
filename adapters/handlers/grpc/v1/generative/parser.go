@@ -31,12 +31,19 @@ import (
 type Parser struct {
 	uses127Api     bool
 	providerName   string
-	returnMetadata bool
+	returnMetadata returnMetadata
+	debug          bool
+}
+
+type returnMetadata struct {
+	single  bool
+	grouped bool
 }
 
 func NewParser(uses127Api bool) *Parser {
 	return &Parser{
-		uses127Api: uses127Api,
+		uses127Api:     uses127Api,
+		returnMetadata: returnMetadata{},
 	}
 }
 
@@ -55,8 +62,16 @@ func (p *Parser) ProviderName() string {
 	return p.providerName
 }
 
-func (p *Parser) ReturnMetadata() bool {
-	return p.returnMetadata
+func (p *Parser) ReturnMetadataForSingle() bool {
+	return p.returnMetadata.single
+}
+
+func (p *Parser) ReturnMetadataForGrouped() bool {
+	return p.returnMetadata.grouped
+}
+
+func (p *Parser) Debug() bool {
+	return p.debug
 }
 
 func (p *Parser) extractDeprecated(req *pb.GenerativeSearch, class *models.Class) *generate.Params {
@@ -79,13 +94,11 @@ func (p *Parser) extractDeprecated(req *pb.GenerativeSearch, class *models.Class
 	return &generative
 }
 
-func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.GenerativeProvider) map[string]any {
+func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.GenerativeProvider) bool {
 	if len(queries) == 0 {
-		return nil
+		return false
 	}
-	var options map[string]any
 	query := queries[0]
-	p.returnMetadata = query.ReturnMetadata
 	switch query.Kind.(type) {
 	case *pb.GenerativeProvider_Anthropic:
 		opts := query.GetAnthropic()
@@ -136,20 +149,24 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 	default:
 		// do nothing
 	}
-	return options
+	return query.ReturnMetadata
 }
 
 func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generate.Params {
 	generative := generate.Params{}
 	if req.Single != nil {
 		generative.Prompt = &req.Single.Prompt
-		p.extractFromQuery(&generative, req.Single.Queries)
+		p.returnMetadata.single = p.extractFromQuery(&generative, req.Single.Queries)
+
+		p.debug = req.Single.Debug
+		generative.Debug = req.Single.Debug
+
 		singleResultPrompts := generate.ExtractPropsFromPrompt(generative.Prompt)
 		generative.PropertiesToExtract = append(generative.PropertiesToExtract, singleResultPrompts...)
 	}
 	if req.Grouped != nil {
 		generative.Task = &req.Grouped.Task
-		p.extractFromQuery(&generative, req.Grouped.Queries) // populates generative.Properties with any values in provider.ImageProperties (if supported)
+		p.returnMetadata.grouped = p.extractFromQuery(&generative, req.Grouped.Queries) // populates generative.Properties with any values in provider.ImageProperties (if supported)
 		if len(generative.Properties) == 0 && len(req.Grouped.GetProperties().GetValues()) == 0 {
 			// if users do not supply any properties, all properties need to be extracted
 			generative.PropertiesToExtract = append(generative.PropertiesToExtract, schema.GetPropertyNamesFromClass(class, false)...)

@@ -40,18 +40,23 @@ import (
 )
 
 type Replier struct {
-	logger               logrus.FieldLogger
-	providerNameGetter   func() string
-	returnMetadataGetter func() bool
-	uses127Api           bool
+	logger      logrus.FieldLogger
+	queryParams queryParams
+	uses127Api  bool
 }
 
-func NewReplier(logger logrus.FieldLogger, providerNameGetter func() string, returnMetadataGetter func() bool, uses127Api bool) *Replier {
+type queryParams interface {
+	ProviderName() string
+	ReturnMetadataForSingle() bool
+	ReturnMetadataForGrouped() bool
+	Debug() bool
+}
+
+func NewReplier(logger logrus.FieldLogger, queryParams queryParams, uses127Api bool) *Replier {
 	return &Replier{
-		logger:               logger,
-		providerNameGetter:   providerNameGetter,
-		returnMetadataGetter: returnMetadataGetter,
-		uses127Api:           uses127Api,
+		logger:      logger,
+		queryParams: queryParams,
+		uses127Api:  uses127Api,
 	}
 }
 
@@ -135,7 +140,7 @@ func (r *Replier) extractGenerateResultDeprecated(_additional map[string]any, pa
 
 func (r *Replier) extractGenerativeMetadata(results map[string]any) (*pb.GenerativeMetadata, error) {
 	metadata := &pb.GenerativeMetadata{}
-	providerName := r.providerNameGetter()
+	providerName := r.queryParams.ProviderName()
 	switch providerName {
 	case anthropicParams.Name:
 		params := anthropicClients.GetResponseParams(results)
@@ -319,22 +324,22 @@ func (r *Replier) extractGenerativeReply(_additional map[string]any, params any)
 				return nil, nil, err
 			}
 		}
-		if generateResults["debug"] != nil {
+		if generateResults["debug"] != nil && r.queryParams.Debug() {
 			if debug, ok := generateResults["debug"].(*modulecapabilities.GenerateDebugInformation); ok && debug != nil {
 				prompt := debug.Prompt
 				reply.Debug = &pb.GenerativeDebug{FullPrompt: &prompt}
-				if generateResults["groupedResult"] != nil {
-					grouped.Debug = &pb.GenerativeDebug{FullPrompt: &prompt}
-				}
 			}
 		}
-		if r.returnMetadataGetter() {
+		if r.queryParams.ReturnMetadataForSingle() || r.queryParams.ReturnMetadataForGrouped() {
 			metadata, err := r.extractGenerativeMetadata(generateResults)
 			if err != nil {
 				return nil, nil, err
 			}
-			reply.Metadata = metadata
-			if generateResults["groupedResult"] != nil {
+			if r.queryParams.ReturnMetadataForSingle() {
+				reply.Metadata = metadata
+			}
+			g := r.queryParams.ReturnMetadataForGrouped()
+			if generateResults["groupedResult"] != nil && g {
 				grouped.Metadata = metadata
 			}
 		}
