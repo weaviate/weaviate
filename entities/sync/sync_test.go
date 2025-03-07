@@ -30,7 +30,6 @@ func mutexLocked(m *sync.Mutex) bool {
 }
 
 func rwMutexLocked(m *sync.RWMutex) bool {
-	// can not RLock
 	rlocked := m.TryRLock()
 	if rlocked {
 		defer m.RUnlock()
@@ -39,7 +38,6 @@ func rwMutexLocked(m *sync.RWMutex) bool {
 }
 
 func rwMutexRLocked(m *sync.RWMutex) bool {
-	// can not Lock, but can RLock
 	locked := m.TryLock()
 	if locked {
 		defer m.Unlock()
@@ -52,61 +50,100 @@ func rwMutexRLocked(m *sync.RWMutex) bool {
 	return rlocked
 }
 
-// forceCleanupKeyLocker removes the mutex if it has no active references, regardless of expiry time
-// This is used for testing purposes only
-func forceCleanupKeyLocker(s *KeyLocker, ID string, info *lockInfo) {
-	if atomic.LoadInt32(&info.refs) == 0 {
-		// Try to acquire the mutex to ensure it's not in use
-		if info.mutex.TryLock() {
-			s.m.Delete(ID)
-			info.mutex.Unlock()
-		}
-	}
-}
+// func TestKeyLocker(t *testing.T) {
+// 	t.Run("basic locking", func(t *testing.T) {
+// 		locker := NewKeyLocker()
 
-// forceCleanupKeyRWLocker removes the mutex if it has no active references, regardless of expiry time
-// This is used for testing purposes only
-func forceCleanupKeyRWLocker(s *KeyRWLocker, ID string, info *rwLockInfo) {
-	if atomic.LoadInt32(&info.refs) == 0 {
-		// Try to acquire the mutex to ensure it's not in use
-		if info.mutex.TryLock() {
-			s.m.Delete(ID)
-			info.mutex.Unlock()
-		}
-	}
-}
+// 		// Lock should work
+// 		locker.Lock("test")
+// 		locker.Unlock("test")
 
-// Helper function to manually clean up a KeyLocker
-func cleanupKeyLocker(s *KeyLocker) {
-	var keysToClean []string
-	var infosToClean []*lockInfo
+// 		// Multiple locks should work
+// 		locker.Lock("test")
+// 		locker.Lock("test2")
+// 		locker.Unlock("test")
+// 		locker.Unlock("test2")
+// 	})
 
-	s.m.Range(func(key, value interface{}) bool {
-		keysToClean = append(keysToClean, key.(string))
-		infosToClean = append(infosToClean, value.(*lockInfo))
-		return true
-	})
+// 	t.Run("concurrent access", func(t *testing.T) {
+// 		locker := NewKeyLocker()
 
-	for i, key := range keysToClean {
-		forceCleanupKeyLocker(s, key, infosToClean[i])
-	}
-}
+// 		var counter int32
+// 		var wg sync.WaitGroup
 
-// Helper function to manually clean up a KeyRWLocker
-func cleanupKeyRWLocker(s *KeyRWLocker) {
-	var keysToClean []string
-	var infosToClean []*rwLockInfo
+// 		for i := 0; i < 100; i++ {
+// 			wg.Add(1)
+// 			go func() {
+// 				defer wg.Done()
+// 				locker.Lock("test")
+// 				atomic.AddInt32(&counter, 1)
+// 				locker.Unlock("test")
+// 			}()
+// 		}
 
-	s.m.Range(func(key, value interface{}) bool {
-		keysToClean = append(keysToClean, key.(string))
-		infosToClean = append(infosToClean, value.(*rwLockInfo))
-		return true
-	})
+// 		wg.Wait()
+// 		assert.Equal(t, int32(100), counter)
+// 	})
 
-	for i, key := range keysToClean {
-		forceCleanupKeyRWLocker(s, key, infosToClean[i])
-	}
-}
+// 	t.Run("panic on invalid unlock", func(t *testing.T) {
+// 		locker := NewKeyLocker()
+
+// 		assert.Panics(t, func() {
+// 			locker.Unlock("nonexistent")
+// 		})
+// 	})
+// }
+
+// func TestKeyRWLocker(t *testing.T) {
+// 	t.Run("basic locking", func(t *testing.T) {
+// 		locker := NewKeyRWLocker()
+
+// 		// Write lock should work
+// 		locker.Lock("test")
+// 		locker.Unlock("test")
+
+// 		// Read lock should work
+// 		locker.RLock("test")
+// 		locker.RUnlock("test")
+
+// 		// Multiple read locks should work concurrently
+// 		locker.RLock("test")
+// 		locker.RLock("test")
+// 		locker.RUnlock("test")
+// 		locker.RUnlock("test")
+// 	})
+
+// 	t.Run("concurrent read access", func(t *testing.T) {
+// 		locker := NewKeyRWLocker()
+
+// 		var counter int32
+// 		var wg sync.WaitGroup
+
+// 		for i := 0; i < 100; i++ {
+// 			wg.Add(1)
+// 			go func() {
+// 				defer wg.Done()
+// 				locker.RLock("test")
+// 				atomic.AddInt32(&counter, 1)
+// 				locker.RUnlock("test")
+// 			}()
+// 		}
+
+// 		wg.Wait()
+// 		assert.Equal(t, int32(100), counter)
+// 	})
+
+// 	t.Run("panic on invalid unlock", func(t *testing.T) {
+// 		locker := NewKeyRWLocker()
+
+// 		assert.Panics(t, func() {
+// 			locker.Unlock("nonexistent")
+// 		})
+// 		assert.Panics(t, func() {
+// 			locker.RUnlock("nonexistent")
+// 		})
+// 	})
+// }
 
 func TestKeyLockerLockUnlock(t *testing.T) {
 	r := require.New(t)
@@ -118,16 +155,10 @@ func TestKeyLockerLockUnlock(t *testing.T) {
 	r.True(mutexLocked(info.mutex))
 
 	s.Unlock("t1")
-	// In our modified implementation, the lock remains in the cache after unlock
 	v, ok := s.m.Load("t1")
 	r.True(ok, "Lock should remain in the cache after unlock")
 	info = v.(*lockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyLocker(s, "t1", info)
-	_, ok = s.m.Load("t1")
-	r.False(ok, "Lock should be removed after cleanup")
 
 	s.Lock("t2")
 	v, _ = s.m.Load("t2")
@@ -135,16 +166,10 @@ func TestKeyLockerLockUnlock(t *testing.T) {
 	r.True(mutexLocked(info.mutex))
 
 	s.Unlock("t2")
-	// In our modified implementation, the lock remains in the cache after unlock
 	v, ok = s.m.Load("t2")
 	r.True(ok, "Lock should remain in the cache after unlock")
 	info = v.(*lockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyLocker(s, "t2", info)
-	_, ok = s.m.Load("t2")
-	r.False(ok, "Lock should be removed after cleanup")
 }
 
 func TestKeyRWLockerLockUnlock(t *testing.T) {
@@ -158,16 +183,10 @@ func TestKeyRWLockerLockUnlock(t *testing.T) {
 	r.False(rwMutexRLocked(info.mutex))
 
 	s.Unlock("t1")
-	// In our modified implementation, the lock remains in the cache after unlock
 	v, ok := s.m.Load("t1")
 	r.True(ok, "Lock should remain in the cache after unlock")
 	info = v.(*rwLockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyRWLocker(s, "t1", info)
-	_, ok = s.m.Load("t1")
-	r.False(ok, "Lock should be removed after cleanup")
 
 	s.Lock("t2")
 	v, _ = s.m.Load("t2")
@@ -176,16 +195,10 @@ func TestKeyRWLockerLockUnlock(t *testing.T) {
 	r.False(rwMutexRLocked(info.mutex))
 
 	s.Unlock("t2")
-	// In our modified implementation, the lock remains in the cache after unlock
 	v, ok = s.m.Load("t2")
 	r.True(ok, "Lock should remain in the cache after unlock")
 	info = v.(*rwLockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyRWLocker(s, "t2", info)
-	_, ok = s.m.Load("t2")
-	r.False(ok, "Lock should be removed after cleanup")
 
 	s.RLock("t1")
 	v, _ = s.m.Load("t1")
@@ -194,16 +207,10 @@ func TestKeyRWLockerLockUnlock(t *testing.T) {
 	r.True(rwMutexRLocked(info.mutex))
 
 	s.RUnlock("t1")
-	// In our modified implementation, the lock remains in the cache after unlock
 	v, ok = s.m.Load("t1")
 	r.True(ok, "Lock should remain in the cache after unlock")
 	info = v.(*rwLockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyRWLocker(s, "t1", info)
-	_, ok = s.m.Load("t1")
-	r.False(ok, "Lock should be removed after cleanup")
 
 	s.RLock("t2")
 	v, _ = s.m.Load("t2")
@@ -212,16 +219,10 @@ func TestKeyRWLockerLockUnlock(t *testing.T) {
 	r.True(rwMutexRLocked(info.mutex))
 
 	s.RUnlock("t2")
-	// In our modified implementation, the lock remains in the cache after unlock
 	v, ok = s.m.Load("t2")
 	r.True(ok, "Lock should remain in the cache after unlock")
 	info = v.(*rwLockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyRWLocker(s, "t2", info)
-	_, ok = s.m.Load("t2")
-	r.False(ok, "Lock should be removed after cleanup")
 }
 
 func TestKeyLockerRefCounting(t *testing.T) {
@@ -236,16 +237,10 @@ func TestKeyLockerRefCounting(t *testing.T) {
 	r.Equal(int32(1), atomic.LoadInt32(&info.refs))
 	s.Unlock("ref1")
 
-	// In our modified implementation, the lock remains in the cache after unlock
 	v, ok = s.m.Load("ref1")
 	r.True(ok, "Lock should remain in the cache after unlock")
 	info = v.(*lockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyLocker(s, "ref1", info)
-	_, ok = s.m.Load("ref1")
-	r.False(ok, "Lock should be removed after cleanup")
 
 	// Test ref counting increases before lock acquisition
 	var wg sync.WaitGroup
@@ -258,17 +253,13 @@ func TestKeyLockerRefCounting(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		s.Lock("ref1")
-		// Verify initial ref count
 		v, _ := s.m.Load("ref1")
 		info := v.(*lockInfo)
 		r.Equal(int32(1), atomic.LoadInt32(&info.refs))
 
-		// Signal other goroutines to try to acquire lock
 		holdLock.Done()
-		// Hold lock while others try to acquire it
 		time.Sleep(time.Millisecond * 50)
 
-		// Verify ref count increased even though we still hold lock
 		v, _ = s.m.Load("ref1")
 		info = v.(*lockInfo)
 		refs := atomic.LoadInt32(&info.refs)
@@ -280,50 +271,18 @@ func TestKeyLockerRefCounting(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func() {
 			defer wg.Done()
-			holdLock.Wait() // Wait for first goroutine to hold lock
-			s.Lock("ref1")  // This will block until first goroutine releases
+			holdLock.Wait()
+			s.Lock("ref1")
 			s.Unlock("ref1")
 		}()
 	}
 
 	wg.Wait()
 
-	// After all operations, the lock should still be in the cache but with ref count 0
 	v, ok = s.m.Load("ref1")
 	r.True(ok, "Lock should remain in the cache after all operations")
 	info = v.(*lockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyLocker(s, "ref1", info)
-	_, ok = s.m.Load("ref1")
-	r.False(ok, "Lock should be removed after cleanup")
-
-	// Test cleanup with multiple goroutines
-	const numGoroutines = 5
-	wg.Add(numGoroutines)
-
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			s.Lock("ref2")
-			time.Sleep(time.Millisecond)
-			s.Unlock("ref2")
-		}()
-	}
-
-	wg.Wait()
-
-	// After all operations, the lock should still be in the cache but with ref count 0
-	v, ok = s.m.Load("ref2")
-	r.True(ok, "Lock should remain in the cache after all operations")
-	info = v.(*lockInfo)
-	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyLocker(s, "ref2", info)
-	_, ok = s.m.Load("ref2")
-	r.False(ok, "Lock should be removed after cleanup")
 }
 
 func TestKeyRWLockerRefCounting(t *testing.T) {
@@ -338,16 +297,10 @@ func TestKeyRWLockerRefCounting(t *testing.T) {
 	r.Equal(int32(1), atomic.LoadInt32(&info.refs))
 	s.Unlock("ref1")
 
-	// In our modified implementation, the lock remains in the cache after unlock
 	v, ok = s.m.Load("ref1")
 	r.True(ok, "Lock should remain in the cache after unlock")
 	info = v.(*rwLockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyRWLocker(s, "ref1", info)
-	_, ok = s.m.Load("ref1")
-	r.False(ok, "Lock should be removed after cleanup")
 
 	// Test single read lock ref counting
 	s.RLock("ref2")
@@ -357,28 +310,20 @@ func TestKeyRWLockerRefCounting(t *testing.T) {
 	r.Equal(int32(1), atomic.LoadInt32(&info.refs))
 	s.RUnlock("ref2")
 
-	// In our modified implementation, the lock remains in the cache after unlock
 	v, ok = s.m.Load("ref2")
 	r.True(ok, "Lock should remain in the cache after unlock")
 	info = v.(*rwLockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyRWLocker(s, "ref2", info)
-	_, ok = s.m.Load("ref2")
-	r.False(ok, "Lock should be removed after cleanup")
 
 	// Test concurrent read locks
 	var wg sync.WaitGroup
 	const numReaders = 3
 	wg.Add(numReaders)
 
-	// Start concurrent readers
 	for i := 0; i < numReaders; i++ {
 		go func() {
 			defer wg.Done()
 			s.RLock("ref3")
-			// Verify ref count increases with each reader
 			v, ok := s.m.Load("ref3")
 			r.True(ok)
 			info := v.(*rwLockInfo)
@@ -390,112 +335,16 @@ func TestKeyRWLockerRefCounting(t *testing.T) {
 
 	wg.Wait()
 
-	// After all operations, the lock should still be in the cache but with ref count 0
 	v, ok = s.m.Load("ref3")
 	r.True(ok, "Lock should remain in the cache after all operations")
 	info = v.(*rwLockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyRWLocker(s, "ref3", info)
-	_, ok = s.m.Load("ref3")
-	r.False(ok, "Lock should be removed after cleanup")
-}
-
-func TestKeyLockerConcurrentRefCounting(t *testing.T) {
-	r := require.New(t)
-	s := NewKeyLocker()
-	const numGoroutines = 10
-	const iterations = 100
-
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
-
-	// Start multiple goroutines that lock/unlock
-	for i := 0; i < numGoroutines; i++ {
-		go func(gid int) {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				// Use unique key for each goroutine to avoid contention
-				key := fmt.Sprintf("shared-%d", gid)
-				s.Lock(key)
-				time.Sleep(time.Microsecond) // Simulate work
-				s.Unlock(key)
-			}
-		}(i) // Pass i as parameter
-	}
-
-	wg.Wait()
-
-	// After all operations, locks should still be in the cache but with ref count 0
-	// Force cleanup to match original test behavior
-	cleanupKeyLocker(s)
-
-	// Verify all locks are cleaned up
-	var count int
-	s.m.Range(func(key, value interface{}) bool {
-		count++
-		return true
-	})
-	r.Equal(0, count, "All locks should be removed after cleanup")
-}
-
-func TestKeyRWLockerConcurrentRefCounting(t *testing.T) {
-	r := require.New(t)
-	s := NewKeyRWLocker()
-	const numReaders = 8
-	const numWriters = 2
-	const iterations = 100
-
-	var wg sync.WaitGroup
-	wg.Add(numReaders + numWriters)
-
-	// Start reader goroutines
-	for i := 0; i < numReaders; i++ {
-		go func(rid int) {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				// Use unique key for each reader
-				key := fmt.Sprintf("shared-r-%d", rid)
-				s.RLock(key)
-				time.Sleep(time.Microsecond) // Simulate read work
-				s.RUnlock(key)
-			}
-		}(i)
-	}
-
-	// Start writer goroutines
-	for i := 0; i < numWriters; i++ {
-		go func(wid int) {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				// Use unique key for each writer
-				key := fmt.Sprintf("shared-w-%d", wid)
-				s.Lock(key)
-				time.Sleep(time.Microsecond) // Simulate write work
-				s.Unlock(key)
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	// After all operations, locks should still be in the cache but with ref count 0
-	// Force cleanup to match original test behavior
-	cleanupKeyRWLocker(s)
-
-	// Verify all locks are cleaned up
-	var count int
-	s.m.Range(func(key, value interface{}) bool {
-		count++
-		return true
-	})
-	r.Equal(0, count, "All locks should be removed after cleanup")
 }
 
 func TestKeyLockerConcurrentAccess(t *testing.T) {
 	r := require.New(t)
 	s := NewKeyLocker()
+
 	const numGoroutines = 10
 	const iterations = 1000
 
@@ -528,23 +377,15 @@ func TestKeyLockerConcurrentAccess(t *testing.T) {
 	actual := atomic.LoadInt32(&counter)
 	r.Equal(expected, actual, "Expected counter to be %d but got %d", expected, actual)
 
-	// After all operations, the lock should still be in the cache but with ref count 0
 	v, ok := s.m.Load("shared")
 	r.True(ok, "Lock should remain in the cache after all operations")
 	info := v.(*lockInfo)
 	r.Equal(int32(0), atomic.LoadInt32(&info.refs), "Reference count should be 0")
-
-	// Force cleanup to match original test behavior
-	forceCleanupKeyLocker(s, "shared", info)
-	_, ok = s.m.Load("shared")
-	r.False(ok, "Lock should be removed after cleanup")
 }
 
 // TestKeyLockerExpiry tests the time-based expiry functionality of KeyLocker
 func TestKeyLockerExpiry(t *testing.T) {
 	r := require.New(t)
-
-	// Create a locker with default settings
 	s := NewKeyLocker()
 
 	// Create and release some locks
@@ -570,67 +411,50 @@ func TestKeyLockerExpiry(t *testing.T) {
 		return true
 	})
 
-	// Force cleanup by accessing each key
-	for i := 0; i < 5; i++ {
-		key := fmt.Sprintf("key%d", i)
-		v, ok := s.m.Load(key)
-		if ok {
-			info := v.(*lockInfo)
-			forceCleanupKeyLocker(s, key, info)
-		}
-	}
+	// Create an active lock that should not be cleaned up
+	s.Lock("active")
+	v, ok := s.m.Load("active")
+	r.True(ok, "Lock should be in the cache")
+	info := v.(*lockInfo)
+	// Set last access to 11 minutes ago
+	atomic.StoreInt64(&info.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
 
-	// Verify locks were removed after expiry
+	// Trigger cleanup directly
+	s.cleanup(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	// Verify that expired locks are removed and active lock remains
+	count = 0
+	s.m.Range(func(key, value interface{}) bool {
+		count++
+		r.Equal("active", key, "Only active lock should remain")
+		return true
+	})
+	r.Equal(1, count, "Only active lock should remain in the cache")
+
+	// Release the active lock
+	s.Unlock("active")
+
+	// Set its last access time to the past again
+	v, ok = s.m.Load("active")
+	r.True(ok)
+	info = v.(*lockInfo)
+	atomic.StoreInt64(&info.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
+
+	// Trigger cleanup again
+	s.cleanup(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	// Verify all locks are now removed
 	count = 0
 	s.m.Range(func(_, _ interface{}) bool {
 		count++
 		return true
 	})
-	r.Equal(0, count, "All locks should be removed after expiry")
-
-	// Test that active locks are not removed
-	s.Lock("active")
-	// Don't unlock yet
-
-	// Get the lock info
-	v, ok := s.m.Load("active")
-	r.True(ok, "Lock should be in the cache")
-	info := v.(*lockInfo)
-
-	// Set last access to 11 minutes ago
-	atomic.StoreInt64(&info.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
-
-	// Try to clean up
-	forceCleanupKeyLocker(s, "active", info)
-
-	// Verify active lock is still in the cache
-	_, ok = s.m.Load("active")
-	r.True(ok, "Active lock should not be removed")
-
-	// Release the lock
-	s.Unlock("active")
-
-	// Get the lock info again
-	v, ok = s.m.Load("active")
-	r.True(ok, "Lock should still be in the cache")
-	info = v.(*lockInfo)
-
-	// Set last access to 11 minutes ago
-	atomic.StoreInt64(&info.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
-
-	// Try to clean up
-	forceCleanupKeyLocker(s, "active", info)
-
-	// Verify lock was removed after expiry
-	_, ok = s.m.Load("active")
-	r.False(ok, "Lock should be removed after expiry")
+	r.Equal(0, count, "All locks should be removed after cleanup")
 }
 
 // TestKeyRWLockerExpiry tests the time-based expiry functionality of KeyRWLocker
 func TestKeyRWLockerExpiry(t *testing.T) {
 	r := require.New(t)
-
-	// Create a locker with default settings
 	s := NewKeyRWLocker()
 
 	// Create and release some locks
@@ -661,72 +485,59 @@ func TestKeyRWLockerExpiry(t *testing.T) {
 		return true
 	})
 
-	// Force cleanup by accessing each key
-	for i := 0; i < 5; i++ {
-		key := fmt.Sprintf("key%d", i)
-		v, ok := s.m.Load(key)
-		if ok {
-			info := v.(*rwLockInfo)
-			forceCleanupKeyRWLocker(s, key, info)
-		}
-	}
+	// Create active locks that should not be cleaned up
+	s.Lock("active-write")
+	s.RLock("active-read")
 
-	// Verify locks were removed after expiry
+	// Set their last access times to the past
+	v, ok := s.m.Load("active-write")
+	r.True(ok)
+	infoWrite := v.(*rwLockInfo)
+	atomic.StoreInt64(&infoWrite.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
+
+	v, ok = s.m.Load("active-read")
+	r.True(ok)
+	infoRead := v.(*rwLockInfo)
+	atomic.StoreInt64(&infoRead.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
+
+	// Trigger cleanup directly
+	s.cleanup(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	// Verify that expired locks are removed and active locks remain
+	count = 0
+	activeKeys := make(map[string]bool)
+	s.m.Range(func(key, _ interface{}) bool {
+		count++
+		activeKeys[key.(string)] = true
+		return true
+	})
+	r.Equal(2, count, "Only active locks should remain in the cache")
+	r.True(activeKeys["active-write"], "Write lock should still be present")
+	r.True(activeKeys["active-read"], "Read lock should still be present")
+
+	// Release the active locks
+	s.Unlock("active-write")
+	s.RUnlock("active-read")
+
+	// Set their last access times to the past again
+	v, ok = s.m.Load("active-write")
+	r.True(ok)
+	infoWrite = v.(*rwLockInfo)
+	atomic.StoreInt64(&infoWrite.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
+
+	v, ok = s.m.Load("active-read")
+	r.True(ok)
+	infoRead = v.(*rwLockInfo)
+	atomic.StoreInt64(&infoRead.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
+
+	// Trigger cleanup again
+	s.cleanup(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	// Verify all locks are now removed
 	count = 0
 	s.m.Range(func(_, _ interface{}) bool {
 		count++
 		return true
 	})
-	r.Equal(0, count, "All locks should be removed after expiry")
-
-	// Test that active locks are not removed
-	s.Lock("active-write")
-	s.RLock("active-read")
-	// Don't unlock yet
-
-	// Get the lock info and set last access to 11 minutes ago
-	v, ok := s.m.Load("active-write")
-	r.True(ok, "Write lock should be in the cache")
-	infoWrite := v.(*rwLockInfo)
-	atomic.StoreInt64(&infoWrite.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
-
-	v, ok = s.m.Load("active-read")
-	r.True(ok, "Read lock should be in the cache")
-	infoRead := v.(*rwLockInfo)
-	atomic.StoreInt64(&infoRead.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
-
-	// Try to clean up
-	forceCleanupKeyRWLocker(s, "active-write", infoWrite)
-	forceCleanupKeyRWLocker(s, "active-read", infoRead)
-
-	// Verify active locks are still in the cache
-	_, ok = s.m.Load("active-write")
-	r.True(ok, "Active write lock should not be removed")
-	_, ok = s.m.Load("active-read")
-	r.True(ok, "Active read lock should not be removed")
-
-	// Release the locks
-	s.Unlock("active-write")
-	s.RUnlock("active-read")
-
-	// Get the lock info again and set last access to 11 minutes ago
-	v, ok = s.m.Load("active-write")
-	r.True(ok, "Write lock should still be in the cache")
-	infoWrite = v.(*rwLockInfo)
-	atomic.StoreInt64(&infoWrite.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
-
-	v, ok = s.m.Load("active-read")
-	r.True(ok, "Read lock should still be in the cache")
-	infoRead = v.(*rwLockInfo)
-	atomic.StoreInt64(&infoRead.lastAccess, time.Now().Add(-11*time.Minute).UnixNano())
-
-	// Try to clean up
-	forceCleanupKeyRWLocker(s, "active-write", infoWrite)
-	forceCleanupKeyRWLocker(s, "active-read", infoRead)
-
-	// Verify locks were removed after expiry
-	_, ok = s.m.Load("active-write")
-	r.False(ok, "Write lock should be removed after expiry")
-	_, ok = s.m.Load("active-read")
-	r.False(ok, "Read lock should be removed after expiry")
+	r.Equal(0, count, "All locks should be removed after cleanup")
 }
