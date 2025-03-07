@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -506,18 +505,8 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	// determine only changed properties to avoid unnecessary updates of inverted indexes
 	if status.docIDPreserved {
-		skipDeltaForProps := []string{}
-		// TODO aliszka:blockmax optimize fetching skipDeltaForProps
-		if bucketsInverted := s.store.GetBucketsByStrategy(lsmkv.StrategyInverted); len(bucketsInverted) > 0 {
-			for bucketName := range bucketsInverted {
-				if strings.HasSuffix(bucketName, "_searchable") && strings.HasPrefix(bucketName, "property_") {
-					propName := strings.TrimPrefix(strings.TrimSuffix(bucketName, "_searchable"), "property_")
-					skipDeltaForProps = append(skipDeltaForProps, propName)
-				}
-			}
-		}
+		delta := inverted.DeltaSkipSearchable(prevProps, props, s.getInvertedSearchableProperties())
 
-		delta := inverted.DeltaSkipSearchable(prevProps, props, skipDeltaForProps)
 		propsToAdd = delta.ToAdd
 		propsToDel = delta.ToDelete
 		deltaNil := inverted.DeltaNil(prevNilprops, nilprops)

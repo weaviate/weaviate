@@ -93,6 +93,7 @@ type deferredShardOpts struct {
 
 	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
 	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
+	searchableInvertedPropNames           []string
 }
 
 func (l *LazyLoadShard) mustLoad() {
@@ -131,6 +132,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 	shard.callbacksAddToPropertyValueIndex = l.shardOpts.callbacksAddToPropertyValueIndex
 	shard.callbacksRemoveFromPropertyValueIndex = l.shardOpts.callbacksRemoveFromPropertyValueIndex
+	shard.markInvertedSearchableProperties(l.shardOpts.searchableInvertedPropNames...)
 
 	l.shard = shard
 	l.loaded = true
@@ -745,4 +747,15 @@ func (l *LazyLoadShard) RegisterDeleteFromPropertyValueIndex(callback onDeleteFr
 	}
 	l.mutex.Unlock()
 	l.shard.RegisterDeleteFromPropertyValueIndex(callback)
+}
+
+func (l *LazyLoadShard) markInvertedSearchableProperties(propNames ...string) {
+	l.mutex.Lock()
+	if !l.loaded {
+		l.shardOpts.searchableInvertedPropNames = append(l.shardOpts.searchableInvertedPropNames, propNames...)
+		l.mutex.Unlock()
+		return
+	}
+	l.mutex.Unlock()
+	l.shard.markInvertedSearchableProperties(propNames...)
 }

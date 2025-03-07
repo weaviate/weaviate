@@ -173,6 +173,7 @@ type ShardLike interface {
 
 	RegisterAddToPropertyValueIndex(callback onAddToPropertyValueIndex)
 	RegisterDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex)
+	markInvertedSearchableProperties(propNames ...string)
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -254,6 +255,11 @@ type Shard struct {
 
 	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
 	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
+	// stores names of properties that are searchable and use buckets of
+	// inverted strategy. for such properties delta analyzer should avoid
+	// computing delta between previous and current values of properties
+	searchableInvertedPropNames     []string
+	searchableInvertedPropNamesLock *sync.Mutex
 }
 
 func (s *Shard) ID() string {
