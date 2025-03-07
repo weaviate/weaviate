@@ -147,7 +147,7 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 			if tt.authorizeErr != nil {
 				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
 			}
-			controller.On("GetRolesForUser", tt.params.ID, tt.params.UserType).Return(returnedPolices, nil)
+			controller.On("GetRolesForUser", tt.params.ID, userType).Return(returnedPolices, nil)
 			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{tt.params.ID: {}}, nil)
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -195,7 +195,7 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
-			controller.On("GetRolesForUser", tt.params.ID, tt.params.UserType).Return(nil, tt.getRolesErr)
+			controller.On("GetRolesForUser", tt.params.ID, userType).Return(nil, tt.getRolesErr)
 			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{tt.params.ID: {}}, nil)
 
 			h := &authZHandlers{
