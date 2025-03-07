@@ -14,7 +14,6 @@ package modulecomponents
 import (
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -94,16 +93,11 @@ func (rl *RateLimits) IsInitialized() bool {
 	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
 }
 
-type VectorizationResult[T dto.Embedding] struct {
+type VectorizationResult struct {
 	Text       []string
 	Dimensions int
-	Vector     []T
+	Vector     [][]float32
 	Errors     []error
-}
-
-type VectorizationCLIPResult[T dto.Embedding] struct {
-	TextVectors  []T
-	ImageVectors []T
 }
 
 type Usage struct {
@@ -117,4 +111,9 @@ func GetTotalTokens(usage *Usage) int {
 		return -1
 	}
 	return usage.TotalTokens
+}
+
+type VectorizationCLIPResult struct {
+	TextVectors  [][]float32
+	ImageVectors [][]float32
 }
