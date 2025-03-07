@@ -20,6 +20,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -32,12 +33,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/ivfpq"
 )
 
 const (
-	trainingLimit = 100_000
+	trainingLimit = 90_000
 )
 
 type ivfpq struct {
@@ -52,7 +52,7 @@ type ivfpq struct {
 	trackDimensionsOnce sync.Once
 	rescore             int64
 	sq                  *compressionhelpers.ScalarQuantizer
-	pq                  *compressionhelpers.ProductQuantizer
+	lsh                 *compressionhelpers.LSHQuantizer
 	invertedIndex       invertedIndexNode
 
 	pqResults *common.PqMaxPool
@@ -98,7 +98,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*ivfpq, error) {
 func (index *ivfpq) Compressed() bool {
 	index.RLock()
 	defer index.RUnlock()
-	return index.pq != nil
+	return index.lsh != nil
 }
 
 func (index *ivfpq) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
@@ -141,8 +141,10 @@ func (index *ivfpq) Add(ctx context.Context, id uint64, vector []float32) error 
 	if index.Compressed() {
 		vectorSQ := index.sq.Encode(vector)
 		index.storeVector(id, vectorSQ, index.getCompressedBucketName())
-		code := index.pq.Encode(vector)
-		index.invertedIndex.add(code, id)
+		code := index.lsh.Encode8(vector)
+		index.Lock()
+		index.invertedIndex = index.invertedIndex.add(code, id, 0)
+		index.Unlock()
 	}
 	newCount := atomic.LoadUint64(&index.count)
 	atomic.StoreUint64(&index.count, newCount+1)
@@ -155,61 +157,38 @@ func (index *ivfpq) Delete(ids ...uint64) error {
 
 func (index *ivfpq) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	if index.Compressed() {
-		codes, dists := index.pq.SortCodes(vector)
+		vector = index.normalized(vector)
+		start := time.Now()
+		code := index.lsh.Encode8(vector)
+		helpers.AnnotateSlowQueryLog(ctx, "encoding", time.Since(start))
 		probingSize := int(atomic.LoadInt32(&index.probingSize))
 		heap := priorityqueue.NewMax[byte](probingSize)
-		index.invertedIndex.search(codes, dists, probingSize, heap, 0)
+		aux := priorityqueue.NewMin[byte](probingSize)
+		start = time.Now()
+		index.invertedIndex.search(code, probingSize, heap, aux, 0, 0)
+		helpers.AnnotateSlowQueryLog(ctx, fmt.Sprintf("traversing %d:", heap.Len()), time.Since(start))
 
 		compressedK := 15
 
 		cHeap := priorityqueue.NewMax[byte](compressedK)
-		vector = index.normalized(vector)
 		cdistancer := index.sq.NewDistancer(vector)
 
-		ids := make([]uint64, probingSize)
-		dist := make([]float32, probingSize)
-
-		for heap.Len() > probingSize {
-			heap.Pop()
-		}
-		j := heap.Len()
+		start = time.Now()
 		for heap.Len() > 0 {
-			j--
-			elem := heap.Pop()
-			ids[j] = elem.ID
-			dist[j] = elem.Dist
-		}
-
-		pos := 0
-		for cHeap.Len() < compressedK {
-			element := ids[pos]
-			pos++
-			vec, err := index.getSQVector(ctx, element)
+			element := heap.Pop()
+			vec, err := index.getSQVector(ctx, element.ID)
 			if err != nil {
 				return nil, nil, err
 			}
 			d, _ := cdistancer.Distance(vec)
-			cHeap.Insert(element, d)
-		}
-		limit := dist[pos]
-		for pos < probingSize {
-			if dist[pos]-limit > 0.1 {
-				ids = ids[:pos]
-				break
-			}
-			element := ids[pos]
-			pos++
-			vec, err := index.getSQVector(ctx, element)
-			if err != nil {
-				return nil, nil, err
-			}
-			d, _ := cdistancer.Distance(vec)
-			if d < cHeap.Top().Dist {
+			if cHeap.Len() >= compressedK {
 				cHeap.Pop()
-				cHeap.Insert(element, d)
 			}
+			cHeap.Insert(element.ID, d)
 		}
+		helpers.AnnotateSlowQueryLog(ctx, fmt.Sprintf("searching compressed %d:", cHeap.Len()), time.Since(start))
 
+		start = time.Now()
 		heap.Reset()
 		for cHeap.Len() > 0 {
 			element := cHeap.Pop()
@@ -221,15 +200,19 @@ func (index *ivfpq) SearchByVector(ctx context.Context, vector []float32, k int,
 			if err != nil {
 				return nil, nil, err
 			}
+			if heap.Len() >= k {
+				heap.Pop()
+			}
 			heap.Insert(element.ID, distance)
 		}
+		helpers.AnnotateSlowQueryLog(ctx, fmt.Sprintf("searching %d:", heap.Len()), time.Since(start))
 
 		for heap.Len() > k {
 			heap.Pop()
 		}
-		ids = make([]uint64, k)
-		dist = make([]float32, k)
-		j = k
+		ids := make([]uint64, k)
+		dist := make([]float32, k)
+		j := k
 		for heap.Len() > 0 {
 			j--
 			elem := heap.Pop()
@@ -543,20 +526,6 @@ func (index *ivfpq) Upgrade(callback func()) error {
 	index.Lock()
 	defer index.Unlock()
 
-	cfg := hnswent.PQConfig{
-		Enabled:       true,
-		Segments:      3,
-		Centroids:     128,
-		TrainingLimit: trainingLimit,
-		Encoder: hnswent.PQEncoder{
-			Type:         hnswent.PQEncoderTypeKMeans,
-			Distribution: hnswent.PQEncoderDistributionNormal,
-		},
-	}
-	pq, err := compressionhelpers.NewProductQuantizer(cfg, index.distancerProvider, int(index.dims), index.logger)
-	if err != nil {
-		panic(err)
-	}
 	bucket := index.store.Bucket(index.getBucketName())
 	cursor := bucket.Cursor()
 
@@ -574,14 +543,15 @@ func (index *ivfpq) Upgrade(callback func()) error {
 		data = append(data, vc)
 	}
 	cursor.Close()
-	pq.Fit(data)
-	index.invertedIndex = newInvertedIndex(0, 3, common.NewDefaultShardedLocks())
 	index.sq = compressionhelpers.NewScalarQuantizer(data, index.distancerProvider)
-	index.pq = pq
 
+	bands := 3
+	perBand := 64
+	index.lsh = compressionhelpers.NewLSHQuantizer(perBand, bands, len(data[0]))
+	index.invertedIndex = newInvertedIndex(0, bands*perBand/64)
 	compressionhelpers.Concurrently(index.logger, uint64(len(data)), func(i uint64) {
-		code := pq.Encode(data[i])
-		index.invertedIndex.add(code, ids[i])
+		code := index.lsh.Encode8(data[i])
+		index.invertedIndex = index.invertedIndex.add(code, ids[i], 0)
 		vectorSQ := index.sq.Encode(data[i])
 		index.storeVector(ids[i], vectorSQ, index.getCompressedBucketName())
 	})

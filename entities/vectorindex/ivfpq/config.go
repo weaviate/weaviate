@@ -20,7 +20,7 @@ import (
 
 const (
 	DefaultCompressionRescore = -1 // indicates "let Weaviate pick"
-	DefaultProbingSize        = 50_000
+	DefaultProbingSize        = 500
 	DefaultDistanceCutOff     = 0.1
 )
 

@@ -13,187 +13,260 @@ package ivfpq
 
 import (
 	"context"
-	"math"
+	"fmt"
+	"math/bits"
+	"sync"
+	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type invertedIndexNode interface {
-	add(code []byte, id uint64)
-	search(codes [][]byte, dists [][]float32, k int, heap *priorityqueue.Queue[byte], accDist float32)
+	add(code []byte, id uint64, dim int) invertedIndexNode
+	search(codes []byte, k int, heap, aux *priorityqueue.Queue[byte], dim, accDist int)
 }
 
 type invertedIndex struct {
+	sync.RWMutex
 	nextDim []invertedIndexNode
-	perCode []int
-	dim     int
-	maxDim  int
-	locks   *common.ShardedLocks
+	codes   []byte
 }
 
 type leave struct {
+	sync.RWMutex
 	ids   []uint64
-	locks *common.ShardedLocks
+	codes []byte
 }
 
-func newInvertedIndex(dimension, maxDimension int, locks *common.ShardedLocks) invertedIndexNode {
-	if dimension == maxDimension {
-		return &leave{
-			locks: locks,
+func newInvertedIndex(dimension, maxDimension int) invertedIndexNode {
+	return &leave{}
+}
+
+func (i *invertedIndex) add(code []byte, id uint64, dim int) invertedIndexNode {
+	i.Lock()
+	offset := 0
+	for offset < len(i.codes) && i.codes[offset] == code[dim+offset] {
+		offset++
+	}
+	if offset < len(i.codes) {
+		//split
+		common := make([]byte, offset)
+		copy(common, i.codes[:offset])
+		nextDim := make([]invertedIndexNode, 256)
+		nextDim[i.codes[offset]] = i
+		i.codes = i.codes[offset+1:]
+		i.Unlock()
+		remaining := make([]byte, len(code)-dim-1-offset)
+		copy(remaining, code[dim+1+offset:])
+		nextDim[code[dim+offset]] = &leave{
+			codes: remaining,
+			ids:   []uint64{id},
+		}
+		newInvertedIndex := &invertedIndex{
+			codes:   common,
+			nextDim: nextDim,
+		}
+		return newInvertedIndex
+	}
+	if len(i.codes) == 0 {
+		if i.nextDim[code[dim]] == nil {
+			remaining := make([]byte, len(code)-dim-1-offset)
+			copy(remaining, code[dim+offset+1:])
+			i.nextDim[code[dim]] = &leave{
+				codes: remaining,
+				ids:   []uint64{id},
+			}
+			i.Unlock()
+			return i
+		}
+		i.nextDim[code[dim+offset]] = i.nextDim[code[dim+offset]].add(code, id, dim+offset+1)
+		i.Unlock()
+		return i
+	}
+	if i.nextDim[code[dim+offset]] == nil {
+		remaining := make([]byte, len(code)-dim-offset-1)
+		copy(remaining, code[dim+offset+1:])
+		i.nextDim[code[dim+offset]] = &leave{
+			ids:   []uint64{id},
+			codes: remaining,
+		}
+		i.Unlock()
+		return i
+	}
+	i.nextDim[code[dim+offset]] = i.nextDim[code[dim+offset]].add(code, id, dim+offset+1)
+	i.Unlock()
+	return i
+}
+
+func (i *leave) add(code []byte, id uint64, dim int) invertedIndexNode {
+	i.Lock()
+	if len(i.ids) == 0 {
+		i.codes = code
+		i.ids = append(i.ids, id)
+		i.Unlock()
+		return i
+	}
+	offset := 0
+	for offset < len(i.codes) && i.codes[offset] == code[dim+offset] {
+		offset++
+	}
+	if offset < len(i.codes) {
+		common := make([]byte, offset)
+		copy(common, i.codes[:offset])
+		nextDim := make([]invertedIndexNode, 256)
+		nextDim[i.codes[offset]] = i
+		i.codes = i.codes[offset+1:]
+		remaining := make([]byte, len(code)-dim-1-offset)
+		copy(remaining, code[dim+1+offset:])
+		nextDim[code[dim+offset]] = &leave{
+			codes: remaining,
+			ids:   []uint64{id},
+		}
+		newInvertedIndex := &invertedIndex{
+			codes:   common,
+			nextDim: nextDim,
+		}
+		if dim+1+len(i.codes)+len(common) != len(code) {
+			fmt.Println("here")
+		}
+		if dim+1+len(remaining)+len(common) != len(code) {
+			fmt.Println("here")
+		}
+		i.Unlock()
+		return newInvertedIndex
+	}
+	i.ids = append(i.ids, id)
+	i.Unlock()
+	return i
+}
+
+func (i *invertedIndex) search(code []byte, k int, heap, aux *priorityqueue.Queue[byte], dim, accDist int) {
+	var maxDist int
+	if heap.Len() < k {
+		maxDist = len(code) * 64
+	} else {
+		maxDist = int(heap.Top().Dist)
+	}
+
+	offset := 0
+	i.RLock()
+	defer i.RUnlock()
+	for offset < len(i.codes) {
+		accDist += bits.OnesCount8(i.codes[offset] ^ code[dim+offset])
+		offset++
+	}
+
+	currentCode := code[dim+offset]
+	for idx := range i.nextDim {
+		if i.nextDim[idx] != nil {
+			currDist := bits.OnesCount8(currentCode ^ byte(idx))
+			if accDist+currDist < maxDist {
+				aux.Insert(uint64(idx), float32(currDist))
+			}
 		}
 	}
 
-	return &invertedIndex{
-		dim:     dimension,
-		maxDim:  maxDimension,
-		locks:   locks,
-		nextDim: make([]invertedIndexNode, 256),
-		perCode: make([]int, 256),
-	}
-}
-
-func (i *invertedIndex) add(code []byte, id uint64) {
-	pos := uint64(code[i.dim])
-	lpos := uint64(1+i.dim%2) * pos
-	i.locks.Lock(lpos)
-	if i.nextDim[pos] == nil {
-		i.nextDim[pos] = newInvertedIndex(i.dim+1, i.maxDim, i.locks)
-	}
-	i.perCode[pos]++
-	i.locks.Unlock(lpos)
-	i.nextDim[pos].add(code, id)
-}
-
-func (i *leave) add(code []byte, id uint64) {
-	i.locks.Lock(uint64(code[len(code)-1]))
-	i.ids = append(i.ids, id)
-	i.locks.Unlock(uint64(code[len(code)-1]))
-}
-
-func (i *invertedIndex) search(codes [][]byte, dists [][]float32, k int, heap *priorityqueue.Queue[byte], accDist float32) {
-	if i.nextDim == nil {
-		return
+	ids := make([]uint64, aux.Len())
+	dist := make([]int, aux.Len())
+	j := 0
+	for aux.Len() > 0 {
+		elem := aux.Pop()
+		ids[j] = elem.ID
+		dist[j] = int(elem.Dist)
+		j++
 	}
 
-	var maxDist float32
-	if heap.Len() < k {
-		maxDist = math.MaxFloat32
-	} else {
-		maxDist = heap.Top().Dist
-	}
+	for j := range ids {
+		currentDist := dist[j]
 
-	currentCodes := codes[i.dim]
-	currentDists := dists[i.dim]
-	for codePos, codeList := range currentCodes {
-		if i.nextDim[codeList] != nil && accDist+currentDists[codePos] < maxDist {
-			i.nextDim[codeList].search(codes, dists, k, heap, accDist+currentDists[codePos])
+		if accDist+currentDist < maxDist {
+			i.nextDim[ids[j]].search(code, k, heap, aux, dim+offset+1, accDist+currentDist)
 			if heap.Len() >= k {
-				maxDist = heap.Top().Dist
+				maxDist = int(heap.Top().Dist)
 			}
 		}
 	}
 }
 
-func (i *leave) search(codes [][]byte, dists [][]float32, k int, heap *priorityqueue.Queue[byte], accDist float32) {
-	for _, id := range i.ids {
-		heap.Insert(id, accDist)
+func (i *leave) search(code []byte, k int, heap, aux *priorityqueue.Queue[byte], dim, accDist int) {
+	offset := 0
+	i.RLock()
+	defer i.RUnlock()
+	for offset < len(i.codes) {
+		accDist += bits.OnesCount8(i.codes[offset] ^ code[dim+offset])
+		offset++
 	}
-	for heap.Len() > k /*&& accDist < heap.Top().Dist*/ {
-		heap.Pop()
+	if heap.Len() < k || heap.Top().Dist > float32(accDist) {
+		for _, id := range i.ids {
+			heap.Insert(id, float32(accDist))
+		}
+		for heap.Len() > k {
+			heap.Pop()
+		}
 	}
-}
-
-type segmentedEncoder interface {
-	Fit(vectors [][]float32) error
-	Encode(vector []float32) []byte
-	SortCodes(vec []float32) ([][]byte, [][]float32)
 }
 
 type IvfPQ struct {
-	pq             segmentedEncoder
+	sync.Mutex
+	lsh            *compressionhelpers.LSHQuantizer
 	compressor     *compressionhelpers.ScalarQuantizer
 	compressedVecs [][]byte
 	invertedIndex  invertedIndexNode
 }
 
 func NewIvf(vectors [][]float32, distancer distancer.Provider) *IvfPQ {
-	segments := 3
-	cfg := hnsw.PQConfig{
-		Enabled:       true,
-		Segments:      segments,
-		Centroids:     128,
-		TrainingLimit: 10_000,
-		Encoder: hnsw.PQEncoder{
-			Type:         hnsw.PQEncoderTypeKMeans,
-			Distribution: hnsw.PQEncoderDistributionNormal,
-		},
-	}
-	pq, err := compressionhelpers.NewProductQuantizer(cfg, distancer, len(vectors[0]), logrus.New())
-	if err != nil {
-		panic(err)
-	}
-	pq.Fit(vectors)
+	bands := 3
+	perBand := 192
 	ivf := &IvfPQ{
-		pq:             pq,
+		lsh:            compressionhelpers.NewLSHQuantizer(perBand, bands, len(vectors[0])),
 		compressor:     compressionhelpers.NewScalarQuantizer(vectors, distancer),
-		invertedIndex:  newInvertedIndex(0, segments, common.NewDefaultShardedLocks()),
+		invertedIndex:  newInvertedIndex(0, bands*perBand/64),
 		compressedVecs: make([][]byte, 1_000_000),
 	}
 	return ivf
 }
 
 func (ivf *IvfPQ) Add(id uint64, vector []float32) {
-	code := ivf.pq.Encode(vector)
+	code := ivf.lsh.Encode8(vector)
 	ivf.compressedVecs[id] = ivf.compressor.Encode(vector)
-	ivf.invertedIndex.add(code, id)
+	ivf.Lock()
+	ivf.invertedIndex = ivf.invertedIndex.add(code, id, 0)
+	ivf.Unlock()
 }
 
 func (ivf *IvfPQ) SearchByVector(ctx context.Context, searchVec []float32, k int) ([]uint64, []float32, error) {
-	codes, dists := ivf.pq.SortCodes(searchVec)
-	probing := 50_000
+	code := ivf.lsh.Encode8(searchVec)
+	probing := 5_000
 	heap := priorityqueue.NewMax[byte](probing)
-	ivf.invertedIndex.search(codes, dists, probing, heap, 0)
+	aux := priorityqueue.NewMin[byte](probing)
+	start := time.Now()
+	ivf.invertedIndex.search(code, probing, heap, aux, 0, 0)
+	fmt.Println(time.Since(start))
+
 	compressedK := 15
 	cheap := priorityqueue.NewMax[byte](compressedK)
 	cdistancer := ivf.compressor.NewDistancer(searchVec)
 
-	ids := make([]uint64, probing)
-	dist := make([]float32, probing)
-
-	j := probing
 	for heap.Len() > 0 {
-		j--
-		elem := heap.Pop()
-		ids[j] = elem.ID
-		dist[j] = elem.Dist
-	}
-
-	index := 0
-	for cheap.Len() < compressedK {
-		element := ids[index]
-		index++
-		d, _ := cdistancer.Distance(ivf.compressedVecs[element])
-		cheap.Insert(element, d)
-	}
-	limit := dist[index]
-	for index < probing {
-		if dist[index]-limit > 0.1 {
-			ids = ids[:index]
-			break
-		}
-		element := ids[index]
-		index++
-		d, _ := cdistancer.Distance(ivf.compressedVecs[element])
-		if d < cheap.Top().Dist {
+		element := heap.Pop()
+		d, _ := cdistancer.Distance(ivf.compressedVecs[element.ID])
+		if cheap.Len() >= compressedK {
 			cheap.Pop()
-			cheap.Insert(element, d)
 		}
+		cheap.Insert(element.ID, d)
 	}
 
+	ids := make([]uint64, compressedK)
+	dist := make([]float32, compressedK)
+
+	index := compressedK
+	for cheap.Len() > 0 {
+		index--
+		element := cheap.Pop()
+		ids[index] = element.ID
+		dist[index] = element.Dist
+	}
 	return ids, dist, nil
 }

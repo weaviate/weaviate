@@ -133,8 +133,8 @@ func loadHdf5Neighbors(file *hdf5.File, name string) [][]uint64 {
 func TestIVF(t *testing.T) {
 	log.Println("Starting...")
 	var ivf *ivfpq.IvfPQ
-	file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-100k-openai-ada002.hdf5", hdf5.F_ACC_RDONLY)
-	//file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
+	//file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-100k-openai-ada002.hdf5", hdf5.F_ACC_RDONLY)
+	file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
 	assert.Nil(t, err)
 	defer file.Close()
 	dataset, err := file.OpenDataset("train")
@@ -223,7 +223,7 @@ func TestIVF(t *testing.T) {
 	testData := loadHdf5Float32(file, "test")
 
 	var wg2 sync.WaitGroup
-	rows = 500
+	rows = 100
 	recall := float32(0)
 	totaEllapsed := time.Duration(0)
 	lock := sync.Mutex{}
