@@ -33,6 +33,7 @@ type KeywordRanking struct {
 	Type                   string   `json:"type"`
 	Properties             []string `json:"properties"`
 	Query                  string   `json:"query"`
+	Tokens                 []string `json:"tokens"`
 	AdditionalExplanations bool     `json:"additionalExplanations"`
 }
 

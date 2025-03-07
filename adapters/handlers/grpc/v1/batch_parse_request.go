@@ -114,6 +114,11 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 			}
 		}
 
+		var tokens = []string{}
+		if len(obj.Tokens) > 0 {
+			tokens = obj.Tokens
+		}
+
 		objOriginalIndex[insertCounter] = i
 		objs = append(objs, &models.Object{
 			Class:      obj.Collection,
@@ -122,6 +127,7 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 			Properties: props,
 			ID:         strfmt.UUID(obj.Uuid),
 			Vectors:    vectors,
+			Tokens:     tokens,
 		})
 		insertCounter += 1
 	}

@@ -27,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
+var emptyUserTokens = []string{}
+
 func TestAnalyzeObject(t *testing.T) {
 	a := NewAnalyzer(nil)
 
@@ -83,7 +85,7 @@ func TestAnalyzeObject(t *testing.T) {
 				DataType: []string{"uuid[]"},
 			},
 		}
-		res, err := a.Object(sch, props, strfmt.UUID(uuid))
+		res, err := a.Object(sch, props, strfmt.UUID(uuid), emptyUserTokens)
 		require.Nil(t, err)
 
 		expectedDescription := []Countable{
@@ -274,7 +276,7 @@ func TestAnalyzeObject(t *testing.T) {
 				DataType: []string{"number[]"},
 			},
 		}
-		res, err := a.Object(sch, props, strfmt.UUID(uuid))
+		res, err := a.Object(sch, props, strfmt.UUID(uuid), emptyUserTokens)
 		require.Nil(t, err)
 
 		expectedDescriptions := []Countable{
@@ -453,7 +455,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, err := a.Object(schema, props, strfmt.UUID(uuid), emptyUserTokens)
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -512,7 +514,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, err := a.Object(schema, props, strfmt.UUID(uuid), emptyUserTokens)
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -562,7 +564,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, err := a.Object(schema, props, strfmt.UUID(uuid), emptyUserTokens)
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -618,7 +620,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"SomeClass"},
 				},
 			}
-			res, err := a.Object(sch, props, strfmt.UUID(uuid))
+			res, err := a.Object(sch, props, strfmt.UUID(uuid), emptyUserTokens)
 			require.Nil(t, err)
 
 			expectedUUID := []Countable{
@@ -669,7 +671,7 @@ func TestAnalyzeObject(t *testing.T) {
 			},
 		}
 
-		res, err := a.Object(sch, props, uuid)
+		res, err := a.Object(sch, props, uuid, emptyUserTokens)
 		require.Nil(t, err)
 		require.Len(t, res, 4)
 

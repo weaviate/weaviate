@@ -28,14 +28,14 @@ import (
 )
 
 func (a *Analyzer) Object(input map[string]any, props []*models.Property,
-	uuid strfmt.UUID,
+	uuid strfmt.UUID, userTokens []string,
 ) ([]Property, error) {
 	propsMap := map[string]*models.Property{}
 	for _, prop := range props {
 		propsMap[prop.Name] = prop
 	}
 
-	properties, err := a.analyzeProps(propsMap, input)
+	properties, err := a.analyzeProps(propsMap, input, userTokens)
 	if err != nil {
 		return nil, fmt.Errorf("analyze props: %w", err)
 	}
@@ -60,7 +60,7 @@ func (a *Analyzer) Object(input map[string]any, props []*models.Property,
 }
 
 func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
-	input map[string]any,
+	input map[string]any, userTokens []string,
 ) ([]Property, error) {
 	var out []Property
 	for key, prop := range propsMap {
@@ -81,11 +81,11 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 				return nil, err
 			}
 		} else if schema.IsArrayDataType(prop.DataType) {
-			if err := a.extendPropertiesWithArrayType(&out, prop, input, key); err != nil {
+			if err := a.extendPropertiesWithArrayType(&out, prop, input, key, userTokens); err != nil {
 				return nil, err
 			}
 		} else {
-			if err := a.extendPropertiesWithPrimitive(&out, prop, input, key); err != nil {
+			if err := a.extendPropertiesWithPrimitive(&out, prop, input, key, userTokens); err != nil {
 				return nil, err
 			}
 		}
@@ -146,7 +146,7 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]any) ([]Property, erro
 }
 
 func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
-	prop *models.Property, input map[string]any, propName string,
+	prop *models.Property, input map[string]any, propName string, userTokens []string,
 ) error {
 	value, ok := input[propName]
 	if !ok {
@@ -166,7 +166,7 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 		return errors.New("analyze array prop: expected array prop")
 	}
 
-	property, err := a.analyzeArrayProp(prop, values)
+	property, err := a.analyzeArrayProp(prop, values, userTokens)
 	if err != nil {
 		return fmt.Errorf("analyze array prop: %w", err)
 	}
@@ -181,7 +181,7 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 // extendPropertiesWithPrimitive mutates the passed in properties, by extending
 // it with an additional property - if applicable
 func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
-	prop *models.Property, input map[string]any, propName string,
+	prop *models.Property, input map[string]any, propName string, userTokens []string,
 ) error {
 	var property *Property
 	var err error
@@ -191,7 +191,7 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 		// skip any primitive prop that's not set
 		return nil
 	}
-	property, err = a.analyzePrimitiveProp(prop, value)
+	property, err = a.analyzePrimitiveProp(prop, value, userTokens)
 	if err != nil {
 		return fmt.Errorf("analyze primitive prop: %w", err)
 	}
@@ -203,7 +203,7 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 	return nil
 }
 
-func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Property, error) {
+func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any, userTokens []string) (*Property, error) {
 	var items []Countable
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
@@ -216,7 +216,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 		if err != nil {
 			return nil, err
 		}
-		items = a.TextArray(prop.Tokenization, in)
+		items = a.TextArray(prop.Tokenization, in, userTokens)
 	case schema.DataTypeIntArray:
 		in := make([]int64, len(values))
 		for i, value := range values {
@@ -344,7 +344,7 @@ func stringsFromValues(prop *models.Property, values []any) ([]string, error) {
 	return in, nil
 }
 
-func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Property, error) {
+func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any, userTokens []string) (*Property, error) {
 	var items []Countable
 	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
 	hasFilterableIndex := HasFilterableIndex(prop)
@@ -353,7 +353,12 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 
 	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeText:
-		if prop.Tokenization == models.PropertyTokenizationUser {
+		if len(userTokens) >0 {
+			fmt.Printf("!!! using user tokens: %v", userTokens)
+			for _, token := range userTokens {
+				items = append(items, Countable{[]byte(token), 1})
+			}
+		} else if prop.Tokenization == models.PropertyTokenizationUser {
 			items = a.PreTokenised(prop.Tokenization, value.([]string))
 		} else {
 			hasFilterableIndex = hasFilterableIndex && !a.isFallbackToSearchable()
@@ -361,7 +366,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 			if !ok {
 				return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 			}
-			items = a.Text(prop.Tokenization, asString)
+			items = a.Text(prop.Tokenization, asString, userTokens)
 			propertyLength = utf8.RuneCountInString(asString)
 		}
 	case schema.DataTypeInt:

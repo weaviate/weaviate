@@ -101,7 +101,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if bm25 := req.Bm25Search; bm25 != nil {
-		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
+		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Tokens: bm25.Tokens, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
 	}
 
 	if nv := req.NearVector; nv != nil {

@@ -142,7 +142,11 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
 	for _, tokenization := range helpers.Tokenizations {
-		queryTerms, dupBoosts := helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
+		//FIXME add counting of duplicates
+
+		queryTerms := params.Tokens
+		dupBoosts := make([]int, len(queryTerms))
+		//queryTerms, dupBoosts := helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
 		queryTermsByTokenization[tokenization] = queryTerms
 		duplicateBoostsByTokenization[tokenization] = dupBoosts
 
