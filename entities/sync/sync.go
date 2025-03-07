@@ -68,125 +68,58 @@ type lockInfo struct {
 	lastAccess int64 // atomic timestamp of last access
 }
 
-// rwLockInfo holds a read-write mutex and its reference count for the KeyRWLocker implementation.
-type rwLockInfo struct {
-	mutex      *sync.RWMutex
-	refs       int32 // atomic reference counter
-	lastAccess int64 // atomic timestamp of last access
-}
-
-// Global cleanup mechanism
-var (
-	// cleanupOnce ensures the cleanup goroutine is started only once
-	cleanupOnce sync.Once
-
-	// cleanupTicker is the ticker for periodic cleanup
-	cleanupTicker *time.Ticker
-
-	// stopCleanup is the channel to stop the cleanup goroutine
-	stopCleanup chan struct{}
-
-	// lockerRegistry keeps track of all KeyLocker instances
-	lockerRegistry []*KeyLocker
-
-	// rwLockerRegistry keeps track of all KeyRWLocker instances
-	rwLockerRegistry []*KeyRWLocker
-
-	// registryMutex protects the registries
-	registryMutex sync.Mutex
-)
-
-// startCleanupRoutine starts the global cleanup routine
-func startCleanupRoutine() {
-	cleanupTicker = time.NewTicker(5 * time.Minute)
-	stopCleanup = make(chan struct{})
-
-	go func() {
-		for {
-			select {
-			case <-cleanupTicker.C:
-				// Perform cleanup on all registered lockers
-				performGlobalCleanup()
-			case <-stopCleanup:
-				cleanupTicker.Stop()
-				return
-			}
-		}
-	}()
-}
-
-// performGlobalCleanup cleans up all registered lockers
-func performGlobalCleanup() {
-	// Get current time minus 10 minutes for expiry check
-	cutoff := time.Now().Add(-10 * time.Minute).UnixNano()
-
-	// Clean up KeyLocker instances
-	registryMutex.Lock()
-	for _, locker := range lockerRegistry {
-		locker.cleanup(cutoff)
-	}
-
-	// Clean up KeyRWLocker instances
-	for _, locker := range rwLockerRegistry {
-		locker.cleanup(cutoff)
-	}
-	registryMutex.Unlock()
-}
-
-// StopCleanup stops the global cleanup routine
-// This should be called when the application is shutting down
-func StopCleanup() {
-	if stopCleanup != nil {
-		close(stopCleanup)
-		stopCleanup = nil
-	}
-}
-
 // KeyLocker provides mutex-based synchronization using string keys.
 // It maintains a cache of mutexes in a sync.Map for reuse.
 type KeyLocker struct {
-	m sync.Map // map[string]*lockInfo
+	m             sync.Map // map[string]*lockInfo
+	cleanupTicker *time.Ticker
+	stopCleanup   chan struct{}
 }
 
 // NewKeyLocker creates a new KeyLocker instance.
 func NewKeyLocker() *KeyLocker {
-	// Start the global cleanup routine if it hasn't been started yet
-	cleanupOnce.Do(startCleanupRoutine)
+	locker := &KeyLocker{
+		stopCleanup: make(chan struct{}),
+	}
 
-	locker := &KeyLocker{}
+	// Start a cleanup ticker for this instance
+	locker.cleanupTicker = time.NewTicker(5 * time.Minute) // TODO : this can be configurable
 
-	// Register this locker for cleanup
-	registryMutex.Lock()
-	lockerRegistry = append(lockerRegistry, locker)
-	registryMutex.Unlock()
+	go func() {
+		for {
+			select {
+			case <-locker.cleanupTicker.C:
+				// Get current time minus 10 minutes for expiry check
+				cutoff := time.Now().Add(-10 * time.Minute).UnixNano()
+				locker.cleanup(cutoff)
+			case <-locker.stopCleanup:
+				locker.cleanupTicker.Stop()
+				return
+			}
+		}
+	}()
 
 	return locker
 }
 
 // Lock acquires a mutex for the given ID.
 func (s *KeyLocker) Lock(ID string) {
-	// Try to get existing mutex first
 	if v, ok := s.m.Load(ID); ok {
 		info := v.(*lockInfo)
-		// Increment ref count
 		atomic.AddInt32(&info.refs, 1)
-		// Update last access time
 		atomic.StoreInt64(&info.lastAccess, time.Now().UnixNano())
 		info.mutex.Lock()
 		return
 	}
 
-	// Create new mutex
 	info := &lockInfo{
 		mutex:      &sync.Mutex{},
 		refs:       1,
 		lastAccess: time.Now().UnixNano(),
 	}
 
-	// Try to store new mutex
 	actual, loaded := s.m.LoadOrStore(ID, info)
 	if !loaded {
-		// We created a new mutex, acquire it
 		info.mutex.Lock()
 		return
 	}
@@ -211,12 +144,7 @@ func (s *KeyLocker) Unlock(ID string) {
 	info := v.(*lockInfo)
 	info.mutex.Unlock()
 
-	// Update last access time
 	atomic.StoreInt64(&info.lastAccess, time.Now().UnixNano())
-
-	// Decrement ref count but don't remove immediately
-	// This is to match the test expectations that locks remain in the cache
-	// even when their reference count reaches zero
 	atomic.AddInt32(&info.refs, -1)
 }
 
@@ -225,19 +153,16 @@ func (s *KeyLocker) cleanup(cutoff int64) {
 	var keysToCheck []string
 	var infosToCheck []*lockInfo
 
-	// Collect keys and infos to check
 	s.m.Range(func(key, value interface{}) bool {
 		keysToCheck = append(keysToCheck, key.(string))
 		infosToCheck = append(infosToCheck, value.(*lockInfo))
 		return true
 	})
 
-	// Check each key for expiry
 	for i, key := range keysToCheck {
 		info := infosToCheck[i]
 		lastAccess := atomic.LoadInt64(&info.lastAccess)
 
-		// If expired and not in use, remove it
 		if lastAccess < cutoff && atomic.LoadInt32(&info.refs) == 0 {
 			if info.mutex.TryLock() {
 				s.m.Delete(key)
@@ -247,35 +172,51 @@ func (s *KeyLocker) cleanup(cutoff int64) {
 	}
 }
 
+// rwLockInfo holds a read-write mutex and its reference count for the KeyRWLocker implementation.
+type rwLockInfo struct {
+	mutex      *sync.RWMutex
+	refs       int32 // atomic reference counter
+	lastAccess int64 // atomic timestamp of last access
+}
+
 // KeyRWLocker provides read-write mutex synchronization using string keys.
 // It maintains a cache of RWMutexes in a sync.Map for reuse.
 type KeyRWLocker struct {
-	m sync.Map // map[string]*rwLockInfo
+	m             sync.Map // map[string]*rwLockInfo
+	cleanupTicker *time.Ticker
+	stopCleanup   chan struct{}
 }
 
 // NewKeyRWLocker creates a new KeyRWLocker instance.
 func NewKeyRWLocker() *KeyRWLocker {
-	// Start the global cleanup routine if it hasn't been started yet
-	cleanupOnce.Do(startCleanupRoutine)
+	locker := &KeyRWLocker{
+		stopCleanup: make(chan struct{}),
+	}
 
-	locker := &KeyRWLocker{}
+	locker.cleanupTicker = time.NewTicker(5 * time.Minute)
 
-	// Register this locker for cleanup
-	registryMutex.Lock()
-	rwLockerRegistry = append(rwLockerRegistry, locker)
-	registryMutex.Unlock()
+	go func() {
+		for {
+			select {
+			case <-locker.cleanupTicker.C:
+				// Get current time minus 10 minutes for expiry check
+				cutoff := time.Now().Add(-10 * time.Minute).UnixNano()
+				locker.cleanup(cutoff)
+			case <-locker.stopCleanup:
+				locker.cleanupTicker.Stop()
+				return
+			}
+		}
+	}()
 
 	return locker
 }
 
 // Lock acquires an exclusive (write) lock for the given ID.
 func (s *KeyRWLocker) Lock(ID string) {
-	// Try to get existing mutex first
 	if v, ok := s.m.Load(ID); ok {
 		info := v.(*rwLockInfo)
-		// Increment ref count
 		atomic.AddInt32(&info.refs, 1)
-		// Update last access time
 		atomic.StoreInt64(&info.lastAccess, time.Now().UnixNano())
 		info.mutex.Lock()
 		return
@@ -305,28 +246,24 @@ func (s *KeyRWLocker) Lock(ID string) {
 
 // RLock acquires a shared (read) lock for the given ID.
 func (s *KeyRWLocker) RLock(ID string) {
-	// Try to get existing mutex first
 	if v, ok := s.m.Load(ID); ok {
 		info := v.(*rwLockInfo)
-		// Increment ref count
+
 		atomic.AddInt32(&info.refs, 1)
-		// Update last access time
+
 		atomic.StoreInt64(&info.lastAccess, time.Now().UnixNano())
 		info.mutex.RLock()
 		return
 	}
 
-	// Create new mutex
 	info := &rwLockInfo{
 		mutex:      &sync.RWMutex{},
 		refs:       1,
 		lastAccess: time.Now().UnixNano(),
 	}
 
-	// Try to store new mutex
 	actual, loaded := s.m.LoadOrStore(ID, info)
 	if !loaded {
-		// We created a new mutex, acquire it
 		info.mutex.RLock()
 		return
 	}
@@ -351,12 +288,7 @@ func (s *KeyRWLocker) Unlock(ID string) {
 	info := v.(*rwLockInfo)
 	info.mutex.Unlock()
 
-	// Update last access time
 	atomic.StoreInt64(&info.lastAccess, time.Now().UnixNano())
-
-	// Decrement ref count but don't remove immediately
-	// This is to match the test expectations that locks remain in the cache
-	// even when their reference count reaches zero
 	atomic.AddInt32(&info.refs, -1)
 }
 
@@ -373,12 +305,7 @@ func (s *KeyRWLocker) RUnlock(ID string) {
 	info := v.(*rwLockInfo)
 	info.mutex.RUnlock()
 
-	// Update last access time
 	atomic.StoreInt64(&info.lastAccess, time.Now().UnixNano())
-
-	// Decrement ref count but don't remove immediately
-	// This is to match the test expectations that locks remain in the cache
-	// even when their reference count reaches zero
 	atomic.AddInt32(&info.refs, -1)
 }
 
@@ -387,19 +314,16 @@ func (s *KeyRWLocker) cleanup(cutoff int64) {
 	var keysToCheck []string
 	var infosToCheck []*rwLockInfo
 
-	// Collect keys and infos to check
 	s.m.Range(func(key, value interface{}) bool {
 		keysToCheck = append(keysToCheck, key.(string))
 		infosToCheck = append(infosToCheck, value.(*rwLockInfo))
 		return true
 	})
 
-	// Check each key for expiry
 	for i, key := range keysToCheck {
 		info := infosToCheck[i]
 		lastAccess := atomic.LoadInt64(&info.lastAccess)
 
-		// If expired and not in use, remove it
 		if lastAccess < cutoff && atomic.LoadInt32(&info.refs) == 0 {
 			if info.mutex.TryLock() {
 				s.m.Delete(key)
