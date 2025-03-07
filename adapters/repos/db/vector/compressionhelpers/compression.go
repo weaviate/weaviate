@@ -356,8 +356,8 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors 
 		"maxID":  maxID,
 		"took":   took,
 	}).Info("prefilled compressed vector cache for multivector")
-
 }
+
 func (compressor *quantizedVectorsCompressor[T]) PersistCompression(logger CommitLogger) {
 	compressor.quantizer.PersistCompression(logger)
 }
