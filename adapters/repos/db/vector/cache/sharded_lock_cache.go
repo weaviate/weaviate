@@ -420,7 +420,7 @@ type CacheKeys struct {
 	RelativeID uint64
 }
 
-type shardedMultipleLockCache[T float32 | uint64] struct {
+type shardedMultipleLockCache[T float32 | uint64 | byte] struct {
 	shardedLocks        *common.ShardedRWLocks
 	cache               [][]T
 	multipleVectorForID common.MultipleVectorForID[T]
@@ -510,6 +510,39 @@ func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64],
 	return vc
 }
 
+func NewShardedMultiByteLockCache(multipleVecForID common.VectorForID[byte], maxSize int,
+	logger logrus.FieldLogger, deletionInterval time.Duration,
+	allocChecker memwatch.AllocChecker,
+) Cache[byte] {
+	multipleVecForIDValue := func(ctx context.Context, id uint64, relativeID uint64) ([]byte, error) {
+		vec, err := multipleVecForID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return vec, nil
+	}
+
+	cache := make([][]byte, InitialSize)
+
+	vc := &shardedMultipleLockCache[byte]{
+		multipleVectorForID: multipleVecForIDValue,
+		cache:               cache,
+		count:               0,
+		maxSize:             int64(maxSize),
+		logger:              logger,
+		shardedLocks:        common.NewDefaultShardedRWLocks(),
+		maintenanceLock:     sync.RWMutex{},
+		deletionInterval:    deletionInterval,
+		allocChecker:        allocChecker,
+		vectorDocID:         make([]CacheKeys, InitialSize),
+	}
+
+	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
+
+	vc.watchForDeletion()
+	return vc
+}
+
 func (s *shardedMultipleLockCache[T]) All() [][]T {
 	return s.cache
 }
@@ -538,7 +571,7 @@ func (s *shardedMultipleLockCache[T]) Get(ctx context.Context, id uint64) ([]T, 
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
 
-	if vec == nil {
+	if len(vec) == 0 {
 		docID, relativeID := s.GetKeys(id)
 		return s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 	}
@@ -555,7 +588,7 @@ func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64
 		s.shardedLocks.RLock(id)
 		vec := s.cache[id]
 		s.shardedLocks.RUnlock(id)
-		if vec == nil {
+		if len(vec) == 0 {
 			docID, relativeID := s.GetKeys(id)
 			vec, errs[i] = s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 		}
@@ -570,7 +603,7 @@ func (s *shardedMultipleLockCache[T]) Delete(ctx context.Context, id uint64) {
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
-	if int(id) >= len(s.cache) || s.cache[id] == nil {
+	if int(id) >= len(s.cache) || len(s.cache[id]) == 0 {
 		return
 	}
 
@@ -607,7 +640,7 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 	}
 
 	atomic.AddInt64(&s.count, 1)
-	if vec != nil {
+	if len(vec) != 0 {
 		s.shardedLocks.Lock(id)
 		s.cache[id] = vec
 		s.shardedLocks.Unlock(id)
@@ -717,6 +750,7 @@ func (s *shardedMultipleLockCache[T]) deleteAllVectors() {
 		Debug("deleting full vector cache")
 	for i := range s.cache {
 		s.cache[i] = nil
+		s.vectorDocID[i] = CacheKeys{}
 	}
 
 	atomic.StoreInt64(&s.count, 0)

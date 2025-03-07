@@ -371,6 +371,67 @@ func RestoreHNSWPQCompressor(
 	return pqVectorsCompressor, nil
 }
 
+func NewHNSWPQMultiCompressor(
+	cfg hnsw.PQConfig,
+	distance distancer.Provider,
+	dimensions int,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	data [][]float32,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+) (VectorCompressor, error) {
+	quantizer, err := NewProductQuantizer(cfg, distance, dimensions, logger)
+	if err != nil {
+		return nil, err
+	}
+	pqVectorsCompressor := &quantizedVectorsCompressor[byte]{
+		quantizer:       quantizer,
+		compressedStore: store,
+		storeId:         binary.LittleEndian.PutUint64,
+		loadId:          binary.LittleEndian.Uint64,
+		logger:          logger,
+	}
+	pqVectorsCompressor.initCompressedStore()
+	pqVectorsCompressor.cache = cache.NewShardedMultiByteLockCache(
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		0, allocChecker)
+	pqVectorsCompressor.cache.Grow(uint64(len(data)))
+	err = quantizer.Fit(data)
+	if err != nil {
+		return nil, err
+	}
+	return pqVectorsCompressor, nil
+}
+
+func RestoreHNSWPQMultiCompressor(
+	cfg hnsw.PQConfig,
+	distance distancer.Provider,
+	dimensions int,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	encoders []PQEncoder,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+) (VectorCompressor, error) {
+	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders, logger)
+	if err != nil {
+		return nil, err
+	}
+	pqVectorsCompressor := &quantizedVectorsCompressor[byte]{
+		quantizer:       quantizer,
+		compressedStore: store,
+		storeId:         binary.LittleEndian.PutUint64,
+		loadId:          binary.LittleEndian.Uint64,
+		logger:          logger,
+	}
+	pqVectorsCompressor.initCompressedStore()
+	pqVectorsCompressor.cache = cache.NewShardedMultiByteLockCache(
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0,
+		allocChecker)
+	return pqVectorsCompressor, nil
+}
+
 func NewBQCompressor(
 	distance distancer.Provider,
 	vectorCacheMaxObjects int,

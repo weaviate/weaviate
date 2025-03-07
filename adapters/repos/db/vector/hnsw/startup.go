@@ -149,17 +149,30 @@ func (h *hnsw) restoreFromDisk() error {
 				if h.pqConfig.Segments == 0 {
 					h.pqConfig.Segments = int(data.Dimensions)
 				}
-				h.compressor, err = compressionhelpers.RestoreHNSWPQCompressor(
-					h.pqConfig,
-					h.distancerProvider,
-					int(data.Dimensions),
-					// ToDo: we need to read this value from somewhere
-					1e12,
-					h.logger,
-					data.Encoders,
-					h.store,
-					h.allocChecker,
-				)
+				if !h.multivector.Load() {
+					h.compressor, err = compressionhelpers.RestoreHNSWPQCompressor(
+						h.pqConfig,
+						h.distancerProvider,
+						int(data.Dimensions),
+						// ToDo: we need to read this value from somewhere
+						1e12,
+						h.logger,
+						data.Encoders,
+						h.store,
+						h.allocChecker,
+					)
+				} else {
+					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
+						h.pqConfig,
+						h.distancerProvider,
+						int(data.Dimensions),
+						1e12,
+						h.logger,
+						data.Encoders,
+						h.store,
+						h.allocChecker,
+					)
+				}
 				if err != nil {
 					return errors.Wrap(err, "Restoring compressed data.")
 				}
