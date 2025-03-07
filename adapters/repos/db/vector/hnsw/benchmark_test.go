@@ -226,13 +226,15 @@ func readBigAnnDataset(t testing.TB, file string, maxObjects int) [][]float32 {
 	// If the file is in i8bin format, the vector data needs to be converted from bytes to int8 then to float.
 
 	// The first 4 bytes are the number of vectors in the file
-	_, err = f.Read(b)
+	read, err := f.Read(b)
 	require.NoError(t, err)
+	require.Equal(t, 4, read)
 	n := int32FromBytes(b)
 
 	// The second 4 bytes are the dimensionality of the vectors in the file
-	_, err = f.Read(b)
+	read, err = f.Read(b)
 	require.NoError(t, err)
+	require.Equal(t, 4, read)
 	d := int32FromBytes(b)
 
 	var bytesPerVector int
@@ -253,11 +255,12 @@ func readBigAnnDataset(t testing.TB, file string, maxObjects int) [][]float32 {
 	}
 
 	for i := 0; i < n; i++ {
-		_, err = f.Read(vectorBytes)
+		read, err := f.Read(vectorBytes)
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		require.NoError(t, err)
+		require.Equal(t, bytesPerVector, read)
 
 		vectorFloat := make([]float32, 0, d)
 		for j := 0; j < d; j++ {

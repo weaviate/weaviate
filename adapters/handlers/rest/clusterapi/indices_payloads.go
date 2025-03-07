@@ -210,18 +210,24 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 	r := bytes.NewReader(in)
 
 	for {
-		_, err := r.Read(reusableLengthBuf)
+		n, err := r.Read(reusableLengthBuf)
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
 			return nil, err
 		}
+		if n != len(reusableLengthBuf) {
+			return nil, errors.Errorf("expected to read %d bytes, got %d", len(reusableLengthBuf), n)
+		}
 
 		payloadBytes := make([]byte, binary.LittleEndian.Uint64(reusableLengthBuf))
-		_, err = r.Read(payloadBytes)
+		n, err = r.Read(payloadBytes)
 		if err != nil {
 			return nil, err
+		}
+		if n != len(payloadBytes) {
+			return nil, errors.Errorf("expected to read %d bytes, got %d", len(payloadBytes), n)
 		}
 
 		obj, err := storobj.FromBinary(payloadBytes)
@@ -288,19 +294,25 @@ func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, er
 	r := bytes.NewReader(in)
 
 	for {
-		_, err := r.Read(reusableLengthBuf)
+		n, err := r.Read(reusableLengthBuf)
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
 			return nil, err
 		}
+		if n != len(reusableLengthBuf) {
+			return nil, errors.Errorf("expected to read %d bytes, got %d", len(reusableLengthBuf), n)
+		}
 
 		ln := binary.LittleEndian.Uint64(reusableLengthBuf)
 		payloadBytes := make([]byte, ln)
-		_, err = r.Read(payloadBytes)
+		n, err = r.Read(payloadBytes)
 		if err != nil {
 			return nil, err
+		}
+		if n != len(payloadBytes) {
+			return nil, errors.Errorf("expected to read %d bytes, got %d", len(payloadBytes), n)
 		}
 
 		var vobj objects.VObject

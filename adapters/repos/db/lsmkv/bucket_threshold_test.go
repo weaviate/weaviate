@@ -357,8 +357,9 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		t.Run("keep importing crossing the dirty threshold", func(t *testing.T) {
 			rounds := 12 // at least 300ms
 			data := make([]byte, rounds*4)
-			_, err := rand.Read(data)
+			n, err := rand.Read(data)
 			require.Nil(t, err)
+			require.Equal(t, rounds*4, n)
 
 			for i := 0; i < rounds; i++ {
 				key := data[(i * 4) : (i+1)*4]
