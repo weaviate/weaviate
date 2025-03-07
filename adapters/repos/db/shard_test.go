@@ -315,18 +315,17 @@ func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
 			},
 			expectIndexes: []string{"vector1", "vector2"},
 		},
-		// TODO(faustas): uncomment this test once mixed vector support is added
-		//{
-		//	name: "legacy and named vectors",
-		//	setConfigs: func(idx *Index) {
-		//		idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
-		//		idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-		//			"vector1": hnsw.NewDefaultUserConfig(),
-		//			"vector2": flat.NewDefaultUserConfig(),
-		//		}
-		//	},
-		//	expectIndexes: []string{"", "vector1", "vector2"},
-		//},
+		{
+			name: "mixed vectors",
+			setConfigs: func(idx *Index) {
+				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+					"vector1": hnsw.NewDefaultUserConfig(),
+					"vector2": flat.NewDefaultUserConfig(),
+				}
+			},
+			expectIndexes: []string{"", "vector1", "vector2"},
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(), false, true, tt.setConfigs)

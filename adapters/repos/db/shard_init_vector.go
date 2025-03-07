@@ -32,14 +32,7 @@ import (
 )
 
 func (s *Shard) initShardVectors(ctx context.Context) error {
-	if len(s.index.vectorIndexUserConfigs) > 0 {
-		if err := s.initTargetVectors(ctx); err != nil {
-			return err
-		}
-		if err := s.initTargetQueues(); err != nil {
-			return err
-		}
-	} else {
+	if s.index.vectorIndexUserConfig != nil {
 		if err := s.initLegacyVector(ctx); err != nil {
 			return err
 		}
@@ -47,6 +40,16 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 			return err
 		}
 	}
+
+	if len(s.index.vectorIndexUserConfigs) > 0 {
+		if err := s.initTargetVectors(ctx); err != nil {
+			return err
+		}
+		if err := s.initTargetQueues(); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -225,7 +228,7 @@ func (s *Shard) hasLegacyVectorIndex() bool {
 }
 
 func (s *Shard) initTargetVectors(ctx context.Context) error {
-	s.vectorIndexes = make(map[string]VectorIndex)
+	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
 	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
 		vectorIndex, err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
 		if err != nil {
@@ -237,7 +240,7 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 }
 
 func (s *Shard) initTargetQueues() error {
-	s.queues = make(map[string]*VectorIndexQueue)
+	s.queues = make(map[string]*VectorIndexQueue, len(s.vectorIndexes))
 	for targetVector, vectorIndex := range s.vectorIndexes {
 		queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
 		if err != nil {
@@ -249,11 +252,11 @@ func (s *Shard) initTargetQueues() error {
 }
 
 func (s *Shard) initLegacyVector(ctx context.Context) error {
-	vectorindex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig)
+	vectorIndex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig)
 	if err != nil {
 		return err
 	}
-	s.vectorIndex = vectorindex
+	s.vectorIndex = vectorIndex
 	return nil
 }
 

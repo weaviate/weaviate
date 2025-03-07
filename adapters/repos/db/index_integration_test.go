@@ -623,7 +623,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 		t,
 		ctx,
 		&models.Class{Class: class.Class},
-		hnsw.UserConfig{},
+		nil,
 		false,
 		true,
 		func(i *Index) {
