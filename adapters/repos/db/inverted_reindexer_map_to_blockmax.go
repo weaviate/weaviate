@@ -780,8 +780,8 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) mapBucketName(propName string) 
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) findPropsToReindex(shard ShardLike) []string {
 	propNames := []string{}
-	for name, bucket := range shard.Store().GetBucketsByStrategy(lsmkv.StrategyMapCollection) {
-		if bucket.DesiredStrategy() == lsmkv.StrategyInverted {
+	for name, bucket := range shard.Store().GetBucketsByName() {
+		if bucket.Strategy() == lsmkv.StrategyMapCollection && bucket.DesiredStrategy() == lsmkv.StrategyInverted {
 			propName, indexType := GetPropNameAndIndexTypeFromBucketName(name)
 
 			switch indexType {
