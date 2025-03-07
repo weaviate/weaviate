@@ -40,6 +40,7 @@ func TestShared_GetVectorIndexAndQueue(t *testing.T) {
 		{
 			name: "only named initialized",
 			setup: func(idx *Index) {
+				idx.vectorIndexUserConfig = nil
 				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
 					"named": hnsw.NewDefaultUserConfig(),
 					"foo":   flat.NewDefaultUserConfig(),
@@ -48,19 +49,18 @@ func TestShared_GetVectorIndexAndQueue(t *testing.T) {
 			wantLegacyExists: false,
 			wantNamedExists:  true,
 		},
-		// TODO(faustas): uncomment this test once mixed vector support is added
-		//{
-		//	name: "mixed initialized",
-		//	setup: func(idx *Index) {
-		//		idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
-		//		idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-		//			"named": hnsw.NewDefaultUserConfig(),
-		//			"foo":   flat.NewDefaultUserConfig(),
-		//		}
-		//	},
-		//	wantLegacyExists: true,
-		//	wantNamedExists:  true,
-		//},
+		{
+			name: "mixed initialized",
+			setup: func(idx *Index) {
+				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+					"named": hnsw.NewDefaultUserConfig(),
+					"foo":   flat.NewDefaultUserConfig(),
+				}
+			},
+			wantLegacyExists: true,
+			wantNamedExists:  true,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnsw.UserConfig{}, false, true, tt.setup)
