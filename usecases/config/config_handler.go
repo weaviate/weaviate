@@ -117,6 +117,9 @@ type Config struct {
 	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
+	ReindexMapToBlockmaxAtStartup       bool                     `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
+	ReindexMapToBlockmaxSwapBuckets     bool                     `json:"reindex_map_to_blockmax_swap_buckets" yaml:"reindex_map_to_blockmax_swap_buckets"`
+	ReindexMapToBlockmaxTidyBuckets     bool                     `json:"reindex_map_to_blockmax_remove_buckets" yaml:"reindex_map_to_blockmax_remove_buckets"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
