@@ -775,9 +775,6 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
-              "required": [
-                "userType"
-              ],
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to user",
@@ -851,9 +848,6 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
-              "required": [
-                "userType"
-              ],
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from the key or user",
@@ -7842,9 +7836,6 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
-              "required": [
-                "userType"
-              ],
               "properties": {
                 "roles": {
                   "description": "the roles that assigned to user",
@@ -7918,9 +7909,6 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
-              "required": [
-                "userType"
-              ],
               "properties": {
                 "roles": {
                   "description": "the roles that revoked from the key or user",

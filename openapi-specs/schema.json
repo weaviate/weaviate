@@ -3633,8 +3633,7 @@
                 "userType": {
                    "$ref": "#/definitions/UserTypes"
                 }
-              },
-              "required": ["userType"]
+              }
             }
           }
         ],
@@ -3707,8 +3706,7 @@
                 "userType": {
                   "$ref": "#/definitions/UserTypes"
                 }
-              },
-              "required": ["userType"]
+              }
             }
           }
         ],

@@ -47,7 +47,7 @@ func TestRevokeRoleFromUserSuccess(t *testing.T) {
 				ID: "user1",
 				Body: authz.RevokeRoleFromUserBody{
 					Roles:    []string{"testRole"},
-					UserType: &userType,
+					UserType: userType,
 				},
 			},
 		},
@@ -57,7 +57,7 @@ func TestRevokeRoleFromUserSuccess(t *testing.T) {
 				ID: "user1",
 				Body: authz.RevokeRoleFromUserBody{
 					Roles:    []string{"admin"},
-					UserType: &userType,
+					UserType: userType,
 				},
 			},
 			configuredAdmins: []string{"testUser"},
@@ -69,7 +69,7 @@ func TestRevokeRoleFromUserSuccess(t *testing.T) {
 				ID: "user1",
 				Body: authz.RevokeRoleFromUserBody{
 					Roles:    []string{"viewer"},
-					UserType: &userType,
+					UserType: userType,
 				},
 			},
 			configuredViewers: []string{"testUser"},
@@ -85,7 +85,7 @@ func TestRevokeRoleFromUserSuccess(t *testing.T) {
 
 			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, nil)
-			controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, *tt.params.Body.UserType), tt.params.Body.Roles[0]).Return(nil)
+			controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, tt.params.Body.UserType), tt.params.Body.Roles[0]).Return(nil)
 
 			h := &authZHandlers{
 				authorizer:     authorizer,
@@ -575,7 +575,7 @@ func TestRevokeRoleFromUserInternalServerError(t *testing.T) {
 				ID: "testUser",
 				Body: authz.RevokeRoleFromUserBody{
 					Roles:    []string{"testRole"},
-					UserType: &userType,
+					UserType: userType,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -588,7 +588,7 @@ func TestRevokeRoleFromUserInternalServerError(t *testing.T) {
 				ID: "testUser",
 				Body: authz.RevokeRoleFromUserBody{
 					Roles:    []string{"testRole"},
-					UserType: &userType,
+					UserType: userType,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -607,7 +607,7 @@ func TestRevokeRoleFromUserInternalServerError(t *testing.T) {
 			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
-				controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, *tt.params.Body.UserType), tt.params.Body.Roles[0]).Return(tt.revokeErr)
+				controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, tt.params.Body.UserType), tt.params.Body.Roles[0]).Return(tt.revokeErr)
 			}
 
 			h := &authZHandlers{

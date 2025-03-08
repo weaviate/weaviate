@@ -42,13 +42,13 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 		ID: "user1",
 		Body: authz.AssignRoleToUserBody{
 			Roles:    []string{"testRole"},
-			UserType: &userType,
+			UserType: userType,
 		},
 	}
 
 	authorizer.On("Authorize", principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(params.ID)[0]).Return(nil)
 	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
-	controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(params.ID, *params.Body.UserType), params.Body.Roles).Return(nil)
+	controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(params.ID, params.Body.UserType), params.Body.Roles).Return(nil)
 
 	h := &authZHandlers{
 		authorizer:     authorizer,
@@ -476,7 +476,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 				ID: "testUser",
 				Body: authz.AssignRoleToUserBody{
 					Roles:    []string{"testRole"},
-					UserType: &userType,
+					UserType: userType,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -489,7 +489,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 				ID: "testUser",
 				Body: authz.AssignRoleToUserBody{
 					Roles:    []string{"testRole"},
-					UserType: &userType,
+					UserType: userType,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -508,7 +508,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
 			if tt.getRolesErr == nil {
-				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, *tt.params.Body.UserType), tt.params.Body.Roles).Return(tt.assignErr)
+				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, tt.params.Body.UserType), tt.params.Body.Roles).Return(tt.assignErr)
 			}
 
 			h := &authZHandlers{

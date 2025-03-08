@@ -800,12 +800,12 @@ func sortByName(roles []*models.Role) {
 	})
 }
 
-func getUserTypes(userTypeParam *models.UserTypes) []models.UserTypes {
+func getUserTypes(userTypeParam models.UserTypes) []models.UserTypes {
 	var userTypes []models.UserTypes
-	if userTypeParam == nil {
+	if userTypeParam == "" {
 		userTypes = []models.UserTypes{models.UserTypesOidc, models.UserTypesDb}
 	} else {
-		userTypes = []models.UserTypes{*userTypeParam}
+		userTypes = []models.UserTypes{userTypeParam}
 	}
 	return userTypes
 }
