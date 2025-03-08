@@ -450,8 +450,11 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
-	if err := h.controller.AddRolesForUser(conv.UserNameWithTypeFromId(params.ID, *params.Body.UserType), params.Body.Roles); err != nil {
-		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
+	userTypes := getUserTypes(params.Body.UserType)
+	for _, userType := range userTypes {
+		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeFromId(params.ID, userType), params.Body.Roles); err != nil {
+			return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
+		}
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -658,11 +661,11 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the request roles doesn't exist")))
 	}
 
-	if err != nil {
-		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
-	}
-	if err := h.controller.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.ID, *params.Body.UserType), params.Body.Roles...); err != nil {
-		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
+	userTypes := getUserTypes(params.Body.UserType)
+	for _, userType := range userTypes {
+		if err := h.controller.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.ID, userType), params.Body.Roles...); err != nil {
+			return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
+		}
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -795,6 +798,16 @@ func sortByName(roles []*models.Role) {
 	sort.Slice(roles, func(i, j int) bool {
 		return *roles[i].Name < *roles[j].Name
 	})
+}
+
+func getUserTypes(userTypeParam *models.UserTypes) []models.UserTypes {
+	var userTypes []models.UserTypes
+	if userTypeParam == nil {
+		userTypes = []models.UserTypes{models.UserTypesOidc, models.UserTypesDb}
+	} else {
+		userTypes = []models.UserTypes{*userTypeParam}
+	}
+	return userTypes
 }
 
 // TODO-RBAC: we could expose endpoint to validate permissions as dry-run
