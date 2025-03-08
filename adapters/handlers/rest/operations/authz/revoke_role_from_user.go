@@ -61,7 +61,7 @@ func (o *RevokeRoleFromUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewRevokeRoleFromUserParams()
+	var Params = NewRevokeRoleFromUserParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -82,12 +82,14 @@ func (o *RevokeRoleFromUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }
 
 // RevokeRoleFromUserBody revoke role from user body
 //
 // swagger:model RevokeRoleFromUserBody
 type RevokeRoleFromUserBody struct {
+
 	// the roles that revoked from the key or user
 	Roles []string `json:"roles" yaml:"roles"`
 
@@ -141,6 +143,7 @@ func (o *RevokeRoleFromUserBody) ContextValidate(ctx context.Context, formats st
 }
 
 func (o *RevokeRoleFromUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+
 	if err := o.UserType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("body" + "." + "userType")
