@@ -188,3 +188,11 @@ type NoopStats struct{}
 func (s *NoopStats) IndexType() common.IndexType {
 	return common.IndexTypeNoop
 }
+
+func (index *Index) ConvertToHnsw() error {
+	return errors.New("ConvertToHnsw is not supported for flat index")
+}
+
+func (index *Index) ConvertToCagra() error {
+	return errors.New("ConvertToCagra is not supported for flat index")
+}

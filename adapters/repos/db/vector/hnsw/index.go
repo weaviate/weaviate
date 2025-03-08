@@ -960,3 +960,11 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 
 	return &stats, nil
 }
+
+func (index *hnsw) ConvertToHnsw() error {
+	return errors.New("ConvertToHnsw is not supported for flat index")
+}
+
+func (index *hnsw) ConvertToCagra() error {
+	return errors.New("ConvertToCagra is not supported for flat index")
+}

@@ -555,3 +555,11 @@ type DynamicStats struct{}
 func (s *DynamicStats) IndexType() common.IndexType {
 	return common.IndexTypeDynamic
 }
+
+func (index *dynamic) ConvertToHnsw() error {
+	return errors.New("ConvertToHnsw is not supported for flat index")
+}
+
+func (index *dynamic) ConvertToCagra() error {
+	return errors.New("ConvertToCagra is not supported for flat index")
+}

@@ -1048,3 +1048,11 @@ type FlatStats struct{}
 func (s *FlatStats) IndexType() common.IndexType {
 	return common.IndexTypeFlat
 }
+
+func (index *flat) ConvertToHnsw() error {
+	return errors.New("ConvertToHnsw is not supported for flat index")
+}
+
+func (index *flat) ConvertToCagra() error {
+	return errors.New("ConvertToCagra is not supported for flat index")
+}

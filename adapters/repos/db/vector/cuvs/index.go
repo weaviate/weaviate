@@ -32,6 +32,7 @@ import (
 	"github.com/pkg/errors"
 	cuvs "github.com/rapidsai/cuvs/go"
 	"github.com/rapidsai/cuvs/go/cagra"
+	"github.com/rapidsai/cuvs/go/hnsw"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -46,6 +47,9 @@ type cuvs_internals struct {
 	cuvsIndex        *cagra.CagraIndex
 	cuvsIndexParams  *cagra.IndexParams
 	cuvsSearchParams *cagra.SearchParams
+	hnswIndex        *hnsw.HnswIndex
+	hnswIndexParams  *hnsw.IndexParams
+	hnswSearchParams *hnsw.SearchParams
 	dlpackTensor     *cuvs.Tensor[float32]
 	cuvsResource     *cuvs.Resource
 	cuvsMemory       *cuvs.CuvsPoolMemory
@@ -61,6 +65,8 @@ type cuvs_index struct {
 	logger              logrus.FieldLogger
 	distanceMetric      cuvs.Distance
 	trackDimensionsOnce sync.Once
+
+	isConvertedToHnsw atomic.Bool
 
 	metadata *bolt.DB
 	rootPath string
@@ -258,8 +264,90 @@ func shouldExtend(index *cuvs_index, num_new uint64) bool {
 	return true
 }
 
+func (index *cuvs_index) ConvertToHnsw() error {
+	index.Lock()
+	defer index.Unlock()
+
+	if index.isConvertedToHnsw.Load() {
+		return nil
+	}
+
+	println("converting to hnsw")
+
+	hnswIndexParams, err := hnsw.CreateIndexParams()
+	if err != nil {
+		return err
+	}
+
+	hnswIndexParams.SetHierarchy(hnsw.HierarchyCPU)
+
+	hnswIndex, err := hnsw.CreateIndex()
+	if err != nil {
+		return err
+	}
+
+	hnsw.FromCagra(*index.cuvsResource, hnswIndexParams, index.cuvsIndex, hnswIndex)
+
+	index.hnswIndex = hnswIndex
+	index.hnswIndexParams = hnswIndexParams
+
+	index.isConvertedToHnsw.Store(true)
+
+	return nil
+}
+
 func (index *cuvs_index) Add(ctx context.Context, id uint64, vector []float32) error {
+	if index.isConvertedToHnsw.Load() {
+		return index.addWithHnsw(ctx, id, vector)
+	}
 	return index.AddBatch(ctx, []uint64{id}, [][]float32{vector})
+}
+
+func (index *cuvs_index) addWithHnsw(ctx context.Context, id uint64, vector []float32) error {
+	index.Lock()
+	defer index.Unlock()
+
+	println("adding with hnsw")
+
+	if len(vector) != int(index.dims) {
+		return errors.Errorf("insert called with a vector of the wrong size")
+	}
+
+	index.idCuvsIdMap.Insert(index.nextCuvsId, id)
+	index.count += 1
+	index.nextCuvsId += 1
+
+	// store in bucket
+
+	slice := make([]byte, len(vector)*4)
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, id)
+	index.store.Bucket(index.getBucketName()).Put(idBytes, byteSliceFromFloat32Slice(vector, slice))
+
+	if !index.isConvertedToHnsw.Load() {
+		return errors.Errorf("cuvs index is not converted to hnsw")
+	}
+
+	println("Adding to hnsw")
+
+	extendParams, err := hnsw.CreateExtendParams()
+	if err != nil {
+		return err
+	}
+
+	// extendParams.SetNumThreads(runtime.NumCPU())
+
+	tensor, err := cuvs.NewTensor([][]float32{vector})
+	if err != nil {
+		return err
+	}
+
+	err = hnsw.ExtendIndex(*index.cuvsResource, extendParams, &tensor, index.hnswIndex)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (index *cuvs_index) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
@@ -595,6 +683,10 @@ func (index *cuvs_index) createAllowList() []uint32 {
 }
 
 func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	if index.isConvertedToHnsw.Load() {
+		return index.searchByVectorWithHnsw(ctx, vector, k, allow)
+	}
+
 	index.Lock()
 	defer index.Unlock()
 
@@ -672,6 +764,142 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 	}
 
 	return neighborsResultSlice, distancesSlice[0], nil
+}
+
+func (index *cuvs_index) searchByVectorWithHnsw(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	index.Lock()
+	defer index.Unlock()
+
+	// if !allow.() {
+	// 	return nil, nil, errors.Errorf("hnsw index does not support allow list")
+	// }
+
+	queries, err := cuvs.NewTensor([][]float32{vector})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// neighbors and distances NOT on device, just use NewTensor
+	neighborsInput := make([][]uint64, 1)
+	neighborsInput[0] = make([]uint64, k)
+
+	neighbors, err := cuvs.NewTensor(neighborsInput)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	distancesInput := make([][]float32, 1)
+	distancesInput[0] = make([]float32, k)
+
+	distances, err := cuvs.NewTensor(distancesInput)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	defer queries.Close()
+	defer neighbors.Close()
+	defer distances.Close()
+
+	hnswSearchParams, err := hnsw.CreateSearchParams()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = hnsw.SearchIndex(*index.cuvsResource, hnswSearchParams, index.hnswIndex, &queries, &neighbors, &distances)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	neighborsSlice, err := neighbors.Slice()
+	distancesSlice, err := distances.Slice()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Map HNSW IDs back to Weaviate IDs
+	results := make([]uint64, len(neighborsSlice[0]))
+	for i, hnswId := range neighborsSlice[0] {
+		// The critical mapping step
+		weaviateId, exists := index.idCuvsIdMap.GetWeaviateId(uint32(hnswId))
+		if !exists {
+			return nil, nil, errors.Errorf("idCuvsIdMap does not contain HNSW id %d", hnswId)
+		}
+		results[i] = weaviateId
+	}
+
+	return results, distancesSlice[0], nil
+}
+
+func (index *cuvs_index) ConvertToCagra() error {
+	index.Lock()
+	defer index.Unlock()
+
+	if !index.isConvertedToHnsw.Load() {
+		return nil // Already using CAGRA
+	}
+
+	println("Converting back to CAGRA")
+
+	// Extract all vectors from storage
+	allVectors := [][]float32{}
+	allIds := []uint64{}
+
+	cursor := index.store.Bucket(index.getBucketName()).Cursor()
+	defer cursor.Close()
+
+	for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
+		id := binary.BigEndian.Uint64(key)
+		vector := float32SliceFromByteSlice(value, make([]float32, len(value)/4))
+
+		allVectors = append(allVectors, vector)
+		allIds = append(allIds, id)
+	}
+
+	if len(allVectors) == 0 {
+		return errors.New("no vectors found in store")
+	}
+
+	// Clean up HNSW resources
+	if index.hnswIndex != nil {
+		index.hnswIndex.Close()
+		index.hnswIndex = nil
+	}
+
+	if index.hnswIndexParams != nil {
+		index.hnswIndexParams.Close()
+		index.hnswIndexParams = nil
+	}
+
+	if index.hnswSearchParams != nil {
+		index.hnswSearchParams.Close()
+		index.hnswSearchParams = nil
+	}
+
+	// Reset CUVS index data structures
+	index.idCuvsIdMap = *NewBiMap()
+	index.count = 0
+	index.nextCuvsId = 0
+	index.cuvsFilter = []uint32{}
+	index.cuvsNumFiltered = 0
+
+	// If we have a tensor, close it
+	if index.dlpackTensor != nil {
+		index.dlpackTensor.Close()
+		index.dlpackTensor = nil
+	}
+
+	// Recreate CAGRA index
+	cuvsIndex, err := cagra.CreateIndex()
+	if err != nil {
+		return fmt.Errorf("create cuvs index: %w", err)
+	}
+	index.cuvsIndex = cuvsIndex
+
+	// Mark as not converted to HNSW
+	index.isConvertedToHnsw.Store(false)
+
+	// Re-add all vectors to the CAGRA index
+	return AddWithRebuild(index, allIds, allVectors)
 }
 
 // Add new method for linear search on holding vectors

@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/vectorindex/cuvs"
+	cuvsEnt "github.com/weaviate/weaviate/entities/vectorindex/cuvs"
 )
 
 const (
@@ -79,7 +80,12 @@ func setupTestIndex(t *testing.T) (*cuvs_index, string, func(), *lsmkv.Store) {
 		Logger:   logger,
 	}
 
-	userCfg := cuvs.UserConfig{}
+	userCfg := cuvsEnt.NewDefaultUserConfig()
+
+	println(userCfg.BuildAlgo)
+	println(userCfg.SearchAlgo)
+	println("testsdfsdf")
+	t.Log(userCfg.BuildAlgo)
 
 	index, err := New(cfg, userCfg, store)
 	require.NoError(t, err)
@@ -469,4 +475,148 @@ func TestCombinedAddAndDelete(t *testing.T) {
 	batchRecallRate := totalBatchRecall / float64(len(allVectors))
 	t.Logf("Batch queries recall rate: %.4f", batchRecallRate)
 	assert.GreaterOrEqual(t, batchRecallRate, minRecallRate, "Batch queries recall rate below threshold")
+}
+
+func TestHnswConversion(t *testing.T) {
+	index, tempDir, cleanup, store := setupTestIndex(t)
+	defer cleanup()
+
+	// Create vectors
+	ids := make([]uint64, numVectors)
+	vectors := make([][]float32, numVectors)
+	for i := range ids {
+		ids[i] = uint64(i + 1)
+		vectors[i] = generateRandomVector(dims)
+	}
+
+	// Add vectors
+	err := index.AddBatch(context.Background(), ids, vectors)
+	require.NoError(t, err)
+
+	// Measure recall rate before HNSW conversion
+	t.Log("Testing recall before HNSW conversion...")
+	totalRecallBefore := 0.0
+	for i := 0; i < numVectors; i++ {
+		results, _, err := index.SearchByVector(context.Background(), vectors[i], k, nil)
+
+		require.NoError(t, err)
+		require.Len(t, results, k)
+		recall := calculateRecall([]uint64{ids[i]}, results)
+		totalRecallBefore += recall
+	}
+	recallRateBefore := totalRecallBefore / float64(numVectors)
+	t.Logf("Recall rate before HNSW conversion: %.4f", recallRateBefore)
+	assert.GreaterOrEqual(t, recallRateBefore, minRecallRate, "Recall rate before HNSW conversion below threshold")
+
+	// Convert to HNSW
+	err = index.ConvertToHnsw()
+	require.NoError(t, err)
+
+	// Verify index is converted to HNSW
+	assert.True(t, index.isConvertedToHnsw.Load(), "Index should be marked as converted to HNSW")
+	assert.NotNil(t, index.hnswIndex, "HNSW index should not be nil")
+	assert.NotNil(t, index.hnswIndexParams, "HNSW index params should not be nil")
+
+	// Measure recall rate after HNSW conversion
+	t.Log("Testing recall after HNSW conversion...")
+	totalRecallAfter := 0.0
+	for i := 0; i < numVectors; i++ {
+		results, _, err := index.SearchByVector(context.Background(), vectors[i], k, nil)
+
+		require.NoError(t, err)
+		require.Len(t, results, k)
+		recall := calculateRecall([]uint64{ids[i]}, results)
+		totalRecallAfter += recall
+	}
+	recallRateAfter := totalRecallAfter / float64(numVectors)
+	t.Logf("Recall rate after HNSW conversion: %.4f", recallRateAfter)
+	assert.GreaterOrEqual(t, recallRateAfter, minRecallRate, "Recall rate after HNSW conversion below threshold")
+
+	// Test adding a new vector after conversion
+	newIds := []uint64{uint64(numVectors + 1)}
+	newVectors := [][]float32{generateRandomVector(dims)}
+
+	err = index.Add(context.Background(), newIds[0], newVectors[0])
+	require.NoError(t, err)
+
+	// Test searching for the newly added vector
+	results, _, err := index.SearchByVector(context.Background(), newVectors[0], k, nil)
+	require.NoError(t, err)
+	require.Len(t, results, k)
+	recall := calculateRecall(newIds, results)
+	assert.Equal(t, 1.0, recall, "Should find the newly added vector after HNSW conversion")
+
+	// Test persistence after HNSW conversion
+	err = index.Shutdown(context.Background())
+	require.NoError(t, err)
+
+	logger, _ := test.NewNullLogger()
+	store.Shutdown(context.Background())
+
+	store, err = lsmkv.New(filepath.Join(tempDir, "store"), tempDir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+
+	cfg := Config{
+		ID:       "test-index",
+		RootPath: tempDir,
+		Logger:   logger,
+	}
+
+	userCfg := cuvsEnt.NewDefaultUserConfig()
+
+	newIndex, err := New(cfg, userCfg, store)
+	require.NoError(t, err)
+	newIndex.PostStartup()
+
+	// Reconvert to HNSW after restoration
+	err = newIndex.ConvertToHnsw()
+	require.NoError(t, err)
+
+	// Test recall after persistence and reconversion
+	t.Log("Testing recall after persistence and HNSW reconversion...")
+	totalRecallPersistence := 0.0
+
+	// Sample vectors for testing recall after persistence
+	sampleSize := 100
+	if sampleSize > len(vectors) {
+		sampleSize = len(vectors)
+	}
+
+	for i := 0; i < sampleSize; i++ {
+		results, _, err := newIndex.SearchByVector(context.Background(), vectors[i], k, nil)
+		require.NoError(t, err)
+		require.Len(t, results, k)
+		recall := calculateRecall([]uint64{ids[i]}, results)
+		totalRecallPersistence += recall
+	}
+
+	recallRatePersistence := totalRecallPersistence / float64(sampleSize)
+	t.Logf("Recall rate after persistence and HNSW reconversion: %.4f", recallRatePersistence)
+	assert.GreaterOrEqual(t, recallRatePersistence, minRecallRate,
+		"Recall rate after persistence and HNSW reconversion below threshold")
+
+	// Test converting back to CAGRA
+	err = newIndex.ConvertToCagra()
+	require.NoError(t, err)
+
+	// Verify index is converted back to CAGRA
+	assert.False(t, newIndex.isConvertedToHnsw.Load(), "Index should not be marked as converted to HNSW")
+
+	// Test search after conversion back to CAGRA
+	t.Log("Testing recall after conversion back to CAGRA...")
+	totalRecallBack := 0.0
+
+	for i := 0; i < sampleSize; i++ {
+		results, _, err := newIndex.SearchByVector(context.Background(), vectors[i], k, nil)
+		require.NoError(t, err)
+		require.Len(t, results, k)
+		recall := calculateRecall([]uint64{ids[i]}, results)
+		totalRecallBack += recall
+	}
+
+	recallRateBack := totalRecallBack / float64(sampleSize)
+	t.Logf("Recall rate after conversion back to CAGRA: %.4f", recallRateBack)
+	assert.GreaterOrEqual(t, recallRateBack, minRecallRate,
+		"Recall rate after conversion back to CAGRA below threshold")
 }

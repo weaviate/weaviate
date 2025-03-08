@@ -174,12 +174,10 @@ func RunConfiguration(cuvsIndexParams *cagra.IndexParams, cuvsSearchParams *cagr
 	defer store.Shutdown(context.Background())
 
 	index, err := New(Config{
-		ID:               "a",
-		TargetVector:     "vector",
-		Logger:           logger,
-		CuvsIndexParams:  cuvsIndexParams,
-		CuvsSearchParams: cuvsSearchParams,
-		RootPath:         b.TempDir(),
+		ID:           "a",
+		TargetVector: "vector",
+		Logger:       logger,
+		RootPath:     b.TempDir(),
 	}, cuvsEnt.UserConfig{}, store)
 	if err != nil {
 		panic(err)

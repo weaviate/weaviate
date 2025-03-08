@@ -85,7 +85,7 @@ case $CONFIG in
       RAFT_BOOTSTRAP_EXPECT=1 \
       go_run_cuvs ./cmd/weaviate-server \
         --scheme http \
-        --host "127.0.0.1" \
+        --host "0.0.0.0" \
         --port 8080 \
         --read-timeout=600s \
         --write-timeout=600s

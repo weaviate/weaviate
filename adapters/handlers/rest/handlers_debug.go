@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"strings"
@@ -238,6 +239,118 @@ func setupDebugHandlers(appState *state.State) {
 
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonBytes)
+	}))
+
+	http.HandleFunc("/debug/converttohnsw/index/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/converttohnsw/index/"))
+		parts := strings.Split(path, "/")
+		if len(parts) != 1 {
+			logger.WithField("parts", parts).Info("invalid path")
+			http.Error(w, "invalid path", http.StatusNotFound)
+			return
+		}
+
+		colName := parts[0]
+		vecIdxID := "main"
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+		err := idx.ForEachLoadedShard(
+			func(name string, shard db.ShardLike) error {
+				// Get the vector index
+				var vidx db.VectorIndex
+				if vecIdxID == "main" {
+					vidx = shard.VectorIndex()
+				} else {
+					vidx = shard.VectorIndexes()[vecIdxID]
+				}
+
+				if vidx == nil {
+					logger.WithField("shard", shard.Name()).Error("vector index not found")
+					return errors.New("vector index not found")
+				}
+
+				err := vidx.ConvertToHnsw()
+				if err != nil {
+					logger.Error(err)
+					return err
+				}
+				return nil
+			},
+		)
+		if err != nil {
+			logger.Error(err)
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		// jsonBytes, err := json.Marshal(stats)
+		// if err != nil {
+		// 	logger.WithError(err).Error("marshal failed on stats")
+		// 	http.Error(w, err.Error(), http.StatusBadRequest)
+		// 	return
+		// }
+
+		logger.Info("Conversion to HNSW started")
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	http.HandleFunc("/debug/converttocagra/index/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/converttocagra/index/"))
+		parts := strings.Split(path, "/")
+		if len(parts) != 1 {
+			logger.WithField("parts", parts).Info("invalid path")
+			http.Error(w, "invalid path", http.StatusNotFound)
+			return
+		}
+
+		colName := parts[0]
+		vecIdxID := "main"
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		err := idx.ForEachLoadedShard(
+			func(name string, shard db.ShardLike) error {
+				// Get the vector index
+				var vidx db.VectorIndex
+				if vecIdxID == "main" {
+					vidx = shard.VectorIndex()
+				} else {
+					vidx = shard.VectorIndexes()[vecIdxID]
+				}
+
+				if vidx == nil {
+					logger.WithField("shard", shard.Name()).Error("vector index not found")
+					return errors.New("vector index not found")
+				}
+
+				err := vidx.ConvertToHnsw()
+				if err != nil {
+					logger.Error(err)
+					return err
+				}
+				return nil
+			},
+		)
+		if err != nil {
+			logger.Error(err)
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		logger.Info("Conversion to CAGRA started")
+
+		w.WriteHeader(http.StatusOK)
+		// w.Write(jsonBytes)
 	}))
 
 	// Call via something like: curl -X GET localhost:6060/debug/config/maintenance_mode (can replace GET w/ POST or DELETE)

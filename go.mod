@@ -2,6 +2,8 @@ module github.com/weaviate/weaviate
 
 // replace github.com/rapidsai/cuvs/go => ../cuvs/go // remove once PR is merged
 
+replace github.com/rapidsai/cuvs/go => github.com/ajit283/cuvs/go v0.0.0-20250306232233-53f08a8f59df
+
 require (
 	cloud.google.com/go/storage v1.43.0
 	github.com/bmatcuk/doublestar v1.3.4
@@ -103,6 +105,7 @@ require (
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
+	// github.com/ajit283/cuvs v0.0.0-20250306232233-53f08a8f59df // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/aws/aws-sdk-go v1.44.298 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.8 // indirect
