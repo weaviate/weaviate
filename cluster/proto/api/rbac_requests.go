@@ -12,6 +12,7 @@
 package api
 
 import (
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -85,7 +86,8 @@ type QueryGetRolesResponse struct {
 }
 
 type QueryGetRolesForUserRequest struct {
-	User string
+	User     string
+	UserType models.UserTypes
 }
 
 type QueryGetRolesForUserResponse struct {

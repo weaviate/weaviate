@@ -25,7 +25,7 @@ type TokenFunc func(token string, scopes []string) (*models.Principal, error)
 // depending on which is configured. If both are configured, the scheme is
 // figured out at runtime.
 func New(config config.Authentication,
-	apikey apiKeyValidator, oidc oidcValidator,
+	apikey authValidator, oidc authValidator,
 ) TokenFunc {
 	if config.APIKey.Enabled && config.OIDC.Enabled {
 		return pickAuthSchemeDynamically(apikey, oidc)
@@ -41,7 +41,7 @@ func New(config config.Authentication,
 }
 
 func pickAuthSchemeDynamically(
-	apiKey apiKeyValidator, oidc oidcValidator,
+	apiKey authValidator, oidc authValidator,
 ) TokenFunc {
 	return func(token string, scopes []string) (*models.Principal, error) {
 		_, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
@@ -56,10 +56,6 @@ func pickAuthSchemeDynamically(
 	}
 }
 
-type oidcValidator interface {
-	ValidateAndExtract(token string, scopes []string) (*models.Principal, error)
-}
-
-type apiKeyValidator interface {
+type authValidator interface {
 	ValidateAndExtract(token string, scopes []string) (*models.Principal, error)
 }

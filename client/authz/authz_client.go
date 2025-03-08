@@ -354,7 +354,7 @@ func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime
 	op := &runtime.ClientOperation{
 		ID:                 "getRolesForUser",
 		Method:             "GET",
-		PathPattern:        "/authz/users/{id}/roles",
+		PathPattern:        "/authz/users/{id}/roles/{userType}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

@@ -66,7 +66,7 @@ func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	roles, err := m.authZ.GetRolesForUser(subCommand.User)
+	roles, err := m.authZ.GetRolesForUser(subCommand.User, subCommand.UserType)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}

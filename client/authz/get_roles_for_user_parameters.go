@@ -78,6 +78,12 @@ type GetRolesForUserParams struct {
 	*/
 	ID string
 
+	/* UserType.
+
+	   The type of user
+	*/
+	UserType string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -142,6 +148,17 @@ func (o *GetRolesForUserParams) SetID(id string) {
 	o.ID = id
 }
 
+// WithUserType adds the userType to the get roles for user params
+func (o *GetRolesForUserParams) WithUserType(userType string) *GetRolesForUserParams {
+	o.SetUserType(userType)
+	return o
+}
+
+// SetUserType adds the userType to the get roles for user params
+func (o *GetRolesForUserParams) SetUserType(userType string) {
+	o.UserType = userType
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *GetRolesForUserParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -152,6 +169,11 @@ func (o *GetRolesForUserParams) WriteToRequest(r runtime.ClientRequest, reg strf
 
 	// path param id
 	if err := r.SetPathParam("id", o.ID); err != nil {
+		return err
+	}
+
+	// path param userType
+	if err := r.SetPathParam("userType", o.UserType); err != nil {
 		return err
 	}
 

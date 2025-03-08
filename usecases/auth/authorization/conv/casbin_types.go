@@ -31,6 +31,10 @@ const (
 	GROUP_NAME_PREFIX = "group" + NAME_PREFIX
 	NAME_PREFIX       = ":"
 
+	USER_STATIC_PREFIX  = "static" + NAME_PREFIX
+	USER_DYNAMIC_PREFIX = "dynamic" + NAME_PREFIX
+	USER_OIDC_PREFIX    = "oidc" + NAME_PREFIX
+
 	// CRUD allow all actions on a resource
 	// this is internal for casbin to handle admin actions
 	CRUD = "(C)|(R)|(U)|(D)"
@@ -439,6 +443,14 @@ func PrefixGroupName(name string) string {
 
 func NameHasPrefix(name string) bool {
 	return strings.Contains(name, NAME_PREFIX)
+}
+
+func UserNameWithTypeFromPrincipal(principal *models.Principal) string {
+	return fmt.Sprintf("%s:%s", principal.UserType, principal.Username)
+}
+
+func UserNameWithTypeFromId(username string, userType models.UserTypes) string {
+	return fmt.Sprintf("%s:%s", userType, username)
 }
 
 func TrimRoleNamePrefix(name string) string {

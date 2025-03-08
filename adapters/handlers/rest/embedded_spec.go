@@ -782,6 +782,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserTypes"
                 }
               }
             }
@@ -852,6 +855,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserTypes"
                 }
               }
             }
@@ -894,7 +900,7 @@ func init() {
         ]
       }
     },
-    "/authz/users/{id}/roles": {
+    "/authz/users/{id}/roles/{userType}": {
       "get": {
         "tags": [
           "authz"
@@ -906,6 +912,17 @@ func init() {
             "type": "string",
             "description": "user name",
             "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc",
+              "db"
+            ],
+            "type": "string",
+            "description": "The type of user",
+            "name": "userType",
             "in": "path",
             "required": true
           }
@@ -934,6 +951,12 @@ func init() {
           },
           "404": {
             "description": "no role found for user"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -4244,6 +4267,9 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "404": {
+            "description": "user not found"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
@@ -6134,6 +6160,9 @@ func init() {
             "type": "string"
           }
         },
+        "userType": {
+          "$ref": "#/definitions/UserTypes"
+        },
         "username": {
           "description": "The username that was extracted either from the authentication information",
           "type": "string"
@@ -6666,8 +6695,8 @@ func init() {
     "UserInfo": {
       "type": "object",
       "required": [
-        "user_id",
-        "user_type",
+        "userId",
+        "userType",
         "roles",
         "active"
       ],
@@ -6683,11 +6712,11 @@ func init() {
             "type": "string"
           }
         },
-        "user_id": {
+        "userId": {
           "description": "The user id of the given user",
           "type": "string"
         },
-        "user_type": {
+        "userType": {
           "description": "type of the returned user",
           "type": "string",
           "enum": [
@@ -6723,6 +6752,14 @@ func init() {
           "type": "string"
         }
       }
+    },
+    "UserTypes": {
+      "description": "the type of user",
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ]
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
@@ -7806,6 +7843,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserTypes"
                 }
               }
             }
@@ -7876,6 +7916,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserTypes"
                 }
               }
             }
@@ -7918,7 +7961,7 @@ func init() {
         ]
       }
     },
-    "/authz/users/{id}/roles": {
+    "/authz/users/{id}/roles/{userType}": {
       "get": {
         "tags": [
           "authz"
@@ -7930,6 +7973,17 @@ func init() {
             "type": "string",
             "description": "user name",
             "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc",
+              "db"
+            ],
+            "type": "string",
+            "description": "The type of user",
+            "name": "userType",
             "in": "path",
             "required": true
           }
@@ -7958,6 +8012,12 @@ func init() {
           },
           "404": {
             "description": "no role found for user"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -11390,6 +11450,9 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "404": {
+            "description": "user not found"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
@@ -13568,6 +13631,9 @@ func init() {
             "type": "string"
           }
         },
+        "userType": {
+          "$ref": "#/definitions/UserTypes"
+        },
         "username": {
           "description": "The username that was extracted either from the authentication information",
           "type": "string"
@@ -14100,8 +14166,8 @@ func init() {
     "UserInfo": {
       "type": "object",
       "required": [
-        "user_id",
-        "user_type",
+        "userId",
+        "userType",
         "roles",
         "active"
       ],
@@ -14117,11 +14183,11 @@ func init() {
             "type": "string"
           }
         },
-        "user_id": {
+        "userId": {
           "description": "The user id of the given user",
           "type": "string"
         },
-        "user_type": {
+        "userType": {
           "description": "type of the returned user",
           "type": "string",
           "enum": [
@@ -14157,6 +14223,14 @@ func init() {
           "type": "string"
         }
       }
+    },
+    "UserTypes": {
+      "description": "the type of user",
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ]
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",

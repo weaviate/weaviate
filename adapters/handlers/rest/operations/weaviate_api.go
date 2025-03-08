@@ -1015,7 +1015,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/authz/users/{id}/roles"] = authz.NewGetRolesForUser(o.context, o.AuthzGetRolesForUserHandler)
+	o.handlers["GET"]["/authz/users/{id}/roles/{userType}"] = authz.NewGetRolesForUser(o.context, o.AuthzGetRolesForUserHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

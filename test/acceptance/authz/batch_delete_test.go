@@ -145,11 +145,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 		}
 		helper.DeleteRole(t, adminKey, *deleteRole.Name)
 		helper.CreateRole(t, adminKey, deleteRole)
-		_, err = helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
-			adminAuth,
-		)
-		require.Nil(t, err)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
 		params := getBatchDelete(classNameSource, []string{"someProperty"}, "something", true)
 		resp, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
@@ -173,11 +169,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 			}
 			helper.DeleteRole(t, adminKey, testRoleName)
 			helper.CreateRole(t, adminKey, role)
-			_, err = helper.Client(t).Authz.AssignRoleToUser(
-				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
-				adminAuth,
-			)
-			require.Nil(t, err)
+			helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
 			params := getBatchDelete(classNameSource, []string{"someProperty"}, "something", true)
 			_, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
@@ -219,11 +211,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 		}
 		helper.DeleteRole(t, adminKey, *deleteRole.Name)
 		helper.CreateRole(t, adminKey, deleteRole)
-		_, err = helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
-			adminAuth,
-		)
-		require.Nil(t, err)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
 		params := getBatchDelete(classNameSource, []string{"ref", classNameTarget, "prop"}, "something", true)
 		resp, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
@@ -247,11 +235,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 			}
 			helper.DeleteRole(t, adminKey, *deleteRole.Name)
 			helper.CreateRole(t, adminKey, deleteRole)
-			_, err = helper.Client(t).Authz.AssignRoleToUser(
-				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
-				adminAuth,
-			)
-			require.Nil(t, err)
+			helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
 			params := getBatchDelete(classNameSource, []string{"ref", classNameTarget, "prop"}, "something", true)
 			_, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)

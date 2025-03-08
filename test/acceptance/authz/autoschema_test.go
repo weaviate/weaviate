@@ -110,11 +110,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	defer helper.DeleteRole(t, adminKey, *createSchemaRole.Name)
 
 	// all tests need read schema
-	_, err = helper.Client(t).Authz.AssignRoleToUser(
-		authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{readSchemaAndCreateDataRoleName}}),
-		adminAuth,
-	)
-	require.NoError(t, err)
+	helper.AssignRoleToUser(t, adminKey, readSchemaAndCreateDataRoleName, customUser)
 
 	t.Run("Only read rights for schema", func(t *testing.T) {
 		// object which does NOT introduce a new prop => no failure

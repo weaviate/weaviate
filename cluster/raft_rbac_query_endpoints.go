@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -48,9 +50,10 @@ func (s *Raft) GetRoles(names ...string) (map[string][]authorization.Policy, err
 	return response.Roles, nil
 }
 
-func (s *Raft) GetRolesForUser(user string) (map[string][]authorization.Policy, error) {
+func (s *Raft) GetRolesForUser(user string, userType models.UserTypes) (map[string][]authorization.Policy, error) {
 	req := cmd.QueryGetRolesForUserRequest{
-		User: user,
+		User:     user,
+		UserType: userType,
 	}
 
 	subCommand, err := json.Marshal(&req)

@@ -450,8 +450,11 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
-	if err := h.controller.AddRolesForUser(conv.PrefixUserName(params.ID), params.Body.Roles); err != nil {
-		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
+	userTypes := getUserTypes(params.Body.UserType)
+	for _, userType := range userTypes {
+		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeFromId(params.ID, userType), params.Body.Roles); err != nil {
+			return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
+		}
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -517,12 +520,21 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 }
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
-	ownUser := params.ID == principal.Username
+	ownUser := params.ID == principal.Username && params.UserType == string(principal.UserType)
 
 	if !ownUser {
 		if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.ID)...); err != nil {
 			return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
+	}
+
+	var userType models.UserTypes
+	if params.UserType == string(models.UserTypesOidc) {
+		userType = models.UserTypesOidc
+	} else if params.UserType == string(models.UserTypesDb) {
+		userType = models.UserTypesDb
+	} else {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown userType: %v", params.UserType)))
 	}
 
 	exists, err := h.userExists(params.ID)
@@ -533,15 +545,14 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserNotFound()
 	}
 
-	existedRoles, err := h.controller.GetRolesForUser(params.ID)
+	existingRoles, err := h.controller.GetRolesForUser(params.ID, userType)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
 	}
 
 	response := []*models.Role{}
-
 	var authErr error
-	for roleName, policies := range existedRoles {
+	for roleName, policies := range existingRoles {
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
 			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %w", err)))
@@ -560,7 +571,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		})
 	}
 
-	if len(existedRoles) != 0 && len(response) == 0 {
+	if len(existingRoles) != 0 && len(response) == 0 {
 		return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(authErr))
 	}
 
@@ -650,8 +661,11 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the request roles doesn't exist")))
 	}
 
-	if err := h.controller.RevokeRolesForUser(conv.PrefixUserName(params.ID), params.Body.Roles...); err != nil {
-		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("RevokeRolesForUser: %w", err)))
+	userTypes := getUserTypes(params.Body.UserType)
+	for _, userType := range userTypes {
+		if err := h.controller.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.ID, userType), params.Body.Roles...); err != nil {
+			return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
+		}
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -784,6 +798,16 @@ func sortByName(roles []*models.Role) {
 	sort.Slice(roles, func(i, j int) bool {
 		return *roles[i].Name < *roles[j].Name
 	})
+}
+
+func getUserTypes(userTypeParam models.UserTypes) []models.UserTypes {
+	var userTypes []models.UserTypes
+	if userTypeParam == "" {
+		userTypes = []models.UserTypes{models.UserTypesOidc, models.UserTypesDb}
+	} else {
+		userTypes = []models.UserTypes{userTypeParam}
+	}
+	return userTypes
 }
 
 // TODO-RBAC: we could expose endpoint to validate permissions as dry-run
