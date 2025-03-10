@@ -505,7 +505,15 @@ jobs:
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
     name: push-docker-fast
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build_platform: "--amd64-only"
+            runner: "ubuntu-latest"
+          - build_platform: "--arm64-only"
+            runner: "ubuntu-24.04-arm" # ARM64 runner
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -515,7 +523,7 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
         id: push-container
-        run: ./ci/push_docker.sh --amd64-only
+        run: ./ci/push_docker.sh ${{ matrix.build_platform }}
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
       - name: Generate Report
