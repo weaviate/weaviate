@@ -307,11 +307,11 @@ func partialCompare(expected, actual kv) error {
 			}
 		}
 
-		if bytes.Compare(actual.values[a].Key, e.Key) != 0 {
+		if !bytes.Equal(actual.values[a].Key, e.Key) {
 			docId := binary.BigEndian.Uint64(e.Key)
 			return fmt.Errorf("expected key %v (docId: %v) not found in actual values", e.Key, docId)
 		}
-		if bytes.Compare(actual.values[a].Value, e.Value) != 0 {
+		if !bytes.Equal(actual.values[a].Value, e.Value) {
 			return fmt.Errorf("expected value %v, got %v", e.Value, actual.values[a].Value)
 		}
 	}
