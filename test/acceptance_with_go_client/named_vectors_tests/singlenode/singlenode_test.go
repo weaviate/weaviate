@@ -42,8 +42,8 @@ func TestNamedVectors_SingleNode_AsyncIndexing(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	// t.Run("tests", test_suits.AllTests(endpoint))
-	// t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
+	t.Run("tests", test_suits.AllTests(endpoint))
+	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
 	t.Run("mixed vector tests", test_suits.AllMixedVectorsTests(endpoint))
 }
 
