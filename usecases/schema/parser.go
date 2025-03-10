@@ -255,7 +255,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, fmt.Errorf("validate sharding config: %w", err)
 	}
 
-	if !reflect.DeepEqual(class.Properties, update.Properties) {
+	if !p.validateProperties(class.Properties, update.Properties) {
 		return nil, errors.Errorf(
 			"properties cannot be updated through updating the class. Use the add " +
 				"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
@@ -269,6 +269,20 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	}
 
 	return update, nil
+}
+
+func (p *Parser) validateProperties(existing []*models.Property, new []*models.Property) bool {
+	if len(existing) != len(new) {
+		return false
+	}
+
+	for i, prop := range existing {
+		if !reflect.DeepEqual(immutableFromProperty(prop), immutableFromProperty(new[i])) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func hasTargetVectors(class *models.Class) bool {
@@ -475,4 +489,66 @@ func validateShardingConfig(current, update *models.Class, mtEnabled bool) error
 			second.VirtualPerPhysical)
 	}
 	return nil
+}
+
+// This is used to validate whether the schema of a class to be updated is attempting to mutate any of the immutable fields of a models.Property
+// For now, only Description is allowed to be mutated so this field is not included in this struct.
+type immutableProperty struct {
+	DataType         []string
+	IndexFilterable  *bool
+	IndexInverted    *bool
+	IndexSearchable  *bool
+	ModuleConfig     interface{}
+	Name             string
+	NestedProperties []*immutableNestedProperty
+	Tokenization     string
+}
+
+func immutableFromProperty(prop *models.Property) *immutableProperty {
+	if prop == nil {
+		return nil
+	}
+	nested := make([]*immutableNestedProperty, len(prop.NestedProperties))
+	for i, nestedProp := range prop.NestedProperties {
+		nested[i] = immutableFromNestedProperty(nestedProp)
+	}
+	return &immutableProperty{
+		DataType:         prop.DataType,
+		IndexFilterable:  prop.IndexFilterable,
+		IndexInverted:    prop.IndexInverted,
+		IndexSearchable:  prop.IndexSearchable,
+		ModuleConfig:     prop.ModuleConfig,
+		Name:             prop.Name,
+		NestedProperties: nested,
+		Tokenization:     prop.Tokenization,
+	}
+}
+
+// This is used to validate whether the schema of a class to be updated is attempting to mutate any of the immutable fields of a models.NestedProperty
+// For now, only Description is allowed to be mutated so this field is not included in this struct.
+type immutableNestedProperty struct {
+	DataType         []string
+	IndexFilterable  *bool
+	IndexSearchable  *bool
+	Name             string
+	NestedProperties []*immutableNestedProperty
+	Tokenization     string
+}
+
+func immutableFromNestedProperty(prop *models.NestedProperty) *immutableNestedProperty {
+	if prop == nil {
+		return nil
+	}
+	nested := make([]*immutableNestedProperty, len(prop.NestedProperties))
+	for i, nestedProp := range prop.NestedProperties {
+		nested[i] = immutableFromNestedProperty(nestedProp)
+	}
+	return &immutableNestedProperty{
+		DataType:         prop.DataType,
+		IndexFilterable:  prop.IndexFilterable,
+		IndexSearchable:  prop.IndexSearchable,
+		Name:             prop.Name,
+		NestedProperties: nested,
+		Tokenization:     prop.Tokenization,
+	}
 }

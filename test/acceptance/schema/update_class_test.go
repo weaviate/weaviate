@@ -68,3 +68,83 @@ func TestUpdateClassDescription(t *testing.T) {
 		assert.Equal(t, res.Payload.Description, newDescription)
 	})
 }
+
+func TestUpdatePropertyDescription(t *testing.T) {
+	className := "C2"
+	propName := "p1"
+
+	t.Run("delete class if exists", func(t *testing.T) {
+		params := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
+		assert.Nil(t, err)
+	})
+
+	t.Run("initially creating the class", func(t *testing.T) {
+		c := &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{
+					Name:     propName,
+					DataType: []string{"string"},
+				},
+			},
+		}
+
+		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+		assert.Nil(t, err)
+	})
+
+	newDescription := "its updated description"
+
+	t.Run("update property description", func(t *testing.T) {
+		params := clschema.NewSchemaObjectsGetParams().
+			WithClassName(className)
+
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
+		require.Nil(t, err)
+		assert.Equal(t, "", res.Payload.Properties[0].Description)
+
+		prop := res.Payload.Properties[0]
+		prop.Description = newDescription
+		updateParams := clschema.NewSchemaObjectsUpdateParams().
+			WithClassName(className).
+			WithObjectClass(&models.Class{
+				Class:      className,
+				Properties: []*models.Property{prop},
+			})
+		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
+		assert.Nil(t, err)
+	})
+
+	t.Run("assert update property description", func(t *testing.T) {
+		params := clschema.NewSchemaObjectsGetParams().
+			WithClassName(className)
+
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
+		require.Nil(t, err)
+		assert.Equal(t, newDescription, res.Payload.Properties[0].Description)
+	})
+
+	t.Run("update field other than description", func(t *testing.T) {
+		params := clschema.NewSchemaObjectsGetParams().
+			WithClassName(className)
+
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
+		require.Nil(t, err)
+
+		prop := res.Payload.Properties[0]
+		prop.DataType = []string{"int"}
+		updateParams := clschema.NewSchemaObjectsUpdateParams().
+			WithClassName(className).
+			WithObjectClass(&models.Class{
+				Class:      className,
+				Properties: []*models.Property{prop},
+			})
+		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
+		assert.NotNil(t, err)
+		parsed, ok := err.(*clschema.SchemaObjectsUpdateUnprocessableEntity)
+		require.True(t, ok)
+		require.Contains(t, parsed.Payload.Error[0].Message, "properties cannot be updated through updating the class")
+	})
+}
