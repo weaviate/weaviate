@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -880,6 +881,7 @@ func (m *Migrator) Shutdown(ctx context.Context) error {
 	if !m.db.StartupComplete() {
 		return nil
 	}
+	m.classLocks.Cleanup()
 	m.logger.Info("closing loaded database ...")
 	return m.db.Shutdown(ctx)
 }
