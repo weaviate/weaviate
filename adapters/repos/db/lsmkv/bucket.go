@@ -1555,13 +1555,6 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	// The lock is released after the blockmax search is done, and panics are also handled.
 	segmentsDisk, release := b.disk.getAndLockSegments()
 
-	defer func() {
-		if r := recover(); r != nil {
-			b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
-			release()
-		}
-	}()
-
 	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))
 	idfCounts := make(map[string]uint64, len(query))
