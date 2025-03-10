@@ -319,10 +319,11 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 }
 
 func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
-	// set only when no target vectors configured
-
-	// TODO: this is not right
-	if !hasTargetVectors(class) {
+	// set legacy vector index defaults only when:
+	// 	- no target vectors are configured
+	//  - OR, there are target vectors configured AND there are hints that legacy index is also needed
+	legacyVectorIndexConfigured := class.Vectorizer != "" || class.VectorIndexType != "" || class.VectorIndexConfig != nil
+	if !hasTargetVectors(class) || legacyVectorIndexConfigured {
 		if class.Vectorizer == "" {
 			class.Vectorizer = h.config.DefaultVectorizerModule
 		}
