@@ -277,12 +277,72 @@ func (p *Parser) validateProperties(existing []*models.Property, new []*models.P
 	}
 
 	for i, prop := range existing {
-		if !reflect.DeepEqual(immutableFromProperty(prop), immutableFromProperty(new[i])) {
-			return false
+		// make a copy of the properties to remove the description field
+		// so that we can compare the rest of the fields
+		if prop == nil {
+			continue
 		}
+		if new[i] == nil {
+			continue
+		}
+		return p.validateProperty(prop, new[i])
 	}
 
 	return true
+}
+
+func propertyAsMap(in any) (map[string]any, error) {
+	out := make(map[string]any)
+
+	v := reflect.ValueOf(in)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Struct { // Non-structural return error
+		return nil, fmt.Errorf("asMap only accepts struct or struct pointer; got %T", v)
+	}
+
+	t := v.Type()
+	// Traversing structure fields
+	// Specify the tagName value as the key in the map; the field value as the value in the map
+	for i := 0; i < v.NumField(); i++ {
+		tfi := t.Field(i)
+		if tagValue := tfi.Tag.Get("json"); tagValue != "" {
+			key := strings.Split(tagValue, ",")[0]
+			if key == "description" {
+				continue
+			}
+			if key == "nestedProperties" {
+				nps := v.Field(i).Interface().([]*models.NestedProperty)
+				out[key] = make([]map[string]any, 0, len(nps))
+				for _, np := range nps {
+					npm, err := propertyAsMap(np)
+					if err != nil {
+						return nil, err
+					}
+					out[key] = append(out[key].([]map[string]any), npm)
+				}
+				continue
+			}
+			out[key] = v.Field(i).Interface()
+		}
+	}
+	return out, nil
+}
+
+func (p *Parser) validateProperty(existing, new *models.Property) bool {
+	e, err := propertyAsMap(existing)
+	if err != nil {
+		return false
+	}
+
+	n, err := propertyAsMap(new)
+	if err != nil {
+		return false
+	}
+
+	return reflect.DeepEqual(e, n)
 }
 
 func hasTargetVectors(class *models.Class) bool {
@@ -489,66 +549,4 @@ func validateShardingConfig(current, update *models.Class, mtEnabled bool) error
 			second.VirtualPerPhysical)
 	}
 	return nil
-}
-
-// This is used to validate whether the schema of a class to be updated is attempting to mutate any of the immutable fields of a models.Property
-// For now, only Description is allowed to be mutated so this field is not included in this struct.
-type immutableProperty struct {
-	DataType         []string
-	IndexFilterable  *bool
-	IndexInverted    *bool
-	IndexSearchable  *bool
-	ModuleConfig     interface{}
-	Name             string
-	NestedProperties []*immutableNestedProperty
-	Tokenization     string
-}
-
-func immutableFromProperty(prop *models.Property) *immutableProperty {
-	if prop == nil {
-		return nil
-	}
-	nested := make([]*immutableNestedProperty, len(prop.NestedProperties))
-	for i, nestedProp := range prop.NestedProperties {
-		nested[i] = immutableFromNestedProperty(nestedProp)
-	}
-	return &immutableProperty{
-		DataType:         prop.DataType,
-		IndexFilterable:  prop.IndexFilterable,
-		IndexInverted:    prop.IndexInverted,
-		IndexSearchable:  prop.IndexSearchable,
-		ModuleConfig:     prop.ModuleConfig,
-		Name:             prop.Name,
-		NestedProperties: nested,
-		Tokenization:     prop.Tokenization,
-	}
-}
-
-// This is used to validate whether the schema of a class to be updated is attempting to mutate any of the immutable fields of a models.NestedProperty
-// For now, only Description is allowed to be mutated so this field is not included in this struct.
-type immutableNestedProperty struct {
-	DataType         []string
-	IndexFilterable  *bool
-	IndexSearchable  *bool
-	Name             string
-	NestedProperties []*immutableNestedProperty
-	Tokenization     string
-}
-
-func immutableFromNestedProperty(prop *models.NestedProperty) *immutableNestedProperty {
-	if prop == nil {
-		return nil
-	}
-	nested := make([]*immutableNestedProperty, len(prop.NestedProperties))
-	for i, nestedProp := range prop.NestedProperties {
-		nested[i] = immutableFromNestedProperty(nestedProp)
-	}
-	return &immutableNestedProperty{
-		DataType:         prop.DataType,
-		IndexFilterable:  prop.IndexFilterable,
-		IndexSearchable:  prop.IndexSearchable,
-		Name:             prop.Name,
-		NestedProperties: nested,
-		Tokenization:     prop.Tokenization,
-	}
 }

@@ -148,42 +148,29 @@ func (m fakeModulesProvider) IsGenerative(name string) bool {
 	return strings.Contains(name, "generative")
 }
 
-func Test_immutableFromProperty(t *testing.T) {
-	prop := models.Property{
-		Name:            "name",
-		Description:     "description",
-		DataType:        []string{"text"},
-		IndexFilterable: boolToPtr(true),
-		IndexInverted:   boolToPtr(true),
-		IndexSearchable: boolToPtr(true),
-		ModuleConfig: map[string]interface{}{
-			"generative-madeup": map[string]interface{}{},
-		},
-		NestedProperties: []*models.NestedProperty{{
-			Name:            "nested",
-			Description:     "nested description",
-			DataType:        []string{"text"},
-			IndexFilterable: boolToPtr(true),
-			IndexSearchable: boolToPtr(true),
-			Tokenization:    "ngram",
-		}},
-		Tokenization: "ngram",
-	}
-	mapped := immutableFromProperty(&prop)
-	require.Equal(t, prop.Name, mapped.Name)
-	require.Equal(t, prop.DataType, mapped.DataType)
-	require.Equal(t, prop.IndexFilterable, mapped.IndexFilterable)
-	require.Equal(t, prop.IndexInverted, mapped.IndexInverted)
-	require.Equal(t, prop.IndexSearchable, mapped.IndexSearchable)
-	require.Equal(t, prop.ModuleConfig, mapped.ModuleConfig)
-	require.Equal(t, prop.Tokenization, mapped.Tokenization)
-	require.Equal(t, prop.NestedProperties[0].Name, mapped.NestedProperties[0].Name)
-	require.Equal(t, prop.NestedProperties[0].DataType, mapped.NestedProperties[0].DataType)
-	require.Equal(t, prop.NestedProperties[0].IndexFilterable, mapped.NestedProperties[0].IndexFilterable)
-	require.Equal(t, prop.NestedProperties[0].IndexSearchable, mapped.NestedProperties[0].IndexSearchable)
-	require.Equal(t, prop.NestedProperties[0].Tokenization, mapped.NestedProperties[0].Tokenization)
-}
+func Test_asMap(t *testing.T) {
+	t.Run("not nil", func(t *testing.T) {
+		m, err := propertyAsMap(&models.Property{
+			Name:        "name",
+			Description: "description",
+			DataType:    []string{"object"},
+			NestedProperties: []*models.NestedProperty{{
+				Name:        "nested",
+				Description: "nested description",
+				DataType:    []string{"text"},
+			}},
+		})
+		require.NotNil(t, m)
+		require.Nil(t, err)
 
-func boolToPtr(val bool) *bool {
-	return &val
+		_, ok := m["description"]
+		require.False(t, ok)
+
+		nps, ok := m["nestedProperties"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, nps, 1)
+
+		_, ok = nps[0]["description"]
+		require.False(t, ok)
+	})
 }
