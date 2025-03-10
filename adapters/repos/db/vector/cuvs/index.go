@@ -181,6 +181,7 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		rootPath:       cfg.RootPath,
 
 		isConvertedToHnsw: false,
+		isIndexBuilt:      false,
 
 		idCuvsIdMap:    *NewBiMap(),
 		cuvsPoolMemory: cfg.CuvsPoolMemory,
