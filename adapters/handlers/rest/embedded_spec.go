@@ -853,7 +853,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserTypes"
+                  "$ref": "#/definitions/UserType"
                 }
               }
             }
@@ -926,7 +926,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserTypes"
+                  "$ref": "#/definitions/UserType"
                 }
               }
             }
@@ -6290,7 +6290,7 @@ func init() {
           }
         },
         "userType": {
-          "$ref": "#/definitions/UserTypes"
+          "$ref": "#/definitions/UserType"
         },
         "username": {
           "description": "The username that was extracted either from the authentication information",
@@ -6825,7 +6825,7 @@ func init() {
       "type": "object",
       "required": [
         "userId",
-        "userType",
+        "dbUserType",
         "roles",
         "active"
       ],
@@ -6833,6 +6833,14 @@ func init() {
         "active": {
           "description": "activity status of the returned user",
           "type": "boolean"
+        },
+        "dbUserType": {
+          "description": "type of the returned user",
+          "type": "string",
+          "enum": [
+            "dynamic",
+            "static"
+          ]
         },
         "roles": {
           "description": "The role names associated to the user",
@@ -6844,14 +6852,6 @@ func init() {
         "userId": {
           "description": "The user id of the given user",
           "type": "string"
-        },
-        "userType": {
-          "description": "type of the returned user",
-          "type": "string",
-          "enum": [
-            "dynamic",
-            "static"
-          ]
         }
       }
     },
@@ -6882,7 +6882,7 @@ func init() {
         }
       }
     },
-    "UserTypes": {
+    "UserType": {
       "description": "the type of user",
       "type": "string",
       "enum": [
@@ -8043,7 +8043,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserTypes"
+                  "$ref": "#/definitions/UserType"
                 }
               }
             }
@@ -8116,7 +8116,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserTypes"
+                  "$ref": "#/definitions/UserType"
                 }
               }
             }
@@ -13890,7 +13890,7 @@ func init() {
           }
         },
         "userType": {
-          "$ref": "#/definitions/UserTypes"
+          "$ref": "#/definitions/UserType"
         },
         "username": {
           "description": "The username that was extracted either from the authentication information",
@@ -14425,7 +14425,7 @@ func init() {
       "type": "object",
       "required": [
         "userId",
-        "userType",
+        "dbUserType",
         "roles",
         "active"
       ],
@@ -14433,6 +14433,14 @@ func init() {
         "active": {
           "description": "activity status of the returned user",
           "type": "boolean"
+        },
+        "dbUserType": {
+          "description": "type of the returned user",
+          "type": "string",
+          "enum": [
+            "dynamic",
+            "static"
+          ]
         },
         "roles": {
           "description": "The role names associated to the user",
@@ -14444,14 +14452,6 @@ func init() {
         "userId": {
           "description": "The user id of the given user",
           "type": "string"
-        },
-        "userType": {
-          "description": "type of the returned user",
-          "type": "string",
-          "enum": [
-            "dynamic",
-            "static"
-          ]
         }
       }
     },
@@ -14482,7 +14482,7 @@ func init() {
         }
       }
     },
-    "UserTypes": {
+    "UserType": {
       "description": "the type of user",
       "type": "string",
       "enum": [

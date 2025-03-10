@@ -247,12 +247,12 @@ func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRoles
 	req1 := &cmd.RevokeRolesForUserRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypesDb),
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeDb),
 	}
 	req2 := &cmd.RevokeRolesForUserRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypesOidc),
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeOidc),
 	}
 
 	return []*cmd.RevokeRolesForUserRequest{req1, req2}
@@ -271,12 +271,12 @@ func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest) []*cmd.AddRolesForUs
 	req1 := &cmd.AddRolesForUsersRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypesDb),
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeDb),
 	}
 	req2 := &cmd.AddRolesForUsersRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypesOidc),
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeOidc),
 	}
 
 	return []*cmd.AddRolesForUsersRequest{req1, req2}

@@ -30,10 +30,14 @@ import (
 //
 // swagger:model UserInfo
 type UserInfo struct {
-
 	// activity status of the returned user
 	// Required: true
 	Active *bool `json:"active"`
+
+	// type of the returned user
+	// Required: true
+	// Enum: [dynamic static]
+	DbUserType *string `json:"dbUserType"`
 
 	// The role names associated to the user
 	// Required: true
@@ -42,11 +46,6 @@ type UserInfo struct {
 	// The user id of the given user
 	// Required: true
 	UserID *string `json:"userId"`
-
-	// type of the returned user
-	// Required: true
-	// Enum: [dynamic static]
-	UserType *string `json:"userType"`
 }
 
 // Validate validates this user info
@@ -54,6 +53,10 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateActive(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateDbUserType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -65,10 +68,6 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateUserType(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -76,7 +75,6 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 }
 
 func (m *UserInfo) validateActive(formats strfmt.Registry) error {
-
 	if err := validate.Required("active", "body", m.Active); err != nil {
 		return err
 	}
@@ -84,8 +82,49 @@ func (m *UserInfo) validateActive(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
+var userInfoTypeDbUserTypePropEnum []interface{}
 
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["dynamic","static"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		userInfoTypeDbUserTypePropEnum = append(userInfoTypeDbUserTypePropEnum, v)
+	}
+}
+
+const (
+
+	// UserInfoDbUserTypeDynamic captures enum value "dynamic"
+	UserInfoDbUserTypeDynamic string = "dynamic"
+
+	// UserInfoDbUserTypeStatic captures enum value "static"
+	UserInfoDbUserTypeStatic string = "static"
+)
+
+// prop value enum
+func (m *UserInfo) validateDbUserTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, userInfoTypeDbUserTypePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *UserInfo) validateDbUserType(formats strfmt.Registry) error {
+	if err := validate.Required("dbUserType", "body", m.DbUserType); err != nil {
+		return err
+	}
+
+	// value enum
+	if err := m.validateDbUserTypeEnum("dbUserType", "body", *m.DbUserType); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
 	if err := validate.Required("roles", "body", m.Roles); err != nil {
 		return err
 	}
@@ -94,51 +133,7 @@ func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
 }
 
 func (m *UserInfo) validateUserID(formats strfmt.Registry) error {
-
 	if err := validate.Required("userId", "body", m.UserID); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-var userInfoTypeUserTypePropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["dynamic","static"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		userInfoTypeUserTypePropEnum = append(userInfoTypeUserTypePropEnum, v)
-	}
-}
-
-const (
-
-	// UserInfoUserTypeDynamic captures enum value "dynamic"
-	UserInfoUserTypeDynamic string = "dynamic"
-
-	// UserInfoUserTypeStatic captures enum value "static"
-	UserInfoUserTypeStatic string = "static"
-)
-
-// prop value enum
-func (m *UserInfo) validateUserTypeEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, userInfoTypeUserTypePropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *UserInfo) validateUserType(formats strfmt.Registry) error {
-
-	if err := validate.Required("userType", "body", m.UserType); err != nil {
-		return err
-	}
-
-	// value enum
-	if err := m.validateUserTypeEnum("userType", "body", *m.UserType); err != nil {
 		return err
 	}
 

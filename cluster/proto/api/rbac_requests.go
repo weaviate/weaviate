@@ -94,7 +94,7 @@ type QueryGetRolesResponse struct {
 
 type QueryGetRolesForUserRequest struct {
 	User     string
-	UserType models.UserTypes
+	UserType models.UserType
 }
 
 type QueryGetRolesForUserResponse struct {
@@ -103,7 +103,7 @@ type QueryGetRolesForUserResponse struct {
 
 type QueryGetUsersForRoleRequest struct {
 	Role     string
-	UserType models.UserTypes
+	UserType models.UserType
 }
 
 type QueryGetUsersForRoleResponse struct {

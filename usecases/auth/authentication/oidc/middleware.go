@@ -123,7 +123,7 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	return &models.Principal{
 		Username: username,
 		Groups:   groups,
-		UserType: models.UserTypesOidc,
+		UserType: models.UserTypeOidc,
 	}, nil
 }
 

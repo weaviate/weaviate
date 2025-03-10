@@ -40,7 +40,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 			Domain:   authorization.SchemaDomain,
 		},
 	}
-	userType := models.UserTypesDb
+	userType := models.UserTypeDb
 	returnedPolices := map[string][]authorization.Policy{
 		"testRole": policies,
 	}
@@ -56,7 +56,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				ID:       "testUser",
 				UserType: string(userType),
 			},
-			principal:   &models.Principal{Username: "user1", UserType: models.UserTypesDb},
+			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeDb},
 			expectAuthz: true,
 		},
 		{
@@ -65,7 +65,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				ID:       "user1",
 				UserType: string(userType),
 			},
-			principal:   &models.Principal{Username: "user1", UserType: models.UserTypesDb},
+			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeDb},
 			expectAuthz: false,
 		},
 	}
@@ -76,7 +76,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
 				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(nil)
 			}
-			controller.On("GetRolesForUser", tt.params.ID, models.UserTypesDb).Return(returnedPolices, nil)
+			controller.On("GetRolesForUser", tt.params.ID, models.UserTypeDb).Return(returnedPolices, nil)
 			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{"testUser": {}}, nil)
 
 			h := &authZHandlers{
@@ -112,7 +112,7 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 		authorizeErr  error
 		expectedError string
 	}
-	userType := models.UserTypesDb
+	userType := models.UserTypeDb
 	tests := []testCase{
 		{
 			name: "authorization error no access to role",
@@ -174,7 +174,7 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 		expectedError string
 	}
 
-	userType := models.UserTypesDb
+	userType := models.UserTypeDb
 	tests := []testCase{
 		{
 			name: "internal server error",

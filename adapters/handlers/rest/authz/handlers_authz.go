@@ -539,11 +539,11 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 		return authz.NewGetRolesForUserDeprecatedNotFound()
 	}
 
-	existingRolesDB, err := h.controller.GetRolesForUser(params.ID, models.UserTypesDb)
+	existingRolesDB, err := h.controller.GetRolesForUser(params.ID, models.UserTypeDb)
 	if err != nil {
 		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
 	}
-	existingRolesOIDC, err := h.controller.GetRolesForUser(params.ID, models.UserTypesOidc)
+	existingRolesOIDC, err := h.controller.GetRolesForUser(params.ID, models.UserTypeOidc)
 	if err != nil {
 		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
 	}
@@ -604,12 +604,8 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		}
 	}
 
-	var userType models.UserTypes
-	if params.UserType == string(models.UserTypesOidc) {
-		userType = models.UserTypesOidc
-	} else if params.UserType == string(models.UserTypesDb) {
-		userType = models.UserTypesDb
-	} else {
+	userType, err := validateUserTypeInput(params.UserType)
+	if err != nil {
 		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown userType: %v", params.UserType)))
 	}
 
@@ -672,14 +668,11 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	var userType models.UserTypes
-	if params.UserType == string(models.UserTypesOidc) {
-		userType = models.UserTypesOidc
-	} else if params.UserType == string(models.UserTypesDb) {
-		userType = models.UserTypesDb
-	} else {
+	userType, err := validateUserTypeInput(params.UserType)
+	if err != nil {
 		return authz.NewGetUsersForRoleDeprecatedBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown userType: %v", params.UserType)))
 	}
+
 	users, err := h.controller.GetUsersForRole(params.ID, userType)
 	if err != nil {
 		return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersForRole: %w", err)))
@@ -722,7 +715,7 @@ func (h *authZHandlers) getUsersForRoleDeprecated(params authz.GetUsersForRoleDe
 	foundUsers := map[string]struct{}{} // no duplicates
 	filteredUsers := make([]string, 0)
 
-	for _, userType := range []models.UserTypes{models.UserTypesOidc, models.UserTypesDb} {
+	for _, userType := range []models.UserType{models.UserTypeDb, models.UserTypeOidc} {
 		users, err := h.controller.GetUsersForRole(params.ID, userType)
 		if err != nil {
 			return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersForRole: %w", err)))
@@ -933,14 +926,26 @@ func sortByName(roles []*models.Role) {
 	})
 }
 
-func getUserTypes(userTypeParam models.UserTypes) []models.UserTypes {
-	var userTypes []models.UserTypes
+func getUserTypes(userTypeParam models.UserType) []models.UserType {
+	var userTypes []models.UserType
 	if userTypeParam == "" {
-		userTypes = []models.UserTypes{models.UserTypesOidc, models.UserTypesDb}
+		userTypes = []models.UserType{models.UserTypeOidc, models.UserTypeDb}
 	} else {
-		userTypes = []models.UserTypes{userTypeParam}
+		userTypes = []models.UserType{userTypeParam}
 	}
 	return userTypes
+}
+
+func validateUserTypeInput(userTypeInput string) (models.UserType, error) {
+	var userType models.UserType
+	if userTypeInput == string(models.UserTypeOidc) {
+		userType = models.UserTypeOidc
+	} else if userTypeInput == string(models.UserTypeDb) {
+		userType = models.UserTypeDb
+	} else {
+		return userType, fmt.Errorf("unknown userType: %v", userTypeInput)
+	}
+	return userType, nil
 }
 
 // TODO-RBAC: we could expose endpoint to validate permissions as dry-run

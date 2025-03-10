@@ -33,14 +33,14 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 	principal := &models.Principal{Username: "user1"}
 	params := authz.GetUsersForRoleParams{
 		ID:       "testuser",
-		UserType: string(models.UserTypesDb),
+		UserType: string(models.UserTypeDb),
 	}
 
 	expectedUsers := []string{"user1", "user2"}
 
 	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
 	authorizer.On("AuthorizeSilent", principal, authorization.READ, authorization.Users(expectedUsers...)[1]).Return(nil)
-	controller.On("GetUsersForRole", params.ID, models.UserTypesDb).Return(expectedUsers, nil)
+	controller.On("GetUsersForRole", params.ID, models.UserTypeDb).Return(expectedUsers, nil)
 
 	h := &authZHandlers{
 		authorizer: authorizer,
@@ -69,7 +69,7 @@ func TestGetUsersForRoleForbidden(t *testing.T) {
 			name: "authorization error",
 			params: authz.GetUsersForRoleParams{
 				ID:       "testRole",
-				UserType: string(models.UserTypesDb),
+				UserType: string(models.UserTypeDb),
 			},
 			principal:     &models.Principal{Username: "user1"},
 			authorizeErr:  fmt.Errorf("authorization error"),
@@ -79,7 +79,7 @@ func TestGetUsersForRoleForbidden(t *testing.T) {
 			name: "root",
 			params: authz.GetUsersForRoleParams{
 				ID:       "root",
-				UserType: string(models.UserTypesDb),
+				UserType: string(models.UserTypeDb),
 			},
 			skipAuthZ:     true,
 			principal:     &models.Principal{Username: "user1"},
@@ -130,7 +130,7 @@ func TestGetUsersForRoleInternalServerError(t *testing.T) {
 			name: "internal server error",
 			params: authz.GetUsersForRoleParams{
 				ID:       "testRole",
-				UserType: string(models.UserTypesDb),
+				UserType: string(models.UserTypeDb),
 			},
 			principal:     &models.Principal{Username: "user1"},
 			getUsersErr:   fmt.Errorf("internal server error"),
@@ -146,7 +146,7 @@ func TestGetUsersForRoleInternalServerError(t *testing.T) {
 
 			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
 
-			controller.On("GetUsersForRole", tt.params.ID, models.UserTypesDb).Return(nil, tt.getUsersErr)
+			controller.On("GetUsersForRole", tt.params.ID, models.UserTypeDb).Return(nil, tt.getUsersErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,

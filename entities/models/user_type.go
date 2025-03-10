@@ -25,55 +25,55 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// UserTypes the type of user
+// UserType the type of user
 //
-// swagger:model UserTypes
-type UserTypes string
+// swagger:model UserType
+type UserType string
 
-func NewUserTypes(value UserTypes) *UserTypes {
+func NewUserType(value UserType) *UserType {
 	return &value
 }
 
-// Pointer returns a pointer to a freshly-allocated UserTypes.
-func (m UserTypes) Pointer() *UserTypes {
+// Pointer returns a pointer to a freshly-allocated UserType.
+func (m UserType) Pointer() *UserType {
 	return &m
 }
 
 const (
 
-	// UserTypesDb captures enum value "db"
-	UserTypesDb UserTypes = "db"
+	// UserTypeDb captures enum value "db"
+	UserTypeDb UserType = "db"
 
-	// UserTypesOidc captures enum value "oidc"
-	UserTypesOidc UserTypes = "oidc"
+	// UserTypeOidc captures enum value "oidc"
+	UserTypeOidc UserType = "oidc"
 )
 
 // for schema
-var userTypesEnum []interface{}
+var userTypeEnum []interface{}
 
 func init() {
-	var res []UserTypes
+	var res []UserType
 	if err := json.Unmarshal([]byte(`["db","oidc"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
-		userTypesEnum = append(userTypesEnum, v)
+		userTypeEnum = append(userTypeEnum, v)
 	}
 }
 
-func (m UserTypes) validateUserTypesEnum(path, location string, value UserTypes) error {
-	if err := validate.EnumCase(path, location, value, userTypesEnum, true); err != nil {
+func (m UserType) validateUserTypeEnum(path, location string, value UserType) error {
+	if err := validate.EnumCase(path, location, value, userTypeEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-// Validate validates this user types
-func (m UserTypes) Validate(formats strfmt.Registry) error {
+// Validate validates this user type
+func (m UserType) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	// value enum
-	if err := m.validateUserTypesEnum("", "body", m); err != nil {
+	if err := m.validateUserTypeEnum("", "body", m); err != nil {
 		return err
 	}
 
@@ -83,7 +83,7 @@ func (m UserTypes) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this user types based on context it is used
-func (m UserTypes) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this user type based on context it is used
+func (m UserType) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }

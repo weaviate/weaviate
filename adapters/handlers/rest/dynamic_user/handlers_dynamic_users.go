@@ -40,7 +40,7 @@ type dynUserHandler struct {
 
 type DynamicUserAndRolesGetter interface {
 	apikey.DynamicUser
-	GetRolesForUser(user string, userTypes models.UserTypes) (map[string][]authorization.Policy, error)
+	GetRolesForUser(user string, userTypes models.UserType) (map[string][]authorization.Policy, error)
 	RevokeRolesForUser(userName string, roles ...string) error
 }
 
@@ -95,7 +95,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		active = user.Active
 	}
 
-	existedRoles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypesDb)
+	existedRoles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypeDb)
 	if err != nil {
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("get roles: %w", err)))
 	}
@@ -110,7 +110,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		userType = userTypeStatic
 	}
 
-	return users.NewGetUserInfoOK().WithPayload(&models.UserInfo{UserID: &params.UserID, Roles: roles, UserType: &userType, Active: &active})
+	return users.NewGetUserInfoOK().WithPayload(&models.UserInfo{UserID: &params.UserID, Roles: roles, DbUserType: &userType, Active: &active})
 }
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
@@ -221,7 +221,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 	if len(existingUsers) == 0 {
 		return users.NewDeleteUserNotFound()
 	}
-	roles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypesDb)
+	roles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypeDb)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -230,7 +230,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		for name := range roles {
 			roleNames = append(roleNames, name)
 		}
-		if err := h.dynamicUser.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, models.UserTypesDb), roleNames...); err != nil {
+		if err := h.dynamicUser.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, models.UserTypeDb), roleNames...); err != nil {
 			return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 	}

@@ -32,7 +32,7 @@ import (
 )
 
 func TestRevokeRoleFromUserSuccess(t *testing.T) {
-	userType := models.UserTypesDb
+	userType := models.UserTypeDb
 	tests := []struct {
 		name              string
 		principal         *models.Principal
@@ -567,7 +567,7 @@ func TestRevokeRoleFromUserInternalServerError(t *testing.T) {
 		revokeErr     error
 		expectedError string
 	}
-	userType := models.UserTypesDb
+	userType := models.UserTypeDb
 	tests := []testCase{
 		{
 			name: "internal server error from revoking",

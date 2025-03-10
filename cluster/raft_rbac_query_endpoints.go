@@ -50,7 +50,7 @@ func (s *Raft) GetRoles(names ...string) (map[string][]authorization.Policy, err
 	return response.Roles, nil
 }
 
-func (s *Raft) GetRolesForUser(user string, userType models.UserTypes) (map[string][]authorization.Policy, error) {
+func (s *Raft) GetRolesForUser(user string, userType models.UserType) (map[string][]authorization.Policy, error) {
 	req := cmd.QueryGetRolesForUserRequest{
 		User:     user,
 		UserType: userType,
@@ -79,7 +79,7 @@ func (s *Raft) GetRolesForUser(user string, userType models.UserTypes) (map[stri
 	return response.Roles, nil
 }
 
-func (s *Raft) GetUsersForRole(role string, userType models.UserTypes) ([]string, error) {
+func (s *Raft) GetUsersForRole(role string, userType models.UserType) ([]string, error) {
 	req := cmd.QueryGetUsersForRoleRequest{
 		Role:     role,
 		UserType: userType,
