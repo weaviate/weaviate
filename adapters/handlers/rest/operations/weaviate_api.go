@@ -147,6 +147,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzGetRolesForUserHandler: authz.GetRolesForUserHandlerFunc(func(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRolesForUser has not yet been implemented")
 		}),
+		AuthzGetRolesForUserDeprecatedHandler: authz.GetRolesForUserDeprecatedHandlerFunc(func(params authz.GetRolesForUserDeprecatedParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetRolesForUserDeprecated has not yet been implemented")
+		}),
 		UsersGetUserInfoHandler: users.GetUserInfoHandlerFunc(func(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetUserInfo has not yet been implemented")
 		}),
@@ -410,6 +413,8 @@ type WeaviateAPI struct {
 	AuthzGetRolesHandler authz.GetRolesHandler
 	// AuthzGetRolesForUserHandler sets the operation handler for the get roles for user operation
 	AuthzGetRolesForUserHandler authz.GetRolesForUserHandler
+	// AuthzGetRolesForUserDeprecatedHandler sets the operation handler for the get roles for user deprecated operation
+	AuthzGetRolesForUserDeprecatedHandler authz.GetRolesForUserDeprecatedHandler
 	// UsersGetUserInfoHandler sets the operation handler for the get user info operation
 	UsersGetUserInfoHandler users.GetUserInfoHandler
 	// AuthzGetUsersForRoleHandler sets the operation handler for the get users for role operation
@@ -667,6 +672,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzGetRolesForUserHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesForUserHandler")
+	}
+	if o.AuthzGetRolesForUserDeprecatedHandler == nil {
+		unregistered = append(unregistered, "authz.GetRolesForUserDeprecatedHandler")
 	}
 	if o.UsersGetUserInfoHandler == nil {
 		unregistered = append(unregistered, "users.GetUserInfoHandler")
@@ -1016,6 +1024,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/authz/users/{id}/roles/{userType}"] = authz.NewGetRolesForUser(o.context, o.AuthzGetRolesForUserHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/users/{id}/roles"] = authz.NewGetRolesForUserDeprecated(o.context, o.AuthzGetRolesForUserDeprecatedHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

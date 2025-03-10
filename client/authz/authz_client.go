@@ -57,6 +57,8 @@ type ClientService interface {
 
 	GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error)
 
+	GetRolesForUserDeprecated(params *GetRolesForUserDeprecatedParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserDeprecatedOK, error)
+
 	GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error)
 
 	HasPermission(params *HasPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*HasPermissionOK, error)
@@ -379,6 +381,45 @@ func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for getRolesForUser: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetRolesForUserDeprecated gets roles assigned to user d b o ID c deprecated will be removed when 1 29 is not supported anymore
+*/
+func (a *Client) GetRolesForUserDeprecated(params *GetRolesForUserDeprecatedParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserDeprecatedOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetRolesForUserDeprecatedParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getRolesForUserDeprecated",
+		Method:             "GET",
+		PathPattern:        "/authz/users/{id}/roles",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetRolesForUserDeprecatedReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetRolesForUserDeprecatedOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getRolesForUserDeprecated: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

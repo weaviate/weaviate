@@ -46,6 +46,15 @@ func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
 	return resp.Payload
 }
 
+func GetRolesForUserOIDC(t *testing.T, user, key string) []*models.Role {
+	t.Helper()
+	userType := models.UserTypesOidc
+	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
 func GetInfoForOwnUser(t *testing.T, key string) *models.UserOwnInfo {
 	resp, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)

@@ -90,6 +90,7 @@ func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers
 	api.AuthzRevokeRoleFromUserHandler = authz.RevokeRoleFromUserHandlerFunc(h.revokeRoleFromUser)
 	api.AuthzAssignRoleToGroupHandler = authz.AssignRoleToGroupHandlerFunc(h.assignRoleToGroup)
 	api.AuthzRevokeRoleFromGroupHandler = authz.RevokeRoleFromGroupHandlerFunc(h.revokeRoleFromGroup)
+	api.AuthzGetRolesForUserDeprecatedHandler = authz.GetRolesForUserDeprecatedHandlerFunc(h.getRolesForUserDeprecated)
 }
 
 func (h *authZHandlers) authorizeRoleScopes(principal *models.Principal, originalVerb string, policies []authorization.Policy, roleName string) error {
@@ -517,6 +518,80 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 	}).Info("roles assigned to group")
 
 	return authz.NewAssignRoleToGroupOK()
+}
+
+// Delete this when 1.29 is not supported anymore
+func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDeprecatedParams, principal *models.Principal) middleware.Responder {
+	ownUser := params.ID == principal.Username
+
+	if !ownUser {
+		if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.ID)...); err != nil {
+			return authz.NewGetRolesForUserDeprecatedForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+	}
+
+	exists, err := h.userExists(params.ID)
+	if err != nil {
+		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user existence: %w", err)))
+	}
+	if !exists {
+		return authz.NewGetRolesForUserDeprecatedNotFound()
+	}
+
+	existingRolesDB, err := h.controller.GetRolesForUser(params.ID, models.UserTypesDb)
+	if err != nil {
+		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
+	}
+	existingRolesOIDC, err := h.controller.GetRolesForUser(params.ID, models.UserTypesOidc)
+	if err != nil {
+		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
+	}
+
+	var response []*models.Role
+	foundRoles := map[string]struct{}{}
+	var authErr error
+	for _, existing := range []map[string][]authorization.Policy{existingRolesDB, existingRolesOIDC} {
+		for roleName, policies := range existing {
+			perms, err := conv.PoliciesToPermission(policies...)
+			if err != nil {
+				return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %w", err)))
+			}
+
+			if !ownUser {
+				if err := h.authorizeRoleScopes(principal, authorization.READ, nil, roleName); err != nil {
+					authErr = err
+					continue
+				}
+			}
+
+			// no duplicates
+			if _, ok := foundRoles[roleName]; ok {
+				continue
+			}
+
+			foundRoles[roleName] = struct{}{}
+
+			response = append(response, &models.Role{
+				Name:        &roleName,
+				Permissions: perms,
+			})
+		}
+	}
+
+	if (len(existingRolesDB) != 0 || len(existingRolesOIDC) != 0) && len(response) == 0 {
+		return authz.NewGetRolesForUserDeprecatedForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(authErr))
+	}
+
+	sortByName(response)
+
+	h.logger.WithFields(logrus.Fields{
+		"action":                "get_roles_for_user",
+		"component":             authorization.ComponentName,
+		"user":                  principal.Username,
+		"user_to_get_roles_for": params.ID,
+	}).Info("roles requested")
+
+	return authz.NewGetRolesForUserDeprecatedOK().WithPayload(response)
 }
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
