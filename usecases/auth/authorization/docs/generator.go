@@ -139,7 +139,6 @@ func main() {
 		})
 		return nil
 	})
-
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error walking directory: %v\n", err)
 		os.Exit(1)

@@ -146,7 +146,7 @@ func (s *Shard) findDocIDs(ctx context.Context, filters *filters.LocalFilter) ([
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		nil, s.index.classSearcher, s.index.stopwords, s.versioner.version, s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
+		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName, nil) // FIXME? usertokens
 	if err != nil {
 		return nil, err
 	}

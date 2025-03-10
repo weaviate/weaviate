@@ -62,7 +62,7 @@ var file_v1_weaviate_proto_rawDesc = []byte{
 	0x74, 0x6f, 0x33,
 }
 
-var file_v1_weaviate_proto_goTypes = []interface{}{
+var file_v1_weaviate_proto_goTypes = []any{
 	(*SearchRequest)(nil),       // 0: weaviate.v1.SearchRequest
 	(*BatchObjectsRequest)(nil), // 1: weaviate.v1.BatchObjectsRequest
 	(*BatchDeleteRequest)(nil),  // 2: weaviate.v1.BatchDeleteRequest
