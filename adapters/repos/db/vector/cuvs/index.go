@@ -66,7 +66,7 @@ type cuvs_index struct {
 	distanceMetric      cuvs.Distance
 	trackDimensionsOnce sync.Once
 
-	isConvertedToHnsw atomic.Bool
+	isConvertedToHnsw bool
 
 	metadata *bolt.DB
 	rootPath string
@@ -129,6 +129,10 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
+	if uc.IndexLocation != "gpu" {
+		return nil, errors.Errorf("cuvs index must be initially on gpu")
+	}
+
 	logger := cfg.Logger
 	if logger == nil {
 		l := logrus.New()
@@ -167,6 +171,8 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		distanceMetric: cuvs.DistanceL2,
 		store:          store,
 		rootPath:       cfg.RootPath,
+
+		isConvertedToHnsw: false,
 
 		idCuvsIdMap:    *NewBiMap(),
 		cuvsPoolMemory: cfg.CuvsPoolMemory,
@@ -268,11 +274,9 @@ func (index *cuvs_index) ConvertToHnsw() error {
 	index.Lock()
 	defer index.Unlock()
 
-	if index.isConvertedToHnsw.Load() {
+	if index.isConvertedToHnsw {
 		return nil
 	}
-
-	println("converting to hnsw")
 
 	hnswIndexParams, err := hnsw.CreateIndexParams()
 	if err != nil {
@@ -291,13 +295,13 @@ func (index *cuvs_index) ConvertToHnsw() error {
 	index.hnswIndex = hnswIndex
 	index.hnswIndexParams = hnswIndexParams
 
-	index.isConvertedToHnsw.Store(true)
+	index.isConvertedToHnsw = true
 
 	return nil
 }
 
 func (index *cuvs_index) Add(ctx context.Context, id uint64, vector []float32) error {
-	if index.isConvertedToHnsw.Load() {
+	if index.isConvertedToHnsw {
 		return index.addWithHnsw(ctx, id, vector)
 	}
 	return index.AddBatch(ctx, []uint64{id}, [][]float32{vector})
@@ -324,7 +328,7 @@ func (index *cuvs_index) addWithHnsw(ctx context.Context, id uint64, vector []fl
 	binary.BigEndian.PutUint64(idBytes, id)
 	index.store.Bucket(index.getBucketName()).Put(idBytes, byteSliceFromFloat32Slice(vector, slice))
 
-	if !index.isConvertedToHnsw.Load() {
+	if !index.isConvertedToHnsw {
 		return errors.Errorf("cuvs index is not converted to hnsw")
 	}
 
@@ -683,7 +687,7 @@ func (index *cuvs_index) createAllowList() []uint32 {
 }
 
 func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	if index.isConvertedToHnsw.Load() {
+	if index.isConvertedToHnsw {
 		return index.searchByVectorWithHnsw(ctx, vector, k, allow)
 	}
 
@@ -834,11 +838,11 @@ func (index *cuvs_index) ConvertToCagra() error {
 	index.Lock()
 	defer index.Unlock()
 
-	if !index.isConvertedToHnsw.Load() {
+	if !index.isConvertedToHnsw {
 		return nil // Already using CAGRA
 	}
 
-	println("Converting back to CAGRA")
+	index.logger.Info("Converting back to CAGRA")
 
 	// Extract all vectors from storage
 	allVectors := [][]float32{}
@@ -896,7 +900,7 @@ func (index *cuvs_index) ConvertToCagra() error {
 	index.cuvsIndex = cuvsIndex
 
 	// Mark as not converted to HNSW
-	index.isConvertedToHnsw.Store(false)
+	index.isConvertedToHnsw = false
 
 	// Re-add all vectors to the CAGRA index
 	return AddWithRebuild(index, allIds, allVectors)
@@ -1116,6 +1120,40 @@ func (index *cuvs_index) maxLimit() int64 {
 }
 
 func (index *cuvs_index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
+	parsed, ok := updated.(cuvsEnt.UserConfig)
+
+	if !ok {
+		callback()
+		return errors.Errorf("config is not UserConfig, but %T", updated)
+	}
+
+	if index.isConvertedToHnsw && parsed.IndexLocation == "gpu" {
+		// convert to cagra
+		err := index.ConvertToCagra()
+		if err != nil {
+			return err
+		}
+
+	}
+
+	if !index.isConvertedToHnsw && parsed.IndexLocation == "cpu" {
+		err := index.ConvertToHnsw()
+		if err != nil {
+			return err
+		}
+	}
+
+	index.cuvsSearchParams.SetSearchWidth(uintptr(parsed.SearchWidth))
+	index.cuvsSearchParams.SetItopkSize(uintptr(parsed.ItopKSize))
+	if parsed.SearchAlgo == "single_cta" {
+		index.cuvsSearchParams.SetAlgo(cagra.SearchAlgoSingleCta)
+	} else if parsed.SearchAlgo == "multi_cta" {
+		index.cuvsSearchParams.SetAlgo(cagra.SearchAlgoMultiCta)
+	}
+
+	index.logger.Infof("cuvs index config updated: %v", parsed)
+
+	callback()
 	return nil
 }
 

@@ -29,6 +29,7 @@ type UserConfig struct {
 	SearchAlgo              string `json:"searchAlgo"`
 	ItopKSize               int    `json:"itopKSize"`
 	SearchWidth             int    `json:"searchWidth"`
+	IndexLocation           string `json:"indexLocation"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -50,9 +51,11 @@ func (u *UserConfig) SetDefaults() {
 	u.GraphDegree = 32
 	u.IntermediateGraphDegree = 32
 	u.BuildAlgo = "nn_descent"
+	// updateable
 	u.SearchAlgo = "multi_cta"
 	u.ItopKSize = 256
 	u.SearchWidth = 1
+	u.IndexLocation = "gpu"
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -106,6 +109,11 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 		return uc, err
 	}
 
+	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "indexLocation", func(v string) {
+		uc.IndexLocation = v
+	}); err != nil {
+		return uc, err
+	}
 	return uc, uc.validate()
 }
 
@@ -122,6 +130,13 @@ func (u *UserConfig) validate() error {
 		errMsgs = append(errMsgs, fmt.Sprintf(
 			"searchAlgo must be one of 'multi_cta' or 'single_cta', but %s was given",
 			u.SearchAlgo,
+		))
+	}
+
+	if u.IndexLocation != "gpu" && u.IndexLocation != "cpu" {
+		errMsgs = append(errMsgs, fmt.Sprintf(
+			"indexLocation must be one of 'gpu' or 'cpu', but %s was given",
+			u.IndexLocation,
 		))
 	}
 
