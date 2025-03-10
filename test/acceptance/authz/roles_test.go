@@ -264,7 +264,6 @@ func TestAuthzRolesJourney(t *testing.T) {
 
 	t.Run("get users for role after assignment", func(t *testing.T) {
 		roles := helper.GetUserForRoles(t, testRoleName, adminKey)
-		require.Nil(t, err)
 		require.Equal(t, 1, len(roles))
 		require.Equal(t, adminUser, roles[0])
 	})
