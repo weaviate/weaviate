@@ -144,7 +144,7 @@ func (h *Handler) validatePropModuleConfig(class *models.Class, props ...*models
 			}
 
 			if _, ok := configuredVectorizers[vectorizer]; !ok {
-				return fmt.Errorf("vectorizer %q not configured for any of the vectors", vectorizer)
+				return fmt.Errorf("vectorizer %q not configured for any of target vectors", vectorizer)
 			}
 
 			if _, ok := cfg.(map[string]interface{}); !ok {

@@ -176,7 +176,7 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 			require.Error(t, err)
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, "not configured for any of the vectors")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.Error(t, err)
@@ -210,7 +210,7 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 			require.Error(t, err)
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, "not configured for any of the vectors")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.Error(t, err)
@@ -285,7 +285,7 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 			err = client.Schema().PropertyCreator().WithClassName(className).WithProperty(property).Do(ctx)
 			require.Error(t, err)
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, "not configured for any of the vectors")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.NoError(t, err)
@@ -328,7 +328,7 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 			err = client.Schema().PropertyCreator().WithClassName(className).WithProperty(property).Do(ctx)
 			require.Error(t, err)
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, "not configured for any of the vectors")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.NoError(t, err)
