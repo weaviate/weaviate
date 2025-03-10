@@ -33,6 +33,7 @@ GetUsersForRoleDeprecatedOK Users assigned to this role
 swagger:response getUsersForRoleDeprecatedOK
 */
 type GetUsersForRoleDeprecatedOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type GetUsersForRoleDeprecatedOK struct {
 
 // NewGetUsersForRoleDeprecatedOK creates GetUsersForRoleDeprecatedOK with default headers values
 func NewGetUsersForRoleDeprecatedOK() *GetUsersForRoleDeprecatedOK {
+
 	return &GetUsersForRoleDeprecatedOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *GetUsersForRoleDeprecatedOK) SetPayload(payload []string) {
 
 // WriteResponse to the client
 func (o *GetUsersForRoleDeprecatedOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -78,6 +81,7 @@ GetUsersForRoleDeprecatedBadRequest Bad request
 swagger:response getUsersForRoleDeprecatedBadRequest
 */
 type GetUsersForRoleDeprecatedBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -86,6 +90,7 @@ type GetUsersForRoleDeprecatedBadRequest struct {
 
 // NewGetUsersForRoleDeprecatedBadRequest creates GetUsersForRoleDeprecatedBadRequest with default headers values
 func NewGetUsersForRoleDeprecatedBadRequest() *GetUsersForRoleDeprecatedBadRequest {
+
 	return &GetUsersForRoleDeprecatedBadRequest{}
 }
 
@@ -102,6 +107,7 @@ func (o *GetUsersForRoleDeprecatedBadRequest) SetPayload(payload *models.ErrorRe
 
 // WriteResponse to the client
 func (o *GetUsersForRoleDeprecatedBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -119,16 +125,19 @@ GetUsersForRoleDeprecatedUnauthorized Unauthorized or invalid credentials.
 
 swagger:response getUsersForRoleDeprecatedUnauthorized
 */
-type GetUsersForRoleDeprecatedUnauthorized struct{}
+type GetUsersForRoleDeprecatedUnauthorized struct {
+}
 
 // NewGetUsersForRoleDeprecatedUnauthorized creates GetUsersForRoleDeprecatedUnauthorized with default headers values
 func NewGetUsersForRoleDeprecatedUnauthorized() *GetUsersForRoleDeprecatedUnauthorized {
+
 	return &GetUsersForRoleDeprecatedUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GetUsersForRoleDeprecatedUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -142,6 +151,7 @@ GetUsersForRoleDeprecatedForbidden Forbidden
 swagger:response getUsersForRoleDeprecatedForbidden
 */
 type GetUsersForRoleDeprecatedForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -150,6 +160,7 @@ type GetUsersForRoleDeprecatedForbidden struct {
 
 // NewGetUsersForRoleDeprecatedForbidden creates GetUsersForRoleDeprecatedForbidden with default headers values
 func NewGetUsersForRoleDeprecatedForbidden() *GetUsersForRoleDeprecatedForbidden {
+
 	return &GetUsersForRoleDeprecatedForbidden{}
 }
 
@@ -166,6 +177,7 @@ func (o *GetUsersForRoleDeprecatedForbidden) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *GetUsersForRoleDeprecatedForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -183,16 +195,19 @@ GetUsersForRoleDeprecatedNotFound no role found
 
 swagger:response getUsersForRoleDeprecatedNotFound
 */
-type GetUsersForRoleDeprecatedNotFound struct{}
+type GetUsersForRoleDeprecatedNotFound struct {
+}
 
 // NewGetUsersForRoleDeprecatedNotFound creates GetUsersForRoleDeprecatedNotFound with default headers values
 func NewGetUsersForRoleDeprecatedNotFound() *GetUsersForRoleDeprecatedNotFound {
+
 	return &GetUsersForRoleDeprecatedNotFound{}
 }
 
 // WriteResponse to the client
 func (o *GetUsersForRoleDeprecatedNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -206,6 +221,7 @@ GetUsersForRoleDeprecatedInternalServerError An error has occurred while trying 
 swagger:response getUsersForRoleDeprecatedInternalServerError
 */
 type GetUsersForRoleDeprecatedInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -214,6 +230,7 @@ type GetUsersForRoleDeprecatedInternalServerError struct {
 
 // NewGetUsersForRoleDeprecatedInternalServerError creates GetUsersForRoleDeprecatedInternalServerError with default headers values
 func NewGetUsersForRoleDeprecatedInternalServerError() *GetUsersForRoleDeprecatedInternalServerError {
+
 	return &GetUsersForRoleDeprecatedInternalServerError{}
 }
 
@@ -230,6 +247,7 @@ func (o *GetUsersForRoleDeprecatedInternalServerError) SetPayload(payload *model
 
 // WriteResponse to the client
 func (o *GetUsersForRoleDeprecatedInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

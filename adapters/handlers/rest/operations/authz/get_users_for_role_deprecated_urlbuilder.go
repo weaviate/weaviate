@@ -51,7 +51,7 @@ func (o *GetUsersForRoleDeprecatedURL) SetBasePath(bp string) {
 func (o *GetUsersForRoleDeprecatedURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/authz/roles/{id}/users"
+	var _path = "/authz/roles/{id}/users"
 
 	id := o.ID
 	if id != "" {

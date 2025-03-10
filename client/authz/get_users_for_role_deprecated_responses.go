@@ -132,6 +132,7 @@ func (o *GetUsersForRoleDeprecatedOK) GetPayload() []string {
 }
 
 func (o *GetUsersForRoleDeprecatedOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -197,6 +198,7 @@ func (o *GetUsersForRoleDeprecatedBadRequest) GetPayload() *models.ErrorResponse
 }
 
 func (o *GetUsersForRoleDeprecatedBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -217,7 +219,8 @@ GetUsersForRoleDeprecatedUnauthorized describes a response with status code 401,
 
 Unauthorized or invalid credentials.
 */
-type GetUsersForRoleDeprecatedUnauthorized struct{}
+type GetUsersForRoleDeprecatedUnauthorized struct {
+}
 
 // IsSuccess returns true when this get users for role deprecated unauthorized response has a 2xx status code
 func (o *GetUsersForRoleDeprecatedUnauthorized) IsSuccess() bool {
@@ -258,6 +261,7 @@ func (o *GetUsersForRoleDeprecatedUnauthorized) String() string {
 }
 
 func (o *GetUsersForRoleDeprecatedUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -318,6 +322,7 @@ func (o *GetUsersForRoleDeprecatedForbidden) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetUsersForRoleDeprecatedForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -338,7 +343,8 @@ GetUsersForRoleDeprecatedNotFound describes a response with status code 404, wit
 
 no role found
 */
-type GetUsersForRoleDeprecatedNotFound struct{}
+type GetUsersForRoleDeprecatedNotFound struct {
+}
 
 // IsSuccess returns true when this get users for role deprecated not found response has a 2xx status code
 func (o *GetUsersForRoleDeprecatedNotFound) IsSuccess() bool {
@@ -379,6 +385,7 @@ func (o *GetUsersForRoleDeprecatedNotFound) String() string {
 }
 
 func (o *GetUsersForRoleDeprecatedNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -439,6 +446,7 @@ func (o *GetUsersForRoleDeprecatedInternalServerError) GetPayload() *models.Erro
 }
 
 func (o *GetUsersForRoleDeprecatedInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

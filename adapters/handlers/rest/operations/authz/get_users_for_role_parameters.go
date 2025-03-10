@@ -29,6 +29,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewGetUsersForRoleParams() GetUsersForRoleParams {
+
 	return GetUsersForRoleParams{}
 }
 
@@ -37,6 +38,7 @@ func NewGetUsersForRoleParams() GetUsersForRoleParams {
 //
 // swagger:parameters getUsersForRole
 type GetUsersForRoleParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -110,6 +112,7 @@ func (o *GetUsersForRoleParams) bindUserType(rawData []string, hasKey bool, form
 
 // validateUserType carries on validations for parameter UserType
 func (o *GetUsersForRoleParams) validateUserType(formats strfmt.Registry) error {
+
 	if err := validate.EnumCase("userType", "path", o.UserType, []interface{}{"oidc", "db"}, true); err != nil {
 		return err
 	}

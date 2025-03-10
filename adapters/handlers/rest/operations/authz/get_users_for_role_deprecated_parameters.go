@@ -28,6 +28,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewGetUsersForRoleDeprecatedParams() GetUsersForRoleDeprecatedParams {
+
 	return GetUsersForRoleDeprecatedParams{}
 }
 
@@ -36,6 +37,7 @@ func NewGetUsersForRoleDeprecatedParams() GetUsersForRoleDeprecatedParams {
 //
 // swagger:parameters getUsersForRoleDeprecated
 type GetUsersForRoleDeprecatedParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
