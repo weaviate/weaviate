@@ -37,6 +37,7 @@ var schemaTests = []struct {
 	{name: "CantAddSameClassTwice", fn: testCantAddSameClassTwice},
 	{name: "CantAddSameClassTwiceDifferentKind", fn: testCantAddSameClassTwiceDifferentKinds},
 	{name: "AddPropertyDuringCreation", fn: testAddPropertyDuringCreation},
+	{name: "AddPropertyWithTargetVectorConfig", fn: testAddPropertyWithTargetVectorConfig},
 	{name: "AddInvalidPropertyDuringCreation", fn: testAddInvalidPropertyDuringCreation},
 	{name: "AddInvalidPropertyWithEmptyDataTypeDuringCreation", fn: testAddInvalidPropertyWithEmptyDataTypeDuringCreation},
 	{name: "DropProperty", fn: testDropProperty},
@@ -224,9 +225,6 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fak
 	assert.NotNil(t, err)
 }
 
-// TODO: parts of this test contain text2vec-contextionary logic, but parts are
-// also general logic
-
 func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
@@ -238,11 +236,6 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 			Name:         "color",
 			DataType:     schema.DataTypeText.PropString(),
 			Tokenization: models.PropertyTokenizationWhitespace,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizePropertyName": true,
-				},
-			},
 		},
 		{
 			Name:            "colorRaw1",
@@ -250,11 +243,6 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 			Tokenization:    models.PropertyTokenizationWhitespace,
 			IndexFilterable: &vFalse,
 			IndexSearchable: &vFalse,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"skip": true,
-				},
-			},
 		},
 		{
 			Name:            "colorRaw2",
@@ -262,11 +250,6 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 			Tokenization:    models.PropertyTokenizationWhitespace,
 			IndexFilterable: &vTrue,
 			IndexSearchable: &vFalse,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"skip": true,
-				},
-			},
 		},
 		{
 			Name:            "colorRaw3",
@@ -274,11 +257,6 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 			Tokenization:    models.PropertyTokenizationWhitespace,
 			IndexFilterable: &vFalse,
 			IndexSearchable: &vTrue,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"skip": true,
-				},
-			},
 		},
 		{
 			Name:            "colorRaw4",
@@ -286,21 +264,11 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 			Tokenization:    models.PropertyTokenizationWhitespace,
 			IndexFilterable: &vTrue,
 			IndexSearchable: &vTrue,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"skip": true,
-				},
-			},
 		},
 		{
 			Name:         "content",
 			DataType:     schema.DataTypeText.PropString(),
 			Tokenization: models.PropertyTokenizationWhitespace,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizePropertyName": false,
-				},
-			},
 		},
 		{
 			Name:         "allDefault",
@@ -317,6 +285,36 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
+}
+
+func testAddPropertyWithTargetVectorConfig(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
+	t.Parallel()
+
+	class := &models.Class{
+		Class: "Car",
+		Properties: []*models.Property{
+			{
+				Name:         "color",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": true,
+					},
+				},
+			},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			"vec1": {
+				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+				VectorIndexType: "flat",
+			},
+		},
+	}
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+	_, _, err := handler.AddClass(context.Background(), nil, class)
+	require.NoError(t, err)
 }
 
 func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
