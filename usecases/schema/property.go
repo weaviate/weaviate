@@ -113,34 +113,29 @@ func (h *Handler) setNewPropDefaults(class *models.Class, props ...*models.Prope
 }
 
 func (h *Handler) validatePropModuleConfig(class *models.Class, props ...*models.Property) error {
+	configuredVectorizers := map[string]struct{}{}
+	if class.Vectorizer != "" {
+		configuredVectorizers[class.Vectorizer] = struct{}{}
+	}
+
+	for targetVector, cfg := range class.VectorConfig {
+		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
+			for vectorizer := range vm {
+				configuredVectorizers[vectorizer] = struct{}{}
+			}
+		} else if len(vm) > 1 {
+			return fmt.Errorf("vector index %q has multiple vectorizers", targetVector)
+		}
+	}
+
 	for _, prop := range props {
 		if prop.ModuleConfig == nil {
 			continue
 		}
+
 		modconfig, ok := prop.ModuleConfig.(map[string]interface{})
 		if !ok {
 			return fmt.Errorf("%v property config invalid", prop.Name)
-		}
-
-		configuredVectorizers := map[string]struct{}{}
-		if class.Vectorizer != "" {
-			if _, ok = modconfig[class.Vectorizer]; !ok {
-				if class.Vectorizer != "none" {
-					return fmt.Errorf("%v vectorizer module not part of the property", class.Vectorizer)
-				}
-			}
-
-			configuredVectorizers[class.Vectorizer] = struct{}{}
-		}
-
-		for targetVector, cfg := range class.VectorConfig {
-			if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
-				for vectorizer := range vm {
-					configuredVectorizers[vectorizer] = struct{}{}
-				}
-			} else if len(vm) > 1 {
-				return fmt.Errorf("vector index %q has multiple vectorizers", targetVector)
-			}
 		}
 
 		for vectorizer, cfg := range modconfig {
@@ -149,7 +144,7 @@ func (h *Handler) validatePropModuleConfig(class *models.Class, props ...*models
 			}
 
 			if _, ok := configuredVectorizers[vectorizer]; !ok {
-				return fmt.Errorf("vectorizer %q not configured for any of vectors", vectorizer)
+				return fmt.Errorf("vectorizer %q not configured for any of the vectors", vectorizer)
 			}
 
 			if _, ok := cfg.(map[string]interface{}); !ok {

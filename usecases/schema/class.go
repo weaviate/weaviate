@@ -320,6 +320,8 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 
 func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
 	// set only when no target vectors configured
+
+	// TODO: this is not right
 	if !hasTargetVectors(class) {
 		if class.Vectorizer == "" {
 			class.Vectorizer = h.config.DefaultVectorizerModule
