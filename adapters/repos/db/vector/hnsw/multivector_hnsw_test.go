@@ -283,11 +283,10 @@ func TestMultiVectorBQHnsw(t *testing.T) {
 			Multivector: ent.MultivectorConfig{
 				Enabled: true,
 			},
+			BQ: ent.BQConfig{
+				Enabled: true,
+			},
 		}
-		cfgBQ := ent.BQConfig{
-			Enabled: true,
-		}
-		uc.BQ = cfgBQ
 		err = vectorIndex.compress(uc)
 		require.Nil(t, err)
 	})
