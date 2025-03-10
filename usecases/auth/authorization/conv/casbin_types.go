@@ -24,12 +24,10 @@ import (
 const (
 	// https://casbin.org/docs/rbac/#how-to-distinguish-role-from-user
 	// ROLE_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	ROLE_NAME_PREFIX = "role" + NAME_PREFIX
-	// USER_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	USER_NAME_PREFIX = "user" + NAME_PREFIX
+	ROLE_NAME_PREFIX = "role" + PREFIX_SEPARATOR
 	// GROUP_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	GROUP_NAME_PREFIX = "group" + NAME_PREFIX
-	NAME_PREFIX       = ":"
+	GROUP_NAME_PREFIX = "group" + PREFIX_SEPARATOR
+	PREFIX_SEPARATOR  = ":"
 
 	// CRUD allow all actions on a resource
 	// this is internal for casbin to handle admin actions
@@ -423,13 +421,6 @@ func PrefixRoleName(name string) string {
 	return fmt.Sprintf("%s%s", ROLE_NAME_PREFIX, name)
 }
 
-func PrefixUserName(name string) string {
-	if strings.HasPrefix(name, USER_NAME_PREFIX) {
-		return name
-	}
-	return fmt.Sprintf("%s%s", USER_NAME_PREFIX, name)
-}
-
 func PrefixGroupName(name string) string {
 	if strings.HasPrefix(name, GROUP_NAME_PREFIX) {
 		return name
@@ -438,13 +429,22 @@ func PrefixGroupName(name string) string {
 }
 
 func NameHasPrefix(name string) bool {
-	return strings.Contains(name, NAME_PREFIX)
+	return strings.Contains(name, PREFIX_SEPARATOR)
+}
+
+func UserNameWithTypeFromPrincipal(principal *models.Principal) string {
+	return fmt.Sprintf("%s:%s", principal.UserType, principal.Username)
+}
+
+func UserNameWithTypeFromId(username string, userType models.UserType) string {
+	return fmt.Sprintf("%s:%s", userType, username)
 }
 
 func TrimRoleNamePrefix(name string) string {
 	return strings.TrimPrefix(name, ROLE_NAME_PREFIX)
 }
 
-func TrimUserNamePrefix(name string) string {
-	return strings.TrimPrefix(name, USER_NAME_PREFIX)
+func GetUserAndPrefix(name string) (string, string) {
+	splits := strings.Split(name, PREFIX_SEPARATOR)
+	return splits[1], splits[0]
 }

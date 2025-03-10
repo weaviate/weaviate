@@ -89,11 +89,7 @@ func TestAuthzClassification(t *testing.T) {
 			},
 		}), helper.CreateAuth(adminKey))
 		require.NoError(t, err)
-		_, err = helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{postRole}}),
-			helper.CreateAuth(adminKey),
-		)
-		require.NoError(t, err)
+		helper.AssignRoleToUser(t, adminKey, postRole, customUser)
 	})
 
 	t.Run("fail to start a classification without read_data:Article", func(t *testing.T) {
@@ -213,11 +209,7 @@ func TestAuthzClassification(t *testing.T) {
 			helper.CreateAuth(adminKey),
 		)
 		require.NoError(t, err)
-		_, err = helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{getRole}}),
-			helper.CreateAuth(adminKey),
-		)
-		require.NoError(t, err)
+		helper.AssignRoleToUser(t, adminKey, getRole, customUser)
 	})
 
 	t.Run("get a classification with the correct permissions", func(t *testing.T) {

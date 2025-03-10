@@ -15,6 +15,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
@@ -32,9 +34,10 @@ func TestDeleteSuccess(t *testing.T) {
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
-	dynUser.On("GetRolesForUser", "user").Return(map[string][]authorization.Policy{"role": {}}, nil)
-	dynUser.On("RevokeRolesForUser", conv.PrefixUserName("user"), "role").Return(nil)
+	dynUser.On("GetRolesForUser", "user", models.UserTypeDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
+	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", models.UserTypeDb), "role").Return(nil)
 	dynUser.On("DeleteUser", "user").Return(nil)
+	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,

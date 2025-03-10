@@ -294,3 +294,85 @@ func TestMigrationRemoveV1(t *testing.T) {
 		})
 	}
 }
+
+func TestMigrateRevokeRoles(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          *cmd.RevokeRolesForUserRequest
+		expectedOutput []*cmd.RevokeRolesForUserRequest
+	}{
+		{
+			name:           "current request",
+			input:          &cmd.RevokeRolesForUserRequest{Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1},
+			expectedOutput: []*cmd.RevokeRolesForUserRequest{{Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1}},
+		},
+		{
+			name: "Request to update",
+			input: &cmd.RevokeRolesForUserRequest{
+				Version: cmd.RBACAssignRevokeCommandPolicyVersionV0,
+				Roles:   []string{"something"},
+				User:    "user:some-user",
+			},
+			expectedOutput: []*cmd.RevokeRolesForUserRequest{
+				{
+					Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1,
+					Roles:   []string{"something"},
+					User:    "db:some-user",
+				},
+				{
+					Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1,
+					Roles:   []string{"something"},
+					User:    "oidc:some-user",
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := migrateRevokeRoles(test.input)
+			require.Equal(t, test.expectedOutput, output)
+		})
+	}
+}
+
+func TestMigrateAssignRoles(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          *cmd.AddRolesForUsersRequest
+		expectedOutput []*cmd.AddRolesForUsersRequest
+	}{
+		{
+			name:           "current request",
+			input:          &cmd.AddRolesForUsersRequest{Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1},
+			expectedOutput: []*cmd.AddRolesForUsersRequest{{Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1}},
+		},
+		{
+			name: "Request to update",
+			input: &cmd.AddRolesForUsersRequest{
+				Version: cmd.RBACAssignRevokeCommandPolicyVersionV0,
+				Roles:   []string{"something"},
+				User:    "user:some-user",
+			},
+			expectedOutput: []*cmd.AddRolesForUsersRequest{
+				{
+					Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1,
+					Roles:   []string{"something"},
+					User:    "db:some-user",
+				},
+				{
+					Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1,
+					Roles:   []string{"something"},
+					User:    "oidc:some-user",
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := migrateAssignRoles(test.input)
+			require.Equal(t, test.expectedOutput, output)
+		})
+	}
+}

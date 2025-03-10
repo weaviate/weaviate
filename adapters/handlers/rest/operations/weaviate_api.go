@@ -147,11 +147,17 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzGetRolesForUserHandler: authz.GetRolesForUserHandlerFunc(func(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRolesForUser has not yet been implemented")
 		}),
+		AuthzGetRolesForUserDeprecatedHandler: authz.GetRolesForUserDeprecatedHandlerFunc(func(params authz.GetRolesForUserDeprecatedParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetRolesForUserDeprecated has not yet been implemented")
+		}),
 		UsersGetUserInfoHandler: users.GetUserInfoHandlerFunc(func(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetUserInfo has not yet been implemented")
 		}),
 		AuthzGetUsersForRoleHandler: authz.GetUsersForRoleHandlerFunc(func(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetUsersForRole has not yet been implemented")
+		}),
+		AuthzGetUsersForRoleDeprecatedHandler: authz.GetUsersForRoleDeprecatedHandlerFunc(func(params authz.GetUsersForRoleDeprecatedParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetUsersForRoleDeprecated has not yet been implemented")
 		}),
 		GraphqlGraphqlBatchHandler: graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation graphql.GraphqlBatch has not yet been implemented")
@@ -410,10 +416,14 @@ type WeaviateAPI struct {
 	AuthzGetRolesHandler authz.GetRolesHandler
 	// AuthzGetRolesForUserHandler sets the operation handler for the get roles for user operation
 	AuthzGetRolesForUserHandler authz.GetRolesForUserHandler
+	// AuthzGetRolesForUserDeprecatedHandler sets the operation handler for the get roles for user deprecated operation
+	AuthzGetRolesForUserDeprecatedHandler authz.GetRolesForUserDeprecatedHandler
 	// UsersGetUserInfoHandler sets the operation handler for the get user info operation
 	UsersGetUserInfoHandler users.GetUserInfoHandler
 	// AuthzGetUsersForRoleHandler sets the operation handler for the get users for role operation
 	AuthzGetUsersForRoleHandler authz.GetUsersForRoleHandler
+	// AuthzGetUsersForRoleDeprecatedHandler sets the operation handler for the get users for role deprecated operation
+	AuthzGetUsersForRoleDeprecatedHandler authz.GetUsersForRoleDeprecatedHandler
 	// GraphqlGraphqlBatchHandler sets the operation handler for the graphql batch operation
 	GraphqlGraphqlBatchHandler graphql.GraphqlBatchHandler
 	// GraphqlGraphqlPostHandler sets the operation handler for the graphql post operation
@@ -668,11 +678,17 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzGetRolesForUserHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesForUserHandler")
 	}
+	if o.AuthzGetRolesForUserDeprecatedHandler == nil {
+		unregistered = append(unregistered, "authz.GetRolesForUserDeprecatedHandler")
+	}
 	if o.UsersGetUserInfoHandler == nil {
 		unregistered = append(unregistered, "users.GetUserInfoHandler")
 	}
 	if o.AuthzGetUsersForRoleHandler == nil {
 		unregistered = append(unregistered, "authz.GetUsersForRoleHandler")
+	}
+	if o.AuthzGetUsersForRoleDeprecatedHandler == nil {
+		unregistered = append(unregistered, "authz.GetUsersForRoleDeprecatedHandler")
 	}
 	if o.GraphqlGraphqlBatchHandler == nil {
 		unregistered = append(unregistered, "graphql.GraphqlBatchHandler")
@@ -1015,7 +1031,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/authz/users/{id}/roles"] = authz.NewGetRolesForUser(o.context, o.AuthzGetRolesForUserHandler)
+	o.handlers["GET"]["/authz/users/{id}/roles/{userType}"] = authz.NewGetRolesForUser(o.context, o.AuthzGetRolesForUserHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/users/{id}/roles"] = authz.NewGetRolesForUserDeprecated(o.context, o.AuthzGetRolesForUserDeprecatedHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1023,7 +1043,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/authz/roles/{id}/users"] = authz.NewGetUsersForRole(o.context, o.AuthzGetUsersForRoleHandler)
+	o.handlers["GET"]["/authz/roles/{id}/users/{userType}"] = authz.NewGetUsersForRole(o.context, o.AuthzGetUsersForRoleHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/roles/{id}/users"] = authz.NewGetUsersForRoleDeprecated(o.context, o.AuthzGetUsersForRoleDeprecatedHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

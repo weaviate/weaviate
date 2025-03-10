@@ -212,6 +212,51 @@ func (o *GetRolesForUserNotFound) WriteResponse(rw http.ResponseWriter, producer
 	rw.WriteHeader(404)
 }
 
+// GetRolesForUserUnprocessableEntityCode is the HTTP code returned for type GetRolesForUserUnprocessableEntity
+const GetRolesForUserUnprocessableEntityCode int = 422
+
+/*
+GetRolesForUserUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+
+swagger:response getRolesForUserUnprocessableEntity
+*/
+type GetRolesForUserUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetRolesForUserUnprocessableEntity creates GetRolesForUserUnprocessableEntity with default headers values
+func NewGetRolesForUserUnprocessableEntity() *GetRolesForUserUnprocessableEntity {
+
+	return &GetRolesForUserUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the get roles for user unprocessable entity response
+func (o *GetRolesForUserUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *GetRolesForUserUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get roles for user unprocessable entity response
+func (o *GetRolesForUserUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetRolesForUserUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // GetRolesForUserInternalServerErrorCode is the HTTP code returned for type GetRolesForUserInternalServerError
 const GetRolesForUserInternalServerErrorCode int = 500
 

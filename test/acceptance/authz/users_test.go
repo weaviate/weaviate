@@ -52,7 +52,7 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	})
 
 	t.Run("get roles for non existing user", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("notExists"), helper.CreateAuth(adminKey))
+		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("notExists").WithUserType(string(models.UserTypeDb)), helper.CreateAuth(adminKey))
 		require.NotNil(t, err)
 		var targetErr *authz.GetRolesForUserNotFound
 		require.True(t, errors.As(err, &targetErr))
@@ -202,7 +202,7 @@ func TestUserPermissions(t *testing.T) {
 }
 
 func TestReadUserPermissions(t *testing.T) {
-	adminUser := "admin-user"
+	// adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
@@ -211,8 +211,10 @@ func TestReadUserPermissions(t *testing.T) {
 	secondUser := "viewer-user"
 	secondKey := "viewer-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey, secondUser: secondKey}, nil)
-	defer down()
+	//_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey, secondUser: secondKey}, nil)
+	//defer down()
+
+	helper.SetupClient("127.0.0.1:8081")
 
 	// create roles for later
 	readUserAction := authorization.ReadUsers
@@ -267,7 +269,7 @@ func TestReadUserPermissions(t *testing.T) {
 	})
 
 	t.Run("user cannot return roles for other user", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(secondUser), helper.CreateAuth(customKey))
+		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(secondUser).WithUserType(string(models.UserTypeDb)), helper.CreateAuth(customKey))
 		require.Error(t, err)
 		var errType *authz.GetRolesForUserForbidden
 		require.True(t, errors.As(err, &errType))

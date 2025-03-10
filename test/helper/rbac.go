@@ -12,6 +12,7 @@
 package helper
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -38,7 +39,35 @@ func GetRoles(t *testing.T, key string) []*models.Role {
 
 func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
 	t.Helper()
-	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user), CreateAuth(key))
+	userType := models.UserTypeDb
+	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
+func GetRolesForUserOIDC(t *testing.T, user, key string) []*models.Role {
+	t.Helper()
+	userType := models.UserTypeOidc
+	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
+func GetUserForRoles(t *testing.T, roleName, key string) []string {
+	t.Helper()
+	userType := models.UserTypeDb
+	resp, err := Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(roleName).WithUserType(string(userType)), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
+func GetUserForRolesOIDC(t *testing.T, roleName, key string) []string {
+	t.Helper()
+	userType := models.UserTypeOidc
+	resp, err := Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(roleName).WithUserType(string(userType)), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload
@@ -54,8 +83,13 @@ func GetInfoForOwnUser(t *testing.T, key string) *models.UserOwnInfo {
 func DeleteUser(t *testing.T, userId, key string) {
 	t.Helper()
 	resp, err := Client(t).Users.DeleteUser(users.NewDeleteUserParams().WithUserID(userId), CreateAuth(key))
-	AssertRequestOk(t, resp, err, nil)
-	require.Nil(t, err)
+	if err != nil {
+		var parsed *users.DeleteUserNotFound
+		require.True(t, errors.As(err, &parsed))
+	} else {
+		AssertRequestOk(t, resp, err, nil)
+		require.Nil(t, err)
+	}
 }
 
 func GetUser(t *testing.T, userId, key string) *models.UserInfo {
@@ -120,8 +154,20 @@ func GetRoleByName(t *testing.T, key, role string) *models.Role {
 
 func AssignRoleToUser(t *testing.T, key, role, user string) {
 	t.Helper()
+	userType := models.UserTypeDb
 	resp, err := Client(t).Authz.AssignRoleToUser(
-		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}}),
+		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, UserType: userType}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+func AssignRoleToUserOIDC(t *testing.T, key, role, user string) {
+	t.Helper()
+	userType := models.UserTypeOidc
+	resp, err := Client(t).Authz.AssignRoleToUser(
+		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, UserType: userType}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -129,8 +175,10 @@ func AssignRoleToUser(t *testing.T, key, role, user string) {
 }
 
 func RevokeRoleFromUser(t *testing.T, key, role, user string) {
+	userType := models.UserTypeDb
+
 	resp, err := Client(t).Authz.RevokeRoleFromUser(
-		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}}),
+		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, UserType: userType}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)

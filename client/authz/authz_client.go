@@ -57,7 +57,11 @@ type ClientService interface {
 
 	GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error)
 
+	GetRolesForUserDeprecated(params *GetRolesForUserDeprecatedParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserDeprecatedOK, error)
+
 	GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error)
+
+	GetUsersForRoleDeprecated(params *GetUsersForRoleDeprecatedParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleDeprecatedOK, error)
 
 	HasPermission(params *HasPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*HasPermissionOK, error)
 
@@ -354,7 +358,7 @@ func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime
 	op := &runtime.ClientOperation{
 		ID:                 "getRolesForUser",
 		Method:             "GET",
-		PathPattern:        "/authz/users/{id}/roles",
+		PathPattern:        "/authz/users/{id}/roles/{userType}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -383,6 +387,45 @@ func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime
 }
 
 /*
+GetRolesForUserDeprecated gets roles assigned to user d b o ID c deprecated will be removed when 1 29 is not supported anymore
+*/
+func (a *Client) GetRolesForUserDeprecated(params *GetRolesForUserDeprecatedParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserDeprecatedOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetRolesForUserDeprecatedParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getRolesForUserDeprecated",
+		Method:             "GET",
+		PathPattern:        "/authz/users/{id}/roles",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetRolesForUserDeprecatedReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetRolesForUserDeprecatedOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getRolesForUserDeprecated: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
 GetUsersForRole gets users or a keys assigned to role
 */
 func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error) {
@@ -393,7 +436,7 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 	op := &runtime.ClientOperation{
 		ID:                 "getUsersForRole",
 		Method:             "GET",
-		PathPattern:        "/authz/roles/{id}/users",
+		PathPattern:        "/authz/roles/{id}/users/{userType}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -418,6 +461,45 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for getUsersForRole: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetUsersForRoleDeprecated gets users db o ID c assigned to role deprecated will be removed when 1 29 is not supported anymore
+*/
+func (a *Client) GetUsersForRoleDeprecated(params *GetUsersForRoleDeprecatedParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleDeprecatedOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetUsersForRoleDeprecatedParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getUsersForRoleDeprecated",
+		Method:             "GET",
+		PathPattern:        "/authz/roles/{id}/users",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetUsersForRoleDeprecatedReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetUsersForRoleDeprecatedOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getUsersForRoleDeprecated: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -44,7 +44,7 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 
 	var roles []*models.Role
 	if h.rbacConfig.Enabled {
-		existingRoles, err := h.authzController.GetRolesForUser(principal.Username)
+		existingRoles, err := h.authzController.GetRolesForUser(principal.Username, principal.UserType)
 		if err != nil {
 			return users.NewGetOwnInfoInternalServerError()
 		}

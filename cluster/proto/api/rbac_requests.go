@@ -12,6 +12,7 @@
 package api
 
 import (
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -42,6 +43,11 @@ const (
 	RBACLatestCommandPolicyVersion
 )
 
+const (
+	RBACAssignRevokeCommandPolicyVersionV0 = iota
+	RBACAssignRevokeLatestCommandPolicyVersion
+)
+
 type CreateRolesRequest struct {
 	Roles   map[string][]authorization.Policy
 	Version int
@@ -58,13 +64,15 @@ type RemovePermissionsRequest struct {
 }
 
 type AddRolesForUsersRequest struct {
-	User  string
-	Roles []string
+	User    string
+	Roles   []string
+	Version int
 }
 
 type RevokeRolesForUserRequest struct {
-	User  string
-	Roles []string
+	User    string
+	Roles   []string
+	Version int
 }
 
 type QueryHasPermissionRequest struct {
@@ -85,7 +93,8 @@ type QueryGetRolesResponse struct {
 }
 
 type QueryGetRolesForUserRequest struct {
-	User string
+	User     string
+	UserType models.UserType
 }
 
 type QueryGetRolesForUserResponse struct {
@@ -93,7 +102,8 @@ type QueryGetRolesForUserResponse struct {
 }
 
 type QueryGetUsersForRoleRequest struct {
-	Role string
+	Role     string
+	UserType models.UserType
 }
 
 type QueryGetUsersForRoleResponse struct {
