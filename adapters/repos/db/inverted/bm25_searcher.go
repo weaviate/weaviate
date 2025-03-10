@@ -160,8 +160,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 
 	for _, tokenization := range helpers.Tokenizations {
 
-		queryTerms := make([]string, 0)
-		dupBoosts := make([]int, 0)
+		var queryTerms []string
+		var dupBoosts []int
 		if len(params.Tokens) > 0 {
 			queryTerms, dupBoosts = uniquifyAndCountDuplicates(params.Tokens)
 		} else {
