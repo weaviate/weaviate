@@ -2129,6 +2129,8 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
 
+	i.shardCreateLocks.Cleanup()
+
 	if i.closed {
 		return errAlreadyShutdown
 	}
