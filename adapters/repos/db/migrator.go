@@ -48,7 +48,7 @@ func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 	return &Migrator{
 		db:         db,
 		logger:     logger,
-		classLocks: esync.NewKeyLocker(),
+		classLocks: esync.NewKeyLocker(logger),
 	}
 }
 

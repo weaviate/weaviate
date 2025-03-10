@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -269,7 +270,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		stopwords:             sd,
 		indexCheckpoints:      checkpts,
 		allocChecker:          memwatch.NewDummyMonitor(),
-		shardCreateLocks:      esync.NewKeyLocker(),
+		shardCreateLocks:      esync.NewKeyLocker(logger),
 		shardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())

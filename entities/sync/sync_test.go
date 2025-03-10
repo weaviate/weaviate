@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,7 +31,7 @@ func mutexLocked(m *sync.Mutex) bool {
 
 func TestKeyLockerLockUnlock(t *testing.T) {
 	r := require.New(t)
-	s := NewKeyLocker()
+	s := NewKeyLocker(logrus.New())
 
 	s.Lock("t1")
 	value, ok := s.locks.Load("t1")
@@ -59,7 +60,7 @@ func TestKeyLockerLockUnlock(t *testing.T) {
 
 func TestKeyLockerSizeLimit(t *testing.T) {
 	r := require.New(t)
-	s := NewKeyLocker()
+	s := NewKeyLocker(logrus.New())
 	s.maxSize = 2 // Set small size for testing
 
 	// Add items up to size limit
@@ -80,7 +81,7 @@ func TestKeyLockerSizeLimit(t *testing.T) {
 
 func TestKeyLockerCleanup(t *testing.T) {
 	r := require.New(t)
-	s := NewKeyLocker()
+	s := NewKeyLocker(logrus.New())
 	s.maxAge = time.Millisecond * 100 // Set short maxAge for testing
 
 	// Add some locks
@@ -110,7 +111,7 @@ func TestKeyLockerCleanup(t *testing.T) {
 
 func TestKeyLockerLastUsedUpdate(t *testing.T) {
 	r := require.New(t)
-	s := NewKeyLocker()
+	s := NewKeyLocker(logrus.New())
 	s.maxAge = time.Millisecond * 200 // Set short maxAge for testing
 
 	// Add a lock
@@ -145,7 +146,7 @@ func TestKeyLockerLastUsedUpdate(t *testing.T) {
 
 func TestKeyLockerConcurrent(t *testing.T) {
 	r := require.New(t)
-	s := NewKeyLocker()
+	s := NewKeyLocker(logrus.New())
 	numGoroutines := 10
 	numIterations := 100
 
@@ -177,7 +178,7 @@ func TestKeyLockerConcurrent(t *testing.T) {
 
 func TestKeyLockerMaxSizeAndEviction(t *testing.T) {
 	r := require.New(t)
-	s := NewKeyLocker()
+	s := NewKeyLocker(logrus.New())
 	s.maxSize = 3
 
 	// Fill up to max size
@@ -211,7 +212,7 @@ func TestKeyLockerMaxSizeAndEviction(t *testing.T) {
 
 func TestKeyLockerLockedEntryNotEvicted(t *testing.T) {
 	r := require.New(t)
-	s := NewKeyLocker()
+	s := NewKeyLocker(logrus.New())
 	s.maxSize = 2
 
 	s.Lock("key1")
@@ -231,7 +232,7 @@ func TestKeyLockerLockedEntryNotEvicted(t *testing.T) {
 
 func TestKeyLockerMaxAgeExpiration(t *testing.T) {
 	r := require.New(t)
-	s := NewKeyLocker()
+	s := NewKeyLocker(logrus.New())
 	s.maxAge = 100 * time.Millisecond
 
 	// Add some keys
@@ -254,7 +255,7 @@ func TestKeyLockerMaxAgeExpiration(t *testing.T) {
 }
 
 func TestKeyLockerConcurrentLockUnlock(t *testing.T) {
-	s := NewKeyLocker()
+	s := NewKeyLocker(logrus.New())
 	const numGoroutines = 10
 	const numOperations = 100
 
@@ -283,7 +284,7 @@ func TestKeyLockerConcurrentLockUnlock(t *testing.T) {
 
 func TestKeyLockerPanicOnUnlockNonexistent(t *testing.T) {
 	r := require.New(t)
-	s := NewKeyLocker()
+	s := NewKeyLocker(logrus.New())
 
 	r.Panics(func() {
 		s.Unlock("nonexistent")
@@ -292,7 +293,7 @@ func TestKeyLockerPanicOnUnlockNonexistent(t *testing.T) {
 
 func TestKeyLockerCleanupLockedEntries(t *testing.T) {
 	r := require.New(t)
-	s := NewKeyLocker()
+	s := NewKeyLocker(logrus.New())
 	s.maxAge = 100 * time.Millisecond
 
 	// Lock a key and keep it locked

@@ -19,6 +19,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/sirupsen/logrus"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 type lockEntry struct {
@@ -41,6 +45,7 @@ type KeyLocker struct {
 	maxAge  time.Duration // maximum age of unused locks
 	count   atomic.Int32  // current count of locks
 	maxSize int32         // maximum number of locks
+	logger  logrus.FieldLogger
 }
 
 // NewKeyLocker creates a new KeyLocker with default settings.
@@ -51,12 +56,17 @@ type KeyLocker struct {
 //
 // The created KeyLocker automatically starts a background goroutine
 // for periodic cleanup of expired locks.
-func NewKeyLocker() *KeyLocker {
+func NewKeyLocker(logger logrus.FieldLogger) *KeyLocker {
 	kl := &KeyLocker{
 		maxSize: 1000,           // default max size
 		maxAge:  24 * time.Hour, // default max age
+		logger:  logger,
 	}
-	go kl.periodicCleanup(5 * time.Minute) // cleanup every 5 minutes
+
+	enterrors.GoWrapper(func() { // cleanup every 5 minutes
+		kl.periodicCleanup(5 * time.Minute)
+	}, kl.logger)
+
 	return kl
 }
 
