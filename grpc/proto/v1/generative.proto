@@ -111,7 +111,7 @@ message GenerativeOllama{
 message GenerativeOpenAI{
   optional double frequency_penalty = 1;
   optional int64 max_tokens = 2;
-  string model = 3;
+  optional string model = 3;
   optional int64 n = 4;
   optional double presence_penalty = 5;
   optional TextArray stop = 6;
