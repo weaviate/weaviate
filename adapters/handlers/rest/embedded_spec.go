@@ -5268,7 +5268,8 @@ func init() {
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"
+            "kagome_ja",
+            "gse_ch"
           ]
         }
       }
@@ -5855,7 +5856,8 @@ func init() {
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"
+            "kagome_ja",
+            "gse_ch"
           ]
         }
       }
@@ -12183,7 +12185,8 @@ func init() {
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"
+            "kagome_ja",
+            "gse_ch"
           ]
         }
       }
@@ -12897,7 +12900,8 @@ func init() {
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"
+            "kagome_ja",
+            "gse_ch"
           ]
         }
       }

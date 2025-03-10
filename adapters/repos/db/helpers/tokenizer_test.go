@@ -12,6 +12,7 @@
 package helpers
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,9 @@ import (
 func TestTokenise(t *testing.T) {
 	UseGse = true
 	init_gse()
+	err := os.Setenv("ENABLE_TOKENIZER_GSE_CH", "true")
+	assert.Nil(t, err)
+	init_gse_ch()
 	tokens := Tokenize(models.PropertyTokenizationTrigram, "Thequickbrownfoxjumpsoverthelazydog")
 	assert.Equal(t, []string{"the", "heq", "equ", "qui", "uic", "ick", "ckb", "kbr", "bro", "row", "own", "wnf", "nfo", "fox", "oxj", "xju", "jum", "ump", "mps", "pso", "sov", "ove", "ver", "ert", "rth", "the", "hel", "ela", "laz", "azy", "zyd", "ydo", "dog"}, tokens)
 
@@ -63,6 +67,9 @@ func TestTokenise(t *testing.T) {
 
 	tokens = Tokenize(models.PropertyTokenizationGse, "The quick brown fox jumps over the lazy dog")
 	assert.Equal(t, []string{"t", "h", "e", "q", "u", "i", "c", "k", "b", "r", "o", "w", "n", "f", "o", "x", "j", "u", "m", "p", "s", "o", "v", "e", "r", "t", "h", "e", "l", "a", "z", "y", "d", "o", "g", "the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationGseCh, "施氏食狮史石室诗士施氏，嗜狮，誓食十狮。氏时时适市视狮。十时，适十狮适市。是时，适施氏适市。氏视是十狮，恃矢势，使是十狮逝世。氏拾是十狮尸，适石室。石室湿，氏使侍拭石室。石室拭，氏始试食是十狮尸。食时，始识是十狮尸，实十石狮尸。试释是事。")
+	assert.Equal(t, []string{"施","氏","食","狮","史","石室","诗","士","施","氏","，","嗜","狮","，","誓","食","十","狮","。","氏","时时","适","市","视","狮","。","十时","，","适","十","狮","适","市","。","是","时","，","适","施","氏","适","市","。","氏","视","是","十","狮","，","恃","矢","势","，","使","是","十","狮","逝世","。","氏","拾","是","十","狮","尸","，","适","石室","。","石室","湿","，","氏","使","侍","拭","石室","。","石室","拭","，","氏","始","试","食","是","十","狮","尸","。","食","时","，","始","识","是","十","狮","尸","，","实","十","石狮","尸","。","试","释","是","事","。"}, tokens)
 
 	// Kagome tokenizer for Korean
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")

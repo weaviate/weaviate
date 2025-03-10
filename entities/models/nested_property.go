@@ -54,7 +54,7 @@ type NestedProperty struct {
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
 	// tokenization
-	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja]
+	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja gse_ch]
 	Tokenization string `json:"tokenization,omitempty"`
 }
 
@@ -106,7 +106,7 @@ var nestedPropertyTypeTokenizationPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["word","lowercase","whitespace","field","trigram","gse","kagome_kr","kagome_ja"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["word","lowercase","whitespace","field","trigram","gse","kagome_kr","kagome_ja","gse_ch"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -139,6 +139,9 @@ const (
 
 	// NestedPropertyTokenizationKagomeJa captures enum value "kagome_ja"
 	NestedPropertyTokenizationKagomeJa string = "kagome_ja"
+
+	// NestedPropertyTokenizationGseCh captures enum value "gse_ch"
+	NestedPropertyTokenizationGseCh string = "gse_ch"
 )
 
 // prop value enum
