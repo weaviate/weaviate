@@ -2052,7 +2052,7 @@ func Test_PutPatchRestart(t *testing.T) {
 			},
 		}
 		res, err := repo.ObjectSearch(ctx, 0, 10, findByIDFilter,
-			nil, additional.Properties{}, "")
+			nil, additional.Properties{}, "", emptyUserTokens)
 		require.Nil(t, err)
 		assert.Len(t, res, 1)
 
