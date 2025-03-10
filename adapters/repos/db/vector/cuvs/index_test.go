@@ -513,7 +513,7 @@ func TestHnswConversion(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify index is converted to HNSW
-	assert.True(t, index.isConvertedToHnsw.Load(), "Index should be marked as converted to HNSW")
+	assert.True(t, index.isConvertedToHnsw, "Index should be marked as converted to HNSW")
 	assert.NotNil(t, index.hnswIndex, "HNSW index should not be nil")
 	assert.NotNil(t, index.hnswIndexParams, "HNSW index params should not be nil")
 
@@ -601,7 +601,7 @@ func TestHnswConversion(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify index is converted back to CAGRA
-	assert.False(t, newIndex.isConvertedToHnsw.Load(), "Index should not be marked as converted to HNSW")
+	assert.False(t, newIndex.isConvertedToHnsw, "Index should not be marked as converted to HNSW")
 
 	// Test search after conversion back to CAGRA
 	t.Log("Testing recall after conversion back to CAGRA...")

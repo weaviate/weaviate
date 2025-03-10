@@ -687,12 +687,11 @@ func (index *cuvs_index) createAllowList() []uint32 {
 }
 
 func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	index.Lock()
+	defer index.Unlock()
 	if index.isConvertedToHnsw {
 		return index.searchByVectorWithHnsw(ctx, vector, k, allow)
 	}
-
-	index.Lock()
-	defer index.Unlock()
 
 	// If index is not built yet, perform linear search on holding vectors
 	if !index.isIndexBuilt {
@@ -711,6 +710,10 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 	if err != nil {
 		return nil, nil, err
 	}
+
+	defer queries.Close()
+	defer neighbors.Close()
+	defer distances.Close()
 
 	_, err = queries.ToDevice(index.cuvsResource)
 	if err != nil {
@@ -741,30 +744,12 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 	neighborsResultSlice := make([]uint64, k)
 
 	for i := range neighborsSlice[0] {
-		// neighborsResultSlice[i] = index.idCuvsIdMap[neighborsSlice[0][i]]
 		exists := false
-		// println("neighborsSlice[0][i]:", neighborsSlice[0][i])
-		// t_id, _ := index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i])
 
 		neighborsResultSlice[i], exists = index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i])
 		if !exists {
 			return nil, nil, errors.Errorf("idCuvsIdMap does not contain id %d", neighborsSlice[0][i])
 		}
-	}
-
-	err = distances.Close()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	err = neighbors.Close()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	err = queries.Close()
-	if err != nil {
-		return nil, nil, err
 	}
 
 	return neighborsResultSlice, distancesSlice[0], nil
@@ -773,10 +758,6 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 func (index *cuvs_index) searchByVectorWithHnsw(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	index.Lock()
 	defer index.Unlock()
-
-	// if !allow.() {
-	// 	return nil, nil, errors.Errorf("hnsw index does not support allow list")
-	// }
 
 	queries, err := cuvs.NewTensor([][]float32{vector})
 	if err != nil {
@@ -972,6 +953,10 @@ func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow he
 		return nil, nil, err
 	}
 
+	defer queries.Close()
+	defer neighbors.Close()
+	defer distances.Close()
+
 	_, err = queries.ToDevice(index.cuvsResource)
 	if err != nil {
 		return nil, nil, err
@@ -1006,22 +991,8 @@ func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow he
 	for j := range neighborsSlice {
 		neighborsResultSlice[j] = make([]uint64, k)
 		for i := range neighborsSlice[j] {
-			// neighborsResultSlice[j][i] = index.idCuvsIdMap[neighborsSlice[j][i]]
 			neighborsResultSlice[j][i], _ = index.idCuvsIdMap.GetWeaviateId(neighborsSlice[j][i])
 		}
-	}
-
-	err = distances.Close()
-	if err != nil {
-		return nil, nil, err
-	}
-	err = neighbors.Close()
-	if err != nil {
-		return nil, nil, err
-	}
-	err = queries.Close()
-	if err != nil {
-		return nil, nil, err
 	}
 
 	return neighborsResultSlice, distancesSlice, nil
