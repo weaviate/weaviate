@@ -569,6 +569,7 @@ jobs:
         env:
           AMD64_TEMP_TAG: ${{ needs.Push-Docker-Fast.outputs.amd64_temp_tag }}
           ARM64_TEMP_TAG: ${{ needs.Push-Docker-Fast.outputs.arm64_temp_tag }}
+          CLEANUP_TEMP_TAGS: "true"
       - name: Generate Report
         env:
           PREVIEW_TAG: "${{ needs.Push-Docker-Fast.outputs.preview_tag }}"
