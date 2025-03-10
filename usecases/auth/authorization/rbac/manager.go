@@ -209,7 +209,7 @@ func (m *manager) GetUsersForRole(roleName string) ([]string, error) {
 	}
 	users := make([]string, 0, len(pusers))
 	for idx := range pusers {
-		user := conv.TrimUserNamePrefix(pusers[idx])
+		user := conv.TrimPrefix(pusers[idx])
 		if user == conv.InternalPlaceHolder {
 			continue
 		}
