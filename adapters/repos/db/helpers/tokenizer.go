@@ -96,7 +96,6 @@ func Tokenize(tokenization string, in string) []string {
 	case models.PropertyTokenizationKagomeJa:
 		return tokenizeKagomeJa(in)
 	case models.PropertyTokenizationUser:
-		panic("no")
 		return nil
 	default:
 		return []string{}
