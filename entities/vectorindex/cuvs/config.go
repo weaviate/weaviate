@@ -30,6 +30,11 @@ type UserConfig struct {
 	ItopKSize               int    `json:"itopKSize"`
 	SearchWidth             int    `json:"searchWidth"`
 	IndexLocation           string `json:"indexLocation"`
+	FilterDeleteLimit       int    `json:"filterDeleteLimit"`
+	ExtendLimit             int    `json:"extendLimit"`
+	BatchEnabled            bool   `json:"batchEnabled"`
+	BatchSize               int    `json:"batchSize"`
+	BatchMaxWaitMs          int    `json:"batchMaxWaitMs"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -51,11 +56,17 @@ func (u *UserConfig) SetDefaults() {
 	u.GraphDegree = 32
 	u.IntermediateGraphDegree = 32
 	u.BuildAlgo = "nn_descent"
+	// why 20? https://weaviate-org.slack.com/archives/C05V3MGDGQY/p1722897390825229?thread_ts=1722894509.398509&cid=C05V3MGDGQY
+	u.FilterDeleteLimit = 30
+	u.ExtendLimit = 20
 	// updateable
 	u.SearchAlgo = "multi_cta"
 	u.ItopKSize = 256
 	u.SearchWidth = 1
 	u.IndexLocation = "gpu"
+	u.BatchEnabled = false
+	u.BatchSize = 100
+	u.BatchMaxWaitMs = 10
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -90,6 +101,17 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 	}); err != nil {
 		return uc, err
 	}
+	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "filterDeleteLimit", func(v int) {
+		uc.FilterDeleteLimit = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "extendLimit", func(v int) {
+		uc.ExtendLimit = v
+	}); err != nil {
+		return uc, err
+	}
 
 	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "searchAlgo", func(v string) {
 		uc.SearchAlgo = v
@@ -114,6 +136,25 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 	}); err != nil {
 		return uc, err
 	}
+
+	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "batchEnabled", func(v bool) {
+		uc.BatchEnabled = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "batchSize", func(v int) {
+		uc.BatchSize = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "batchMaxWaitMs", func(v int) {
+		uc.BatchMaxWaitMs = v
+	}); err != nil {
+		return uc, err
+	}
+
 	return uc, uc.validate()
 }
 
@@ -130,6 +171,20 @@ func (u *UserConfig) validate() error {
 		errMsgs = append(errMsgs, fmt.Sprintf(
 			"searchAlgo must be one of 'multi_cta' or 'single_cta', but %s was given",
 			u.SearchAlgo,
+		))
+	}
+
+	if u.ExtendLimit < 0 || u.ExtendLimit > 100 {
+		errMsgs = append(errMsgs, fmt.Sprintf(
+			"extendLimit must be between 0 and 100, but %d was given",
+			u.ExtendLimit,
+		))
+	}
+
+	if u.FilterDeleteLimit < 0 || u.FilterDeleteLimit > 100 {
+		errMsgs = append(errMsgs, fmt.Sprintf(
+			"filterDeleteLimit must be between 0 and 100, but %d was given",
+			u.FilterDeleteLimit,
 		))
 	}
 

@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	// "github.com/boltdb/bolt"
 	"github.com/pkg/errors"
@@ -74,17 +75,24 @@ type cuvs_index struct {
 	idCuvsIdMap    BiMap
 	cuvsPoolMemory int
 
-	cuvsExtendCount uint64
-	cuvsNumExtends  uint64
-	cuvsNumFiltered uint64
-	cuvsFilter      []uint32
-	maxFiltered     uint64
-	nextCuvsId      uint32
-	count           uint64
+	cuvsExtendCount   uint64
+	cuvsNumExtends    uint64
+	cuvsNumFiltered   uint64
+	cuvsFilter        []uint32
+	filterDeleteLimit uint64
+	extendLimit       uint64
+	nextCuvsId        uint32
+	count             uint64
 
 	holdingVectors [][]float32
 	holdingIds     []uint64
 	isIndexBuilt   bool
+
+	batchEnabled   bool
+	batchSize      int
+	batchMaxWaitMs int
+
+	searchBatcher *SearchBatcher
 }
 
 func CreateParams(uc cuvsEnt.UserConfig) (*cagra.IndexParams, *cagra.SearchParams, error) {
@@ -176,10 +184,18 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 
 		idCuvsIdMap:    *NewBiMap(),
 		cuvsPoolMemory: cfg.CuvsPoolMemory,
+
+		batchEnabled:   uc.BatchEnabled,
+		batchSize:      uc.BatchSize,
+		batchMaxWaitMs: uc.BatchMaxWaitMs,
 	}
 
-	index.maxFiltered = 30
+	index.filterDeleteLimit = 30
 	index.nextCuvsId = 0
+
+	if index.batchEnabled {
+		index.searchBatcher = NewSearchBatcher(index, index.batchSize, time.Duration(index.batchMaxWaitMs)*time.Millisecond)
+	}
 
 	if err := index.initBuckets(context.Background()); err != nil {
 		return nil, fmt.Errorf("init cuvs index buckets: %w", err)
@@ -260,12 +276,12 @@ func shouldExtend(index *cuvs_index, num_new uint64) bool {
 	percentNewVectors := (float32(num_new+index.cuvsExtendCount) / float32(index.count+num_new)) * 100
 
 	// why 20? https://weaviate-org.slack.com/archives/C05V3MGDGQY/p1722897390825229?thread_ts=1722894509.398509&cid=C05V3MGDGQY
-	if percentNewVectors > 20 {
+	if percentNewVectors > float32(index.extendLimit) {
 		println("percentNewVectors is greater than 20; rebuilding")
 		return false
 	}
 
-	println("extending")
+	index.logger.Info("extending index")
 
 	return true
 }
@@ -577,7 +593,9 @@ func (index *cuvs_index) Delete(ids ...uint64) error {
 }
 
 func (index *cuvs_index) shouldUseFilter(additionalElements uint64) bool {
-	if (index.cuvsNumFiltered + additionalElements) > index.maxFiltered {
+	percentFilteredOut := float32(index.cuvsNumFiltered+additionalElements) / float32(index.count+index.cuvsNumFiltered+additionalElements)
+
+	if percentFilteredOut > float32(index.filterDeleteLimit) {
 		return false
 	}
 	return true
@@ -687,6 +705,9 @@ func (index *cuvs_index) createAllowList() []uint32 {
 }
 
 func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	if index.batchEnabled && index.searchBatcher != nil {
+		return index.searchBatcher.SearchByVector(ctx, vector, k, allow)
+	}
 	index.Lock()
 	defer index.Unlock()
 	if index.isConvertedToHnsw {
