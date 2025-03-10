@@ -14,7 +14,6 @@ package inverted
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"

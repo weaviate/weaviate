@@ -539,7 +539,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{}, "")
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{}, "", emptyUserTokens)
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -556,7 +556,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things with Vector additional props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{Vector: true}, "")
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{Vector: true}, "", emptyUserTokens)
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -579,7 +579,7 @@ func TestCRUD(t *testing.T) {
 				"interpretation": true,
 			},
 		}
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, params, "")
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, params, "", emptyUserTokens)
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -736,7 +736,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching all actions", func(t *testing.T) {
-		res, err := repo.ObjectSearch(context.Background(), 0, 10, nil, nil, additional.Properties{}, "")
+		res, err := repo.ObjectSearch(context.Background(), 0, 10, nil, nil, additional.Properties{}, "", emptyUserTokens)
 		require.Nil(t, err)
 
 		item, ok := findID(res, actionID)
@@ -892,7 +892,7 @@ func TestCRUD(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, tt.sort, additional.Properties{Vector: true}, "")
+				res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, tt.sort, additional.Properties{Vector: true}, "", emptyUserTokens)
 				if len(tt.constainsErrorMsgs) > 0 {
 					require.NotNil(t, err)
 					for _, errorMsg := range tt.constainsErrorMsgs {

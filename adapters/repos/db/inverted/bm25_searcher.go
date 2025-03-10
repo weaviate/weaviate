@@ -19,7 +19,6 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"unique"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/concurrency"
