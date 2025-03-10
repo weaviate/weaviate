@@ -81,11 +81,9 @@ func TestUpdatePropertyDescription(t *testing.T) {
 	}
 	defer delete()
 
-	t.Run("delete class if exists", func(t *testing.T) {
+	func() {
 		delete()
-	})
 
-	t.Run("initially creating the class", func(t *testing.T) {
 		c := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
@@ -103,8 +101,7 @@ func TestUpdatePropertyDescription(t *testing.T) {
 		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
 		_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		assert.Nil(t, err)
-	})
-
+	}()
 	newDescription := "its updated description"
 
 	t.Run("update property and nested property descriptions", func(t *testing.T) {
@@ -157,7 +154,7 @@ func TestUpdatePropertyDescription(t *testing.T) {
 		assert.NotNil(t, err)
 		parsed, ok := err.(*clschema.SchemaObjectsUpdateUnprocessableEntity)
 		require.True(t, ok)
-		require.Contains(t, parsed.Payload.Error[0].Message, "properties cannot be updated through updating the class")
+		require.Contains(t, parsed.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
 	})
 
 	t.Run("update field other than description in nested", func(t *testing.T) {
@@ -179,6 +176,6 @@ func TestUpdatePropertyDescription(t *testing.T) {
 		assert.NotNil(t, err)
 		parsed, ok := err.(*clschema.SchemaObjectsUpdateUnprocessableEntity)
 		require.True(t, ok)
-		require.Contains(t, parsed.Payload.Error[0].Message, "properties cannot be updated through updating the class")
+		require.Contains(t, parsed.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
 	})
 }

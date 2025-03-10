@@ -257,7 +257,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 
 	if !p.validateProperties(class.Properties, update.Properties) {
 		return nil, errors.Errorf(
-			"properties cannot be updated through updating the class. Use the add " +
+			"property fields other than description cannot be updated through updating the class. Use the add " +
 				"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
 				"to add additional properties")
 	}
