@@ -20,6 +20,9 @@ ARG TARGETARCH
 ARG GITHASH="unknown"
 ARG DOCKER_IMAGE_TAG="unknown"
 ARG EXTRA_BUILD_ARGS=""
+ARG CGO_ENABLED=1
+# Allow disabling CGO when compiling for arm64
+ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" \
