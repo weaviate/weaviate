@@ -73,10 +73,15 @@ func TestUpdatePropertyDescription(t *testing.T) {
 	className := "C2"
 	propName := "p1"
 
-	t.Run("delete class if exists", func(t *testing.T) {
+	delete := func() {
 		params := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
 		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
 		assert.Nil(t, err)
+	}
+	defer delete()
+
+	t.Run("delete class if exists", func(t *testing.T) {
+		delete()
 	})
 
 	t.Run("initially creating the class", func(t *testing.T) {
