@@ -43,6 +43,11 @@ const (
 	RBACLatestCommandPolicyVersion
 )
 
+const (
+	RBACAssignRevokeCommandPolicyVersionV0 = iota
+	RBACAssignRevokeLatestCommandPolicyVersion
+)
+
 type CreateRolesRequest struct {
 	Roles   map[string][]authorization.Policy
 	Version int
@@ -59,13 +64,15 @@ type RemovePermissionsRequest struct {
 }
 
 type AddRolesForUsersRequest struct {
-	User  string
-	Roles []string
+	User    string
+	Roles   []string
+	Version int
 }
 
 type RevokeRolesForUserRequest struct {
-	User  string
-	Roles []string
+	User    string
+	Roles   []string
+	Version int
 }
 
 type QueryHasPermissionRequest struct {

@@ -176,7 +176,13 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.authZ.AddRolesForUser(req.User, req.Roles)
+	reqs := migrateAssignRoles(req)
+	for _, req := range reqs {
+		if err := m.authZ.AddRolesForUser(req.User, req.Roles); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
@@ -211,5 +217,11 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.authZ.RevokeRolesForUser(req.User, req.Roles...)
+	reqs := migrateRevokeRoles(req)
+	for _, req := range reqs {
+		if err := m.authZ.RevokeRolesForUser(req.User, req.Roles...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
