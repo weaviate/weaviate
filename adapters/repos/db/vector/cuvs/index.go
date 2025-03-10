@@ -406,6 +406,8 @@ func (index *cuvs_index) AddBatch(ctx context.Context, ids []uint64, vectors [][
 		return errors.New("cuvs index is nil")
 	}
 
+	fmt.Println("storing in bucket")
+
 	// store in bucket
 	for i := range ids {
 		slice := make([]byte, len(vectors[i])*4)
@@ -413,6 +415,8 @@ func (index *cuvs_index) AddBatch(ctx context.Context, ids []uint64, vectors [][
 		binary.BigEndian.PutUint64(idBytes, ids[i])
 		index.store.Bucket(index.getBucketName()).Put(idBytes, byteSliceFromFloat32Slice(vectors[i], slice))
 	}
+
+	fmt.Println("storing in bucket")
 
 	// If index is not built yet and we're still under threshold
 	if !index.isIndexBuilt && index.count+uint64(len(ids)) < 32 {
@@ -426,11 +430,13 @@ func (index *cuvs_index) AddBatch(ctx context.Context, ids []uint64, vectors [][
 		return nil
 	}
 
+	fmt.Println("done storing in bucket")
+
 	// If we have enough vectors to build the index but haven't built it yet
 	if !index.isIndexBuilt && index.count+uint64(len(ids)) >= 32 {
 		// Combine holding vectors with new vectors
-		allVectors := append(index.holdingVectors, vectors...)
-		allIds := append(index.holdingIds, ids...)
+		// allVectors := append(index.holdingVectors, vectors...)
+		// allIds := append(index.holdingIds, ids...)
 
 		// Clear holding area
 		index.holdingVectors = nil
@@ -440,8 +446,8 @@ func (index *cuvs_index) AddBatch(ctx context.Context, ids []uint64, vectors [][
 		index.isIndexBuilt = true
 		index.count = 0 // Reset count as AddWithRebuild will increment it
 
-		index.logger.Debug("building initial index with ", len(allVectors), " vectors")
-		return AddWithRebuild(index, allIds, allVectors)
+		// fmt.Println("building initial index with ", len(allVectors), " vectors")
+		return AddWithRebuild(index, ids, vectors)
 	}
 
 	if shouldExtend(index, uint64(len(ids))) {
