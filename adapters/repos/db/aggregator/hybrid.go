@@ -27,7 +27,7 @@ func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, 
 	kw := &searchparams.KeywordRanking{
 		Type:  "bm25",
 		Query: a.params.Hybrid.Query,
-		//Tokens: a.params.Hybrid.Tokens, //TODO handle tokens in simple hybrid not just bm25
+		// Tokens: a.params.Hybrid.Tokens, //TODO handle tokens in simple hybrid not just bm25
 	}
 
 	cl := a.getSchema.ReadOnlyClass(a.params.ClassName.String())

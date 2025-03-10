@@ -243,7 +243,7 @@ func TestDocIDs(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		allow, err := searcher.DocIDs(context.Background(), &tc.filter, additional.Properties{}, className,emptyUserTokens)
+		allow, err := searcher.DocIDs(context.Background(), &tc.filter, additional.Properties{}, className, emptyUserTokens)
 		require.Nil(t, err)
 		assert.Equal(t, tc.expectedMatches, allow.Len())
 		allow.Close()

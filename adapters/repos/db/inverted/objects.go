@@ -353,7 +353,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any, userTo
 
 	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeText:
-		if len(userTokens) >0 {
+		if len(userTokens) > 0 {
 			for _, token := range userTokens {
 				items = append(items, Countable{[]byte(token), 1})
 			}

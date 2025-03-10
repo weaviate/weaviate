@@ -114,7 +114,7 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 			}
 		}
 
-		var tokens = []string{}
+		tokens := []string{}
 		if len(obj.Tokens) > 0 {
 			tokens = obj.Tokens
 		}

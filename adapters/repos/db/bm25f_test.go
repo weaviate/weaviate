@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-
 func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedIndexConfig {
 	return &models.InvertedIndexConfig{
 		Bm25: &models.BM25Config{
