@@ -162,7 +162,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 
 		var queryTerms []string
 		var dupBoosts []int
-		if len(params.Tokens) > 0 {
+		if tokenization == models.PropertyTokenizationUser {
 			queryTerms, dupBoosts = uniquifyAndCountDuplicates(params.Tokens)
 		} else {
 			queryTerms, dupBoosts = helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
