@@ -27,8 +27,9 @@ func TestDeprecatedEndpoints(t *testing.T) {
 	clientAuth := helper.CreateAuth(adminKey)
 
 	customUser := "custom-user"
+	customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	testRoleName1 := "testRole1"
