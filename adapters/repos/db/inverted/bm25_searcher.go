@@ -19,6 +19,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"unique"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -115,6 +116,23 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 	return b.propLenTracker.(*JsonShardMetaData)
 }
 
+func uniquifyAndCountDuplicates(tokens []string) ([]string, []int) {
+	var tally map[string]int
+	tally = make(map[string]int)
+	for _, token := range tokens {
+		tally[token]++
+	}
+
+	uniqueTokens := make([]string, 0, len(tally))
+	duplicateBoosts := make([]int, 0, len(tally))
+	for token, count := range tally {
+		uniqueTokens = append(uniqueTokens, token)
+		duplicateBoosts = append(duplicateBoosts, count)
+	}
+
+	return uniqueTokens, duplicateBoosts
+}
+
 func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params searchparams.KeywordRanking) (bool, float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
@@ -142,11 +160,15 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
 	for _, tokenization := range helpers.Tokenizations {
-		//FIXME add counting of duplicates
 
-		queryTerms := params.Tokens
-		dupBoosts := make([]int, len(queryTerms))
-		//queryTerms, dupBoosts := helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
+		queryTerms := make([]string, 0)
+		dupBoosts := make([]int, 0)
+		if len(params.Tokens) > 0 {
+			queryTerms, dupBoosts = uniquifyAndCountDuplicates(params.Tokens)
+		} else {
+			queryTerms, dupBoosts = helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
+		}
+
 		queryTermsByTokenization[tokenization] = queryTerms
 		duplicateBoostsByTokenization[tokenization] = dupBoosts
 

@@ -66,7 +66,7 @@ type GetParams struct {
 	ReplicationProperties   *additional.ReplicationProperties
 	Tenant                  string
 	IsRefOrigin             bool     // is created by ref filter
-	Tokens                  []string //FIXME make sure this is used, especially assigned to
+	Tokens                  []string //TODO make sure this is used, especially assigned to
 }
 
 type Embedding interface {

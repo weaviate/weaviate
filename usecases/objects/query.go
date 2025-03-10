@@ -31,7 +31,7 @@ type QueryInput struct {
 	Sort       []filters.Sort
 	Tenant     string
 	Additional additional.Properties
-	Tokens     []string // FIXME make sure this is used, especially assigned to
+	Tokens     []string // TODO make sure this is used, especially assigned to
 }
 
 type QueryParams struct {

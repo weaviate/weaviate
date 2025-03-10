@@ -78,7 +78,6 @@ func (a *Analyzer) TextArray(tokenization string, inArr []string, userTokens []s
 	var terms []string
 	if len(userTokens) > 0 {
 		terms = userTokens
-		fmt.Printf("!!!! using user tokens: %v", userTokens)
 	} else {
 		for _, in := range inArr {
 			terms = append(terms, helpers.Tokenize(tokenization, in)...)
