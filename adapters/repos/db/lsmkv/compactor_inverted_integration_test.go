@@ -63,7 +63,9 @@ func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, ex
 	for _, termPair := range expectedMultiKey {
 		expected := termPair.values
 		mapKey := termPair.key
-		N := len(expected)
+		// get more results, as there may be more results than expected on the result heap
+		// during intermediate steps of insertions
+		N := len(expected) * 10
 		bm25config := schema.BM25Config{
 			K1: 1.2,
 			B:  0.75,
@@ -91,6 +93,9 @@ func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, ex
 
 		for _, val := range expected {
 			docId := binary.BigEndian.Uint64(val.Key)
+			if val.Tombstone {
+				continue
+			}
 			freq := math.Float32frombits(binary.LittleEndian.Uint32(val.Value[0:4]))
 			if _, ok := expectedSet[docId]; !ok {
 				return fmt.Errorf("expected docId %v not found in topKHeap: %v", docId, expectedSet)
@@ -226,7 +231,9 @@ func validateMapPairListVsWandSearch(ctx context.Context, bucket *Bucket, expect
 	for _, termPair := range expectedMultiKey {
 		expected := termPair.values
 		mapKey := termPair.key
-		N := len(expected)
+		// get more results, as there may be more results than expected on the result heap
+		// during intermediate steps of insertions
+		N := len(expected) * 10
 		bm25config := schema.BM25Config{
 			K1: 1.2,
 			B:  0.75,
@@ -236,11 +243,19 @@ func validateMapPairListVsWandSearch(ctx context.Context, bucket *Bucket, expect
 		duplicateTextBoosts[string(mapKey)] = 1.0
 		term, err := createTerm(bucket, float64(N), nil, string(mapKey), 0, 1.0, 1, ctx, bm25config, bucket.logger)
 
-		if term == nil && err == nil && len(expected) == 0 {
-			continue
+		countNonTombstones := 0
+		for _, val := range expected {
+			if !val.Tombstone {
+				countNonTombstones++
+			}
 		}
 
-		if err != nil {
+		// nothing but tombstones and nothing retrieved
+		if term == nil && err == nil && countNonTombstones == 0 {
+			continue
+		} else if term == nil && err == nil {
+			return fmt.Errorf("expected term to be non-nil")
+		} else if err != nil {
 			return fmt.Errorf("failed to create term: %w", err)
 		}
 
@@ -259,6 +274,9 @@ func validateMapPairListVsWandSearch(ctx context.Context, bucket *Bucket, expect
 
 		for _, val := range expected {
 			docId := binary.BigEndian.Uint64(val.Key)
+			if val.Tombstone {
+				continue
+			}
 			freq := math.Float32frombits(binary.LittleEndian.Uint32(val.Value[0:4]))
 			if _, ok := expectedSet[docId]; !ok {
 				return fmt.Errorf("expected docId %v not found in topKHeap: %v", docId, expectedSet)
@@ -267,6 +285,34 @@ func validateMapPairListVsWandSearch(ctx context.Context, bucket *Bucket, expect
 				return fmt.Errorf("expected frequency %v but got %v", freq, expectedSet[docId][0].Frequency)
 			}
 
+		}
+	}
+
+	return nil
+}
+
+// compare expected and actual, but actual can have more keys than expected
+func partialCompare(expected, actual kv) error {
+	a := 0
+	for _, e := range expected.values {
+		if e.Tombstone {
+			continue
+		}
+		// if the key in actual is smaller than the key in expected, move to the next key in actual
+		for bytes.Compare(actual.values[a].Key, e.Key) < 0 {
+			a++
+			if a >= len(actual.values) {
+				docId := binary.BigEndian.Uint64(e.Key)
+				return fmt.Errorf("expected key %v (docId: %v) not found in actual values", e.Key, docId)
+			}
+		}
+
+		if bytes.Compare(actual.values[a].Key, e.Key) != 0 {
+			docId := binary.BigEndian.Uint64(e.Key)
+			return fmt.Errorf("expected key %v (docId: %v) not found in actual values", e.Key, docId)
+		}
+		if bytes.Compare(actual.values[a].Value, e.Value) != 0 {
+			return fmt.Errorf("expected value %v, got %v", e.Value, actual.values[a].Value)
 		}
 	}
 
@@ -575,7 +621,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 		bucket = b
 	})
 
-	t.Run("import and flush previous segments", func(t *testing.T) {
+	t.Run("import previous1 segments", func(t *testing.T) {
 		for _, kvs := range previous1 {
 			for _, pair := range kvs.values {
 				err := bucket.MapSet(kvs.key, pair)
@@ -583,16 +629,74 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 				require.Nil(t, err)
 			}
 		}
+	})
 
+	t.Run("verify previous1 before flush", func(t *testing.T) {
+		var retrieved []kv
+
+		c := bucket.MapCursor()
+		defer c.Close()
+		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
+
+			kvs, err := bucket.MapList(ctx, k)
+
+			assert.Nil(t, err)
+
+			if len(kvs) > 0 {
+				retrieved = append(retrieved, kv{
+					key:    k,
+					values: kvs,
+				})
+			}
+
+		}
+		for i := range previous1 {
+			assert.Nil(t, partialCompare(previous1[i], retrieved[i]))
+		}
+		assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, previous1))
+		assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, previous1))
+	})
+
+	t.Run("flush to disk", func(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
+	})
 
+	t.Run("import previous2 segments", func(t *testing.T) {
 		for _, kvs := range previous2 {
 			for _, pair := range kvs.values {
 				err := bucket.MapSet(kvs.key, pair)
 				require.Nil(t, err)
 			}
 		}
+	})
 
+	t.Run("verify previous2 before flush", func(t *testing.T) {
+		var retrieved []kv
+
+		c := bucket.MapCursor()
+		defer c.Close()
+		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
+
+			kvs, err := bucket.MapList(ctx, k)
+
+			assert.Nil(t, err)
+
+			if len(kvs) > 0 {
+				retrieved = append(retrieved, kv{
+					key:    k,
+					values: kvs,
+				})
+			}
+
+		}
+		for i := range previous2 {
+			assert.Nil(t, partialCompare(previous2[i], retrieved[i]))
+		}
+		assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, previous2))
+		assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, previous2))
+	})
+
+	t.Run("flush to disk", func(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
@@ -605,8 +709,62 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 		}
 	})
 
+	t.Run("verify segment1 before flush", func(t *testing.T) {
+		var retrieved []kv
+
+		c := bucket.MapCursor()
+		defer c.Close()
+		i := 0
+		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
+
+			kvs, err := bucket.MapList(ctx, k)
+
+			assert.Nil(t, err)
+
+			if len(kvs) > 0 {
+				retrieved = append(retrieved, kv{
+					key:    k,
+					values: kvs,
+				})
+			}
+			if bytes.Equal(segment1[i].key, k) {
+				assert.Nil(t, partialCompare(segment1[i], retrieved[len(retrieved)-1]))
+				i++
+			}
+		}
+		assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, segment1))
+		assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, segment1))
+	})
+
 	t.Run("flush to disk", func(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
+	})
+
+	t.Run("verify segment1 after flush", func(t *testing.T) {
+		var retrieved []kv
+
+		c := bucket.MapCursor()
+		defer c.Close()
+		i := 0
+		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
+
+			kvs, err := bucket.MapList(ctx, k)
+
+			assert.Nil(t, err)
+
+			if len(kvs) > 0 {
+				retrieved = append(retrieved, kv{
+					key:    k,
+					values: kvs,
+				})
+			}
+			if bytes.Equal(segment1[i].key, k) {
+				assert.Nil(t, partialCompare(segment1[i], retrieved[len(retrieved)-1]))
+				i++
+			}
+		}
+		assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, segment1))
+		assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, segment1))
 	})
 
 	t.Run("import segment 2", func(t *testing.T) {
@@ -618,8 +776,64 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 		}
 	})
 
+	t.Run("verify segment2 before flush", func(t *testing.T) {
+		var retrieved []kv
+
+		c := bucket.MapCursor()
+		defer c.Close()
+		i := 0
+		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
+
+			kvs, err := bucket.MapList(ctx, k)
+
+			assert.Nil(t, err)
+
+			if len(kvs) > 0 {
+				retrieved = append(retrieved, kv{
+					key:    k,
+					values: kvs,
+				})
+				if bytes.Equal(segment2[i].key, k) {
+					assert.Nil(t, partialCompare(segment2[i], retrieved[len(retrieved)-1]))
+					i++
+				}
+			}
+
+		}
+		assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, segment2))
+		assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, segment2))
+	})
+
 	t.Run("flush to disk", func(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
+	})
+
+	t.Run("verify segment2 after flush", func(t *testing.T) {
+		var retrieved []kv
+
+		c := bucket.MapCursor()
+		defer c.Close()
+		i := 0
+		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
+
+			kvs, err := bucket.MapList(ctx, k)
+
+			assert.Nil(t, err)
+
+			if len(kvs) > 0 {
+				retrieved = append(retrieved, kv{
+					key:    k,
+					values: kvs,
+				})
+				if bytes.Equal(segment2[i].key, k) {
+					assert.Nil(t, partialCompare(segment2[i], retrieved[len(retrieved)-1]))
+					i++
+				}
+			}
+
+		}
+		assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, segment2))
+		assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, segment2))
 	})
 
 	t.Run("within control make sure map keys are sorted", func(t *testing.T) {
@@ -649,7 +863,9 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 			}
 
 		}
-		assert.Equal(t, expected, retrieved)
+		for i := range expected {
+			assert.Nil(t, partialCompare(expected[i], retrieved[i]))
+		}
 		assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, expected))
 		assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, expected))
 	})
@@ -660,6 +876,30 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 		var err error
 		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
 			i++
+			t.Run("verify control during compaction", func(t *testing.T) {
+				var retrieved []kv
+
+				c := bucket.MapCursor()
+				defer c.Close()
+
+				for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
+
+					kvs, err := bucket.MapList(ctx, k)
+
+					assert.Nil(t, err)
+
+					if len(kvs) > 0 {
+						retrieved = append(retrieved, kv{
+							key:    k,
+							values: kvs,
+						})
+					}
+				}
+
+				assert.Equal(t, expected, retrieved)
+				assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, expected))
+				assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, expected))
+			})
 		}
 		require.Nil(t, err)
 	})
@@ -787,7 +1027,9 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			})
 		}
 
-		assert.Equal(t, expected, retrieved)
+		for i := range expected {
+			assert.Nil(t, partialCompare(expected[i], retrieved[i]))
+		}
 		assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, expected))
 		assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, expected))
 	})
@@ -796,6 +1038,30 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 		var compacted bool
 		var err error
 		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+			t.Run("verify control during compaction", func(t *testing.T) {
+				var retrieved []kv
+
+				c := bucket.MapCursor()
+				defer c.Close()
+
+				for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
+
+					kvs, err := bucket.MapList(ctx, k)
+
+					assert.Nil(t, err)
+
+					if len(kvs) > 0 {
+						retrieved = append(retrieved, kv{
+							key:    k,
+							values: kvs,
+						})
+					}
+				}
+
+				assert.Equal(t, expected, retrieved)
+				assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, expected))
+				assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, expected))
+			})
 		}
 		require.Nil(t, err)
 	})
@@ -817,7 +1083,9 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			})
 		}
 
-		assert.Equal(t, expected, retrieved)
+		for i := range expected {
+			assert.Nil(t, partialCompare(expected[i], retrieved[i]))
+		}
 		assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, expected))
 		assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, expected))
 	})
@@ -833,7 +1101,10 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 				kvs, err := bucket.MapList(ctx, pair.key)
 				require.NoError(t, err)
 
-				assert.Equal(t, pair.values, kvs)
+				assert.Nil(t, partialCompare(pair, kv{
+					key:    pair.key,
+					values: kvs,
+				}))
 				assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, []kv{pair}))
 				assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, []kv{pair}))
 			}
@@ -881,6 +1152,32 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 						require.Nil(t, err)
 					}
 
+					t.Run("check entries before flush", func(t *testing.T) {
+						pair2 := kv{
+							key:    key,
+							values: []MapPair{pair},
+						}
+
+						res, err := bucket.MapList(ctx, key)
+
+						if size == 5 || size == 6 || i != size-1 {
+							assert.Empty(t, res)
+							pair2.values = []MapPair{}
+							assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, []kv{pair2}))
+							assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, []kv{pair2}))
+						} else {
+							assert.Len(t, res, 1)
+
+							assert.Nil(t, err)
+							assert.Nil(t, partialCompare(pair2, kv{
+								key:    key,
+								values: res,
+							}))
+							assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, []kv{pair2}))
+							assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, []kv{pair2}))
+						}
+					})
+
 					require.Nil(t, bucket.FlushAndSwitch())
 				}
 			})
@@ -888,8 +1185,17 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 			t.Run("check entries before compaction", func(t *testing.T) {
 				res, err := bucket.MapList(ctx, key)
 				assert.Nil(t, err)
+
+				pair2 := kv{
+					key:    key,
+					values: []MapPair{NewMapPairFromDocIdAndTf(0, float32(size-1), float32(size-1), false)},
+				}
+
 				if size == 5 || size == 6 {
 					assert.Empty(t, res)
+					pair2.values = []MapPair{}
+					assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, []kv{pair2}))
+					assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, []kv{pair2}))
 				} else {
 					assert.Len(t, res, 1)
 					assert.Equal(t, false, res[0].Tombstone)
@@ -898,6 +1204,11 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 					key:    key,
 					values: res,
 				}
+
+				assert.Nil(t, partialCompare(pair, kv{
+					key:    key,
+					values: res,
+				}))
 				assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, []kv{pair}))
 				assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, []kv{pair}))
 			})
@@ -906,6 +1217,37 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 				var compacted bool
 				var err error
 				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+					t.Run("check entries during compaction", func(t *testing.T) {
+						res, err := bucket.MapList(ctx, key)
+						assert.Nil(t, err)
+
+						pair2 := kv{
+							key:    key,
+							values: []MapPair{NewMapPairFromDocIdAndTf(0, float32(size-1), float32(size-1), false)},
+						}
+
+						if size == 5 || size == 6 {
+							assert.Empty(t, res)
+							pair2.values = []MapPair{}
+							assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, []kv{pair2}))
+							assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, []kv{pair2}))
+						} else {
+							assert.Len(t, res, 1)
+							assert.Equal(t, false, res[0].Tombstone)
+						}
+
+						pair := kv{
+							key:    key,
+							values: res,
+						}
+
+						assert.Nil(t, partialCompare(pair, kv{
+							key:    key,
+							values: res,
+						}))
+						assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, []kv{pair}))
+						assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, []kv{pair}))
+					})
 				}
 				require.Nil(t, err)
 			})
@@ -923,6 +1265,11 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 					key:    key,
 					values: res,
 				}
+
+				assert.Nil(t, partialCompare(pair, kv{
+					key:    key,
+					values: res,
+				}))
 				assert.Nil(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, []kv{pair}))
 				assert.Nil(t, validateMapPairListVsWandSearch(ctx, bucket, []kv{pair}))
 			})
