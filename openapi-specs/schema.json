@@ -3477,8 +3477,9 @@
     },
     "/authz/roles/{id}/users": {
       "get": {
-        "summary": "get users or a keys assigned to role",
-        "operationId": "getUsersForRole",
+        "deprecated": true,
+        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getUsersForRoleDeprecated",
         "x-serviceIds": [
           "weaviate.authz.get.roles.users"
         ],
@@ -3501,6 +3502,71 @@
               "type": "array",
               "items": {
                   "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/roles/{id}/users/{userType}": {
+      "get": {
+        "deprecated": true,
+        "summary": "get users or a keys assigned to role",
+        "operationId": "getUsersForRole",
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.users"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "role name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "path",
+            "name": "userType",
+            "required": true,
+            "type": "string",
+            "enum": ["oidc", "db"],
+            "description": "The type of user"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Users assigned to this role",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
               }
             }
           },

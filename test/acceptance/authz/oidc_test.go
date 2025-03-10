@@ -35,6 +35,7 @@ import (
 
 func TestRbacWithOIDC(t *testing.T) {
 	customKey := "custom-key"
+	customUser := "custom-user"
 	tests := []struct {
 		name          string
 		image         *docker.Compose
@@ -106,9 +107,20 @@ func TestRbacWithOIDC(t *testing.T) {
 			require.True(t, errors.As(err, &forbidden))
 
 			// assigning to OIDC user
-			helper.AssignRoleToUserOIDC(t, tokenAdmin, createSchemaRoleName, "custom-user")
+			helper.AssignRoleToUserOIDC(t, tokenAdmin, createSchemaRoleName, customUser)
 			err = createClass(t, &models.Class{Class: "testingOidc"}, helper.CreateAuth(tokenCustom))
 			require.NoError(t, err)
+
+			// only OIDC user has role assigned
+			rolesOIDC := helper.GetRolesForUserOIDC(t, customUser, tokenAdmin)
+			require.Len(t, rolesOIDC, 1)
+			rolesDB := helper.GetRolesForUser(t, customUser, tokenAdmin)
+			require.Len(t, rolesDB, 0)
+
+			usersOidc := helper.GetUserForRolesOIDC(t, createSchemaRoleName, tokenAdmin)
+			require.Len(t, usersOidc, 1)
+			usersDB := helper.GetUserForRoles(t, createSchemaRoleName, tokenAdmin)
+			require.Len(t, usersDB, 0)
 
 			// assign role to non-existing user => no error (if OIDC is enabled)
 			helper.AssignRoleToUserOIDC(t, tokenAdmin, createSchemaRoleName, "i-dont-exist")

@@ -79,9 +79,10 @@ func (s *Raft) GetRolesForUser(user string, userType models.UserTypes) (map[stri
 	return response.Roles, nil
 }
 
-func (s *Raft) GetUsersForRole(role string) ([]string, error) {
+func (s *Raft) GetUsersForRole(role string, userType models.UserTypes) ([]string, error) {
 	req := cmd.QueryGetUsersForRoleRequest{
-		Role: role,
+		Role:     role,
+		UserType: userType,
 	}
 
 	subCommand, err := json.Marshal(&req)

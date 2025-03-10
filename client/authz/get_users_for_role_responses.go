@@ -120,11 +120,11 @@ func (o *GetUsersForRoleOK) Code() int {
 }
 
 func (o *GetUsersForRoleOK) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleOK  %+v", 200, o.Payload)
 }
 
 func (o *GetUsersForRoleOK) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleOK  %+v", 200, o.Payload)
 }
 
 func (o *GetUsersForRoleOK) GetPayload() []string {
@@ -132,7 +132,6 @@ func (o *GetUsersForRoleOK) GetPayload() []string {
 }
 
 func (o *GetUsersForRoleOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -186,11 +185,11 @@ func (o *GetUsersForRoleBadRequest) Code() int {
 }
 
 func (o *GetUsersForRoleBadRequest) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetUsersForRoleBadRequest) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetUsersForRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -198,7 +197,6 @@ func (o *GetUsersForRoleBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetUsersForRoleBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -219,8 +217,7 @@ GetUsersForRoleUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type GetUsersForRoleUnauthorized struct {
-}
+type GetUsersForRoleUnauthorized struct{}
 
 // IsSuccess returns true when this get users for role unauthorized response has a 2xx status code
 func (o *GetUsersForRoleUnauthorized) IsSuccess() bool {
@@ -253,15 +250,14 @@ func (o *GetUsersForRoleUnauthorized) Code() int {
 }
 
 func (o *GetUsersForRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleUnauthorized ", 401)
 }
 
 func (o *GetUsersForRoleUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleUnauthorized ", 401)
 }
 
 func (o *GetUsersForRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -310,11 +306,11 @@ func (o *GetUsersForRoleForbidden) Code() int {
 }
 
 func (o *GetUsersForRoleForbidden) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetUsersForRoleForbidden) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetUsersForRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -322,7 +318,6 @@ func (o *GetUsersForRoleForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetUsersForRoleForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -343,8 +338,7 @@ GetUsersForRoleNotFound describes a response with status code 404, with default 
 
 no role found
 */
-type GetUsersForRoleNotFound struct {
-}
+type GetUsersForRoleNotFound struct{}
 
 // IsSuccess returns true when this get users for role not found response has a 2xx status code
 func (o *GetUsersForRoleNotFound) IsSuccess() bool {
@@ -377,15 +371,14 @@ func (o *GetUsersForRoleNotFound) Code() int {
 }
 
 func (o *GetUsersForRoleNotFound) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleNotFound ", 404)
 }
 
 func (o *GetUsersForRoleNotFound) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleNotFound ", 404)
 }
 
 func (o *GetUsersForRoleNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -434,11 +427,11 @@ func (o *GetUsersForRoleInternalServerError) Code() int {
 }
 
 func (o *GetUsersForRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetUsersForRoleInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetUsersForRoleInternalServerError) GetPayload() *models.ErrorResponse {
@@ -446,7 +439,6 @@ func (o *GetUsersForRoleInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetUsersForRoleInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

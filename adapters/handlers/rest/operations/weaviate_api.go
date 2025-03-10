@@ -156,6 +156,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzGetUsersForRoleHandler: authz.GetUsersForRoleHandlerFunc(func(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetUsersForRole has not yet been implemented")
 		}),
+		AuthzGetUsersForRoleDeprecatedHandler: authz.GetUsersForRoleDeprecatedHandlerFunc(func(params authz.GetUsersForRoleDeprecatedParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetUsersForRoleDeprecated has not yet been implemented")
+		}),
 		GraphqlGraphqlBatchHandler: graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation graphql.GraphqlBatch has not yet been implemented")
 		}),
@@ -419,6 +422,8 @@ type WeaviateAPI struct {
 	UsersGetUserInfoHandler users.GetUserInfoHandler
 	// AuthzGetUsersForRoleHandler sets the operation handler for the get users for role operation
 	AuthzGetUsersForRoleHandler authz.GetUsersForRoleHandler
+	// AuthzGetUsersForRoleDeprecatedHandler sets the operation handler for the get users for role deprecated operation
+	AuthzGetUsersForRoleDeprecatedHandler authz.GetUsersForRoleDeprecatedHandler
 	// GraphqlGraphqlBatchHandler sets the operation handler for the graphql batch operation
 	GraphqlGraphqlBatchHandler graphql.GraphqlBatchHandler
 	// GraphqlGraphqlPostHandler sets the operation handler for the graphql post operation
@@ -682,6 +687,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzGetUsersForRoleHandler == nil {
 		unregistered = append(unregistered, "authz.GetUsersForRoleHandler")
 	}
+	if o.AuthzGetUsersForRoleDeprecatedHandler == nil {
+		unregistered = append(unregistered, "authz.GetUsersForRoleDeprecatedHandler")
+	}
 	if o.GraphqlGraphqlBatchHandler == nil {
 		unregistered = append(unregistered, "graphql.GraphqlBatchHandler")
 	}
@@ -842,7 +850,6 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
-
 		}
 	}
 	return result
@@ -1035,7 +1042,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/authz/roles/{id}/users"] = authz.NewGetUsersForRole(o.context, o.AuthzGetUsersForRoleHandler)
+	o.handlers["GET"]["/authz/roles/{id}/users/{userType}"] = authz.NewGetUsersForRole(o.context, o.AuthzGetUsersForRoleHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/roles/{id}/users"] = authz.NewGetUsersForRoleDeprecated(o.context, o.AuthzGetUsersForRoleDeprecatedHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

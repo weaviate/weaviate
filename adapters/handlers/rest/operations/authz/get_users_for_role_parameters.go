@@ -22,13 +22,13 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/validate"
 )
 
 // NewGetUsersForRoleParams creates a new GetUsersForRoleParams object
 //
 // There are no default values defined in the spec.
 func NewGetUsersForRoleParams() GetUsersForRoleParams {
-
 	return GetUsersForRoleParams{}
 }
 
@@ -37,7 +37,6 @@ func NewGetUsersForRoleParams() GetUsersForRoleParams {
 //
 // swagger:parameters getUsersForRole
 type GetUsersForRoleParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -46,6 +45,11 @@ type GetUsersForRoleParams struct {
 	  In: path
 	*/
 	ID string
+	/*The type of user
+	  Required: true
+	  In: path
+	*/
+	UserType string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -59,6 +63,11 @@ func (o *GetUsersForRoleParams) BindRequest(r *http.Request, route *middleware.M
 
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	rUserType, rhkUserType, _ := route.Params.GetOK("userType")
+	if err := o.bindUserType(rUserType, rhkUserType, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -77,6 +86,33 @@ func (o *GetUsersForRoleParams) bindID(rawData []string, hasKey bool, formats st
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.ID = raw
+
+	return nil
+}
+
+// bindUserType binds and validates parameter UserType from path.
+func (o *GetUsersForRoleParams) bindUserType(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: true
+	// Parameter is provided by construction from the route
+	o.UserType = raw
+
+	if err := o.validateUserType(formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateUserType carries on validations for parameter UserType
+func (o *GetUsersForRoleParams) validateUserType(formats strfmt.Registry) error {
+	if err := validate.EnumCase("userType", "path", o.UserType, []interface{}{"oidc", "db"}, true); err != nil {
+		return err
+	}
 
 	return nil
 }

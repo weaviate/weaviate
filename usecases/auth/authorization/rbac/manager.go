@@ -202,15 +202,18 @@ func (m *manager) GetRolesForUser(userName string, userType models.UserTypes) (m
 	return roles, err
 }
 
-func (m *manager) GetUsersForRole(roleName string) ([]string, error) {
+func (m *manager) GetUsersForRole(roleName string, userType models.UserTypes) ([]string, error) {
 	pusers, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(roleName))
 	if err != nil {
 		return nil, fmt.Errorf("GetUsersForRole: %w", err)
 	}
 	users := make([]string, 0, len(pusers))
 	for idx := range pusers {
-		user := conv.TrimPrefix(pusers[idx])
+		user, prefix := conv.GetUserAndPrefix(pusers[idx])
 		if user == conv.InternalPlaceHolder {
+			continue
+		}
+		if prefix != string(userType) {
 			continue
 		}
 		users = append(users, user)

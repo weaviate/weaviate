@@ -24,40 +24,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// GetUsersForRoleHandlerFunc turns a function with the right signature into a get users for role handler
-type GetUsersForRoleHandlerFunc func(GetUsersForRoleParams, *models.Principal) middleware.Responder
+// GetUsersForRoleDeprecatedHandlerFunc turns a function with the right signature into a get users for role deprecated handler
+type GetUsersForRoleDeprecatedHandlerFunc func(GetUsersForRoleDeprecatedParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn GetUsersForRoleHandlerFunc) Handle(params GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
+func (fn GetUsersForRoleDeprecatedHandlerFunc) Handle(params GetUsersForRoleDeprecatedParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// GetUsersForRoleHandler interface for that can handle valid get users for role params
-type GetUsersForRoleHandler interface {
-	Handle(GetUsersForRoleParams, *models.Principal) middleware.Responder
+// GetUsersForRoleDeprecatedHandler interface for that can handle valid get users for role deprecated params
+type GetUsersForRoleDeprecatedHandler interface {
+	Handle(GetUsersForRoleDeprecatedParams, *models.Principal) middleware.Responder
 }
 
-// NewGetUsersForRole creates a new http.Handler for the get users for role operation
-func NewGetUsersForRole(ctx *middleware.Context, handler GetUsersForRoleHandler) *GetUsersForRole {
-	return &GetUsersForRole{Context: ctx, Handler: handler}
+// NewGetUsersForRoleDeprecated creates a new http.Handler for the get users for role deprecated operation
+func NewGetUsersForRoleDeprecated(ctx *middleware.Context, handler GetUsersForRoleDeprecatedHandler) *GetUsersForRoleDeprecated {
+	return &GetUsersForRoleDeprecated{Context: ctx, Handler: handler}
 }
 
 /*
-	GetUsersForRole swagger:route GET /authz/roles/{id}/users/{userType} authz getUsersForRole
+	GetUsersForRoleDeprecated swagger:route GET /authz/roles/{id}/users authz getUsersForRoleDeprecated
 
-get users or a keys assigned to role
+get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore
 */
-type GetUsersForRole struct {
+type GetUsersForRoleDeprecated struct {
 	Context *middleware.Context
-	Handler GetUsersForRoleHandler
+	Handler GetUsersForRoleDeprecatedHandler
 }
 
-func (o *GetUsersForRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *GetUsersForRoleDeprecated) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewGetUsersForRoleParams()
+	Params := NewGetUsersForRoleDeprecatedParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)

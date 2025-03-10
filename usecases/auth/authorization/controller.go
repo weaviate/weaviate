@@ -19,7 +19,7 @@ type Controller interface {
 	DeleteRoles(roles ...string) error
 	AddRolesForUser(user string, roles []string) error
 	GetRolesForUser(user string, userType models.UserTypes) (map[string][]Policy, error)
-	GetUsersForRole(role string) ([]string, error)
+	GetUsersForRole(role string, userType models.UserTypes) ([]string, error)
 	RevokeRolesForUser(user string, roles ...string) error
 	RemovePermissions(role string, permissions []*Policy) error
 	HasPermission(role string, permission *Policy) (bool, error)

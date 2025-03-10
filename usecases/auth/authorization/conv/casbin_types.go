@@ -444,6 +444,7 @@ func TrimRoleNamePrefix(name string) string {
 	return strings.TrimPrefix(name, ROLE_NAME_PREFIX)
 }
 
-func TrimPrefix(name string) string {
-	return strings.Split(name, PREFIX_SEPARATOR)[1]
+func GetUserAndPrefix(name string) (string, string) {
+	splits := strings.Split(name, PREFIX_SEPARATOR)
+	return splits[1], splits[0]
 }

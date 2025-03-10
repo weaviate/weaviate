@@ -32,12 +32,12 @@ func TestDeprecatedEndpoints(t *testing.T) {
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
-	testRoleName1 := "testRole1"
+	testRoleName := "testRole1"
 	createCollectionsAction := authorization.CreateCollections
 	all := "*"
 
 	testRole1 := &models.Role{
-		Name: &testRoleName1,
+		Name: &testRoleName,
 		Permissions: []*models.Permission{{
 			Action:      &createCollectionsAction,
 			Collections: &models.PermissionCollections{Collection: &all},
@@ -46,76 +46,91 @@ func TestDeprecatedEndpoints(t *testing.T) {
 
 	// assign without usertype should assign to OIDC as well as db user
 	t.Run("assign role to user", func(t *testing.T) {
-		helper.DeleteRole(t, adminKey, testRoleName1)
+		helper.DeleteRole(t, adminKey, testRoleName)
 		helper.CreateRole(t, adminKey, testRole1)
-		defer helper.DeleteRole(t, adminKey, testRoleName1)
+		defer helper.DeleteRole(t, adminKey, testRoleName)
 
 		_, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName1}}),
+			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
 			clientAuth,
 		)
 		require.NoError(t, err)
 
 		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey)
 		require.Len(t, RolesDbUser, 1)
-		require.Equal(t, testRoleName1, *RolesDbUser[0].Name)
+		require.Equal(t, testRoleName, *RolesDbUser[0].Name)
 
 		RolesOIDCUser := helper.GetRolesForUserOIDC(t, customUser, adminKey)
 		require.Len(t, RolesOIDCUser, 1)
-		require.Equal(t, testRoleName1, *RolesOIDCUser[0].Name)
+		require.Equal(t, testRoleName, *RolesOIDCUser[0].Name)
 	})
 
 	// revoke without usertype should revoke from, OIDC as well as db user
 	t.Run("revoke role from user", func(t *testing.T) {
-		helper.DeleteRole(t, adminKey, testRoleName1)
+		helper.DeleteRole(t, adminKey, testRoleName)
 		helper.CreateRole(t, adminKey, testRole1)
-		defer helper.DeleteRole(t, adminKey, testRoleName1)
+		defer helper.DeleteRole(t, adminKey, testRoleName)
 
-		helper.AssignRoleToUser(t, adminKey, testRoleName1, customUser)
-		helper.AssignRoleToUserOIDC(t, adminKey, testRoleName1, customUser)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+		helper.AssignRoleToUserOIDC(t, adminKey, testRoleName, customUser)
 
 		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey)
 		require.Len(t, RolesDbUser, 1)
-		require.Equal(t, testRoleName1, *RolesDbUser[0].Name)
+		require.Equal(t, testRoleName, *RolesDbUser[0].Name)
 
 		RolesOIDCUser := helper.GetRolesForUserOIDC(t, customUser, adminKey)
 		require.Len(t, RolesOIDCUser, 1)
-		require.Equal(t, testRoleName1, *RolesOIDCUser[0].Name)
+		require.Equal(t, testRoleName, *RolesOIDCUser[0].Name)
 
 		_, err := helper.Client(t).Authz.RevokeRoleFromUser(
-			authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{testRoleName1}}),
+			authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{testRoleName}}),
 			clientAuth,
 		)
 		require.NoError(t, err)
 	})
 
-	t.Run("get role for User", func(t *testing.T) {
-		helper.DeleteRole(t, adminKey, testRoleName1)
+	t.Run("get role for User and user for role", func(t *testing.T) {
+		helper.DeleteRole(t, adminKey, testRoleName)
 		helper.CreateRole(t, adminKey, testRole1)
-		defer helper.DeleteRole(t, adminKey, testRoleName1)
+		defer helper.DeleteRole(t, adminKey, testRoleName)
 
-		helper.AssignRoleToUser(t, adminKey, testRoleName1, customUser)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
 		resp, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser), clientAuth)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)
-		require.Equal(t, testRoleName1, *resp.Payload[0].Name)
+		require.Equal(t, testRoleName, *resp.Payload[0].Name)
+
+		res, err := helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRoleName), clientAuth)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, customUser, res.Payload[0])
 
 		// no duplicates after also assigning to OIDC
-		helper.AssignRoleToUserOIDC(t, adminKey, testRoleName1, customUser)
+		helper.AssignRoleToUserOIDC(t, adminKey, testRoleName, customUser)
 		resp, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser), clientAuth)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)
-		require.Equal(t, testRoleName1, *resp.Payload[0].Name)
+		require.Equal(t, testRoleName, *resp.Payload[0].Name)
+
+		res, err = helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRoleName), clientAuth)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, customUser, res.Payload[0])
 
 		// remove from DB user, OIDC still has role
-		helper.RevokeRoleFromUser(t, adminKey, testRoleName1, customUser)
+		helper.RevokeRoleFromUser(t, adminKey, testRoleName, customUser)
 		resp, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser), clientAuth)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)
-		require.Equal(t, testRoleName1, *resp.Payload[0].Name)
+		require.Equal(t, testRoleName, *resp.Payload[0].Name)
+
+		res, err = helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRoleName), clientAuth)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, customUser, res.Payload[0])
 	})
 }

@@ -71,12 +71,17 @@ GetUsersForRoleParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type GetUsersForRoleParams struct {
-
 	/* ID.
 
 	   role name
 	*/
 	ID string
+
+	/* UserType.
+
+	   The type of user
+	*/
+	UserType string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -142,9 +147,19 @@ func (o *GetUsersForRoleParams) SetID(id string) {
 	o.ID = id
 }
 
+// WithUserType adds the userType to the get users for role params
+func (o *GetUsersForRoleParams) WithUserType(userType string) *GetUsersForRoleParams {
+	o.SetUserType(userType)
+	return o
+}
+
+// SetUserType adds the userType to the get users for role params
+func (o *GetUsersForRoleParams) SetUserType(userType string) {
+	o.UserType = userType
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *GetUsersForRoleParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -152,6 +167,11 @@ func (o *GetUsersForRoleParams) WriteToRequest(r runtime.ClientRequest, reg strf
 
 	// path param id
 	if err := r.SetPathParam("id", o.ID); err != nil {
+		return err
+	}
+
+	// path param userType
+	if err := r.SetPathParam("userType", o.UserType); err != nil {
 		return err
 	}
 
