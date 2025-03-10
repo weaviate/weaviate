@@ -72,6 +72,7 @@ func TestUpdateClassDescription(t *testing.T) {
 func TestUpdatePropertyDescription(t *testing.T) {
 	className := "C2"
 	propName := "p1"
+	nestedPropName := "np1"
 
 	delete := func() {
 		params := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
@@ -90,7 +91,11 @@ func TestUpdatePropertyDescription(t *testing.T) {
 			Properties: []*models.Property{
 				{
 					Name:     propName,
-					DataType: []string{"string"},
+					DataType: []string{"object"},
+					NestedProperties: []*models.NestedProperty{{
+						Name:     nestedPropName,
+						DataType: []string{"text"},
+					}},
 				},
 			},
 		}
@@ -102,7 +107,7 @@ func TestUpdatePropertyDescription(t *testing.T) {
 
 	newDescription := "its updated description"
 
-	t.Run("update property description", func(t *testing.T) {
+	t.Run("update property and nested property descriptions", func(t *testing.T) {
 		params := clschema.NewSchemaObjectsGetParams().
 			WithClassName(className)
 
@@ -112,6 +117,7 @@ func TestUpdatePropertyDescription(t *testing.T) {
 
 		prop := res.Payload.Properties[0]
 		prop.Description = newDescription
+		prop.NestedProperties[0].Description = newDescription
 		updateParams := clschema.NewSchemaObjectsUpdateParams().
 			WithClassName(className).
 			WithObjectClass(&models.Class{
@@ -122,13 +128,14 @@ func TestUpdatePropertyDescription(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
-	t.Run("assert update property description", func(t *testing.T) {
+	t.Run("assert updated descriptions", func(t *testing.T) {
 		params := clschema.NewSchemaObjectsGetParams().
 			WithClassName(className)
 
 		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
 		require.Nil(t, err)
 		assert.Equal(t, newDescription, res.Payload.Properties[0].Description)
+		assert.Equal(t, newDescription, res.Payload.Properties[0].NestedProperties[0].Description)
 	})
 
 	t.Run("update field other than description", func(t *testing.T) {
@@ -140,6 +147,28 @@ func TestUpdatePropertyDescription(t *testing.T) {
 
 		prop := res.Payload.Properties[0]
 		prop.DataType = []string{"int"}
+		updateParams := clschema.NewSchemaObjectsUpdateParams().
+			WithClassName(className).
+			WithObjectClass(&models.Class{
+				Class:      className,
+				Properties: []*models.Property{prop},
+			})
+		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
+		assert.NotNil(t, err)
+		parsed, ok := err.(*clschema.SchemaObjectsUpdateUnprocessableEntity)
+		require.True(t, ok)
+		require.Contains(t, parsed.Payload.Error[0].Message, "properties cannot be updated through updating the class")
+	})
+
+	t.Run("update field other than description in nested", func(t *testing.T) {
+		params := clschema.NewSchemaObjectsGetParams().
+			WithClassName(className)
+
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
+		require.Nil(t, err)
+
+		prop := res.Payload.Properties[0]
+		prop.NestedProperties[0].DataType = []string{"int"}
 		updateParams := clschema.NewSchemaObjectsUpdateParams().
 			WithClassName(className).
 			WithObjectClass(&models.Class{
