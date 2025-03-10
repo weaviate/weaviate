@@ -24,17 +24,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -265,7 +265,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		backupMutex:            backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		indexCheckpoints:       indexCheckpoints,
 		allocChecker:           allocChecker,
-		shardCreateLocks:       esync.NewKeyLocker(),
+		shardCreateLocks:       esync.NewKeyLocker(logger),
 		shardLoadLimiter:       cfg.ShardLoadLimiter,
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
@@ -2125,6 +2125,8 @@ func (i *Index) Shutdown(ctx context.Context) error {
 
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
+
+	i.shardCreateLocks.Cleanup()
 
 	if i.closed {
 		return errAlreadyShutdown
