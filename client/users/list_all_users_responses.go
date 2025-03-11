@@ -120,6 +120,7 @@ func (o *ListAllUsersOK) GetPayload() []*models.UserInfo {
 }
 
 func (o *ListAllUsersOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -138,7 +139,8 @@ ListAllUsersUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials.
 */
-type ListAllUsersUnauthorized struct{}
+type ListAllUsersUnauthorized struct {
+}
 
 // IsSuccess returns true when this list all users unauthorized response has a 2xx status code
 func (o *ListAllUsersUnauthorized) IsSuccess() bool {
@@ -179,6 +181,7 @@ func (o *ListAllUsersUnauthorized) String() string {
 }
 
 func (o *ListAllUsersUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -239,6 +242,7 @@ func (o *ListAllUsersForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ListAllUsersForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -306,6 +310,7 @@ func (o *ListAllUsersInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ListAllUsersInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

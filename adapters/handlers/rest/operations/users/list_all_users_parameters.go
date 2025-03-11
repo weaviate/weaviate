@@ -27,6 +27,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewListAllUsersParams() ListAllUsersParams {
+
 	return ListAllUsersParams{}
 }
 
@@ -35,6 +36,7 @@ func NewListAllUsersParams() ListAllUsersParams {
 //
 // swagger:parameters listAllUsers
 type ListAllUsersParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

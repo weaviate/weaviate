@@ -46,7 +46,7 @@ func (o *ListAllUsersURL) SetBasePath(bp string) {
 func (o *ListAllUsersURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/users"
+	var _path = "/users"
 
 	_basePath := o._basePath
 	if _basePath == "" {

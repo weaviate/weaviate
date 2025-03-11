@@ -33,6 +33,7 @@ ListAllUsersOK Info about the user
 swagger:response listAllUsersOK
 */
 type ListAllUsersOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type ListAllUsersOK struct {
 
 // NewListAllUsersOK creates ListAllUsersOK with default headers values
 func NewListAllUsersOK() *ListAllUsersOK {
+
 	return &ListAllUsersOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *ListAllUsersOK) SetPayload(payload []*models.UserInfo) {
 
 // WriteResponse to the client
 func (o *ListAllUsersOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -77,16 +80,19 @@ ListAllUsersUnauthorized Unauthorized or invalid credentials.
 
 swagger:response listAllUsersUnauthorized
 */
-type ListAllUsersUnauthorized struct{}
+type ListAllUsersUnauthorized struct {
+}
 
 // NewListAllUsersUnauthorized creates ListAllUsersUnauthorized with default headers values
 func NewListAllUsersUnauthorized() *ListAllUsersUnauthorized {
+
 	return &ListAllUsersUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ListAllUsersUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -100,6 +106,7 @@ ListAllUsersForbidden Forbidden
 swagger:response listAllUsersForbidden
 */
 type ListAllUsersForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -108,6 +115,7 @@ type ListAllUsersForbidden struct {
 
 // NewListAllUsersForbidden creates ListAllUsersForbidden with default headers values
 func NewListAllUsersForbidden() *ListAllUsersForbidden {
+
 	return &ListAllUsersForbidden{}
 }
 
@@ -124,6 +132,7 @@ func (o *ListAllUsersForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ListAllUsersForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -142,6 +151,7 @@ ListAllUsersInternalServerError An error has occurred while trying to fulfill th
 swagger:response listAllUsersInternalServerError
 */
 type ListAllUsersInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -150,6 +160,7 @@ type ListAllUsersInternalServerError struct {
 
 // NewListAllUsersInternalServerError creates ListAllUsersInternalServerError with default headers values
 func NewListAllUsersInternalServerError() *ListAllUsersInternalServerError {
+
 	return &ListAllUsersInternalServerError{}
 }
 
@@ -166,6 +177,7 @@ func (o *ListAllUsersInternalServerError) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ListAllUsersInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload
