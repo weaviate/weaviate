@@ -128,7 +128,23 @@ func TestRotateUnprocessableEntity(t *testing.T) {
 	h := dynUserHandler{
 		dynamicUser:          dynUser,
 		authorizer:           authorizer,
-		staticApiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
+		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
+	}
+
+	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
+	_, ok := res.(*users.RotateUserAPIKeyUnprocessableEntity)
+	assert.True(t, ok)
+}
+
+func TestRotateNoDynamic(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
+
+	h := dynUserHandler{
+		dynamicUser:    mocks.NewDynamicUserAndRolesGetter(t),
+		authorizer:     authorizer,
+		dynUserEnabled: false,
 	}
 
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)

@@ -702,9 +702,9 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			name:         "Valid API Key",
 			auth_env_var: []string{"AUTHENTICATION_APIKEY_ENABLED"},
 			expected: Authentication{
-				APIKey: APIKey{
+				DB: DB{StaticApiKeys: StaticAPIKey{
 					Enabled: true,
-				},
+				}},
 			},
 		},
 		{

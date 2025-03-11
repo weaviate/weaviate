@@ -105,10 +105,10 @@ func TestCreateInternalServerError(t *testing.T) {
 func TestCreateConflict(t *testing.T) {
 	tests := []struct {
 		name     string
-		rbacConf config.APIKey
+		rbacConf config.StaticAPIKey
 	}{
-		{name: "no rbac conf", rbacConf: config.APIKey{}},
-		{name: "enabled rbac conf", rbacConf: config.APIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}}},
+		{name: "no rbac conf", rbacConf: config.StaticAPIKey{}},
+		{name: "enabled rbac conf", rbacConf: config.StaticAPIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}}},
 	}
 
 	for _, tt := range tests {
@@ -188,6 +188,22 @@ func TestCreateUnprocessableEntityCreatingRootUser(t *testing.T) {
 	}
 
 	res := h.createUser(users.CreateUserParams{UserID: "user-root"}, principal)
+	_, ok := res.(*users.CreateUserUnprocessableEntity)
+	assert.True(t, ok)
+}
+
+func TestCreateNoDynamic(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
+
+	h := dynUserHandler{
+		dynamicUser:    mocks.NewDynamicUserAndRolesGetter(t),
+		authorizer:     authorizer,
+		dynUserEnabled: false,
+	}
+
+	res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
 	_, ok := res.(*users.CreateUserUnprocessableEntity)
 	assert.True(t, ok)
 }

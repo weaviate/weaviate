@@ -90,7 +90,7 @@ func TestRevokeRoleFromUserSuccess(t *testing.T) {
 			h := &authZHandlers{
 				authorizer:     authorizer,
 				controller:     controller,
-				apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
+				apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user1"}},
 				logger:         logger,
 			}
 			res := h.revokeRoleFromUser(tt.params, tt.principal)
@@ -166,7 +166,7 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 			h := &authZHandlers{
 				authorizer:     authorizer,
 				controller:     controller,
-				apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
+				apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user1"}},
 				logger:         logger,
 				rbacconfig: rbacconf.Config{
 					RootUsers: []string{"root-user"}, RootGroups: []string{"root-group"},
@@ -337,7 +337,7 @@ func TestRevokeRoleFromUserOrUserNotFound(t *testing.T) {
 			h := &authZHandlers{
 				authorizer:     authorizer,
 				controller:     controller,
-				apiKeysConfigs: config.APIKey{Enabled: true, Users: tt.existedUsers},
+				apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: tt.existedUsers},
 				logger:         logger,
 			}
 			res := h.revokeRoleFromUser(tt.params, tt.principal)
@@ -389,7 +389,7 @@ func TestRevokeRoleFromGroupOrUserNotFound(t *testing.T) {
 			h := &authZHandlers{
 				authorizer:     authorizer,
 				controller:     controller,
-				apiKeysConfigs: config.APIKey{Enabled: true, Users: tt.existedUsers},
+				apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: tt.existedUsers},
 				logger:         logger,
 				rbacconfig: rbacconf.Config{
 					RootUsers: []string{"root-user"},

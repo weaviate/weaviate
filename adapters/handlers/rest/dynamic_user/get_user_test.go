@@ -53,7 +53,7 @@ func TestSuccessList(t *testing.T) {
 			h := dynUserHandler{
 				dynamicUser:          dynUser,
 				authorizer:           authorizer,
-				staticApiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
+				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
 			}
 
@@ -79,7 +79,7 @@ func TestNotFound(t *testing.T) {
 	h := dynUserHandler{
 		dynamicUser:          dynUser,
 		authorizer:           authorizer,
-		staticApiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
+		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
 	}
 
 	res := h.getUser(users.GetUserInfoParams{UserID: "static"}, principal)

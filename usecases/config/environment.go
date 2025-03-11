@@ -162,17 +162,23 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if entcfg.Enabled(os.Getenv("DISABLE_DYNAMIC_USERS")) {
+		config.Authentication.DB.DynamicApiKeys.Enabled = false
+	} else {
+		config.Authentication.DB.DynamicApiKeys.Enabled = true
+	}
+
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
-		config.Authentication.APIKey.Enabled = true
+		config.Authentication.DB.StaticApiKeys.Enabled = true
 
 		if rawKeys, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
 			keys := strings.Split(rawKeys, ",")
-			config.Authentication.APIKey.AllowedKeys = keys
+			config.Authentication.DB.StaticApiKeys.AllowedKeys = keys
 		}
 
 		if rawUsers, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
 			users := strings.Split(rawUsers, ",")
-			config.Authentication.APIKey.Users = users
+			config.Authentication.DB.StaticApiKeys.Users = users
 		}
 
 	}

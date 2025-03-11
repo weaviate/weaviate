@@ -85,7 +85,7 @@ func TestActivateBadParameters(t *testing.T) {
 			h := dynUserHandler{
 				dynamicUser:          dynUser,
 				authorizer:           authorizer,
-				staticApiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"static-user"}},
+				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static-user"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}},
 			}
 
@@ -94,4 +94,20 @@ func TestActivateBadParameters(t *testing.T) {
 			assert.True(t, ok)
 		})
 	}
+}
+
+func TestActivateNoDynamic(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
+
+	h := dynUserHandler{
+		dynamicUser:    mocks.NewDynamicUserAndRolesGetter(t),
+		authorizer:     authorizer,
+		dynUserEnabled: false,
+	}
+
+	res := h.activateUser(users.ActivateUserParams{UserID: "user"}, principal)
+	_, ok := res.(*users.ActivateUserUnprocessableEntity)
+	assert.True(t, ok)
 }

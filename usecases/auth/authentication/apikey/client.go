@@ -22,13 +22,13 @@ import (
 )
 
 type StaticApiKey struct {
-	config         config.APIKey
+	config         config.StaticAPIKey
 	weakKeyStorage [][sha256.Size]byte
 }
 
 func NewStatic(cfg config.Config) (*StaticApiKey, error) {
 	c := &StaticApiKey{
-		config: cfg.Authentication.APIKey,
+		config: cfg.Authentication.DB.StaticApiKeys,
 	}
 
 	if err := c.validateConfig(); err != nil {

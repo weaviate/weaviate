@@ -36,9 +36,10 @@ import (
 type dynUserHandler struct {
 	authorizer           authorization.Authorizer
 	dynamicUser          DynamicUserAndRolesGetter
-	staticApiKeysConfigs config.APIKey
+	staticApiKeysConfigs config.StaticAPIKey
 	rbacConfig           rbacconf.Config
 	logger               logrus.FieldLogger
+	dynUserEnabled       bool
 }
 
 type DynamicUserAndRolesGetter interface {
@@ -59,12 +60,13 @@ const (
 
 var validateUserNameRegex = regexp.MustCompile(`^` + userNameRegexCore + `$`)
 
-func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, staticApiKeysConfigs config.APIKey, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
+func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, DbAuthConfig config.DB, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:           authorizer,
 		dynamicUser:          dynamicUser,
-		staticApiKeysConfigs: staticApiKeysConfigs,
+		staticApiKeysConfigs: DbAuthConfig.StaticApiKeys,
+		dynUserEnabled:       DbAuthConfig.DynamicApiKeys.Enabled,
 		rbacConfig:           rbacConfig,
 		logger:               logger,
 	}
@@ -78,7 +80,7 @@ func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesG
 	api.UsersListAllUsersHandler = users.ListAllUsersHandlerFunc(h.listUsers)
 }
 
-func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
+func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
 	isRootUser := h.isRequestFromRootUser(principal)
 
 	allDynamicUsers, err := h.dynamicUser.GetUsers()
@@ -190,6 +192,10 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	if !h.dynUserEnabled {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("dynamic user management is not enabled")))
+	}
+
 	if h.staticUserExists(params.UserID) {
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v already exists", params.UserID)))
 	}
@@ -245,6 +251,10 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	if !h.dynUserEnabled {
+		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("dynamic user management is not enabled")))
+	}
+
 	if h.staticUserExists(params.UserID) {
 		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
 	}
@@ -273,6 +283,10 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
 	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewDeleteUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if !h.dynUserEnabled {
+		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("dynamic user management is not enabled")))
 	}
 
 	if h.staticUserExists(params.UserID) {
@@ -314,6 +328,10 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		return users.NewDeactivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	if !h.dynUserEnabled {
+		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("dynamic user management is not enabled")))
+	}
+
 	if h.staticUserExists(params.UserID) {
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
 	}
@@ -350,6 +368,10 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal *models.Principal) middleware.Responder {
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if !h.dynUserEnabled {
+		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("dynamic user management is not enabled")))
 	}
 
 	if h.staticUserExists(params.UserID) {
