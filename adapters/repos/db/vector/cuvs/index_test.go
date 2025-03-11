@@ -522,7 +522,6 @@ func TestHnswConversion(t *testing.T) {
 	totalRecallAfter := 0.0
 	for i := 0; i < numVectors; i++ {
 		results, _, err := index.SearchByVector(context.Background(), vectors[i], k, nil)
-
 		require.NoError(t, err)
 		require.Len(t, results, k)
 		recall := calculateRecall([]uint64{ids[i]}, results)

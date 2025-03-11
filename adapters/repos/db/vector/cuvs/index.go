@@ -260,17 +260,17 @@ func (index *cuvs_index) Multivector() bool {
 
 func shouldExtend(index *cuvs_index, num_new uint64) bool {
 	if num_new > 100 {
-		println("num_new is greater than 100; rebuilding")
+		index.logger.Info("num_new is greater than 100; rebuilding")
 		return false
 	}
 
 	if index.count < 300_000 {
-		println("index count is less than 300_000; rebuilding")
+		index.logger.Info("index count is less than 300_000; rebuilding")
 		return false
 	}
 
 	if index.dlpackTensor == nil {
-		println("dlpack tensor is nil; rebuilding")
+		index.logger.Info("dlpack tensor is nil; rebuilding")
 		return false
 	}
 
@@ -278,7 +278,7 @@ func shouldExtend(index *cuvs_index, num_new uint64) bool {
 
 	// why 20? https://weaviate-org.slack.com/archives/C05V3MGDGQY/p1722897390825229?thread_ts=1722894509.398509&cid=C05V3MGDGQY
 	if percentNewVectors > float32(index.extendLimit) {
-		println("percentNewVectors is greater than 20; rebuilding")
+		index.logger.Info("percentNewVectors is greater than 20; rebuilding")
 		return false
 	}
 
@@ -328,7 +328,7 @@ func (index *cuvs_index) addWithHnsw(ctx context.Context, id uint64, vector []fl
 	index.Lock()
 	defer index.Unlock()
 
-	println("adding with hnsw")
+	index.logger.Info("adding with hnsw")
 
 	if len(vector) != int(index.dims) {
 		return errors.Errorf("insert called with a vector of the wrong size")
@@ -348,8 +348,6 @@ func (index *cuvs_index) addWithHnsw(ctx context.Context, id uint64, vector []fl
 	if !index.isConvertedToHnsw {
 		return errors.Errorf("cuvs index is not converted to hnsw")
 	}
-
-	println("Adding to hnsw")
 
 	extendParams, err := hnsw.CreateExtendParams()
 	if err != nil {
@@ -372,8 +370,8 @@ func (index *cuvs_index) addWithHnsw(ctx context.Context, id uint64, vector []fl
 }
 
 func (index *cuvs_index) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
-	println("ADD VECTORS")
-	fmt.Println("num vectors: ", len(vectors))
+	index.logger.Info("ADD VECTORS")
+	index.logger.Info("num vectors: ", len(vectors))
 	index.Lock()
 	defer index.Unlock()
 
@@ -406,8 +404,6 @@ func (index *cuvs_index) AddBatch(ctx context.Context, ids []uint64, vectors [][
 		return errors.New("cuvs index is nil")
 	}
 
-	fmt.Println("storing in bucket")
-
 	// store in bucket
 	for i := range ids {
 		slice := make([]byte, len(vectors[i])*4)
@@ -415,8 +411,6 @@ func (index *cuvs_index) AddBatch(ctx context.Context, ids []uint64, vectors [][
 		binary.BigEndian.PutUint64(idBytes, ids[i])
 		index.store.Bucket(index.getBucketName()).Put(idBytes, byteSliceFromFloat32Slice(vectors[i], slice))
 	}
-
-	fmt.Println("storing in bucket")
 
 	// If index is not built yet and we're still under threshold
 	if !index.isIndexBuilt && index.count+uint64(len(ids)) < 32 {
@@ -430,13 +424,11 @@ func (index *cuvs_index) AddBatch(ctx context.Context, ids []uint64, vectors [][
 		return nil
 	}
 
-	fmt.Println("done storing in bucket")
-
 	// If we have enough vectors to build the index but haven't built it yet
 	if !index.isIndexBuilt && index.count+uint64(len(ids)) >= 32 {
 		// Combine holding vectors with new vectors
-		// allVectors := append(index.holdingVectors, vectors...)
-		// allIds := append(index.holdingIds, ids...)
+		allVectors := append(index.holdingVectors, vectors...)
+		allIds := append(index.holdingIds, ids...)
 
 		// Clear holding area
 		index.holdingVectors = nil
@@ -446,8 +438,8 @@ func (index *cuvs_index) AddBatch(ctx context.Context, ids []uint64, vectors [][
 		index.isIndexBuilt = true
 		index.count = 0 // Reset count as AddWithRebuild will increment it
 
-		// fmt.Println("building initial index with ", len(allVectors), " vectors")
-		return AddWithRebuild(index, ids, vectors)
+		index.logger.Info("building initial index with ", len(allVectors), " vectors")
+		return AddWithRebuild(index, allIds, allVectors)
 	}
 
 	if shouldExtend(index, uint64(len(ids))) {
@@ -506,7 +498,7 @@ func AddWithRebuild(index *cuvs_index, id []uint64, vector [][]float32) error {
 	if err != nil {
 		return err
 	}
-	println("done")
+	index.logger.Info("done adding with rebuild")
 
 	return nil
 }
@@ -525,8 +517,7 @@ func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
 	if err != nil {
 		return err
 	}
-	println(index.count)
-	println(index.count + uint64(len(id)))
+
 	ReturnDataset := make([][]float32, index.count+uint64(len(id)))
 	for i := range ReturnDataset {
 		ReturnDataset[i] = make([]float32, len(vector[0]))
@@ -715,11 +706,11 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 	if index.batchEnabled && index.searchBatcher != nil {
 		return index.searchBatcher.SearchByVector(ctx, vector, k, allow)
 	}
-	index.Lock()
-	defer index.Unlock()
 	if index.isConvertedToHnsw {
 		return index.searchByVectorWithHnsw(ctx, vector, k, allow)
 	}
+	index.Lock()
+	defer index.Unlock()
 
 	// If index is not built yet, perform linear search on holding vectors
 	if !index.isIndexBuilt {
