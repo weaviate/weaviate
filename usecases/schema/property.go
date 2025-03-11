@@ -113,54 +113,40 @@ func (h *Handler) setNewPropDefaults(class *models.Class, props ...*models.Prope
 }
 
 func (h *Handler) validatePropModuleConfig(class *models.Class, props ...*models.Property) error {
+	configuredVectorizers := map[string]struct{}{}
+	if class.Vectorizer != "" {
+		configuredVectorizers[class.Vectorizer] = struct{}{}
+	}
+
+	for targetVector, cfg := range class.VectorConfig {
+		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
+			for vectorizer := range vm {
+				configuredVectorizers[vectorizer] = struct{}{}
+			}
+		} else if len(vm) > 1 {
+			return fmt.Errorf("vector index %q has multiple vectorizers", targetVector)
+		}
+	}
+
 	for _, prop := range props {
 		if prop.ModuleConfig == nil {
 			continue
 		}
+
 		modconfig, ok := prop.ModuleConfig.(map[string]interface{})
 		if !ok {
 			return fmt.Errorf("%v property config invalid", prop.Name)
 		}
 
-		if !hasTargetVectors(class) {
-			configuredVectorizers := make([]string, 0, len(modconfig))
-			for modName := range modconfig {
-				if err := h.vectorizerValidator.ValidateVectorizer(modName); err == nil {
-					configuredVectorizers = append(configuredVectorizers, modName)
-				}
-			}
-			if len(configuredVectorizers) > 1 {
-				return fmt.Errorf("multiple vectorizers configured in property's %q moduleConfig: %v. class.vectorizer is set to %q",
-					prop.Name, configuredVectorizers, class.Vectorizer)
-			}
-
-			vectorizerConfig, ok := modconfig[class.Vectorizer]
-			if !ok {
-				if class.Vectorizer == "none" {
-					continue
-				}
-				return fmt.Errorf("%v vectorizer module not part of the property", class.Vectorizer)
-			}
-			_, ok = vectorizerConfig.(map[string]interface{})
-			if !ok {
-				return fmt.Errorf("vectorizer config for vectorizer %v, not of type map[string]interface{}", class.Vectorizer)
-			}
-			continue
-		}
-
-		// TODO reuse for multiple props?
-		vectorizersSet := map[string]struct{}{}
-		for _, cfg := range class.VectorConfig {
-			if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
-				for vectorizer := range vm {
-					vectorizersSet[vectorizer] = struct{}{}
-				}
-			}
-		}
 		for vectorizer, cfg := range modconfig {
-			if _, ok := vectorizersSet[vectorizer]; !ok {
+			if err := h.vectorizerValidator.ValidateVectorizer(vectorizer); err != nil {
+				continue
+			}
+
+			if _, ok := configuredVectorizers[vectorizer]; !ok {
 				return fmt.Errorf("vectorizer %q not configured for any of target vectors", vectorizer)
 			}
+
 			if _, ok := cfg.(map[string]interface{}); !ok {
 				return fmt.Errorf("vectorizer config for vectorizer %q not of type map[string]interface{}", vectorizer)
 			}
