@@ -122,6 +122,10 @@ func (c *DynamicApiKey) GetUsers(userIds ...string) (map[string]*User, error) {
 	c.RLock()
 	defer c.RUnlock()
 
+	if len(userIds) == 0 {
+		return c.users, nil
+	}
+
 	users := make(map[string]*User, len(userIds))
 	for _, id := range userIds {
 		user, ok := c.users[id]

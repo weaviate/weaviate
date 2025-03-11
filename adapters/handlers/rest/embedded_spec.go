@@ -4227,6 +4227,44 @@ func init() {
         }
       }
     },
+    "/users": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "list all users",
+        "operationId": "listAllUsers",
+        "responses": {
+          "200": {
+            "description": "Info about the user",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/UserInfo"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.id.list_all"
+        ]
+      }
+    },
     "/users/own-info": {
       "get": {
         "tags": [
@@ -11537,6 +11575,44 @@ func init() {
             }
           }
         }
+      }
+    },
+    "/users": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "list all users",
+        "operationId": "listAllUsers",
+        "responses": {
+          "200": {
+            "description": "Info about the user",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/UserInfo"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.id.list_all"
+        ]
       }
     },
     "/users/own-info": {

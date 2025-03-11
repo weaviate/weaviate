@@ -53,6 +53,8 @@ type ClientService interface {
 
 	GetUserInfo(params *GetUserInfoParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUserInfoOK, error)
 
+	ListAllUsers(params *ListAllUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListAllUsersOK, error)
+
 	RotateUserAPIKey(params *RotateUserAPIKeyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RotateUserAPIKeyOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
@@ -289,6 +291,45 @@ func (a *Client) GetUserInfo(params *GetUserInfoParams, authInfo runtime.ClientA
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for getUserInfo: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+ListAllUsers lists all users
+*/
+func (a *Client) ListAllUsers(params *ListAllUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListAllUsersOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListAllUsersParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "listAllUsers",
+		Method:             "GET",
+		PathPattern:        "/users",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ListAllUsersReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ListAllUsersOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for listAllUsers: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
