@@ -38,25 +38,25 @@ func New(logger *logrus.Logger, clusterStateReader cluster.NodeSelector, metadat
 	}
 }
 
-func (r *Router) GetReadWriteReplicasLocation(collection string, shard string) ([]string, []string, int, error) {
+func (r *Router) GetReadWriteReplicasLocation(collection string, shard string) ([]string, []string, error) {
 	replicas, err := r.metadataReader.ShardReplicas(collection, shard)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
-	readReplicas, writeReplicas, writePrios := r.replicationFSM.FilterOneShardReplicasReadWrite(collection, shard, replicas)
-	return readReplicas, writeReplicas, writePrios, nil
+	readReplicas, writeReplicas := r.replicationFSM.FilterOneShardReplicasReadWrite(collection, shard, replicas)
+	return readReplicas, writeReplicas, nil
 }
 
-func (r *Router) GetWriteReplicasLocation(collection string, shard string) ([]string, int, error) {
-	_, writeReplicasLocation, writePrios, err := r.GetReadWriteReplicasLocation(collection, shard)
+func (r *Router) GetWriteReplicasLocation(collection string, shard string) ([]string, error) {
+	_, writeReplicasLocation, err := r.GetReadWriteReplicasLocation(collection, shard)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	return writeReplicasLocation, writePrios, nil
+	return writeReplicasLocation, nil
 }
 
 func (r *Router) GetReadReplicasLocation(collection string, shard string) ([]string, error) {
-	readReplicasLocation, _, _, err := r.GetReadWriteReplicasLocation(collection, shard)
+	readReplicasLocation, _, err := r.GetReadWriteReplicasLocation(collection, shard)
 	if err != nil {
 		return nil, err
 	}
