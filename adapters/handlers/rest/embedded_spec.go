@@ -703,13 +703,82 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get users or a keys assigned to role",
-        "operationId": "getUsersForRole",
+        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getUsersForRoleDeprecated",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "description": "role name",
             "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Users assigned to this role",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.users"
+        ]
+      }
+    },
+    "/authz/roles/{id}/users/{userType}": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get users or a keys assigned to role",
+        "operationId": "getUsersForRole",
+        "deprecated": true,
+        "parameters": [
+          {
+            "type": "string",
+            "description": "role name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc",
+              "db"
+            ],
+            "type": "string",
+            "description": "The type of user",
+            "name": "userType",
             "in": "path",
             "required": true
           }
@@ -782,6 +851,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserType"
                 }
               }
             }
@@ -852,6 +924,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserType"
                 }
               }
             }
@@ -899,8 +974,9 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user",
-        "operationId": "getRolesForUser",
+        "summary": "get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getRolesForUserDeprecated",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -934,6 +1010,82 @@ func init() {
           },
           "404": {
             "description": "no role found for user"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.users.roles"
+        ]
+      }
+    },
+    "/authz/users/{id}/roles/{userType}": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to user",
+        "operationId": "getRolesForUser",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "user name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc",
+              "db"
+            ],
+            "type": "string",
+            "description": "The type of user",
+            "name": "userType",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found for user"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -4244,6 +4396,9 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "404": {
+            "description": "user not found"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
@@ -6134,6 +6289,9 @@ func init() {
             "type": "string"
           }
         },
+        "userType": {
+          "$ref": "#/definitions/UserType"
+        },
         "username": {
           "description": "The username that was extracted either from the authentication information",
           "type": "string"
@@ -6666,8 +6824,8 @@ func init() {
     "UserInfo": {
       "type": "object",
       "required": [
-        "user_id",
-        "user_type",
+        "userId",
+        "dbUserType",
         "roles",
         "active"
       ],
@@ -6676,6 +6834,14 @@ func init() {
           "description": "activity status of the returned user",
           "type": "boolean"
         },
+        "dbUserType": {
+          "description": "type of the returned user",
+          "type": "string",
+          "enum": [
+            "dynamic",
+            "static"
+          ]
+        },
         "roles": {
           "description": "The role names associated to the user",
           "type": "array",
@@ -6683,17 +6849,9 @@ func init() {
             "type": "string"
           }
         },
-        "user_id": {
+        "userId": {
           "description": "The user id of the given user",
           "type": "string"
-        },
-        "user_type": {
-          "description": "type of the returned user",
-          "type": "string",
-          "enum": [
-            "dynamic",
-            "static"
-          ]
         }
       }
     },
@@ -6723,6 +6881,14 @@ func init() {
           "type": "string"
         }
       }
+    },
+    "UserType": {
+      "description": "the type of user",
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ]
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
@@ -7727,13 +7893,82 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get users or a keys assigned to role",
-        "operationId": "getUsersForRole",
+        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getUsersForRoleDeprecated",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "description": "role name",
             "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Users assigned to this role",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.users"
+        ]
+      }
+    },
+    "/authz/roles/{id}/users/{userType}": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get users or a keys assigned to role",
+        "operationId": "getUsersForRole",
+        "deprecated": true,
+        "parameters": [
+          {
+            "type": "string",
+            "description": "role name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc",
+              "db"
+            ],
+            "type": "string",
+            "description": "The type of user",
+            "name": "userType",
             "in": "path",
             "required": true
           }
@@ -7806,6 +8041,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserType"
                 }
               }
             }
@@ -7876,6 +8114,9 @@ func init() {
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserType"
                 }
               }
             }
@@ -7923,8 +8164,9 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user",
-        "operationId": "getRolesForUser",
+        "summary": "get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getRolesForUserDeprecated",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -7958,6 +8200,82 @@ func init() {
           },
           "404": {
             "description": "no role found for user"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.users.roles"
+        ]
+      }
+    },
+    "/authz/users/{id}/roles/{userType}": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to user",
+        "operationId": "getRolesForUser",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "user name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc",
+              "db"
+            ],
+            "type": "string",
+            "description": "The type of user",
+            "name": "userType",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found for user"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -11390,6 +11708,9 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "404": {
+            "description": "user not found"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
@@ -13568,6 +13889,9 @@ func init() {
             "type": "string"
           }
         },
+        "userType": {
+          "$ref": "#/definitions/UserType"
+        },
         "username": {
           "description": "The username that was extracted either from the authentication information",
           "type": "string"
@@ -14100,8 +14424,8 @@ func init() {
     "UserInfo": {
       "type": "object",
       "required": [
-        "user_id",
-        "user_type",
+        "userId",
+        "dbUserType",
         "roles",
         "active"
       ],
@@ -14110,6 +14434,14 @@ func init() {
           "description": "activity status of the returned user",
           "type": "boolean"
         },
+        "dbUserType": {
+          "description": "type of the returned user",
+          "type": "string",
+          "enum": [
+            "dynamic",
+            "static"
+          ]
+        },
         "roles": {
           "description": "The role names associated to the user",
           "type": "array",
@@ -14117,17 +14449,9 @@ func init() {
             "type": "string"
           }
         },
-        "user_id": {
+        "userId": {
           "description": "The user id of the given user",
           "type": "string"
-        },
-        "user_type": {
-          "description": "type of the returned user",
-          "type": "string",
-          "enum": [
-            "dynamic",
-            "static"
-          ]
         }
       }
     },
@@ -14157,6 +14481,14 @@ func init() {
           "type": "string"
         }
       }
+    },
+    "UserType": {
+      "description": "the type of user",
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ]
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",

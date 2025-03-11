@@ -120,11 +120,11 @@ func (o *GetUsersForRoleOK) Code() int {
 }
 
 func (o *GetUsersForRoleOK) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleOK  %+v", 200, o.Payload)
 }
 
 func (o *GetUsersForRoleOK) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleOK  %+v", 200, o.Payload)
 }
 
 func (o *GetUsersForRoleOK) GetPayload() []string {
@@ -186,11 +186,11 @@ func (o *GetUsersForRoleBadRequest) Code() int {
 }
 
 func (o *GetUsersForRoleBadRequest) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetUsersForRoleBadRequest) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetUsersForRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -253,11 +253,11 @@ func (o *GetUsersForRoleUnauthorized) Code() int {
 }
 
 func (o *GetUsersForRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleUnauthorized ", 401)
 }
 
 func (o *GetUsersForRoleUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleUnauthorized ", 401)
 }
 
 func (o *GetUsersForRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -310,11 +310,11 @@ func (o *GetUsersForRoleForbidden) Code() int {
 }
 
 func (o *GetUsersForRoleForbidden) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetUsersForRoleForbidden) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetUsersForRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -377,11 +377,11 @@ func (o *GetUsersForRoleNotFound) Code() int {
 }
 
 func (o *GetUsersForRoleNotFound) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleNotFound ", 404)
 }
 
 func (o *GetUsersForRoleNotFound) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleNotFound ", 404)
 }
 
 func (o *GetUsersForRoleNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -434,11 +434,11 @@ func (o *GetUsersForRoleInternalServerError) Code() int {
 }
 
 func (o *GetUsersForRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetUsersForRoleInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/users/{userType}][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetUsersForRoleInternalServerError) GetPayload() *models.ErrorResponse {

@@ -23,10 +23,9 @@ import (
 	"strings"
 )
 
-// GetRolesForUserURL generates an URL for the get roles for user operation
-type GetRolesForUserURL struct {
-	ID       string
-	UserType string
+// GetUsersForRoleDeprecatedURL generates an URL for the get users for role deprecated operation
+type GetUsersForRoleDeprecatedURL struct {
+	ID string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -36,7 +35,7 @@ type GetRolesForUserURL struct {
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *GetRolesForUserURL) WithBasePath(bp string) *GetRolesForUserURL {
+func (o *GetUsersForRoleDeprecatedURL) WithBasePath(bp string) *GetUsersForRoleDeprecatedURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -44,28 +43,21 @@ func (o *GetRolesForUserURL) WithBasePath(bp string) *GetRolesForUserURL {
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *GetRolesForUserURL) SetBasePath(bp string) {
+func (o *GetUsersForRoleDeprecatedURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *GetRolesForUserURL) Build() (*url.URL, error) {
+func (o *GetUsersForRoleDeprecatedURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/users/{id}/roles/{userType}"
+	var _path = "/authz/roles/{id}/users"
 
 	id := o.ID
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("id is required on GetRolesForUserURL")
-	}
-
-	userType := o.UserType
-	if userType != "" {
-		_path = strings.Replace(_path, "{userType}", userType, -1)
-	} else {
-		return nil, errors.New("userType is required on GetRolesForUserURL")
+		return nil, errors.New("id is required on GetUsersForRoleDeprecatedURL")
 	}
 
 	_basePath := o._basePath
@@ -78,7 +70,7 @@ func (o *GetRolesForUserURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *GetRolesForUserURL) Must(u *url.URL, err error) *url.URL {
+func (o *GetUsersForRoleDeprecatedURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -89,17 +81,17 @@ func (o *GetRolesForUserURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *GetRolesForUserURL) String() string {
+func (o *GetUsersForRoleDeprecatedURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *GetRolesForUserURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *GetUsersForRoleDeprecatedURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on GetRolesForUserURL")
+		return nil, errors.New("scheme is required for a full url on GetUsersForRoleDeprecatedURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on GetRolesForUserURL")
+		return nil, errors.New("host is required for a full url on GetUsersForRoleDeprecatedURL")
 	}
 
 	base, err := o.Build()
@@ -113,6 +105,6 @@ func (o *GetRolesForUserURL) BuildFull(scheme, host string) (*url.URL, error) {
 }
 
 // StringFull returns the string representation of a complete url
-func (o *GetRolesForUserURL) StringFull(scheme, host string) string {
+func (o *GetUsersForRoleDeprecatedURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }

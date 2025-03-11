@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
@@ -230,4 +232,52 @@ func migrateRemoveRolesPermissionsV3(permissions []*authorization.Policy) []*aut
 		permissions[idx].Verb = authorization.USER_ASSIGN_AND_REVOKE
 	}
 	return permissions
+}
+
+func migrateRevokeRoles(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRolesForUserRequest {
+	if req.Version == cmd.RBACAssignRevokeCommandPolicyVersionV0 {
+		return migrateRevokeRolesV0(req)
+	}
+	return []*cmd.RevokeRolesForUserRequest{req}
+}
+
+func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRolesForUserRequest {
+	user, _ := conv.GetUserAndPrefix(req.User)
+
+	req1 := &cmd.RevokeRolesForUserRequest{
+		Version: req.Version + 1,
+		Roles:   req.Roles,
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeDb),
+	}
+	req2 := &cmd.RevokeRolesForUserRequest{
+		Version: req.Version + 1,
+		Roles:   req.Roles,
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeOidc),
+	}
+
+	return []*cmd.RevokeRolesForUserRequest{req1, req2}
+}
+
+func migrateAssignRoles(req *cmd.AddRolesForUsersRequest) []*cmd.AddRolesForUsersRequest {
+	if req.Version == cmd.RBACAssignRevokeCommandPolicyVersionV0 {
+		return migrateAssignRolesV0(req)
+	}
+	return []*cmd.AddRolesForUsersRequest{req}
+}
+
+func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest) []*cmd.AddRolesForUsersRequest {
+	user, _ := conv.GetUserAndPrefix(req.User)
+
+	req1 := &cmd.AddRolesForUsersRequest{
+		Version: req.Version + 1,
+		Roles:   req.Roles,
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeDb),
+	}
+	req2 := &cmd.AddRolesForUsersRequest{
+		Version: req.Version + 1,
+		Roles:   req.Roles,
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeOidc),
+	}
+
+	return []*cmd.AddRolesForUsersRequest{req1, req2}
 }

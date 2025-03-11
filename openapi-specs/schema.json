@@ -5,6 +5,11 @@
     "application/json"
   ],
   "definitions": {
+    "UserType": {
+      "type": "string",
+      "enum": ["db", "oidc"],
+      "description": "the type of user"
+    },
     "UserOwnInfo": {
       "type": "object",
       "properties": {
@@ -40,11 +45,11 @@
             "type": "string"
           }
         },
-        "user_id": {
+        "userId": {
           "type": "string",
           "description": "The user id of the given user"
         },
-        "user_type":{
+        "dbUserType":{
           "type": "string",
           "enum": [
             "dynamic",
@@ -57,7 +62,8 @@
           "description": "activity status of the returned user"
         }
       },
-      "required": ["user_id", "user_type", "roles", "active"]
+      "required": [
+        "userId", "dbUserType", "roles", "active"]
     },
     "UserApiKey": {
       "type": "object",
@@ -281,6 +287,9 @@
           "items": {
             "type": "string"
           }
+        },
+        "userType": {
+          "$ref": "#/definitions/UserType"
         }
       }
     },
@@ -2852,6 +2861,9 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "404": {
+            "description": "user not found"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
@@ -3465,8 +3477,9 @@
     },
     "/authz/roles/{id}/users": {
       "get": {
-        "summary": "get users or a keys assigned to role",
-        "operationId": "getUsersForRole",
+        "deprecated": true,
+        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getUsersForRoleDeprecated",
         "x-serviceIds": [
           "weaviate.authz.get.roles.users"
         ],
@@ -3519,10 +3532,76 @@
         }
       }
     },
+    "/authz/roles/{id}/users/{userType}": {
+      "get": {
+        "deprecated": true,
+        "summary": "get users or a keys assigned to role",
+        "operationId": "getUsersForRole",
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.users"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "role name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "path",
+            "name": "userType",
+            "required": true,
+            "type": "string",
+            "enum": ["oidc", "db"],
+            "description": "The type of user"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Users assigned to this role",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/authz/users/{id}/roles": {
       "get": {
-        "summary": "get roles assigned to user",
-        "operationId": "getRolesForUser",
+        "deprecated": true,
+        "summary": "get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getRolesForUserDeprecated",
         "x-serviceIds": [
           "weaviate.authz.get.users.roles"
         ],
@@ -3562,6 +3641,79 @@
           },
           "404": {
             "description": "no role found for user"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/users/{id}/roles/{userType}": {
+      "get": {
+        "summary": "get roles assigned to user",
+        "operationId": "getRolesForUser",
+        "x-serviceIds": [
+          "weaviate.authz.get.users.roles"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "user name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "path",
+            "name": "userType",
+            "required": true,
+            "type": "string",
+            "enum": ["oidc", "db"],
+            "description": "The type of user"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found for user"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -3603,6 +3755,9 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                   "$ref": "#/definitions/UserType"
                 }
               }
             }
@@ -3673,6 +3828,9 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserType"
                 }
               }
             }
