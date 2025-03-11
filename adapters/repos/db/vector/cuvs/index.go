@@ -739,7 +739,22 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 		return nil, nil, err
 	}
 
-	cagra.SearchIndex(*index.cuvsResource, index.cuvsSearchParams, index.cuvsIndex, &queries, &neighbors, &distances, index.createAllowList())
+	if len(index.cuvsFilter) == 0 && allow == nil {
+		cagra.SearchIndex(*index.cuvsResource, index.cuvsSearchParams, index.cuvsIndex, &queries, &neighbors, &distances, nil)
+	} else if allow != nil {
+		list := []uint32{}
+
+		it := allow.Iterator()
+
+		for next, ok := it.Next(); ok; next, ok = it.Next() {
+			if !slices.Contains(index.cuvsFilter, uint32(next)) {
+				list = append(list, uint32(next))
+			}
+		}
+		cagra.SearchIndex(*index.cuvsResource, index.cuvsSearchParams, index.cuvsIndex, &queries, &neighbors, &distances, list)
+	} else {
+		cagra.SearchIndex(*index.cuvsResource, index.cuvsSearchParams, index.cuvsIndex, &queries, &neighbors, &distances, index.createAllowList())
+	}
 
 	_, err = neighbors.ToHost(index.cuvsResource)
 	if err != nil {

@@ -84,7 +84,6 @@ func setupTestIndex(t *testing.T) (*cuvs_index, string, func(), *lsmkv.Store) {
 
 	println(userCfg.BuildAlgo)
 	println(userCfg.SearchAlgo)
-	println("testsdfsdf")
 	t.Log(userCfg.BuildAlgo)
 
 	index, err := New(cfg, userCfg, store)
@@ -148,7 +147,7 @@ func TestPersistence(t *testing.T) {
 		Logger:   logger,
 	}
 
-	userCfg := cuvs.UserConfig{}
+	userCfg := cuvs.NewDefaultUserConfig()
 
 	newIndex, err := New(cfg, userCfg, store)
 	require.NoError(t, err)
@@ -347,7 +346,7 @@ func TestDeleteWithPersistence(t *testing.T) {
 		Logger:   logger,
 	}
 
-	userCfg := cuvs.UserConfig{}
+	userCfg := cuvs.NewDefaultUserConfig()
 
 	newIndex, err := New(cfg, userCfg, store)
 	require.NoError(t, err)
