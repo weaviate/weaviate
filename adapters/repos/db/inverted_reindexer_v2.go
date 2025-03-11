@@ -255,12 +255,12 @@ func (r *ReindexerV2) runForShard(ctx context.Context, task ShardInvertedReindex
 	}
 	defer release()
 
-	rerunAfter, err := task.ReindexByShard(ctx, shard)
+	rerunAt, err := task.ReindexByShard(ctx, shard)
 	if err != nil {
 		return err
 	}
-	if !rerunAfter.IsZero() {
-		tracker.insert(shardName, rerunAfter)
+	if !rerunAt.IsZero() {
+		tracker.insert(shardName, rerunAt)
 	}
 	return nil
 }
@@ -299,9 +299,9 @@ func (t *processingTracker) decrement() {
 	t.lock.Unlock()
 }
 
-func (t *processingTracker) insert(shardName string, rerunAfter time.Time) {
+func (t *processingTracker) insert(shardName string, rerunAt time.Time) {
 	t.lock.Lock()
-	t.rerunShardQueue.InsertWithValue(uint64(rerunAfter.UnixMicro()), 0, shardName)
+	t.rerunShardQueue.InsertWithValue(uint64(rerunAt.UnixMicro()), 0, shardName)
 	t.lock.Unlock()
 }
 
