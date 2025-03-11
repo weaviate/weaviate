@@ -49,6 +49,14 @@ func (m memberlist) LocalName() string {
 	return m.nodes[0]
 }
 
+func (m memberlist) AllHostnames() []string {
+	return m.nodes
+}
+
+func (m memberlist) NodeAddress(name string) string {
+	return name
+}
+
 func NewMockNodeSelector(node ...string) memberlist {
 	return memberlist{nodes: node}
 }
