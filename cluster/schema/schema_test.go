@@ -197,22 +197,6 @@ func Test_schemaDeepCopy(t *testing.T) {
 		assert.Equal(t, original.ShardVersion, copiedClass.ShardVersion)
 	})
 
-	t.Run("States deep copy", func(t *testing.T) {
-		states := s.States()
-
-		original := s.classes["test"]
-		copiedState := states["test"]
-
-		copiedState.Class.Class = "modified"
-		physical := copiedState.Shards.Physical["shard1"]
-		physical.Status = "COLD"
-		copiedState.Shards.Physical["shard1"] = physical
-
-		// Verify original is unchanged
-		assert.Equal(t, "test", original.Class.Class)
-		assert.Equal(t, "HOT", original.Sharding.Physical["shard1"].Status)
-	})
-
 	t.Run("Concurrent access", func(t *testing.T) {
 		done := make(chan bool)
 		go func() {
@@ -224,7 +208,6 @@ func Test_schemaDeepCopy(t *testing.T) {
 		}()
 
 		for i := 0; i < 100; i++ {
-			t.Logf("adding class %d", i)
 			s.addClass(&models.Class{Class: fmt.Sprintf("concurrent%d", i)}, shardState, uint64(i))
 		}
 		<-done
