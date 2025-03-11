@@ -42,7 +42,7 @@ func Test_AddClass(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-		class := models.Class{
+		class := &models.Class{
 			Class: "NewClass",
 			Properties: []*models.Property{
 				{DataType: []string{"text"}, Name: "textProp"},
@@ -52,8 +52,63 @@ func Test_AddClass(t *testing.T) {
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		_, _, err := handler.AddClass(ctx, nil, &class)
+
+		_, _, err := handler.AddClass(ctx, nil, class)
 		assert.Nil(t, err)
+
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("happy path, named vectors", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		class := &models.Class{
+			Class: "NewClass",
+			Properties: []*models.Property{
+				{DataType: []string{"text"}, Name: "textProp"},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: hnswT,
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{},
+					},
+				},
+			},
+		}
+		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+
+		_, _, err := handler.AddClass(ctx, nil, class)
+		require.NoError(t, err)
+
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("happy path, mixed vectors", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		class := &models.Class{
+			Class: "NewClass",
+			Properties: []*models.Property{
+				{DataType: []string{"text"}, Name: "textProp"},
+			},
+			Vectorizer:      "text2vec-contextionary",
+			VectorIndexType: hnswT,
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: hnswT,
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{},
+					},
+				},
+			},
+		}
+		fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+
+		_, _, err := handler.AddClass(ctx, nil, class)
+		require.NoError(t, err)
 
 		fakeSchemaManager.AssertExpectations(t)
 	})
@@ -336,51 +391,37 @@ func Test_AddClass(t *testing.T) {
 	t.Run("with invalid settings", func(t *testing.T) {
 		handler, _ := newTestHandler(t, &fakeDB{})
 
-		// Vectorizer while VectorConfig exists
 		_, _, err := handler.AddClass(ctx, nil, &models.Class{
-			Class:      "NewClass",
-			Vectorizer: "some",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "hnsw",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
-			}},
-		})
-		assert.EqualError(t, err, "class.vectorizer \"some\" can not be set if class.vectorConfig is configured")
-
-		// VectorIndexType while VectorConfig exists
-		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class:           "NewClass",
-			VectorIndexType: "some",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "hnsw",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
-			}},
+			VectorIndexType: "invalid",
 		})
-		assert.EqualError(t, err, "class.vectorIndexType \"some\" can not be set if class.vectorConfig is configured")
+		assert.EqualError(t, err, `unrecognized or unsupported vectorIndexType "invalid"`)
 
 		// VectorConfig is invalid VectorIndexType
 		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class: "NewClass",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "invalid",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
-			}},
+			VectorConfig: map[string]models.VectorConfig{
+				"custom": {
+					VectorIndexType:   "invalid",
+					VectorIndexConfig: hnsw.UserConfig{},
+					Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+				},
+			},
 		})
-		assert.EqualError(t, err, "target vector \"custom\": unrecognized or unsupported vectorIndexType \"invalid\"")
+		assert.EqualError(t, err, `target vector "custom": unrecognized or unsupported vectorIndexType "invalid"`)
 
 		// VectorConfig is invalid Vectorizer
 		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class: "NewClass",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "flat",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"invalid": nil},
-			}},
+			VectorConfig: map[string]models.VectorConfig{
+				"custom": {
+					VectorIndexType:   "flat",
+					VectorIndexConfig: hnsw.UserConfig{},
+					Vectorizer:        map[string]interface{}{"invalid": nil},
+				},
+			},
 		})
-		assert.EqualError(t, err, "target vector \"custom\": vectorizer: invalid vectorizer \"invalid\"")
+		assert.EqualError(t, err, `target vector "custom": vectorizer: invalid vectorizer "invalid"`)
 	})
 }
 
@@ -1399,6 +1440,28 @@ func Test_UpdateClass(t *testing.T) {
 					},
 				},
 				expectedError: nil,
+			},
+			{
+				name: "add named vector on a class with legacy index",
+				initial: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+				},
+				update: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+					VectorConfig: map[string]models.VectorConfig{
+						"vec1": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				expectedError: fmt.Errorf("vector config is immutable"),
 			},
 		}
 
