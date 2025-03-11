@@ -24,7 +24,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		name              string
 		cfg               moduletools.ClassConfig
 		wantModel         string
-		wantMaxTokens     int
+		wantMaxTokens     *int
 		wantTemperature   float64
 		wantTopK          int
 		wantTopP          float64
@@ -38,7 +38,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{},
 			},
 			wantModel:         "claude-3-5-sonnet-20240620",
-			wantMaxTokens:     4096,
+			wantMaxTokens:     nil,
 			wantTemperature:   1.0,
 			wantTopK:          0,
 			wantTopP:          0.0,
@@ -60,7 +60,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel:         "claude-3-opus-20240229",
-			wantMaxTokens:     3000,
+			wantMaxTokens:     ptrInt(3000),
 			wantTemperature:   0.7,
 			wantTopK:          5,
 			wantTopP:          0.9,
@@ -76,7 +76,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel:         "some-new-model-name",
-			wantMaxTokens:     4096,
+			wantMaxTokens:     nil,
 			wantTemperature:   1.0,
 			wantTopK:          0,
 			wantTopP:          0.0,
@@ -92,7 +92,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel:         "claude-3-haiku-20240307",
-			wantMaxTokens:     4096,
+			wantMaxTokens:     nil,
 			wantTemperature:   1.0,
 			wantTopK:          0,
 			wantTopP:          0.0,
@@ -146,4 +146,8 @@ func (f fakeClassConfig) TargetVector() string {
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
 	return nil
+}
+
+func ptrInt(in int) *int {
+	return &in
 }

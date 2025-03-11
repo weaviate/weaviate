@@ -52,6 +52,16 @@ func (sm *SchemaManager) QuerySchema() ([]byte, error) {
 	return payload, nil
 }
 
+func (sm *SchemaManager) QueryCollectionsCount() ([]byte, error) {
+	// Build the response, marshal and return
+	response := cmd.QueryCollectionsCountResponse{Count: sm.schema.CollectionsCount()}
+	payload, err := json.Marshal(&response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
 func (sm *SchemaManager) QueryTenants(req *cmd.QueryRequest) ([]byte, error) {
 	// Validate that the subcommand is the correct type
 	subCommand := cmd.QueryTenantsRequest{}

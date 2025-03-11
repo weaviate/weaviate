@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -605,7 +606,7 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32,
 
 	// to speed up test execution, size of nodes array is decreased
 	// from default 25k to little over number of vectors
-	index.nodes = make([]*vertex, int(1.2*float64(len(vectors))))
+	index.nodes = graph.NewNodes(int(1.2 * float64(len(vectors))))
 
 	for i, vec := range vectors {
 		err := index.Add(ctx, uint64(i), vec)
@@ -1266,65 +1267,36 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	// manually build the index
 	index.entryPointID = 6
 	index.currentMaximumLayer = 1
-	index.nodes = make([]*vertex, 50)
-	index.nodes[0] = &vertex{
-		id: 0,
-		connections: [][]uint64{
-			{1, 2, 3, 4, 5, 6, 7, 8},
-		},
-	}
-	index.nodes[1] = &vertex{
-		id: 1,
-		connections: [][]uint64{
-			{0, 2, 3, 4, 5, 6, 7, 8},
-		},
-	}
-	index.nodes[2] = &vertex{
-		id: 2,
-		connections: [][]uint64{
-			{1, 0, 3, 4, 5, 6, 7, 8},
-		},
-	}
-	index.nodes[3] = &vertex{
-		id: 3,
-		connections: [][]uint64{
-			{2, 1, 0, 4, 5, 6, 7, 8},
-		},
-	}
-	index.nodes[4] = &vertex{
-		id: 4,
-		connections: [][]uint64{
-			{3, 2, 1, 0, 5, 6, 7, 8},
-		},
-	}
-	index.nodes[5] = &vertex{
-		id: 5,
-		connections: [][]uint64{
-			{3, 4, 2, 1, 0, 6, 7, 8},
-		},
-	}
-	index.nodes[6] = &vertex{
-		id: 6,
-		connections: [][]uint64{
-			{4, 3, 1, 3, 5, 0, 7, 8},
-			{7},
-		},
-		level: 1,
-	}
-	index.nodes[7] = &vertex{
-		id: 7,
-		connections: [][]uint64{
-			{6, 4, 3, 5, 2, 1, 0, 8},
-			{6},
-		},
-		level: 1,
-	}
-	index.nodes[8] = &vertex{
-		id: 8,
-		connections: [][]uint64{
-			8: {7, 6, 4, 3, 5, 2, 1, 0},
-		},
-	}
+	index.nodes = graph.NewNodes(50)
+	index.nodes.Set(graph.NewVertexWithConnections(0, 0, [][]uint64{
+		{1, 2, 3, 4, 5, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(1, 0, [][]uint64{
+		{0, 2, 3, 4, 5, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(2, 0, [][]uint64{
+		{1, 0, 3, 4, 5, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(3, 0, [][]uint64{
+		{2, 1, 0, 4, 5, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(4, 0, [][]uint64{
+		{3, 2, 1, 0, 5, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(5, 0, [][]uint64{
+		{3, 4, 2, 1, 0, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(6, 1, [][]uint64{
+		{4, 3, 1, 3, 5, 0, 7, 8},
+		{7},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(7, 1, [][]uint64{
+		{6, 4, 3, 5, 2, 1, 0, 8},
+		{6},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(8, 0, [][]uint64{
+		8: {7, 6, 4, 3, 5, 2, 1, 0},
+	}))
 
 	dumpIndex(index, "before delete")
 
@@ -1415,27 +1387,18 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		0: {},
 		1: {},
 	}
-	index.nodes = make([]*vertex, 50)
-	index.nodes[0] = &vertex{
-		id: 0,
-		connections: [][]uint64{
-			0: {1},
-		},
-	}
-	index.nodes[1] = &vertex{
-		id: 1,
-		connections: [][]uint64{
-			0: {0, 2},
-			1: {2},
-		},
-	}
-	index.nodes[2] = &vertex{
-		id: 2,
-		connections: [][]uint64{
-			0: {1},
-			1: {1},
-		},
-	}
+	index.nodes = graph.NewNodes(50)
+	index.nodes.Set(graph.NewVertexWithConnections(0, 0, [][]uint64{
+		{1},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(1, 0, [][]uint64{
+		{0, 2},
+		{2},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(2, 0, [][]uint64{
+		{1},
+		{1},
+	}))
 
 	dumpIndex(index, "before adding another element")
 	t.Run("adding a third element", func(t *testing.T) {
@@ -1728,13 +1691,11 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 
 	require.Equal(t, 60, index.maximumConnectionsLayerZero)
 	some := false
-	for _, node := range index.nodes {
-		if node == nil {
-			continue
-		}
-		require.LessOrEqual(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
-		some = some || len(node.connections[0]) > index.maximumConnections
-	}
+	index.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
+		require.LessOrEqual(t, node.LevelLen(0), index.maximumConnectionsLayerZero)
+		some = some || node.LevelLen(0) > index.maximumConnections
+		return true
+	})
 	require.True(t, some)
 
 	for i := range vectors {
@@ -1750,13 +1711,11 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 	require.Nil(t, err)
 	require.Equal(t, 60, index.maximumConnectionsLayerZero)
 	some = false
-	for _, node := range index.nodes {
-		if node == nil {
-			continue
-		}
-		require.LessOrEqual(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
-		some = some || len(node.connections[0]) > index.maximumConnections
-	}
+	index.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
+		require.LessOrEqual(t, node.LevelLen(0), index.maximumConnectionsLayerZero)
+		some = some || node.LevelLen(0) > index.maximumConnections
+		return true
+	})
 	require.True(t, some)
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -1809,20 +1768,21 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 	err = vectorIndex.CleanUpTombstonedNodes(neverStop)
 	require.Nil(t, err)
 
-	for i, node := range vectorIndex.nodes {
-		if node == nil {
-			continue
-		}
-		assert.NotEqual(t, 0, i%2)
-		for level, connections := range node.connections {
-			for _, id := range connections {
-				assert.NotEqual(t, uint64(0), id%2)
-				if id%2 == 0 {
-					fmt.Println("at: ", vectorIndex.entryPointID, i, level, id)
+	vectorIndex.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
+		assert.NotEqual(t, uint64(0), id%2)
+
+		for level := range node.MaxLevel() {
+			node.IterConnections(level, func(u uint64) bool {
+				assert.NotEqual(t, uint64(0), u%2)
+				if u%2 == 0 {
+					fmt.Println("at: ", vectorIndex.entryPointID, id, level, u)
 				}
-			}
+
+				return true
+			})
 		}
-	}
+		return true
+	})
 
 	require.Nil(t, vectorIndex.Drop(context.Background()))
 	store.Shutdown(context.Background())

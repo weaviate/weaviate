@@ -124,7 +124,7 @@ func TestAddPermissionsSuccess(t *testing.T) {
 					{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
 				},
 			}, nil)
-			controller.On("UpsertRolesPermissions", policies).Return(nil)
+			controller.On("UpdateRolesPermissions", policies).Return(nil)
 
 			h := &authZHandlers{
 				authorizer:   authorizer,
@@ -352,7 +352,7 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 					{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
 				},
 			}, nil)
-			controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
+			controller.On("UpdateRolesPermissions", mock.Anything).Return(tt.upsertErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,

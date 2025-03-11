@@ -111,6 +111,9 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 	case *pb.GenerativeProvider_Mistral:
 		generative.Options = p.mistral(query.GetMistral())
 		p.providerName = mistralParams.Name
+	case *pb.GenerativeProvider_Nvidia:
+		generative.Options = p.nvidia(query.GetNvidia())
+		p.providerName = nvidiaParams.Name
 	case *pb.GenerativeProvider_Ollama:
 		generative.Options = p.ollama(query.GetOllama())
 		p.providerName = ollamaParams.Name
@@ -147,51 +150,6 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 		p.extractFromQuery(&generative, req.Single.Queries)
 		singleResultPrompts := generate.ExtractPropsFromPrompt(generative.Prompt)
 		generative.PropertiesToExtract = append(generative.PropertiesToExtract, singleResultPrompts...)
-		if len(req.Single.Queries) > 0 {
-			var options map[string]any
-			var providerName string
-			query := req.Single.Queries[0]
-			switch query.Kind.(type) {
-			case *pb.GenerativeProvider_Anthropic:
-				options = p.anthropic(query.GetAnthropic())
-				providerName = anthropicParams.Name
-			case *pb.GenerativeProvider_Anyscale:
-				options = p.anyscale(query.GetAnyscale())
-				providerName = anyscaleParams.Name
-			case *pb.GenerativeProvider_Aws:
-				options = p.aws(query.GetAws())
-				providerName = awsParams.Name
-			case *pb.GenerativeProvider_Cohere:
-				options = p.cohere(query.GetCohere())
-				providerName = cohereParams.Name
-			case *pb.GenerativeProvider_Mistral:
-				options = p.mistral(query.GetMistral())
-				providerName = mistralParams.Name
-			case *pb.GenerativeProvider_Ollama:
-				options = p.ollama(query.GetOllama())
-				providerName = ollamaParams.Name
-			case *pb.GenerativeProvider_Openai:
-				options = p.openai(query.GetOpenai())
-				providerName = openaiParams.Name
-			case *pb.GenerativeProvider_Google:
-				options = p.google(query.GetGoogle())
-				providerName = googleParams.Name
-			case *pb.GenerativeProvider_Databricks:
-				options = p.databricks(query.GetDatabricks())
-				providerName = databricksParams.Name
-			case *pb.GenerativeProvider_Friendliai:
-				options = p.friendliai(query.GetFriendliai())
-				providerName = friendliaiParams.Name
-			case *pb.GenerativeProvider_Nvidia:
-				options = p.nvidia(query.GetNvidia())
-				providerName = nvidiaParams.Name
-			default:
-				// do nothing
-			}
-			generative.Options = options
-			p.providerName = providerName
-			p.returnMetadata = query.ReturnMetadata
-		}
 	}
 	if req.Grouped != nil {
 		generative.Task = &req.Grouped.Task

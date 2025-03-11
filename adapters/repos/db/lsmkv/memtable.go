@@ -34,7 +34,7 @@ type Memtable struct {
 	primaryIndex       *binarySearchTree
 	roaringSet         *roaringset.BinarySearchTree
 	roaringSetRange    *roaringsetrange.Memtable
-	commitlog          *commitLogger
+	commitlog          memtableCommitLogger
 	size               uint64
 	path               string
 	strategy           string
@@ -51,7 +51,7 @@ type Memtable struct {
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
-	cl *commitLogger, metrics *Metrics, logger logrus.FieldLogger,
+	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
 	enableChecksumValidation bool,
 ) (*Memtable, error) {
 	m := &Memtable{
