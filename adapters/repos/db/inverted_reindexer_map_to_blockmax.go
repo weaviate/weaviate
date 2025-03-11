@@ -697,10 +697,13 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 		bucketsByPropName[prop] = store.Bucket(bucketName)
 	}
 
-	processingStarted := time.Now()
+	var processingStarted time.Time
 	finished, err := t.objectsIterator(objectsBucket, lastStoredKey, func(key, value []byte) (bool, error) {
 		if err := ctx.Err(); err != nil {
 			return false, fmt.Errorf("context check (iterator): %w", err)
+		}
+		if processingStarted.IsZero() {
+			processingStarted = time.Now()
 		}
 
 		ik := t.keyParser.FromBytes(key)
