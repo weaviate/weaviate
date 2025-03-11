@@ -335,7 +335,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors 
 
 	compressor.cache.Grow(maxID)
 
-	nodeIDMappings := make([]cache.CacheKeys, len(vecs))
+	nodeIDMappings := make(map[uint64]cache.CacheKeys, len(vecs))
 	for docID := range docIDVectors {
 		for relativeID, id := range docIDVectors[docID] {
 			nodeIDMappings[id] = cache.CacheKeys{
@@ -344,9 +344,10 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors 
 			}
 		}
 	}
-
 	for _, vec := range vecs {
-		compressor.cache.PreloadPassage(vec.Id, nodeIDMappings[vec.Id].DocID, nodeIDMappings[vec.Id].RelativeID, vec.Vec)
+		docID := nodeIDMappings[vec.Id].DocID
+		relativeID := nodeIDMappings[vec.Id].RelativeID
+		compressor.cache.PreloadPassage(vec.Id, docID, relativeID, vec.Vec)
 	}
 
 	took := time.Since(before)
