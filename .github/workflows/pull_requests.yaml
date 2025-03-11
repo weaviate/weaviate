@@ -517,10 +517,8 @@ jobs:
             arch: "arm64"
     runs-on: ${{ matrix.runner }}
     outputs:
-      amd64_temp_tag: ${{ steps.set-outputs.outputs.amd64_temp_tag }}
-      arm64_temp_tag: ${{ steps.set-outputs.outputs.arm64_temp_tag }}
-      preview_tag: ${{ steps.set-outputs.outputs.preview_tag }}
-      preview_semver_tag: ${{ steps.set-outputs.outputs.preview_semver_tag }}
+      preview_tag: ${{ steps.push-container.outputs.PREVIEW_TAG }}
+      preview_semver_tag: ${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -528,7 +526,7 @@ jobs:
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
-      - name: Push container
+      - name: Build container
         id: push-container
         run: ./ci/push_docker.sh ${{ matrix.build_platform }}
         env:
@@ -538,16 +536,11 @@ jobs:
         with:
           name: final-tags-${{ matrix.arch }}
           path: final_tags.txt
-      - name: Set outputs
-        id: set-outputs
-        run: |
-          if [ "${{ matrix.arch }}" = "amd64" ]; then
-            echo "amd64_temp_tag=${{ steps.push-container.outputs.TEMP_TAG }}" >> $GITHUB_OUTPUT
-          else
-            echo "arm64_temp_tag=${{ steps.push-container.outputs.TEMP_TAG }}" >> $GITHUB_OUTPUT
-          fi
-          echo "preview_tag=${{ steps.push-container.outputs.PREVIEW_TAG }}" >> $GITHUB_OUTPUT
-          echo "preview_semver_tag=${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}" >> $GITHUB_OUTPUT
+      - name: Upload image tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-${{ matrix.arch }}
+          path: ${{ matrix.arch }}.tar
   Create-Manifests:
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
     name: create-manifests
@@ -560,16 +553,22 @@ jobs:
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
-      - name: Download final tags (amd64)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Download AMD64 image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-amd64
+      - name: Download ARM64 image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-arm64
+      - name: Download final tags
         uses: actions/download-artifact@v4
         with:
           name: final-tags-amd64
       - name: Create and push manifests
         run: ./ci/create_manifests.sh
-        env:
-          AMD64_TEMP_TAG: ${{ needs.Push-Docker-Fast.outputs.amd64_temp_tag }}
-          ARM64_TEMP_TAG: ${{ needs.Push-Docker-Fast.outputs.arm64_temp_tag }}
-          CLEANUP_TEMP_TAGS: "true"
       - name: Generate Report
         env:
           PREVIEW_TAG: "${{ needs.Push-Docker-Fast.outputs.preview_tag }}"
