@@ -121,7 +121,7 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 				params := func() *pb.GenerativeOpenAI {
 					params := &pb.GenerativeOpenAI{
 						MaxTokens:        grpchelper.ToPtr(int64(90)),
-						Model:            tt.generativeModel,
+						Model:            grpchelper.ToPtr(tt.generativeModel),
 						Temperature:      grpchelper.ToPtr(0.9),
 						N:                grpchelper.ToPtr(int64(90)),
 						TopP:             grpchelper.ToPtr(0.9),
