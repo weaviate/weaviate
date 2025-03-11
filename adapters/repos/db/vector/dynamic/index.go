@@ -396,7 +396,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	bucket := dynamic.store.Bucket(helpers.VectorsBucketLSM)
 
 	g := werrors.NewErrorGroupWrapper(dynamic.logger)
-	workerCount := runtime.GOMAXPROCS(0)
+	workerCount := 1
 	type task struct {
 		id     uint64
 		vector []float32
