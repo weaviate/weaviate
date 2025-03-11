@@ -81,27 +81,25 @@ func TestUpdatePropertyDescription(t *testing.T) {
 	}
 	defer delete()
 
-	func() {
-		delete()
-
-		c := &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{
-					Name:     propName,
-					DataType: []string{"object"},
-					NestedProperties: []*models.NestedProperty{{
-						Name:     nestedPropName,
-						DataType: []string{"text"},
-					}},
-				},
+	delete()
+	c := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     propName,
+				DataType: []string{"object"},
+				NestedProperties: []*models.NestedProperty{{
+					Name:     nestedPropName,
+					DataType: []string{"text"},
+				}},
 			},
-		}
+		},
+	}
 
-		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
-		_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
-		assert.Nil(t, err)
-	}()
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+	_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	assert.Nil(t, err)
+
 	newDescription := "its updated description"
 
 	t.Run("update property and nested property descriptions", func(t *testing.T) {
@@ -123,6 +121,12 @@ func TestUpdatePropertyDescription(t *testing.T) {
 			})
 		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
 		assert.Nil(t, err)
+
+		params = clschema.NewSchemaObjectsGetParams().WithClassName(className)
+		res, err = helper.Client(t).Schema.SchemaObjectsGet(params, nil)
+		require.Nil(t, err)
+		assert.Equal(t, newDescription, res.Payload.Properties[0].Description)
+		assert.Equal(t, newDescription, res.Payload.Properties[0].NestedProperties[0].Description)
 	})
 
 	t.Run("assert updated descriptions", func(t *testing.T) {
