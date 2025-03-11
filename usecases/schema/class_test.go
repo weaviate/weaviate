@@ -1080,7 +1080,7 @@ func Test_UpdateClass(t *testing.T) {
 					},
 				},
 				expectedError: fmt.Errorf(
-					"properties cannot be updated through updating the class. Use the add " +
+					"property fields other than description cannot be updated through updating the class. Use the add " +
 						"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
 						"to add additional properties"),
 			},
@@ -1131,7 +1131,7 @@ func Test_UpdateClass(t *testing.T) {
 					},
 				},
 				expectedError: fmt.Errorf(
-					"properties cannot be updated through updating the class. Use the add " +
+					"property fields other than description cannot be updated through updating the class. Use the add " +
 						"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
 						"to add additional properties"),
 			},
