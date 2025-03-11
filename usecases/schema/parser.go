@@ -255,9 +255,9 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, fmt.Errorf("validate sharding config: %w", err)
 	}
 
-	if !reflect.DeepEqual(class.Properties, update.Properties) {
+	if !p.validateProperties(class.Properties, update.Properties) {
 		return nil, errors.Errorf(
-			"properties cannot be updated through updating the class. Use the add " +
+			"property fields other than description cannot be updated through updating the class. Use the add " +
 				"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
 				"to add additional properties")
 	}
@@ -269,6 +269,80 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	}
 
 	return update, nil
+}
+
+func (p *Parser) validateProperties(existing []*models.Property, new []*models.Property) bool {
+	if len(existing) != len(new) {
+		return false
+	}
+
+	for i, prop := range existing {
+		// make a copy of the properties to remove the description field
+		// so that we can compare the rest of the fields
+		if prop == nil {
+			continue
+		}
+		if new[i] == nil {
+			continue
+		}
+		return p.validateProperty(prop, new[i])
+	}
+
+	return true
+}
+
+func propertyAsMap(in any) (map[string]any, error) {
+	out := make(map[string]any)
+
+	v := reflect.ValueOf(in)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Struct { // Non-structural return error
+		return nil, fmt.Errorf("asMap only accepts struct or struct pointer; got %T", v)
+	}
+
+	t := v.Type()
+	// Traversing structure fields
+	// Specify the tagName value as the key in the map; the field value as the value in the map
+	for i := 0; i < v.NumField(); i++ {
+		tfi := t.Field(i)
+		if tagValue := tfi.Tag.Get("json"); tagValue != "" {
+			key := strings.Split(tagValue, ",")[0]
+			if key == "description" {
+				continue
+			}
+			if key == "nestedProperties" {
+				nps := v.Field(i).Interface().([]*models.NestedProperty)
+				out[key] = make([]map[string]any, 0, len(nps))
+				for _, np := range nps {
+					npm, err := propertyAsMap(np)
+					if err != nil {
+						return nil, err
+					}
+					out[key] = append(out[key].([]map[string]any), npm)
+				}
+				continue
+			}
+			out[key] = v.Field(i).Interface()
+		}
+	}
+	return out, nil
+}
+
+func (p *Parser) validateProperty(existing, new *models.Property) bool {
+	e, err := propertyAsMap(existing)
+	if err != nil {
+		return false
+	}
+
+	n, err := propertyAsMap(new)
+	if err != nil {
+		return false
+	}
+
+	return reflect.DeepEqual(e, n)
 }
 
 func hasTargetVectors(class *models.Class) bool {
