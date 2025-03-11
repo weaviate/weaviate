@@ -480,14 +480,17 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, e
 }
 
 func (s *schema) States() map[string]types.ClassState {
-	classesCopy := s.MetaClasses()
-	cs := make(map[string]types.ClassState, len(classesCopy))
-	for _, c := range classesCopy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	cs := make(map[string]types.ClassState, len(s.classes))
+	for _, c := range s.classes {
 		cs[c.Class.Class] = types.ClassState{
 			Class:  c.Class,
 			Shards: c.Sharding,
 		}
 	}
+
 	return cs
 }
 
