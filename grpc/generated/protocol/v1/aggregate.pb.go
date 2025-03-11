@@ -36,6 +36,7 @@ type AggregateRequest struct {
 	// matches/searches for objects
 	Filters *Filters `protobuf:"bytes,40,opt,name=filters,proto3,oneof" json:"filters,omitempty"`
 	// Types that are assignable to Search:
+	//
 	//	*AggregateRequest_Hybrid
 	//	*AggregateRequest_NearVector
 	//	*AggregateRequest_NearObject
@@ -285,6 +286,7 @@ type AggregateReply struct {
 
 	Took float32 `protobuf:"fixed32,1,opt,name=took,proto3" json:"took,omitempty"`
 	// Types that are assignable to Result:
+	//
 	//	*AggregateReply_SingleResult
 	//	*AggregateReply_GroupedResults
 	Result isAggregateReply_Result `protobuf_oneof:"result"`
@@ -373,6 +375,7 @@ type AggregateRequest_Aggregation struct {
 
 	Property string `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
 	// Types that are assignable to Aggregation:
+	//
 	//	*AggregateRequest_Aggregation_Int
 	//	*AggregateRequest_Aggregation_Number_
 	//	*AggregateRequest_Aggregation_Text_
@@ -1290,6 +1293,7 @@ type AggregateReply_Aggregations_Aggregation struct {
 
 	Property string `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
 	// Types that are assignable to Aggregation:
+	//
 	//	*AggregateReply_Aggregations_Aggregation_Int
 	//	*AggregateReply_Aggregations_Aggregation_Number_
 	//	*AggregateReply_Aggregations_Aggregation_Text_
@@ -2042,6 +2046,7 @@ type AggregateReply_Group_GroupedBy struct {
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	Path []string `protobuf:"bytes,1,rep,name=path,proto3" json:"path,omitempty"`
 	// Types that are assignable to Value:
+	//
 	//	*AggregateReply_Group_GroupedBy_Text
 	//	*AggregateReply_Group_GroupedBy_Int
 	//	*AggregateReply_Group_GroupedBy_Boolean

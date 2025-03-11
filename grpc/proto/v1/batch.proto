@@ -9,9 +9,32 @@ option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.client.grpc.protocol.v1";
 option java_outer_classname = "WeaviateProtoBatch";
 
+message BatchWriteReply {
+  float took = 1;
+}
+
+message BatchReadRequest {
+}
+
 message BatchObjectsRequest {
   repeated BatchObject objects = 1;
   optional ConsistencyLevel consistency_level = 2;
+}
+
+message BatchStart {
+  optional ConsistencyLevel  consistency_level = 1;
+  optional int32 concurrency = 2;
+}
+
+message BatchStop {
+}
+
+message BatchMessage {
+  oneof message {
+    BatchStart init = 1;
+    BatchObjectsRequest request = 2;
+    BatchStop sentinel = 3;
+  }
 }
 
 message BatchObject {
@@ -50,6 +73,11 @@ message BatchObject {
   bytes vector_bytes = 6;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated Vectors vectors = 23;
+}
+
+message BatchError {
+  int32 index = 1;
+  string error = 2;
 }
 
 message BatchObjectsReply {
