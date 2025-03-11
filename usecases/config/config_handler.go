@@ -104,8 +104,6 @@ type Config struct {
 	Authorization                       Authorization            `json:"authorization" yaml:"authorization"`
 	Origin                              string                   `json:"origin" yaml:"origin"`
 	Persistence                         Persistence              `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
-	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
 	EnableApiBasedModules               bool                     `json:"enable_api_based_modules" yaml:"enable_api_based_modules"`
 	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
@@ -197,11 +195,11 @@ func (c *Config) ValidateModules(modProv moduleProvider) error {
 }
 
 func (c *Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
-	if c.DefaultVectorizerModule == VectorizerModuleNone {
+	if c.SchemaHandlerConfig.DefaultVectorizerModule == VectorizerModuleNone {
 		return nil
 	}
 
-	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
+	return modProv.ValidateVectorizer(c.SchemaHandlerConfig.DefaultVectorizerModule)
 }
 
 type moduleProvider interface {
@@ -209,7 +207,7 @@ type moduleProvider interface {
 }
 
 func (c *Config) validateDefaultVectorDistanceMetric() error {
-	switch c.DefaultVectorDistanceMetric {
+	switch c.SchemaHandlerConfig.DefaultVectorDistanceMetric {
 	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
 	default:

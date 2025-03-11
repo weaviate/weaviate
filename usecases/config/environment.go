@@ -393,12 +393,12 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("DEFAULT_VECTORIZER_MODULE"); v != "" {
-		config.DefaultVectorizerModule = v
+		config.SchemaHandlerConfig.DefaultVectorizerModule = v
 	} else {
 		// env not set, this could either mean, we already have a value from a file
 		// or we explicitly want to set the value to "none"
-		if config.DefaultVectorizerModule == "" {
-			config.DefaultVectorizerModule = VectorizerModuleNone
+		if config.SchemaHandlerConfig.DefaultVectorizerModule == "" {
+			config.SchemaHandlerConfig.DefaultVectorizerModule = VectorizerModuleNone
 		}
 	}
 
@@ -413,7 +413,7 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("DEFAULT_VECTOR_DISTANCE_METRIC"); v != "" {
-		config.DefaultVectorDistanceMetric = v
+		config.SchemaHandlerConfig.DefaultVectorDistanceMetric = v
 	}
 
 	if v := os.Getenv("ENABLE_MODULES"); v != "" {
