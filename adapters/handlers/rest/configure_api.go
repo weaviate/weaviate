@@ -729,7 +729,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	grpcServer := createGrpcServer(appState, grpcInstrument...)
+	grpcBatchWorkersCtx, grpcBatchWorkersCtxCancel := context.WithCancel(context.Background())
+	grpcServer := createGrpcServer(appState, grpcBatchWorkersCtx, grpcInstrument...)
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
 
@@ -767,6 +768,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel()
+
+		// stop grpc batch insert workers on shutdown
+		grpcBatchWorkersCtxCancel()
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()

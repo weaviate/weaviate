@@ -49,15 +49,19 @@ type Service struct {
 	authenticator       *authHandler
 	batchObjectsHandler *batch.ObjectsHandler
 	batchStreamHandler  *batch.StreamHandler
+	batchWorkers        []*batch.Worker
 }
 
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
 	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
-	logger logrus.FieldLogger,
+	logger logrus.FieldLogger, grpcBatchWorkersCtx context.Context,
 ) *Service {
 	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
+	batchWriteQueue := batch.NewBatchWriteQueue()
+	batchReadQueue := batch.NewBatchReadQueue()
 	batchObjectsHandler := batch.NewObjectsHandler(authorization, batchManager, logger, authenticator, schemaManager)
+	batch.StartBatchWorkers(grpcBatchWorkersCtx, 4, batchWriteQueue, batchReadQueue, batchObjectsHandler, logger)
 	return &Service{
 		traverser:           traverser,
 		schemaManager:       schemaManager,
@@ -67,7 +71,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		authorizer:          authorization,
 		authenticator:       authenticator,
 		batchObjectsHandler: batchObjectsHandler,
-		batchStreamHandler:  batch.NewStreamHandler(batchObjectsHandler, logger),
+		batchStreamHandler:  batch.NewStreamHandler(batchWriteQueue, batchReadQueue, logger),
 	}
 }
 
@@ -201,11 +205,23 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	return result, errInner
 }
 
-func (s *Service) Batch(stream pb.Weaviate_BatchServer) error {
+func (s *Service) BatchWrite(stream pb.Weaviate_BatchWriteServer) error {
 	var errInner error
 
 	if err := enterrors.GoWrapperWithBlock(func() {
-		errInner = s.batchStreamHandler.Stream(stream)
+		errInner = s.batchStreamHandler.Write(stream)
+	}, s.logger); err != nil {
+		return err
+	}
+
+	return errInner
+}
+
+func (s *Service) BatchRead(request *pb.BatchReadRequest, stream pb.Weaviate_BatchReadServer) error {
+	var errInner error
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		errInner = s.batchStreamHandler.Read(stream)
 	}, s.logger); err != nil {
 		return err
 	}

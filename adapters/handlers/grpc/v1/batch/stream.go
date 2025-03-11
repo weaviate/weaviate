@@ -14,6 +14,7 @@ package batch
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -25,24 +26,34 @@ type batcher interface {
 }
 
 type StreamHandler struct {
-	batcher batcher
-	logger  logrus.FieldLogger
+	logger     logrus.FieldLogger
+	writeQueue writeQueue
+	readQueue  readQueue
 }
 
-func NewStreamHandler(batcher batcher, logger logrus.FieldLogger) *StreamHandler {
+type Worker struct {
+	batcher    batcher
+	ctx        context.Context
+	logger     logrus.FieldLogger
+	readQueue  readQueue
+	writeQueue writeQueue
+}
+
+func NewStreamHandler(writeQueue writeQueue, readQueue readQueue, logger logrus.FieldLogger) *StreamHandler {
 	return &StreamHandler{
-		batcher: batcher,
-		logger:  logger,
+		logger:     logger,
+		writeQueue: writeQueue,
+		readQueue:  readQueue,
 	}
 }
 
-func send(ctx context.Context, batcher batcher, objects []queueObject, errors chan errorsObject, consistencyLevel *pb.ConsistencyLevel) error {
+func (w *Worker) send(objects []queueObject, consistencyLevel pb.ConsistencyLevel) error {
 	firstIndex := objects[0].Index
 	objs := make([]*pb.BatchObject, len(objects))
 	for i, obj := range objects {
 		objs[i] = obj.Object
 	}
-	reply, err := batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{Objects: objs, ConsistencyLevel: consistencyLevel})
+	reply, err := w.batcher.BatchObjects(w.ctx, &pb.BatchObjectsRequest{Objects: objs, ConsistencyLevel: &consistencyLevel})
 	if err != nil {
 		return err
 	}
@@ -53,51 +64,72 @@ func send(ctx context.Context, batcher batcher, objects []queueObject, errors ch
 			}
 			err.Index += int32(firstIndex)
 		}
-		errors <- errorsObject{Errors: reply.GetErrors()}
+		w.readQueue <- errorsObject{Errors: reply.GetErrors()}
 	}
 	return nil
 }
 
-func batch(stream pb.Weaviate_BatchServer, batcher batcher, queue chan queueObject, errors chan errorsObject, consistencyLevel *pb.ConsistencyLevel) error {
+func (w *Worker) Loop(consistencyLevel pb.ConsistencyLevel) error {
 	objects := make([]queueObject, 0, 1000)
+	now := time.Now()
 	for {
 		select {
-		case <-stream.Context().Done():
+		case <-w.ctx.Done():
 			return nil
-		case obj := <-queue:
+		case obj := <-w.writeQueue:
 			if obj.IsSentinel() {
 				if len(objects) > 0 {
-					if err := send(stream.Context(), batcher, objects, errors, consistencyLevel); err != nil {
+					if err := w.send(objects, consistencyLevel); err != nil {
 						return err
 					}
 				}
 				// Signal to the reply handler that we are done
-				errors <- errorsObject{Shutdown: true}
+				w.readQueue <- errorsObject{Shutdown: true}
 				return nil
 			}
 			if obj.IsObject() {
 				objects = append(objects, obj)
 			}
 			if len(objects) == 1000 {
-				if err := send(stream.Context(), batcher, objects, errors, consistencyLevel); err != nil {
+				if err := w.send(objects, consistencyLevel); err != nil {
 					return err
 				}
 				objects = objects[:0]
+			}
+		default:
+			if time.Since(now) > time.Second {
+				if len(objects) > 0 {
+					if err := w.send(objects, consistencyLevel); err != nil {
+						return err
+					}
+					objects = objects[:0]
+				}
+				now = time.Now()
 			}
 		}
 	}
 }
 
-func reply(stream pb.Weaviate_BatchServer, errors chan errorsObject, concurrency int) error {
-	haveShutdown := 0 // loops over all the workers to ensure all errors have been returned before shutting down
+func StartBatchWorkers(ctx context.Context, concurrency int, writeQueue writeQueue, readQueue readQueue, batcher batcher, logger logrus.FieldLogger) {
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	for range concurrency {
+		eg.Go(func() error {
+			w := &Worker{batcher: batcher, ctx: ctx, logger: logger, readQueue: readQueue, writeQueue: writeQueue}
+			return w.Loop(pb.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM)
+		})
+	}
+}
+
+func (h *StreamHandler) Read(stream pb.Weaviate_BatchReadServer) error {
+	// haveShutdown := 0 // loops over all the workers to ensure all errors have been returned before shutting down
 	for {
 		select {
 		case <-stream.Context().Done():
 			return nil
-		case errs := <-errors:
-			if errs.Shutdown {
-				haveShutdown += 1
-			}
+		case errs := <-h.readQueue:
+			// if errs.Shutdown {
+			// 	haveShutdown += 1
+			// }
 			for _, err := range errs.Errors {
 				if innerErr := stream.Send(&pb.BatchError{
 					Index: err.Index,
@@ -107,13 +139,13 @@ func reply(stream pb.Weaviate_BatchServer, errors chan errorsObject, concurrency
 				}
 			}
 		}
-		if haveShutdown == concurrency {
-			return nil
-		}
+		// if haveShutdown == concurrency {
+		// 	return nil
+		// }
 	}
 }
 
-func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
+func (h *StreamHandler) Write(stream pb.Weaviate_BatchWriteServer) error {
 	first, err := stream.Recv()
 	if err != nil {
 		return fmt.Errorf("receive first batch object: %w", err)
@@ -122,23 +154,6 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 	if init == nil {
 		return fmt.Errorf("first object must be init object")
 	}
-
-	errors := make(chan errorsObject)
-	queue := make(chan queueObject)
-	defer func() {
-		close(queue)
-		close(errors)
-	}()
-
-	concurrency := 2
-	if init.Concurrency != nil {
-		concurrency = int(init.GetConcurrency())
-	}
-	eg := enterrors.NewErrorGroupWrapper(h.logger)
-	for range concurrency {
-		eg.Go(func() error { return batch(stream, h.batcher, queue, errors, init.ConsistencyLevel) })
-	}
-	eg.Go(func() error { return reply(stream, errors, concurrency) })
 
 	index := 0
 	for {
@@ -149,38 +164,18 @@ func (h *StreamHandler) Stream(stream pb.Weaviate_BatchServer) error {
 		}
 		req, err := stream.Recv()
 		if err != nil {
-			stream.Send(&pb.BatchError{
-				Error: err.Error(),
-			})
-			continue
-		}
-
-		sentinel := req.GetSentinel()
-		if sentinel != nil {
-			// Signal to each of the workers that we are done
-			for range concurrency {
-				queue <- queueObject{Sentinel: sentinel}
-			}
-			break
+			return err
 		}
 
 		request := req.GetRequest()
 		if request == nil {
-			stream.Send(&pb.BatchError{
-				Error: fmt.Errorf("object must be message object, got %T", req).Error(),
-			})
-			continue
+			return fmt.Errorf("object must be message object, got %T", req)
 		}
 		for _, object := range request.Objects {
-			if index%1000 == 0 {
-				h.logger.Infof("There are %d objects in the queue at index %d", len(queue), index)
-			}
-			queue <- queueObject{Index: index, Object: object}
+			h.writeQueue <- queueObject{Index: index, Object: object}
 			index++
 		}
 	}
-	eg.Wait()
-	return nil
 }
 
 type queueObject struct {
@@ -200,4 +195,17 @@ func (o queueObject) IsObject() bool {
 type errorsObject struct {
 	Errors   []*pb.BatchObjectsReply_BatchError
 	Shutdown bool
+}
+
+type (
+	writeQueue chan queueObject
+	readQueue  chan errorsObject
+)
+
+func NewBatchWriteQueue() writeQueue {
+	return make(chan queueObject)
+}
+
+func NewBatchReadQueue() readQueue {
+	return make(chan errorsObject)
 }
