@@ -83,6 +83,14 @@ type Flags struct {
 	RaftMetadataOnlyVoters bool     `long:"raft-metadata-only-voters" description:"configures the voters to store metadata exclusively, without storing any other data"`
 }
 
+type SchemaHandlerConfig struct {
+	MaximumAllowedCollectionsCount  int `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	MaximumAllowedCollectionCountFn func() *int
+
+	DefaultVectorizerModule     string `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	DefaultVectorDistanceMetric string `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
+}
+
 // Config outline of the config file
 type Config struct {
 	Name                                string                   `json:"name" yaml:"name"`
@@ -129,7 +137,7 @@ type Config struct {
 	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
-	MaximumAllowedCollectionsCount      int                      `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
@@ -137,6 +145,8 @@ type Config struct {
 
 	// map[className][]propertyName
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
+
+	RuntimeConfigPath string `json:"runtime_config_path" yaml:"runtime_config_path"`
 }
 
 // Validate the configuration

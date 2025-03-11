@@ -520,11 +520,26 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger,
 	)
 
+	cm, err := configRuntime.NewConfigManager(appState.ServerConfig.Config.RuntimeConfigPath, config.ParseYaml, 10*time.Second, appState.Logger, prometheus.DefaultRegisterer)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
+		os.Exit(1)
+	}
+	ctx, _ = context.WithCancel(context.Background())
+	go func() {
+		if err := cm.Run(ctx); err != nil {
+			panic(err)
+		}
+	}()
+
+	rc := config.NewWeaviateRuntimeConfig(cm)
+	appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionCountFn = rc.GetMaximumAllowedCollectionCount
+
 	schemaManager, err := schemaUC.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
 		schemaRepo,
-		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
+		appState.Logger, appState.Authorizer, appState.ServerConfig.Config.SchemaHandlerConfig, appState.ServerConfig.Config.Replication, appState.ServerConfig.Config.Authorization.Rbac,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, scaler,
 		offloadmod, *schemaParser,

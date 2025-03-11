@@ -23,9 +23,11 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -41,7 +43,6 @@ type Manager struct {
 	repo         SchemaStore
 	logger       logrus.FieldLogger
 	Authorizer   authorization.Authorizer
-	config       config.Config
 	clusterState clusterState
 
 	sync.RWMutex
@@ -203,7 +204,10 @@ func NewManager(validator validator,
 	schemaManager SchemaManager,
 	schemaReader SchemaReader,
 	repo SchemaStore,
-	logger logrus.FieldLogger, authorizer authorization.Authorizer, managerConfig config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer,
+	schemaConfig config.SchemaHandlerConfig,
+	replicationConfig replication.GlobalConfig,
+	rbacConfig rbacconf.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
@@ -217,14 +221,13 @@ func NewManager(validator validator,
 		schemaManager,
 		validator,
 		logger, authorizer,
-		managerConfig, configParser, vectorizerValidator, invertedConfigValidator,
+		schemaConfig, replicationConfig, rbacConfig, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
 	m := &Manager{
-		config:       managerConfig,
 		validator:    validator,
 		repo:         repo,
 		logger:       logger,

@@ -117,7 +117,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		cls.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
-	if err := h.setNewClassDefaults(cls, h.config.Replication); err != nil {
+	if err := h.setNewClassDefaults(cls, h.replication); err != nil {
 		return nil, 0, err
 	}
 
@@ -140,13 +140,20 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		h.logger.WithField("error", err).Error("could not query the collections count")
 	}
 
-	if h.config.MaximumAllowedCollectionsCount != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= h.config.MaximumAllowedCollectionsCount {
+	limit := h.config.MaximumAllowedCollectionsCount
+	if h.config.MaximumAllowedCollectionCountFn != nil {
+		if l := h.config.MaximumAllowedCollectionCountFn(); l != nil {
+			limit = *l
+		}
+	}
+
+	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
 		return nil, 0, fmt.Errorf(
 			"cannot create collection: maximum number of collections (%d) reached - "+
 				"please consider switching to multi-tenancy or increasing the collection count limit - "+
 				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
 				"when working with multiple collections and tenants",
-			h.config.MaximumAllowedCollectionsCount)
+			limit)
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
@@ -186,7 +193,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 
-	if err := h.setClassDefaults(class, h.config.Replication); err != nil {
+	if err := h.setClassDefaults(class, h.replication); err != nil {
 		return err
 	}
 
@@ -240,7 +247,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
-	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
+	if err := h.setClassDefaults(updated, h.replication); err != nil {
 		return err
 	}
 
@@ -306,7 +313,7 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 
 	if class.ReplicationConfig == nil {
 		class.ReplicationConfig = &models.ReplicationConfig{
-			Factor:           int64(m.config.Replication.MinimumFactor),
+			Factor:           int64(m.replication.MinimumFactor),
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
 		}
 		return nil
@@ -651,7 +658,7 @@ func (h *Handler) validateCanAddClass(
 		return err
 	}
 
-	if err := replica.ValidateConfig(class, h.config.Replication); err != nil {
+	if err := replica.ValidateConfig(class, h.replication); err != nil {
 		return err
 	}
 

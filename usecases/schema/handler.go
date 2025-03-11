@@ -23,11 +23,13 @@ import (
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -125,7 +127,9 @@ type Handler struct {
 
 	logger                  logrus.FieldLogger
 	Authorizer              authorization.Authorizer
-	config                  config.Config
+	config                  config.SchemaHandlerConfig
+	replication             replication.GlobalConfig
+	rbac                    rbacconf.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
 	clusterState            clusterState
@@ -141,7 +145,9 @@ func NewHandler(
 	schemaReader SchemaReader,
 	schemaManager SchemaManager,
 	validator validator,
-	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.SchemaHandlerConfig,
+	replication replication.GlobalConfig,
+	rbac rbacconf.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
@@ -151,6 +157,7 @@ func NewHandler(
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
+		replication:             replication,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
 		parser:                  parser,
@@ -187,7 +194,7 @@ func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency b
 		}
 	}
 
-	filteredClasses := filter.New[*models.Class](h.Authorizer, h.config.Authorization.Rbac).Filter(
+	filteredClasses := filter.New[*models.Class](h.Authorizer, h.rbac).Filter(
 		h.logger,
 		principal,
 		fullSchema.Objects.Classes,

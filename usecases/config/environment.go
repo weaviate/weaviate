@@ -535,7 +535,7 @@ func FromEnv(config *Config) error {
 
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
-		func(val int) { config.MaximumAllowedCollectionsCount = val },
+		func(val int) { config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = val },
 		DefaultMaximumAllowedCollectionsCount,
 	); err != nil {
 		return err
@@ -562,6 +562,10 @@ func FromEnv(config *Config) error {
 		DefaultMetadataServerDataEventsChannelCapacity,
 	); err != nil {
 		return err
+	}
+
+	if v := os.Getenv("RUNTIME_CONFIG_PATH"); v != "" {
+		config.RuntimeConfigPath = v
 	}
 
 	return nil
