@@ -110,7 +110,6 @@ type Config struct {
 
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
 	ConsistencyWaitTimeout time.Duration
-	ClusterStateReader     resolver.ClusterStateReader
 	// NodeSelector is the memberlist interface to RAFT
 	NodeSelector cluster.NodeSelector
 	Logger       *logrus.Logger
@@ -207,7 +206,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 	// different methods.
 	var raftResolver types.RaftResolver
 	raftResolver = resolver.NewRaft(resolver.RaftConfig{
-		ClusterStateReader: cfg.ClusterStateReader,
+		ClusterStateReader: cfg.NodeSelector,
 		RaftPort:           cfg.RaftPort,
 		IsLocalHost:        cfg.IsLocalHost,
 		NodeNameToPortMap:  cfg.NodeNameToPortMap,

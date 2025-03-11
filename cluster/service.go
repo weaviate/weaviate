@@ -98,9 +98,6 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("open raft store: %w", err)
 	}
 
-	// If FQDN resolver is enabled make sure we're also using it for the bootstrapping process
-	nodeToAddressResolver := c.config.ClusterStateReader
-
 	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
 	if err != nil {
 		return err
@@ -116,7 +113,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
 		err = backoff.Retry(func() error {
-			joinNodes := bootstrap.ResolveRemoteNodes(nodeToAddressResolver, c.config.NodeNameToPortMap)
+			joinNodes := bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
 			_, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
 			return err
 		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), bootstrapCtx))
@@ -129,7 +126,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			c.config.NodeID,
 			c.raftAddr,
 			c.config.Voter,
-			nodeToAddressResolver,
+			c.config.NodeSelector,
 			c.Raft.Ready,
 		)
 		if err := bs.Do(

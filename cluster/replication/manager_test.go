@@ -13,12 +13,13 @@ package replication_test
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -27,45 +28,151 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func TestReplicate(t *testing.T) {
-	nodeId0 := "weaviate-0"
-	nodeId1 := "weaviate-1"
+var ErrNotFound = errors.New("not found")
 
-	cls := &models.Class{Class: "C1", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
-	shardingState := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
-		Name:           "T1",
-		BelongsToNodes: []string{nodeId0},
-	}, "T2": {
-		Name:           "T2",
-		BelongsToNodes: []string{nodeId1},
-	}}}
+func TestManager_Replicate(t *testing.T) {
+	tests := []struct {
+		name          string
+		schemaSetup   func(*testing.T, *schema.SchemaManager) error
+		request       *api.ReplicationReplicateShardRequest
+		expectedError error
+	}{
+		{
+			name: "valid replication request",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+						},
+					}), "node1", true, false)
+			},
+			request: &api.ReplicationReplicateShardRequest{
+				SourceCollection: "TestCollection",
+				SourceShard:      "shard1",
+				SourceNode:       "node1",
+				TargetNode:       "node2",
+			},
+			expectedError: nil,
+		},
+		{
+			name: "class not found",
+			request: &api.ReplicationReplicateShardRequest{
+				SourceCollection: "NonExistentCollection",
+				SourceShard:      "shard1",
+				SourceNode:       "node1",
+				TargetNode:       "node2",
+			},
+			expectedError: replication.ErrClassNotFound,
+		},
+		{
+			name: "source shard not found",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{"shard2": {BelongsToNodes: []string{"node1"}}},
+						},
+					}), "node1", true, false)
+			},
+			request: &api.ReplicationReplicateShardRequest{
+				SourceCollection: "TestCollection",
+				SourceShard:      "NonExistentShard",
+				SourceNode:       "node1",
+				TargetNode:       "node2",
+			},
+			expectedError: replication.ErrShardNotFound,
+		},
+		{
+			name: "source node not found",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+						},
+					}), "node1", true, false)
+			},
+			request: &api.ReplicationReplicateShardRequest{
+				SourceCollection: "TestCollection",
+				SourceShard:      "shard1",
+				SourceNode:       "node4",
+				TargetNode:       "node2",
+			},
+			expectedError: replication.ErrNodeNotFound,
+		},
+		{
+			name: "target node already has shard",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+						},
+					}), "node1", true, false)
+			},
+			request: &api.ReplicationReplicateShardRequest{
+				SourceCollection: "TestCollection",
+				SourceShard:      "shard1",
+				SourceNode:       "node1",
+				TargetNode:       "node1",
+			},
+			expectedError: replication.ErrAlreadyExists,
+		},
+	}
 
-	indexer := fakes.NewMockSchemaExecutor()
-	parser := fakes.NewMockParser()
-	parser.On("ParseClass", mock.Anything).Return(nil)
-	indexer.On("TriggerSchemaUpdateCallbacks").Return()
-	schemaManager := schema.NewSchemaManager(nodeId0, indexer, parser, prometheus.NewPedanticRegistry(), logrus.New())
-	_ = replication.NewManager(logrus.New(), schemaManager.NewSchemaReader())
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaReader := schemaManager.NewSchemaReader()
+			manager := replication.NewManager(logrus.New(), schemaReader)
+			if tt.schemaSetup != nil {
+				tt.schemaSetup(t, schemaManager)
+			}
 
-	err := schemaManager.AddClass(&api.ApplyRequest{
-		Type: api.ApplyRequest_TYPE_ADD_CLASS,
-		SubCommand: subCmdAsBytes(&api.AddClassRequest{
-			Class: cls,
-			State: shardingState,
-		}),
-	}, nodeId0, true, false)
-	require.NoError(t, err)
+			// Create ApplyRequest
+			subCommand, _ := json.Marshal(tt.request)
+			applyRequest := &api.ApplyRequest{
+				SubCommand: subCommand,
+			}
+
+			// Execute
+			err := manager.Replicate(0, applyRequest)
+
+			// Assert
+			if tt.expectedError != nil {
+				assert.ErrorAs(t, err, &tt.expectedError)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
-func subCmdAsBytes(jsonSubCmd interface{}) []byte {
-	var (
-		subData []byte
-		err     error
-	)
-	subData, err = json.Marshal(jsonSubCmd)
+func buildApplyRequest(
+	class string,
+	cmdType api.ApplyRequest_Type,
+	jsonSubCmd interface{},
+) *api.ApplyRequest {
+
+	subData, err := json.Marshal(jsonSubCmd)
 	if err != nil {
 		panic("json.Marshal( " + err.Error())
 	}
 
-	return subData
+	cmd := api.ApplyRequest{
+		Type:       cmdType,
+		Class:      class,
+		SubCommand: subData,
+	}
+
+	return &cmd
 }

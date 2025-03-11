@@ -15,7 +15,6 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	"golang.org/x/exp/slices"
 )
 
 type shardReplicationOpStatus struct {
@@ -50,11 +49,12 @@ type ShardReplicationFSM struct {
 
 func newShardReplicationFSM() *ShardReplicationFSM {
 	return &ShardReplicationFSM{
-		opsStatus:       make(map[shardReplicationOp]shardReplicationOpStatus),
 		opsByNode:       make(map[string][]shardReplicationOp),
 		opsByCollection: make(map[string][]shardReplicationOp),
 		opsByShard:      make(map[string][]shardReplicationOp),
 		opsByTargetFQDN: make(map[shardFQDN]shardReplicationOp),
+		opsById:         make(map[uint64]shardReplicationOp),
+		opsStatus:       make(map[shardReplicationOp]shardReplicationOpStatus),
 	}
 }
 
@@ -70,7 +70,7 @@ func (s *ShardReplicationFSM) GetOpState(op shardReplicationOp) shardReplication
 	return s.opsStatus[op]
 }
 
-func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string, int) {
+func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
@@ -78,58 +78,42 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string,
 	// Check if the specified shard is current undergoing replication at all.
 	// If not we can return early as all replicas can be used for read/writes
 	if !ok {
-		return shardReplicasLocation, shardReplicasLocation, 0
+		return shardReplicasLocation, shardReplicasLocation
 	}
 
 	readReplicas := make([]string, 0, len(shardReplicasLocation))
 	writeReplicas := make([]string, 0, len(shardReplicasLocation))
-	writePrios := 0
 	for _, shardReplicaLocation := range shardReplicasLocation {
-		readOk, writeOk, writePrio := s.filterOneReplicaReadWrite(shardReplicaLocation, collection, shard)
+		readOk, writeOk := s.filterOneReplicaReadWrite(shardReplicaLocation, collection, shard)
 		if readOk {
 			readReplicas = append(readReplicas, shardReplicaLocation)
 		}
 		if writeOk {
-			if writePrio {
-				writeReplicas = slices.Insert(writeReplicas, 0, shardReplicaLocation)
-				writePrios++
-			} else {
-				writeReplicas = append(writeReplicas, shardReplicaLocation)
-			}
+			writeReplicas = append(writeReplicas, shardReplicaLocation)
 		}
 	}
 
-	return readReplicas, writeReplicas, writePrios
+	return readReplicas, writeReplicas
 }
 
-func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection string, shard string) (bool, bool, bool) {
-	// We want to filter out which replicas can't be used for read and writes.
-	// A replica has to be filtered out for read if
-	// 1. It is in any other state than LIVE
-	// A replica has to be filtered out for write if
-	// 1. It is in REGISTERED state (it might not be ready to receive a write)
-	// 2. It is in DEHYDRATING state (we are decomissioning that shard and it will be deleted)
+func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection string, shard string) (bool, bool) {
 	targetFQDN := newShardFQDN(node, collection, shard)
 	op, ok := s.opsByTargetFQDN[targetFQDN]
 	// There's no replication ops for that replicas, it can be used for both read and writes
 	if !ok {
-		return true, true, false
+		return true, true
 	}
 
 	opState, ok := s.opsStatus[op]
 	if !ok {
 		// TODO: This should never happens
-		return true, true, false
+		return true, true
 	}
 
 	// Filter read/write based on the state of the replica
 	readOk := false
 	writeOk := false
-	writePrio := false
 	switch opState.state {
-	case api.HYDRATING:
-		writeOk = true
-		writePrio = true
 	case api.READY:
 		writeOk = true
 	case api.LIVE:
@@ -137,5 +121,5 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 		writeOk = true
 	default:
 	}
-	return readOk, writeOk, writePrio
+	return readOk, writeOk
 }
