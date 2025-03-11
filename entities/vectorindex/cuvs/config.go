@@ -23,6 +23,7 @@ import (
 )
 
 type UserConfig struct {
+	Distance                string `json:"distance"`
 	GraphDegree             int    `json:"graphDegree"`
 	IntermediateGraphDegree int    `json:"intermediateGraphDegree"`
 	BuildAlgo               string `json:"buildAlgo"`
@@ -44,7 +45,7 @@ func (u UserConfig) IndexType() string {
 }
 
 func (u UserConfig) DistanceName() string {
-	return "l2-squared"
+	return u.Distance
 }
 
 func (u UserConfig) IsMultiVector() bool {
@@ -53,6 +54,7 @@ func (u UserConfig) IsMultiVector() bool {
 
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
+	u.Distance = "l2-squared"
 	u.GraphDegree = 32
 	u.IntermediateGraphDegree = 32
 	u.BuildAlgo = "nn_descent"
@@ -82,6 +84,12 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 	asMap, ok := input.(map[string]interface{})
 	if !ok || asMap == nil {
 		return uc, fmt.Errorf("input must be a non-nil map")
+	}
+
+	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "distance", func(v string) {
+		uc.Distance = v
+	}); err != nil {
+		return uc, err
 	}
 
 	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "graphDegree", func(v int) {
@@ -160,6 +168,14 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 
 func (u *UserConfig) validate() error {
 	var errMsgs []string
+
+	if u.Distance != "l2-squared" && u.Distance != "dot" {
+		errMsgs = append(errMsgs, fmt.Sprintf(
+			"distance must be one of 'l2-squared' or 'dot', but %s was given",
+			u.Distance,
+		))
+	}
+
 	if u.BuildAlgo != "nn_descent" && u.BuildAlgo != "ivf_pq" && u.BuildAlgo != "auto_select" {
 		errMsgs = append(errMsgs, fmt.Sprintf(
 			"buildAlgo must be one of 'nn_descent', 'ivf_pq' or 'auto_select', but %s was given",

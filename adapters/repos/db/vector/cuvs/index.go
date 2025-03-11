@@ -100,7 +100,14 @@ func CreateParams(uc cuvsEnt.UserConfig) (*cagra.IndexParams, *cagra.SearchParam
 	if err != nil {
 		return nil, nil, err
 	}
-
+	if uc.Distance == "l2-squared" {
+		cuvsIndexParams.SetMetric(cuvs.DistanceSQEuclidean)
+	} else if uc.Distance == "dot" {
+		if uc.BuildAlgo != "ivf_pq" {
+			return nil, nil, fmt.Errorf("dot product distance is only supported with ivf_pq build algorithm")
+		}
+		cuvsIndexParams.SetMetric(cuvs.DistanceInnerProduct)
+	}
 	cuvsIndexParams.SetGraphDegree(uintptr(uc.GraphDegree))
 	cuvsIndexParams.SetIntermediateGraphDegree(uintptr(uc.IntermediateGraphDegree))
 	if uc.BuildAlgo == "nn_descent" {
@@ -1062,12 +1069,16 @@ func (index *cuvs_index) AlreadyIndexed() uint64 {
 }
 
 func (index *cuvs_index) PostStartup() {
-	if index.cuvsPoolMemory != 0 {
-		mem, _ := cuvs.NewCuvsPoolMemory(index.cuvsPoolMemory, 100, false)
-
-		index.cuvsMemory = mem
-
+	// if index.cuvsPoolMemory != 0 {
+	mem, err := cuvs.NewCuvsPoolMemory(index.cuvsPoolMemory, 90, false)
+	if err != nil {
+		fmt.Println("err")
 	}
+
+	fmt.Println("cuvs memory created")
+
+	index.cuvsMemory = mem
+	// }
 
 	cursor := index.store.Bucket(index.getBucketName()).Cursor()
 	defer cursor.Close()

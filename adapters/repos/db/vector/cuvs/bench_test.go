@@ -178,7 +178,7 @@ func RunConfiguration(cuvsIndexParams *cagra.IndexParams, cuvsSearchParams *cagr
 		TargetVector: "vector",
 		Logger:       logger,
 		RootPath:     b.TempDir(),
-	}, cuvsEnt.UserConfig{}, store)
+	}, cuvsEnt.NewDefaultUserConfig(), store)
 	if err != nil {
 		panic(err)
 	}
@@ -323,10 +323,12 @@ func BenchmarkDataset(b *testing.B) {
 		Logger:         logger,
 		RootPath:       b.TempDir(),
 		CuvsPoolMemory: 90,
-	}, cuvsEnt.UserConfig{}, store)
+	}, cuvsEnt.NewDefaultUserConfig(), store)
 	if err != nil {
 		b.Fatal(err)
 	}
+
+	index.PostStartup()
 
 	file, err := hdf5.OpenFile("/home/ajit/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
 	if err != nil {
