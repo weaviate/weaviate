@@ -520,28 +520,31 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger,
 	)
 
-	cm, err := configRuntime.NewConfigManager(
-		appState.ServerConfig.Config.RuntimeConfigPath,
-		config.ParseYaml,
-		appState.ServerConfig.Config.RuntimeConfigLoadInterval,
-		appState.Logger,
-		prometheus.DefaultRegisterer)
-	if err != nil {
-		appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
-		os.Exit(1)
-	}
-
-	enterrors.GoWrapper(func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		if err := cm.Run(ctx); err != nil {
-			appState.Logger.WithField("action", "runtime config manager startup ").WithError(err).
-				Fatal("runtime config manager stopped")
+	// Enable runtime config manager
+	if appState.ServerConfig.Config.RuntimeConfigPath != "" {
+		cm, err := configRuntime.NewConfigManager(
+			appState.ServerConfig.Config.RuntimeConfigPath,
+			config.ParseYaml,
+			appState.ServerConfig.Config.RuntimeConfigLoadInterval,
+			appState.Logger,
+			prometheus.DefaultRegisterer)
+		if err != nil {
+			appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
+			os.Exit(1)
 		}
-	}, appState.Logger)
-	rc := config.NewWeaviateRuntimeConfig(cm)
-	appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionCountFn = rc.GetMaximumAllowedCollectionCount
+
+		enterrors.GoWrapper(func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			if err := cm.Run(ctx); err != nil {
+				appState.Logger.WithField("action", "runtime config manager startup ").WithError(err).
+					Fatal("runtime config manager stopped")
+			}
+		}, appState.Logger)
+		rc := config.NewWeaviateRuntimeConfig(cm)
+		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionCountFn = rc.GetMaximumAllowedCollectionCount
+	}
 
 	schemaManager, err := schemaUC.NewManager(migrator,
 		appState.ClusterService.Raft,
