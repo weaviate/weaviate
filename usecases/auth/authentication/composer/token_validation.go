@@ -27,12 +27,11 @@ type TokenFunc func(token string, scopes []string) (*models.Principal, error)
 func New(config config.Authentication,
 	apikey authValidator, oidc authValidator,
 ) TokenFunc {
-	apiKeyEnabled := config.DB.StaticApiKeys.Enabled || config.DB.DynamicApiKeys.Enabled
-	if apiKeyEnabled && config.OIDC.Enabled {
+	if config.DB.AnyEnabled() && config.OIDC.Enabled {
 		return pickAuthSchemeDynamically(apikey, oidc)
 	}
 
-	if apiKeyEnabled {
+	if config.DB.AnyEnabled() {
 		return apikey.ValidateAndExtract
 	}
 

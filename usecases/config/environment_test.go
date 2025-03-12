@@ -726,6 +726,13 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			},
 		},
 		{
+			name:         "Disable dynamic user",
+			auth_env_var: []string{"DISABLE_DYNAMIC_USERS"},
+			expected: Authentication{
+				DB: DB{DynamicApiKeys: DynamicAPIKey{Enabled: false}}, AnonymousAccess: AnonymousAccess{Enabled: true},
+			},
+		},
+		{
 			name:         "not given",
 			auth_env_var: []string{},
 			expected: Authentication{
