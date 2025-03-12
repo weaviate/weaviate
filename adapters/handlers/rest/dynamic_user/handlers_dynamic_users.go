@@ -49,8 +49,8 @@ type DynamicUserAndRolesGetter interface {
 }
 
 const (
-	userNameMaxLength = 64
-	userNameRegexCore = `[A-Za-z][-_0-9A-Za-z]{0,254}`
+	userNameMaxLength = 128
+	userNameRegexCore = `[A-Za-z][-_0-9A-Za-z@.]{0,254}`
 )
 
 const (
