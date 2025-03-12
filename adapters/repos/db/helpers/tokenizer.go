@@ -50,7 +50,7 @@ var Tokenizations []string = []string{
 }
 
 func init() {
-	numParallel := 0
+	numParallel := 100
 	numParallelStr := os.Getenv("TOKENIZER_THROTTLE")
 	if numParallelStr != "" {
 		x, err := strconv.Atoi(numParallelStr)
