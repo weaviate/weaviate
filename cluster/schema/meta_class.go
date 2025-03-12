@@ -13,14 +13,16 @@ package schema
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 	"sync"
+
+	"golang.org/x/exp/slices"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"golang.org/x/exp/slices"
 )
 
 type metaClass struct {
@@ -98,7 +100,8 @@ func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
 		return "", 0, fmt.Errorf("owner node not found")
 	}
-	return x.BelongsToNodes[0], m.version(), nil
+
+	return x.BelongsToNodes[rand.Intn(len(x.BelongsToNodes))], m.version(), nil
 }
 
 // ShardFromUUID returns shard name of the provided uuid
