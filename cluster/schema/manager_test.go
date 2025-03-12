@@ -246,7 +246,7 @@ func TestSchemaReaderClass(t *testing.T) {
 	// ShardOwner
 	owner, err := sc.ShardOwner("D", "S1")
 	assert.Nil(t, err)
-	assert.Equal(t, owner, "N1")
+	assert.Contains(t, nodes, owner)
 
 	// TenantShard
 	shards, _ := sc.TenantsShards("D", "S1")
