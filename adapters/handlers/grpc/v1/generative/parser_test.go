@@ -680,7 +680,7 @@ func Test_RequestParser(t *testing.T) {
 									DeploymentId:     makeStrPtr("deploymentId"),
 									IsAzure:          makeBoolPtr(true),
 									MaxTokens:        makeInt64Ptr(10),
-									Model:            "model",
+									Model:            makeStrPtr("model"),
 									Temperature:      makeFloat64Ptr(0.5),
 									N:                makeInt64Ptr(5),
 									TopP:             makeFloat64Ptr(0.5),

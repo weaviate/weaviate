@@ -297,5 +297,5 @@ func (p *Provider) validateVectorConfig(class *models.Class, moduleName string, 
 }
 
 func (p *Provider) hasLegacyVectorIndex(class *models.Class) bool {
-	return class.VectorIndexConfig != nil
+	return class.Vectorizer != ""
 }

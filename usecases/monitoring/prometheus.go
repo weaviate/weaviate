@@ -136,6 +136,7 @@ type PrometheusMetrics struct {
 	T2VTokensInBatch      *prometheus.HistogramVec
 	T2VTokensInRequest    *prometheus.HistogramVec
 	T2VRateLimitStats     *prometheus.GaugeVec
+	T2VRepeatStats        *prometheus.GaugeVec
 	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
@@ -703,6 +704,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		T2VRateLimitStats: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "t2v_rate_limit_stats",
 			Help: "Rate limit stats for the vectorizer",
+		}, []string{"vectorizer", "stat"}),
+		T2VRepeatStats: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "t2v_repeat_stats",
+			Help: "Why batch scheduling is repeated",
 		}, []string{"vectorizer", "stat"}),
 		T2VRequestsPerBatch: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "t2v_requests_per_batch",

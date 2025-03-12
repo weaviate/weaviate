@@ -1626,6 +1626,14 @@ func (f fakeGenerativeParams) ProviderName() string {
 	return ""
 }
 
-func (f fakeGenerativeParams) ReturnMetadata() bool {
+func (f fakeGenerativeParams) ReturnMetadataForSingle() bool {
+	return false
+}
+
+func (f fakeGenerativeParams) ReturnMetadataForGrouped() bool {
+	return false
+}
+
+func (f fakeGenerativeParams) Debug() bool {
 	return false
 }
