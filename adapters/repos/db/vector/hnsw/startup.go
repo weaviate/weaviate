@@ -245,6 +245,9 @@ func (h *hnsw) restoreDocMappings() error {
 			relativeID = 0
 			prevDocID = docID
 		}
+		if !h.compressed.Load() {
+			h.cache.SetKeys(node.ID(), docID, relativeID)
+		}
 		h.Lock()
 		h.docIDVectors[docID] = append(h.docIDVectors[docID], node.ID())
 		h.Unlock()
