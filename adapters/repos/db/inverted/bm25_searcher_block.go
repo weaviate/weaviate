@@ -254,6 +254,10 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 	// try to get docs up to the limit
 	// if there are not enough docs, get limit more docs until we've exhausted the list of ids
 	for len(objs) < limit && startAt < len(ids) {
+		// storobj.ObjectsByDocID may return fewer than limit objects
+		// notFoundCount keeps track of the number of objects that were not found,
+		// so we can keep matching scores and explanations to the correct object
+		notFoundCount := 0
 		objsBatch, err := storobj.ObjectsByDocID(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
 		if err != nil {
 			return objs, nil, errors.Errorf("objects loading")
@@ -262,13 +266,16 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 			if obj == nil {
 				continue
 			}
-			if obj.DocID != ids[startAt+i] {
-				continue
+			// move forward the notFoundCount until we find the next object
+			// if we enter the loop, it means that doc at ids[startAt+notFoundCount+i]
+			// was not found, so we need to skip it
+			for obj.DocID != ids[startAt+notFoundCount+i] {
+				notFoundCount++
 			}
 			objs = append(objs, obj)
-			scoresResult = append(scoresResult, scores[startAt+i])
+			scoresResult = append(scoresResult, scores[startAt+notFoundCount+i])
 			if explanations != nil {
-				explanationsResults = append(explanationsResults, explanations[startAt+i])
+				explanationsResults = append(explanationsResults, explanations[startAt+notFoundCount+i])
 			}
 		}
 		startAt = endAt
