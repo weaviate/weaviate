@@ -99,6 +99,13 @@ func (p *commitloggerParser) parseMapNode(n segmentCollectionNode) error {
 		}
 		mp.Tombstone = val.tombstone
 
+		if p.memtable.strategy == StrategyInverted && val.tombstone {
+			docID := binary.BigEndian.Uint64(val.value)
+			if err := p.memtable.SetTombstone(docID); err != nil {
+				return err
+			}
+		}
+
 		if err := p.memtable.appendMapSorted(n.primaryKey, mp); err != nil {
 			return err
 		}
