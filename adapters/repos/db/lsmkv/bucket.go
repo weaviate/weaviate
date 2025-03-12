@@ -123,7 +123,8 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction bool
+	forceCompaction   bool
+	disableCompaction bool
 
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
@@ -189,6 +190,10 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	if b.memtableResizer != nil {
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
+	}
+
+	if b.disableCompaction {
+		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
 
 	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
