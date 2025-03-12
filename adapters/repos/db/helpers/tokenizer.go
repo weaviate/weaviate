@@ -13,6 +13,7 @@ package helpers
 
 import (
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,7 +51,7 @@ var Tokenizations []string = []string{
 }
 
 func init() {
-	numParallel := 100
+	numParallel := runtime.GOMAXPROCS(0)
 	numParallelStr := os.Getenv("TOKENIZER_THROTTLE")
 	if numParallelStr != "" {
 		x, err := strconv.Atoi(numParallelStr)
