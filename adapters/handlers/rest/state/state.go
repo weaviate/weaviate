@@ -47,7 +47,7 @@ import (
 type State struct {
 	OIDC            *oidc.Client
 	AnonymousAccess *anonymous.Client
-	APIKey          *apikey.Client
+	APIKey          *apikey.ApiKey
 	Authorizer      authorization.Authorizer
 	AuthzController authorization.Controller
 

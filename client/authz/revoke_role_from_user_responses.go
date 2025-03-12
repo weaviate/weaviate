@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -469,15 +470,67 @@ type RevokeRoleFromUserBody struct {
 
 	// the roles that revoked from the key or user
 	Roles []string `json:"roles"`
+
+	// user type
+	UserType models.UserType `json:"userType,omitempty"`
 }
 
 // Validate validates this revoke role from user body
 func (o *RevokeRoleFromUserBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateUserType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this revoke role from user body based on context it is used
+func (o *RevokeRoleFromUserBody) validateUserType(formats strfmt.Registry) error {
+	if swag.IsZero(o.UserType) { // not required
+		return nil
+	}
+
+	if err := o.UserType.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "userType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "userType")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this revoke role from user body based on the context it is used
 func (o *RevokeRoleFromUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateUserType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *RevokeRoleFromUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := o.UserType.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "userType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "userType")
+		}
+		return err
+	}
+
 	return nil
 }
 
