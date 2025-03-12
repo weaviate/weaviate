@@ -521,11 +521,11 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	)
 
 	// Enable runtime config manager
-	if appState.ServerConfig.Config.RuntimeConfigPath != "" {
+	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
 		cm, err := configRuntime.NewConfigManager(
-			appState.ServerConfig.Config.RuntimeConfigPath,
+			appState.ServerConfig.Config.RuntimeOverrides.Path,
 			config.ParseYaml,
-			appState.ServerConfig.Config.RuntimeConfigLoadInterval,
+			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
 			prometheus.DefaultRegisterer)
 		if err != nil {

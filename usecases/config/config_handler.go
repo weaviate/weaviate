@@ -82,8 +82,9 @@ type Flags struct {
 	RaftSnapshotInterval   int      `long:"raft-snap-interval" description:"controls how often raft checks if it should perform a snapshot"`
 	RaftMetadataOnlyVoters bool     `long:"raft-metadata-only-voters" description:"configures the voters to store metadata exclusively, without storing any other data"`
 
-	RuntimeConfigPath         string        `long:"runtime-config-path" description:"path to runtime overrides config"`
-	RuntimeConfigLoadInterval time.Duration `long:"runtime-config-load-interval" description:"load interval for runtime config"`
+	RuntimeOverridesEnabled      bool          `long:"runtime-overrides.enabled" description:"enable runtime overrides config"`
+	RuntimeOverridesPath         string        `long:"runtime-overrides.path" description:"path to runtime overrides config"`
+	RuntimeOverridesLoadInterval time.Duration `long:"runtime-overrides.load-interval" description:"load interval for runtime overrides config"`
 }
 
 type SchemaHandlerConfig struct {
@@ -92,6 +93,12 @@ type SchemaHandlerConfig struct {
 
 	DefaultVectorizerModule     string `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	DefaultVectorDistanceMetric string `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
+}
+
+type RuntimeOverrides struct {
+	Enabled      bool          `json:"enabled"`
+	Path         string        `json:"path" yaml:"path"`
+	LoadInterval time.Duration `json:"load_interval" yaml:"load_interval"`
 }
 
 // Config outline of the config file
@@ -147,8 +154,7 @@ type Config struct {
 	// map[className][]propertyName
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
 
-	RuntimeConfigPath         string        `json:"runtime_config_path" yaml:"runtime_config_path"`
-	RuntimeConfigLoadInterval time.Duration `json:"runtime_config_load_interval" yaml:"runtime_config_load_interval"`
+	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 }
 
 // Validate the configuration
@@ -594,12 +600,16 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 		f.Config.Raft.MetadataOnlyVoters = true
 	}
 
-	if flags.RuntimeConfigPath != "" {
-		f.Config.RuntimeConfigPath = flags.RuntimeConfigPath
+	if flags.RuntimeOverridesEnabled {
+		f.Config.RuntimeOverrides.Enabled = flags.RuntimeOverridesEnabled
 	}
 
-	if flags.RuntimeConfigLoadInterval > 0 {
-		f.Config.RuntimeConfigLoadInterval = flags.RuntimeConfigLoadInterval
+	if flags.RuntimeOverridesPath != "" {
+		f.Config.RuntimeOverrides.Path = flags.RuntimeOverridesPath
+	}
+
+	if flags.RuntimeOverridesLoadInterval > 0 {
+		f.Config.RuntimeOverrides.LoadInterval = flags.RuntimeOverridesLoadInterval
 	}
 }
 

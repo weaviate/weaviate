@@ -39,7 +39,7 @@ const (
 	DefaultRaftDir              = "raft"
 	DefaultHNSWAcornFilterRatio = 0.4
 
-	DefaultRuntimeLoadInterval = 2 * time.Minute
+	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -566,16 +566,28 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if v := os.Getenv("RUNTIME_CONFIG_PATH"); v != "" {
-		config.RuntimeConfigPath = v
+	if v := os.Getenv("RUNTIME_OVERRIDES_ENABLED"); v != "" {
+
+		if strings.ToLower(v) == "true" {
+			config.RuntimeOverrides.Enabled = true
+		}
+
+		// set to false if explicitly set to "false" string.
+		if strings.ToLower(v) == "false" {
+			config.RuntimeOverrides.Enabled = false
+		}
 	}
 
-	if err := parsePositiveInt(
-		"RUNTIME_CONFIG_LOAD_INTERVAL",
-		func(val int) { config.RuntimeConfigLoadInterval = time.Second * time.Duration(val) },
-		int(DefaultRuntimeLoadInterval.Seconds()),
-	); err != nil {
-		return err
+	if v := os.Getenv("RUNTIME_OVERRIDES_PATH"); v != "" {
+		config.RuntimeOverrides.Path = v
+	}
+
+	if v := os.Getenv("RUNTIME_OVERRIDES_LOAD_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse RUNTIME_OVERRIDES_LOAD_INTERVAL as time.Duration: %w", err)
+		}
+		config.RuntimeOverrides.LoadInterval = interval
 	}
 
 	return nil
