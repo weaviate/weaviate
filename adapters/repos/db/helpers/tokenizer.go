@@ -27,11 +27,12 @@ import (
 )
 
 var (
-	gseTokenizer     *gse.Segmenter
-	gseTokenizerLock = &sync.Mutex{}
-	UseGse           = false
-	KagomeKrEnabled  = false
-	KagomeJaEnabled  = false
+	gseTokenizer          *gse.Segmenter
+	gseInitLock           = &sync.Mutex{}
+	UseGse                = false
+	KagomeKrEnabled       = false
+	KagomeJaEnabled       = false
+	ApacTokenizerThrottle = chan struct{}(nil)
 )
 
 // Optional tokenizers can be enabled with an environment variable like:
@@ -45,6 +46,7 @@ var Tokenizations []string = []string{
 }
 
 func init() {
+	ApacTokenizerThrottle = make(chan struct{}, 100)
 	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
 	}
@@ -64,8 +66,8 @@ func init_gse() {
 		UseGse = true
 	}
 	if UseGse {
-		gseTokenizerLock.Lock()
-		defer gseTokenizerLock.Unlock()
+		gseInitLock.Lock()
+		defer gseInitLock.Unlock()
 		if gseTokenizer == nil {
 			seg, err := gse.New("ja")
 			if err != nil {
@@ -89,10 +91,16 @@ func Tokenize(tokenization string, in string) []string {
 	case models.PropertyTokenizationTrigram:
 		return tokenizetrigram(in)
 	case models.PropertyTokenizationGse:
+		ApacTokenizerThrottle <- struct{}{}
+		defer func() { <-ApacTokenizerThrottle }()
 		return tokenizeGSE(in)
 	case models.PropertyTokenizationKagomeKr:
+		ApacTokenizerThrottle <- struct{}{}
+		defer func() { <-ApacTokenizerThrottle }()
 		return tokenizeKagomeKr(in)
 	case models.PropertyTokenizationKagomeJa:
+		ApacTokenizerThrottle <- struct{}{}
+		defer func() { <-ApacTokenizerThrottle }()
 		return tokenizeKagomeJa(in)
 	default:
 		return []string{}
@@ -112,10 +120,16 @@ func TokenizeWithWildcards(tokenization string, in string) []string {
 	case models.PropertyTokenizationTrigram:
 		return tokenizetrigramWithWildcards(in)
 	case models.PropertyTokenizationGse:
+		ApacTokenizerThrottle <- struct{}{}
+		defer func() { <-ApacTokenizerThrottle }()
 		return tokenizeGSE(in)
 	case models.PropertyTokenizationKagomeKr:
+		ApacTokenizerThrottle <- struct{}{}
+		defer func() { <-ApacTokenizerThrottle }()
 		return tokenizeKagomeKr(in)
 	case models.PropertyTokenizationKagomeJa:
+		ApacTokenizerThrottle <- struct{}{}
+		defer func() { <-ApacTokenizerThrottle }()
 		return tokenizeKagomeJa(in)
 	default:
 		return []string{}
@@ -183,8 +197,8 @@ func tokenizeGSE(in string) []string {
 	if !UseGse {
 		return []string{}
 	}
-	gseTokenizerLock.Lock()
-	defer gseTokenizerLock.Unlock()
+	gseInitLock.Lock()
+	defer gseInitLock.Unlock()
 	terms := gseTokenizer.CutAll(in)
 
 	terms = removeEmptyStrings(terms)
