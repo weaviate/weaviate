@@ -19,8 +19,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func AssertCreateObject(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
@@ -133,7 +133,7 @@ func TenantObjectWithInclude(t *testing.T, class string, id strfmt.UUID, tenant 
 }
 
 func GetObjectCL(t *testing.T, class string, uuid strfmt.UUID,
-	cl replica.ConsistencyLevel, include ...string,
+	cl types.ConsistencyLevel, include ...string,
 ) (*models.Object, error) {
 	req := objects.NewObjectsClassGetParams().WithID(uuid)
 	if class != "" {
@@ -151,7 +151,7 @@ func GetObjectCL(t *testing.T, class string, uuid strfmt.UUID,
 	return getResp.Payload, nil
 }
 
-func ObjectExistsCL(t *testing.T, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (bool, error) {
+func ObjectExistsCL(t *testing.T, class string, id strfmt.UUID, cl types.ConsistencyLevel) (bool, error) {
 	cls := string(cl)
 	req := objects.NewObjectsClassHeadParams().
 		WithClassName(class).WithID(id).WithConsistencyLevel(&cls)
@@ -208,7 +208,7 @@ func DeleteClassObject(t *testing.T, class string) (*schema.SchemaObjectsDeleteO
 	return Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 }
 
-func DeleteTenantObject(t *testing.T, class string, id strfmt.UUID, tenant string, cl replica.ConsistencyLevel) {
+func DeleteTenantObject(t *testing.T, class string, id strfmt.UUID, tenant string, cl types.ConsistencyLevel) {
 	cls := string(cl)
 	params := objects.NewObjectsClassDeleteParams().
 		WithClassName(class).WithID(id).WithTenant(&tenant).WithConsistencyLevel(&cls)

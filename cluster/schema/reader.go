@@ -33,6 +33,23 @@ type SchemaReader struct {
 	versionedSchemaReader VersionedSchemaReader
 }
 
+func NewSchemaReader(sc *schema, vsr VersionedSchemaReader) SchemaReader {
+	return SchemaReader{
+		schema:                sc,
+		versionedSchemaReader: vsr,
+	}
+}
+
+func NewSchemaReaderWithoutVersion(sc *schema) SchemaReader {
+	return SchemaReader{
+		schema: sc,
+		versionedSchemaReader: VersionedSchemaReader{
+			schema:        sc,
+			WaitForUpdate: func(context.Context, uint64) error { return nil },
+		},
+	}
+}
+
 func (rs SchemaReader) States() map[string]types.ClassState {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("States"))
 	defer t.ObserveDuration()

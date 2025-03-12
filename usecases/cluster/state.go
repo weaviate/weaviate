@@ -25,6 +25,8 @@ import (
 
 // NodeSelector is an interface to select a portion of the available nodes in memberlist
 type NodeSelector interface {
+	// NodeAddress resolves node id into an ip address without the port.
+	NodeAddress(id string) string
 	// StorageCandidates returns list of storage nodes (names)
 	// sorted by the free amount of disk space in descending orders
 	StorageCandidates() []string
@@ -38,6 +40,7 @@ type NodeSelector interface {
 	LocalName() string
 	// NodeHostname return hosts address for a specific node name
 	NodeHostname(name string) (string, bool)
+	AllHostnames() []string
 }
 
 type State struct {

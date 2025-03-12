@@ -21,6 +21,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -39,14 +40,11 @@ const (
 )
 
 type (
-	shardingState interface {
-		NodeName() string
-		ResolveParentNodes(class, shardName string) (map[string]string, error)
-	}
-
-	nodeResolver interface {
-		AllHostnames() []string // All node names for live members, including self
+	router interface {
+		BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error)
+		BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error)
 		NodeHostname(nodeName string) (string, bool)
+		AllHostnames() []string
 	}
 
 	// _Result represents a valid value or an error ( _ prevent make it public).
@@ -58,9 +56,9 @@ type (
 
 type Replicator struct {
 	class          string
-	stateGetter    shardingState
+	nodeName       string
+	router         router
 	client         Client
-	resolver       *resolver
 	log            logrus.FieldLogger
 	requestCounter atomic.Uint64
 	stream         replicatorStream
@@ -68,37 +66,39 @@ type Replicator struct {
 }
 
 func NewReplicator(className string,
-	stateGetter shardingState,
-	nodeResolver nodeResolver,
+	router router,
+	nodeName string,
 	getDeletionStrategy func() string,
 	client Client,
 	l logrus.FieldLogger,
 ) *Replicator {
-	resolver := &resolver{
-		Schema:       stateGetter,
-		nodeResolver: nodeResolver,
-		Class:        className,
-		NodeName:     stateGetter.NodeName(),
-	}
 	return &Replicator{
-		class:       className,
-		stateGetter: stateGetter,
-		client:      client,
-		resolver:    resolver,
-		log:         l,
-		Finder: NewFinder(className, resolver, client, l,
-			defaultPullBackOffInitialInterval, defaultPullBackOffMaxElapsedTime, getDeletionStrategy),
+		class:    className,
+		nodeName: nodeName,
+		router:   router,
+		client:   client,
+		log:      l,
+		Finder: NewFinder(
+			className,
+			router,
+			nodeName,
+			client,
+			l,
+			defaultPullBackOffInitialInterval,
+			defaultPullBackOffMaxElapsedTime,
+			getDeletionStrategy,
+		),
 	}
 }
 
 func (r *Replicator) AllHostnames() []string {
-	return r.resolver.AllHostnames()
+	return r.router.AllHostnames()
 }
 
 func (r *Replicator) PutObject(ctx context.Context,
 	shard string,
 	obj *storobj.Object,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObject), r.log)
@@ -130,7 +130,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 func (r *Replicator) MergeObject(ctx context.Context,
 	shard string,
 	doc *objects.MergeDocument,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opMergeObject), r.log)
@@ -166,7 +166,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 	deletionTime time.Time,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opDeleteObject), r.log)
@@ -197,7 +197,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 func (r *Replicator) PutObjects(ctx context.Context,
 	shard string,
 	objs []*storobj.Object,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObjects), r.log)
@@ -236,7 +236,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	uuids []strfmt.UUID,
 	deletionTime time.Time,
 	dryRun bool,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []objects.BatchSimpleObject {
 	coord := newCoordinator[DeleteBatchResponse](r, shard, r.requestID(opDeleteObjects), r.log)
@@ -284,7 +284,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 func (r *Replicator) AddReferences(ctx context.Context,
 	shard string,
 	refs []objects.BatchReference,
-	l ConsistencyLevel,
+	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opAddReferences), r.log)
@@ -338,7 +338,7 @@ func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 // and the kind of replication request.
 func (r *Replicator) requestID(op opID) string {
 	return fmt.Sprintf("%s-%.2x-%x-%x",
-		r.stateGetter.NodeName(),
+		r.nodeName,
 		op,
 		time.Now().UnixMilli(),
 		r.requestCounter.Add(1))
