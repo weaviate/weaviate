@@ -29,7 +29,6 @@ const (
 	UUID2 = "f47ac10b-58cc-0372-8567-0e02b2c3d480"
 )
 
-// TODO: add
 func testAggregate(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
