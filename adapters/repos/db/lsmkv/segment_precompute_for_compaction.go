@@ -20,6 +20,7 @@ import (
 	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -123,7 +124,9 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
 		invertedHeader:        invertedHeader,
-		invertedData:          &segmentInvertedData{},
+		invertedData: &segmentInvertedData{
+			tombstones: sroar.NewBitmap(),
+		},
 	}
 
 	if seg.secondaryIndexCount > 0 {

@@ -1323,24 +1323,11 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("flush: %w", err)
 	}
 
+	var tombstones *sroar.Bitmap
 	if b.strategy == StrategyInverted {
-		tombstones, err := b.flushing.GetTombstones()
+		tombstones, err = b.flushing.GetTombstones()
 		if err != nil {
 			return fmt.Errorf("get tombstones: %w", err)
-		}
-		if tombstones != nil {
-			// add flushing memtable tombstones to all segments
-			for _, seg := range b.disk.segments {
-				segTombstones, err := seg.GetTombstones()
-				if err != nil {
-					return fmt.Errorf("get tombstones: %w", err)
-				}
-				// if there are no tombstones in the segment, init a new Bitmap
-				if segTombstones == nil {
-					segTombstones = sroar.NewBitmap()
-				}
-				segTombstones.Or(tombstones)
-			}
 		}
 	}
 
@@ -1351,6 +1338,25 @@ func (b *Bucket) FlushAndSwitch() error {
 
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
+	}
+
+	if b.strategy == StrategyInverted && !tombstones.IsEmpty() {
+		err = func() error {
+			b.disk.maintenanceLock.RLock()
+			defer b.disk.maintenanceLock.RUnlock()
+			// add flushing memtable tombstones to all segments
+			for _, seg := range b.disk.segments {
+				segTombstones, err := seg.GetTombstones()
+				if err != nil {
+					return fmt.Errorf("get tombstones: %w", err)
+				}
+				segTombstones.Or(tombstones)
+			}
+			return nil
+		}()
+		if err != nil {
+			return fmt.Errorf("add tombstones: %w", err)
+		}
 	}
 
 	took := time.Since(before)
