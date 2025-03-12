@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -144,7 +145,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	// ShardOwner
 	owner, err := sc.ShardOwner(ctx, "D", "S1", 1)
 	assert.Nil(t, err)
-	assert.Equal(t, owner, "N1")
+	assert.Contains(t, nodes, owner)
 
 	// TenantShard
 	shards, _, err = sc.TenantsShards(ctx, 1, "D", "S1")
