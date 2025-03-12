@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -29,6 +30,11 @@ func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, cl
 	if len(targetVectors) == 0 {
 		class := sch.FindClassByName(schema.ClassName(className))
 
+		// if no target vectors provided, check whether we have legacy index configured
+		if hasLegacyVectorIndex(class) {
+			return []string{""}, nil
+		}
+
 		if len(class.VectorConfig) > 1 {
 			return []string{}, fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
 		}
@@ -38,9 +44,8 @@ func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, cl
 				return []string{name}, nil
 			}
 		}
-
-		return []string{""}, nil
 	}
+
 	return targetVectors, nil
 }
 
@@ -62,4 +67,8 @@ func (t *TargetVectorParamHelper) GetTargetVectorsFromParams(params dto.GetParam
 		}
 	}
 	return []string{}
+}
+
+func hasLegacyVectorIndex(class *models.Class) bool {
+	return class.Vectorizer != "" || class.VectorIndexConfig != nil
 }
