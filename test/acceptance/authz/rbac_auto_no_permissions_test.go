@@ -79,7 +79,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/schema",
 		"/schema/{className}/tenants",
 		"/schema/{className}/tenants/{tenantName}",
-		"/users",
+		"/users/db",
 	}
 
 	for _, endpoint := range endpoints {
