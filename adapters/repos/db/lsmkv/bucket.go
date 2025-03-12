@@ -19,9 +19,12 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
+
+	entcfg "github.com/weaviate/weaviate/entities/config"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -1005,6 +1008,13 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 		Tombstone: true,
 	}
 
+	if b.active.strategy == StrategyInverted {
+		docID := binary.BigEndian.Uint64(mapKey)
+		if err := b.active.SetTombstone(docID); err != nil {
+			return err
+		}
+	}
+
 	return b.active.appendMapSorted(rowKey, pair)
 }
 
@@ -1291,24 +1301,12 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("flush: %w", err)
 	}
 
+	var tombstones *sroar.Bitmap
+	var err2 error
 	if b.strategy == StrategyInverted {
-		tombstones, err := b.flushing.GetTombstones()
-		if err != nil {
-			return fmt.Errorf("get tombstones: %w", err)
-		}
-		if tombstones != nil {
-			// add flushing memtable tombstones to all segments
-			for _, seg := range b.disk.segments {
-				segTombstones, err := seg.GetTombstones()
-				if err != nil {
-					return fmt.Errorf("get tombstones: %w", err)
-				}
-				// if there are no tombstones in the segment, init a new Bitmap
-				if segTombstones == nil {
-					segTombstones = sroar.NewBitmap()
-				}
-				segTombstones.Or(tombstones)
-			}
+		tombstones, err2 = b.flushing.GetTombstones()
+		if err2 != nil {
+			return fmt.Errorf("get tombstones: %w", err2)
 		}
 	}
 
@@ -1319,6 +1317,25 @@ func (b *Bucket) FlushAndSwitch() error {
 
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
+	}
+
+	if b.strategy == StrategyInverted && !tombstones.IsEmpty() {
+		errInn := func() error {
+			b.disk.maintenanceLock.RLock()
+			defer b.disk.maintenanceLock.RUnlock()
+			// add flushing memtable tombstones to all segments
+			for _, seg := range b.disk.segments {
+				segTombstones, errInner := seg.GetTombstones()
+				if errInner != nil {
+					return fmt.Errorf("get tombstones: %w", errInner)
+				}
+				segTombstones.Or(tombstones)
+			}
+			return nil
+		}()
+		if errInn != nil {
+			return fmt.Errorf("add tombstones: %w", errInn)
+		}
 	}
 
 	took := time.Since(before)
@@ -1496,6 +1513,18 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 }
 
 func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
+	release := func() {}
+
+	defer func() {
+		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+			if r := recover(); r != nil {
+				b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
+				debug.PrintStack()
+				release()
+			}
+		}
+	}()
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1504,13 +1533,6 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	// Panics at this level are caught and the lock is released in the defer function.
 	// The lock is released after the blockmax search is done, and panics are also handled.
 	segmentsDisk, release := b.disk.getAndLockSegments()
-
-	defer func() {
-		if r := recover(); r != nil {
-			b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
-			release()
-		}
-	}()
 
 	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))
@@ -1593,16 +1615,28 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {
 		segment := segmentsDisk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
-		tombstones, err := segment.GetTombstones()
+
+		var tombstones *sroar.Bitmap
+		var err error
+		if j == len(segmentsDisk)-1 {
+			tombstones = sroar.NewBitmap()
+		} else {
+			tombstones, err = segmentsDisk[j+1].GetTombstones()
+			if err != nil {
+				release()
+				return nil, nil, func() {}, err
+			}
+		}
+
 		if err != nil {
 			release()
 			return nil, nil, func() {}, err
 		}
 
-		if b.flushing != nil {
+		if allTombstones[0] != nil {
 			tombstones.Or(allTombstones[0])
 		}
-		if b.active != nil {
+		if allTombstones[1] != nil {
 			tombstones.Or(allTombstones[1])
 		}
 		for i, key := range query {

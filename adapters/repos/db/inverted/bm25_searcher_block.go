@@ -14,6 +14,8 @@ package inverted
 import (
 	"context"
 	"math"
+	"os"
+	"runtime/debug"
 	"slices"
 	"sort"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -39,6 +42,15 @@ func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList
 func (b *BM25Searcher) wandBlock(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
+	defer func() {
+		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+			if r := recover(); r != nil {
+				b.logger.Errorf("Recovered from panic in wandBlock: %v", r)
+				debug.PrintStack()
+			}
+		}
+	}()
+
 	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
 	if err != nil {
 		return nil, nil, err
