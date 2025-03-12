@@ -292,6 +292,9 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 
 func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 	if (s.filterDocIds == nil && s.tombstones == nil) || s.exhausted {
+		if !s.exhausted {
+			s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
+		}
 		return
 	}
 
@@ -307,6 +310,10 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 			s.blockDataIdx = 0
 			s.decodeBlock()
 		}
+	}
+
+	if !s.exhausted {
+		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 	}
 }
 
@@ -424,9 +431,6 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 	}
 
 	s.advanceOnTombstoneOrFilter()
-	if !s.exhausted {
-		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
-	}
 }
 
 func (s *SegmentBlockMax) AdvanceAtLeastShallow(docId uint64) {
@@ -535,9 +539,6 @@ func (s *SegmentBlockMax) Advance() {
 	}
 
 	s.advanceOnTombstoneOrFilter()
-	if !s.exhausted {
-		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
-	}
 }
 
 func (s *SegmentBlockMax) computeCurrentBlockImpact() float32 {
