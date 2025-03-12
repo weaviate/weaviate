@@ -377,11 +377,6 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.metrics.size(m.size)
 	m.updateDirtyAt()
 
-	if m.strategy == StrategyInverted {
-		docID := binary.BigEndian.Uint64(pair.Key)
-		m.tombstones.Set(docID)
-	}
-
 	return nil
 }
 
@@ -449,4 +444,17 @@ func (m *Memtable) GetTombstones() (*sroar.Bitmap, error) {
 	}
 
 	return nil, lsmkv.NotFound
+}
+
+func (m *Memtable) SetTombstone(docId uint64) error {
+	if m.strategy != StrategyInverted {
+		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	m.tombstones.Set(docId)
+
+	return nil
 }
