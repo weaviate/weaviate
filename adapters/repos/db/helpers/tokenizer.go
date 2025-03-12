@@ -69,28 +69,27 @@ func init() {
 }
 
 func init_gse() {
-		gseTokenizerLock.Lock()
-		defer gseTokenizerLock.Unlock()
-		if gseTokenizer == nil {
-			seg, err := gse.New("ja")
-			if err != nil {
-				return //[]string{}
-			}
-			gseTokenizer = &seg
+	gseTokenizerLock.Lock()
+	defer gseTokenizerLock.Unlock()
+	if gseTokenizer == nil {
+		seg, err := gse.New("ja")
+		if err != nil {
+			return //[]string{}
 		}
+		gseTokenizer = &seg
+	}
 }
 
 func init_gse_ch() {
-
-		gseTokenizerLock.Lock()
-		defer gseTokenizerLock.Unlock()
-		if gseTokenizerCh == nil {
-			seg, err := gse.New("zh")
-			if err != nil {
-				return //[]string{}
-			}
-			gseTokenizerCh = &seg
+	gseTokenizerLock.Lock()
+	defer gseTokenizerLock.Unlock()
+	if gseTokenizerCh == nil {
+		seg, err := gse.New("zh")
+		if err != nil {
+			return //[]string{}
 		}
+		gseTokenizerCh = &seg
+	}
 }
 
 func Tokenize(tokenization string, in string) []string {
