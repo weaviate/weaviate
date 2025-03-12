@@ -126,11 +126,11 @@ func (o *RotateUserAPIKeyOK) Code() int {
 }
 
 func (o *RotateUserAPIKeyOK) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyOK  %+v", 200, o.Payload)
 }
 
 func (o *RotateUserAPIKeyOK) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyOK  %+v", 200, o.Payload)
 }
 
 func (o *RotateUserAPIKeyOK) GetPayload() *models.UserAPIKey {
@@ -194,11 +194,11 @@ func (o *RotateUserAPIKeyBadRequest) Code() int {
 }
 
 func (o *RotateUserAPIKeyBadRequest) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *RotateUserAPIKeyBadRequest) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *RotateUserAPIKeyBadRequest) GetPayload() *models.ErrorResponse {
@@ -261,11 +261,11 @@ func (o *RotateUserAPIKeyUnauthorized) Code() int {
 }
 
 func (o *RotateUserAPIKeyUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnauthorized ", 401)
 }
 
 func (o *RotateUserAPIKeyUnauthorized) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnauthorized ", 401)
 }
 
 func (o *RotateUserAPIKeyUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -318,11 +318,11 @@ func (o *RotateUserAPIKeyForbidden) Code() int {
 }
 
 func (o *RotateUserAPIKeyForbidden) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyForbidden  %+v", 403, o.Payload)
 }
 
 func (o *RotateUserAPIKeyForbidden) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyForbidden  %+v", 403, o.Payload)
 }
 
 func (o *RotateUserAPIKeyForbidden) GetPayload() *models.ErrorResponse {
@@ -385,11 +385,11 @@ func (o *RotateUserAPIKeyNotFound) Code() int {
 }
 
 func (o *RotateUserAPIKeyNotFound) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyNotFound ", 404)
 }
 
 func (o *RotateUserAPIKeyNotFound) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyNotFound ", 404)
 }
 
 func (o *RotateUserAPIKeyNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -442,11 +442,11 @@ func (o *RotateUserAPIKeyUnprocessableEntity) Code() int {
 }
 
 func (o *RotateUserAPIKeyUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *RotateUserAPIKeyUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *RotateUserAPIKeyUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -510,11 +510,11 @@ func (o *RotateUserAPIKeyInternalServerError) Code() int {
 }
 
 func (o *RotateUserAPIKeyInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *RotateUserAPIKeyInternalServerError) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/rotate-key][%d] rotateUserApiKeyInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *RotateUserAPIKeyInternalServerError) GetPayload() *models.ErrorResponse {

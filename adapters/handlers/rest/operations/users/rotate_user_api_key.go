@@ -43,7 +43,7 @@ func NewRotateUserAPIKey(ctx *middleware.Context, handler RotateUserAPIKeyHandle
 }
 
 /*
-	RotateUserAPIKey swagger:route POST /users/{user_id}/rotate-key users rotateUserApiKey
+	RotateUserAPIKey swagger:route POST /users/db/{user_id}/rotate-key users rotateUserApiKey
 
 rotate user api key
 */

@@ -2718,12 +2718,12 @@
         }
       }
     },
-    "/users": {
+    "/users/db": {
       "get": {
         "summary": "list all users",
         "operationId": "listAllUsers",
         "x-serviceIds": [
-          "weaviate.users.id.list_all"
+          "weaviate.users.db.list_all"
         ],
         "tags": [
           "users"
@@ -2756,12 +2756,12 @@
         }
       }
     },
-    "/users/{user_id}": {
+    "/users/db/{user_id}": {
       "get": {
         "summary": "get info relevant to user, e.g. username, roles",
         "operationId": "getUserInfo",
         "x-serviceIds": [
-          "weaviate.users.id.get"
+          "weaviate.users.db.get"
         ],
         "tags": [
           "users"
@@ -2806,7 +2806,7 @@
         "summary": "create new user",
         "operationId": "createUser",
         "x-serviceIds": [
-          "weaviate.users.create"
+          "weaviate.users.db.create"
         ],
         "tags": [
           "users"
@@ -2866,7 +2866,7 @@
         "summary": "Delete User",
         "operationId": "deleteUser",
         "x-serviceIds": [
-          "weaviate.users.delete"
+          "weaviate.users.db.delete"
         ],
         "tags": [
           "users"
@@ -2917,12 +2917,12 @@
         }
       }
     },
-    "/users/{user_id}/rotate-key": {
+    "/users/db/{user_id}/rotate-key": {
       "post": {
         "summary": "rotate user api key",
         "operationId": "rotateUserApiKey",
         "x-serviceIds": [
-          "weaviate.users.rotateApiKey"
+          "weaviate.users.db.rotateApiKey"
         ],
         "tags": [
           "users"
@@ -2976,12 +2976,12 @@
         }
       }
     },
-    "/users/{user_id}/activate": {
+    "/users/db/{user_id}/activate": {
       "post": {
         "summary": "activate a deactivated user",
         "operationId": "activateUser",
         "x-serviceIds": [
-          "weaviate.users.activateUser"
+          "weaviate.users.db.activateUser"
         ],
         "tags": [
           "users"
@@ -3032,12 +3032,12 @@
         }
       }
     },
-    "/users/{user_id}/deactivate": {
+    "/users/db/{user_id}/deactivate": {
       "post": {
         "summary": "deactivate a user",
         "operationId": "deactivateUser",
         "x-serviceIds": [
-          "weaviate.users.deactivateUser"
+          "weaviate.users.db.deactivateUser"
         ],
         "tags": [
           "users"

@@ -46,7 +46,7 @@ func NewDeactivateUser(ctx *middleware.Context, handler DeactivateUserHandler) *
 }
 
 /*
-	DeactivateUser swagger:route POST /users/{user_id}/deactivate users deactivateUser
+	DeactivateUser swagger:route POST /users/db/{user_id}/deactivate users deactivateUser
 
 deactivate a user
 */

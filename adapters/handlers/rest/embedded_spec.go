@@ -4227,7 +4227,7 @@ func init() {
         }
       }
     },
-    "/users": {
+    "/users/db": {
       "get": {
         "tags": [
           "users"
@@ -4261,40 +4261,11 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.id.list_all"
+          "weaviate.users.db.list_all"
         ]
       }
     },
-    "/users/own-info": {
-      "get": {
-        "tags": [
-          "users"
-        ],
-        "summary": "get info relevant to own user, e.g. username, roles",
-        "operationId": "getOwnInfo",
-        "responses": {
-          "200": {
-            "description": "Info about the user",
-            "schema": {
-              "$ref": "#/definitions/UserOwnInfo"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.users.get.own-info"
-        ]
-      }
-    },
-    "/users/{user_id}": {
+    "/users/db/{user_id}": {
       "get": {
         "tags": [
           "users"
@@ -4337,7 +4308,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.id.get"
+          "weaviate.users.db.get"
         ]
       },
       "post": {
@@ -4397,7 +4368,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.create"
+          "weaviate.users.db.create"
         ]
       },
       "delete": {
@@ -4451,11 +4422,11 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.delete"
+          "weaviate.users.db.delete"
         ]
       }
     },
-    "/users/{user_id}/activate": {
+    "/users/db/{user_id}/activate": {
       "post": {
         "tags": [
           "users"
@@ -4507,11 +4478,11 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.activateUser"
+          "weaviate.users.db.activateUser"
         ]
       }
     },
-    "/users/{user_id}/deactivate": {
+    "/users/db/{user_id}/deactivate": {
       "post": {
         "tags": [
           "users"
@@ -4577,11 +4548,11 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.deactivateUser"
+          "weaviate.users.db.deactivateUser"
         ]
       }
     },
-    "/users/{user_id}/rotate-key": {
+    "/users/db/{user_id}/rotate-key": {
       "post": {
         "tags": [
           "users"
@@ -4636,7 +4607,36 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.rotateApiKey"
+          "weaviate.users.db.rotateApiKey"
+        ]
+      }
+    },
+    "/users/own-info": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "get info relevant to own user, e.g. username, roles",
+        "operationId": "getOwnInfo",
+        "responses": {
+          "200": {
+            "description": "Info about the user",
+            "schema": {
+              "$ref": "#/definitions/UserOwnInfo"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.get.own-info"
         ]
       }
     }
@@ -11577,7 +11577,7 @@ func init() {
         }
       }
     },
-    "/users": {
+    "/users/db": {
       "get": {
         "tags": [
           "users"
@@ -11611,40 +11611,11 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.id.list_all"
+          "weaviate.users.db.list_all"
         ]
       }
     },
-    "/users/own-info": {
-      "get": {
-        "tags": [
-          "users"
-        ],
-        "summary": "get info relevant to own user, e.g. username, roles",
-        "operationId": "getOwnInfo",
-        "responses": {
-          "200": {
-            "description": "Info about the user",
-            "schema": {
-              "$ref": "#/definitions/UserOwnInfo"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.users.get.own-info"
-        ]
-      }
-    },
-    "/users/{user_id}": {
+    "/users/db/{user_id}": {
       "get": {
         "tags": [
           "users"
@@ -11687,7 +11658,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.id.get"
+          "weaviate.users.db.get"
         ]
       },
       "post": {
@@ -11747,7 +11718,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.create"
+          "weaviate.users.db.create"
         ]
       },
       "delete": {
@@ -11801,11 +11772,11 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.delete"
+          "weaviate.users.db.delete"
         ]
       }
     },
-    "/users/{user_id}/activate": {
+    "/users/db/{user_id}/activate": {
       "post": {
         "tags": [
           "users"
@@ -11857,11 +11828,11 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.activateUser"
+          "weaviate.users.db.activateUser"
         ]
       }
     },
-    "/users/{user_id}/deactivate": {
+    "/users/db/{user_id}/deactivate": {
       "post": {
         "tags": [
           "users"
@@ -11927,11 +11898,11 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.deactivateUser"
+          "weaviate.users.db.deactivateUser"
         ]
       }
     },
-    "/users/{user_id}/rotate-key": {
+    "/users/db/{user_id}/rotate-key": {
       "post": {
         "tags": [
           "users"
@@ -11986,7 +11957,36 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.users.rotateApiKey"
+          "weaviate.users.db.rotateApiKey"
+        ]
+      }
+    },
+    "/users/own-info": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "get info relevant to own user, e.g. username, roles",
+        "operationId": "getOwnInfo",
+        "responses": {
+          "200": {
+            "description": "Info about the user",
+            "schema": {
+              "$ref": "#/definitions/UserOwnInfo"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.get.own-info"
         ]
       }
     }

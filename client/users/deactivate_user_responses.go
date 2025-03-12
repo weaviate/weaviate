@@ -127,11 +127,11 @@ func (o *DeactivateUserOK) Code() int {
 }
 
 func (o *DeactivateUserOK) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserOK ", 200)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserOK ", 200)
 }
 
 func (o *DeactivateUserOK) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserOK ", 200)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserOK ", 200)
 }
 
 func (o *DeactivateUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -184,11 +184,11 @@ func (o *DeactivateUserBadRequest) Code() int {
 }
 
 func (o *DeactivateUserBadRequest) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *DeactivateUserBadRequest) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *DeactivateUserBadRequest) GetPayload() *models.ErrorResponse {
@@ -251,11 +251,11 @@ func (o *DeactivateUserUnauthorized) Code() int {
 }
 
 func (o *DeactivateUserUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnauthorized ", 401)
 }
 
 func (o *DeactivateUserUnauthorized) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnauthorized ", 401)
 }
 
 func (o *DeactivateUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -308,11 +308,11 @@ func (o *DeactivateUserForbidden) Code() int {
 }
 
 func (o *DeactivateUserForbidden) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserForbidden  %+v", 403, o.Payload)
 }
 
 func (o *DeactivateUserForbidden) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserForbidden  %+v", 403, o.Payload)
 }
 
 func (o *DeactivateUserForbidden) GetPayload() *models.ErrorResponse {
@@ -375,11 +375,11 @@ func (o *DeactivateUserNotFound) Code() int {
 }
 
 func (o *DeactivateUserNotFound) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserNotFound ", 404)
 }
 
 func (o *DeactivateUserNotFound) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserNotFound ", 404)
 }
 
 func (o *DeactivateUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -432,11 +432,11 @@ func (o *DeactivateUserUnprocessableEntity) Code() int {
 }
 
 func (o *DeactivateUserUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *DeactivateUserUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *DeactivateUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -500,11 +500,11 @@ func (o *DeactivateUserInternalServerError) Code() int {
 }
 
 func (o *DeactivateUserInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *DeactivateUserInternalServerError) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/deactivate][%d] deactivateUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *DeactivateUserInternalServerError) GetPayload() *models.ErrorResponse {

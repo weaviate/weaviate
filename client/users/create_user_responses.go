@@ -126,11 +126,11 @@ func (o *CreateUserCreated) Code() int {
 }
 
 func (o *CreateUserCreated) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserCreated  %+v", 201, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserCreated  %+v", 201, o.Payload)
 }
 
 func (o *CreateUserCreated) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserCreated  %+v", 201, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserCreated  %+v", 201, o.Payload)
 }
 
 func (o *CreateUserCreated) GetPayload() *models.UserAPIKey {
@@ -194,11 +194,11 @@ func (o *CreateUserBadRequest) Code() int {
 }
 
 func (o *CreateUserBadRequest) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *CreateUserBadRequest) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *CreateUserBadRequest) GetPayload() *models.ErrorResponse {
@@ -261,11 +261,11 @@ func (o *CreateUserUnauthorized) Code() int {
 }
 
 func (o *CreateUserUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnauthorized ", 401)
 }
 
 func (o *CreateUserUnauthorized) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnauthorized ", 401)
 }
 
 func (o *CreateUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -318,11 +318,11 @@ func (o *CreateUserForbidden) Code() int {
 }
 
 func (o *CreateUserForbidden) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserForbidden  %+v", 403, o.Payload)
 }
 
 func (o *CreateUserForbidden) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserForbidden  %+v", 403, o.Payload)
 }
 
 func (o *CreateUserForbidden) GetPayload() *models.ErrorResponse {
@@ -386,11 +386,11 @@ func (o *CreateUserConflict) Code() int {
 }
 
 func (o *CreateUserConflict) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserConflict  %+v", 409, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserConflict  %+v", 409, o.Payload)
 }
 
 func (o *CreateUserConflict) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserConflict  %+v", 409, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserConflict  %+v", 409, o.Payload)
 }
 
 func (o *CreateUserConflict) GetPayload() *models.ErrorResponse {
@@ -454,11 +454,11 @@ func (o *CreateUserUnprocessableEntity) Code() int {
 }
 
 func (o *CreateUserUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *CreateUserUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *CreateUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -522,11 +522,11 @@ func (o *CreateUserInternalServerError) Code() int {
 }
 
 func (o *CreateUserInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *CreateUserInternalServerError) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}][%d] createUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *CreateUserInternalServerError) GetPayload() *models.ErrorResponse {

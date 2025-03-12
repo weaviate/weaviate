@@ -108,11 +108,11 @@ func (o *ListAllUsersOK) Code() int {
 }
 
 func (o *ListAllUsersOK) Error() string {
-	return fmt.Sprintf("[GET /users][%d] listAllUsersOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersOK  %+v", 200, o.Payload)
 }
 
 func (o *ListAllUsersOK) String() string {
-	return fmt.Sprintf("[GET /users][%d] listAllUsersOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersOK  %+v", 200, o.Payload)
 }
 
 func (o *ListAllUsersOK) GetPayload() []*models.UserInfo {
@@ -173,11 +173,11 @@ func (o *ListAllUsersUnauthorized) Code() int {
 }
 
 func (o *ListAllUsersUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /users][%d] listAllUsersUnauthorized ", 401)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersUnauthorized ", 401)
 }
 
 func (o *ListAllUsersUnauthorized) String() string {
-	return fmt.Sprintf("[GET /users][%d] listAllUsersUnauthorized ", 401)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersUnauthorized ", 401)
 }
 
 func (o *ListAllUsersUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -230,11 +230,11 @@ func (o *ListAllUsersForbidden) Code() int {
 }
 
 func (o *ListAllUsersForbidden) Error() string {
-	return fmt.Sprintf("[GET /users][%d] listAllUsersForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ListAllUsersForbidden) String() string {
-	return fmt.Sprintf("[GET /users][%d] listAllUsersForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ListAllUsersForbidden) GetPayload() *models.ErrorResponse {
@@ -298,11 +298,11 @@ func (o *ListAllUsersInternalServerError) Code() int {
 }
 
 func (o *ListAllUsersInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /users][%d] listAllUsersInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ListAllUsersInternalServerError) String() string {
-	return fmt.Sprintf("[GET /users][%d] listAllUsersInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ListAllUsersInternalServerError) GetPayload() *models.ErrorResponse {

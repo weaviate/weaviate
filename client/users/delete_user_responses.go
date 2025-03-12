@@ -125,11 +125,11 @@ func (o *DeleteUserNoContent) Code() int {
 }
 
 func (o *DeleteUserNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserNoContent ", 204)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserNoContent ", 204)
 }
 
 func (o *DeleteUserNoContent) String() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserNoContent ", 204)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserNoContent ", 204)
 }
 
 func (o *DeleteUserNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -182,11 +182,11 @@ func (o *DeleteUserBadRequest) Code() int {
 }
 
 func (o *DeleteUserBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *DeleteUserBadRequest) String() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *DeleteUserBadRequest) GetPayload() *models.ErrorResponse {
@@ -249,11 +249,11 @@ func (o *DeleteUserUnauthorized) Code() int {
 }
 
 func (o *DeleteUserUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserUnauthorized ", 401)
 }
 
 func (o *DeleteUserUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserUnauthorized ", 401)
 }
 
 func (o *DeleteUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -306,11 +306,11 @@ func (o *DeleteUserForbidden) Code() int {
 }
 
 func (o *DeleteUserForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserForbidden  %+v", 403, o.Payload)
 }
 
 func (o *DeleteUserForbidden) String() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserForbidden  %+v", 403, o.Payload)
 }
 
 func (o *DeleteUserForbidden) GetPayload() *models.ErrorResponse {
@@ -373,11 +373,11 @@ func (o *DeleteUserNotFound) Code() int {
 }
 
 func (o *DeleteUserNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserNotFound ", 404)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserNotFound ", 404)
 }
 
 func (o *DeleteUserNotFound) String() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserNotFound ", 404)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserNotFound ", 404)
 }
 
 func (o *DeleteUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -430,11 +430,11 @@ func (o *DeleteUserUnprocessableEntity) Code() int {
 }
 
 func (o *DeleteUserUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *DeleteUserUnprocessableEntity) String() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *DeleteUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -498,11 +498,11 @@ func (o *DeleteUserInternalServerError) Code() int {
 }
 
 func (o *DeleteUserInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *DeleteUserInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /users/{user_id}][%d] deleteUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /users/db/{user_id}][%d] deleteUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *DeleteUserInternalServerError) GetPayload() *models.ErrorResponse {
