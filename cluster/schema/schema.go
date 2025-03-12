@@ -533,6 +533,7 @@ func (s *schema) Restore(r io.Reader, parser Parser) error {
 // Persist should dump all necessary state to the WriteCloser 'sink',
 // and call sink.Close() when finished or call sink.Cancel() on error.
 func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
+	// we don't need to lock here because, we call MetaClasses() which is thread-safe
 	defer sink.Close()
 	snap := snapshot{
 		NodeID:     s.nodeID,
