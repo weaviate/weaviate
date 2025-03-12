@@ -125,11 +125,11 @@ func (o *ActivateUserOK) Code() int {
 }
 
 func (o *ActivateUserOK) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserOK ", 200)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserOK ", 200)
 }
 
 func (o *ActivateUserOK) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserOK ", 200)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserOK ", 200)
 }
 
 func (o *ActivateUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -182,11 +182,11 @@ func (o *ActivateUserBadRequest) Code() int {
 }
 
 func (o *ActivateUserBadRequest) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ActivateUserBadRequest) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ActivateUserBadRequest) GetPayload() *models.ErrorResponse {
@@ -249,11 +249,11 @@ func (o *ActivateUserUnauthorized) Code() int {
 }
 
 func (o *ActivateUserUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnauthorized ", 401)
 }
 
 func (o *ActivateUserUnauthorized) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnauthorized ", 401)
 }
 
 func (o *ActivateUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -306,11 +306,11 @@ func (o *ActivateUserForbidden) Code() int {
 }
 
 func (o *ActivateUserForbidden) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ActivateUserForbidden) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ActivateUserForbidden) GetPayload() *models.ErrorResponse {
@@ -373,11 +373,11 @@ func (o *ActivateUserNotFound) Code() int {
 }
 
 func (o *ActivateUserNotFound) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserNotFound ", 404)
 }
 
 func (o *ActivateUserNotFound) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserNotFound ", 404)
 }
 
 func (o *ActivateUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -430,11 +430,11 @@ func (o *ActivateUserUnprocessableEntity) Code() int {
 }
 
 func (o *ActivateUserUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ActivateUserUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ActivateUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -498,11 +498,11 @@ func (o *ActivateUserInternalServerError) Code() int {
 }
 
 func (o *ActivateUserInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ActivateUserInternalServerError) String() string {
-	return fmt.Sprintf("[POST /users/{user_id}/activate][%d] activateUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ActivateUserInternalServerError) GetPayload() *models.ErrorResponse {

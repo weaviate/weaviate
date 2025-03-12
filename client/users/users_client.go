@@ -71,7 +71,7 @@ func (a *Client) ActivateUser(params *ActivateUserParams, authInfo runtime.Clien
 	op := &runtime.ClientOperation{
 		ID:                 "activateUser",
 		Method:             "POST",
-		PathPattern:        "/users/{user_id}/activate",
+		PathPattern:        "/users/db/{user_id}/activate",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -110,7 +110,7 @@ func (a *Client) CreateUser(params *CreateUserParams, authInfo runtime.ClientAut
 	op := &runtime.ClientOperation{
 		ID:                 "createUser",
 		Method:             "POST",
-		PathPattern:        "/users/{user_id}",
+		PathPattern:        "/users//db{user_id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -149,7 +149,7 @@ func (a *Client) DeactivateUser(params *DeactivateUserParams, authInfo runtime.C
 	op := &runtime.ClientOperation{
 		ID:                 "deactivateUser",
 		Method:             "POST",
-		PathPattern:        "/users/{user_id}/deactivate",
+		PathPattern:        "/users/db/{user_id}/deactivate",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -188,7 +188,7 @@ func (a *Client) DeleteUser(params *DeleteUserParams, authInfo runtime.ClientAut
 	op := &runtime.ClientOperation{
 		ID:                 "deleteUser",
 		Method:             "DELETE",
-		PathPattern:        "/users/{user_id}",
+		PathPattern:        "/users//db{user_id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -266,7 +266,7 @@ func (a *Client) GetUserInfo(params *GetUserInfoParams, authInfo runtime.ClientA
 	op := &runtime.ClientOperation{
 		ID:                 "getUserInfo",
 		Method:             "GET",
-		PathPattern:        "/users/{user_id}",
+		PathPattern:        "/users//db{user_id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -305,7 +305,7 @@ func (a *Client) ListAllUsers(params *ListAllUsersParams, authInfo runtime.Clien
 	op := &runtime.ClientOperation{
 		ID:                 "listAllUsers",
 		Method:             "GET",
-		PathPattern:        "/users",
+		PathPattern:        "/users/db",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -344,7 +344,7 @@ func (a *Client) RotateUserAPIKey(params *RotateUserAPIKeyParams, authInfo runti
 	op := &runtime.ClientOperation{
 		ID:                 "rotateUserApiKey",
 		Method:             "POST",
-		PathPattern:        "/users/{user_id}/rotate-key",
+		PathPattern:        "/users//db{user_id}/rotate-key",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

@@ -43,7 +43,7 @@ func NewListAllUsers(ctx *middleware.Context, handler ListAllUsersHandler) *List
 }
 
 /*
-	ListAllUsers swagger:route GET /users users listAllUsers
+	ListAllUsers swagger:route GET /users/db users listAllUsers
 
 list all users
 */

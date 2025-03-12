@@ -943,7 +943,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/users/{user_id}/activate"] = users.NewActivateUser(o.context, o.UsersActivateUserHandler)
+	o.handlers["POST"]["/users/db/{user_id}/activate"] = users.NewActivateUser(o.context, o.UsersActivateUserHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1011,11 +1011,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/users/{user_id}"] = users.NewCreateUser(o.context, o.UsersCreateUserHandler)
+	o.handlers["POST"]["/users/db{user_id}"] = users.NewCreateUser(o.context, o.UsersCreateUserHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/users/{user_id}/deactivate"] = users.NewDeactivateUser(o.context, o.UsersDeactivateUserHandler)
+	o.handlers["POST"]["/users/db/{user_id}/deactivate"] = users.NewDeactivateUser(o.context, o.UsersDeactivateUserHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
@@ -1023,7 +1023,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/users/{user_id}"] = users.NewDeleteUser(o.context, o.UsersDeleteUserHandler)
+	o.handlers["DELETE"]["/users/db{user_id}"] = users.NewDeleteUser(o.context, o.UsersDeleteUserHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1047,7 +1047,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/users/{user_id}"] = users.NewGetUserInfo(o.context, o.UsersGetUserInfoHandler)
+	o.handlers["GET"]["/users/db{user_id}"] = users.NewGetUserInfo(o.context, o.UsersGetUserInfoHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1071,7 +1071,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/users"] = users.NewListAllUsers(o.context, o.UsersListAllUsersHandler)
+	o.handlers["GET"]["/users/db"] = users.NewListAllUsers(o.context, o.UsersListAllUsersHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1175,7 +1175,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/users/{user_id}/rotate-key"] = users.NewRotateUserAPIKey(o.context, o.UsersRotateUserAPIKeyHandler)
+	o.handlers["POST"]["/users/db{user_id}/rotate-key"] = users.NewRotateUserAPIKey(o.context, o.UsersRotateUserAPIKeyHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

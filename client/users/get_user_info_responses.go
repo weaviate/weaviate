@@ -114,11 +114,11 @@ func (o *GetUserInfoOK) Code() int {
 }
 
 func (o *GetUserInfoOK) Error() string {
-	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /users//db{user_id}][%d] getUserInfoOK  %+v", 200, o.Payload)
 }
 
 func (o *GetUserInfoOK) String() string {
-	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /users//db{user_id}][%d] getUserInfoOK  %+v", 200, o.Payload)
 }
 
 func (o *GetUserInfoOK) GetPayload() *models.UserInfo {
@@ -181,11 +181,11 @@ func (o *GetUserInfoUnauthorized) Code() int {
 }
 
 func (o *GetUserInfoUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoUnauthorized ", 401)
+	return fmt.Sprintf("[GET /users//db{user_id}][%d] getUserInfoUnauthorized ", 401)
 }
 
 func (o *GetUserInfoUnauthorized) String() string {
-	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoUnauthorized ", 401)
+	return fmt.Sprintf("[GET /users//db{user_id}][%d] getUserInfoUnauthorized ", 401)
 }
 
 func (o *GetUserInfoUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -238,11 +238,11 @@ func (o *GetUserInfoForbidden) Code() int {
 }
 
 func (o *GetUserInfoForbidden) Error() string {
-	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /users//db{user_id}][%d] getUserInfoForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetUserInfoForbidden) String() string {
-	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /users//db{user_id}][%d] getUserInfoForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetUserInfoForbidden) GetPayload() *models.ErrorResponse {
@@ -305,11 +305,11 @@ func (o *GetUserInfoNotFound) Code() int {
 }
 
 func (o *GetUserInfoNotFound) Error() string {
-	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoNotFound ", 404)
+	return fmt.Sprintf("[GET /users//db{user_id}][%d] getUserInfoNotFound ", 404)
 }
 
 func (o *GetUserInfoNotFound) String() string {
-	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoNotFound ", 404)
+	return fmt.Sprintf("[GET /users//db{user_id}][%d] getUserInfoNotFound ", 404)
 }
 
 func (o *GetUserInfoNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -362,11 +362,11 @@ func (o *GetUserInfoInternalServerError) Code() int {
 }
 
 func (o *GetUserInfoInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /users//db{user_id}][%d] getUserInfoInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetUserInfoInternalServerError) String() string {
-	return fmt.Sprintf("[GET /users/{user_id}][%d] getUserInfoInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /users//db{user_id}][%d] getUserInfoInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetUserInfoInternalServerError) GetPayload() *models.ErrorResponse {

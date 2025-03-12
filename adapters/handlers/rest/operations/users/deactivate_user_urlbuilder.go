@@ -51,7 +51,7 @@ func (o *DeactivateUserURL) SetBasePath(bp string) {
 func (o *DeactivateUserURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/users/{user_id}/deactivate"
+	var _path = "/users/db/{user_id}/deactivate"
 
 	userID := o.UserID
 	if userID != "" {
