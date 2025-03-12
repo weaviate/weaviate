@@ -13,6 +13,7 @@ package helpers
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -49,7 +50,15 @@ var Tokenizations []string = []string{
 }
 
 func init() {
-	ApacTokenizerThrottle = make(chan struct{}, 100)
+	numParallel := 0
+	numParallelStr := os.Getenv("TOKENIZER_THROTTLE")
+	if numParallelStr != "" {
+		x, err := strconv.Atoi(numParallelStr)
+		if err != nil {
+			numParallel = x
+		}
+	}
+	ApacTokenizerThrottle = make(chan struct{}, numParallel)
 	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 		UseGse = true
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
