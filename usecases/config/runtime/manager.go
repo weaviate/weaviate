@@ -188,3 +188,19 @@ func (cm *ConfigManager[T]) loop(ctx context.Context) error {
 		}
 	}
 }
+
+// GetOverrides takes a config value and func to get it's runtime value.
+// It returns a value from func if available else the passed in `val` if failing
+// to get value from the func().
+func GetOverrides[T any](val T, f func() *T) T {
+	if f == nil {
+		return val
+	}
+	x := f()
+
+	if x == nil {
+		return val
+	}
+
+	return *x
+}
