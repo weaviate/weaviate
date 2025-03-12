@@ -22,8 +22,7 @@ import (
 func TestTokenise(t *testing.T) {
 	UseGse = true
 	init_gse()
-	err := os.Setenv("ENABLE_TOKENIZER_GSE_CH", "true")
-	assert.Nil(t, err)
+	t.Setenv("ENABLE_TOKENIZER_GSE_CH", "true")
 	init_gse_ch()
 	tokens := Tokenize(models.PropertyTokenizationTrigram, "Thequickbrownfoxjumpsoverthelazydog")
 	assert.Equal(t, []string{"the", "heq", "equ", "qui", "uic", "ick", "ckb", "kbr", "bro", "row", "own", "wnf", "nfo", "fox", "oxj", "xju", "jum", "ump", "mps", "pso", "sov", "ove", "ver", "ert", "rth", "the", "hel", "ela", "laz", "azy", "zyd", "ydo", "dog"}, tokens)
