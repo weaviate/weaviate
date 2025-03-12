@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"slices"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
@@ -36,6 +38,7 @@ type dynUserHandler struct {
 	dynamicUser          DynamicUserAndRolesGetter
 	staticApiKeysConfigs config.APIKey
 	rbacConfig           rbacconf.Config
+	logger               logrus.FieldLogger
 }
 
 type DynamicUserAndRolesGetter interface {
@@ -63,6 +66,7 @@ func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesG
 		dynamicUser:          dynamicUser,
 		staticApiKeysConfigs: staticApiKeysConfigs,
 		rbacConfig:           rbacConfig,
+		logger:               logger,
 	}
 
 	api.UsersCreateUserHandler = users.CreateUserHandlerFunc(h.createUser)
@@ -71,6 +75,70 @@ func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesG
 	api.UsersRotateUserAPIKeyHandler = users.RotateUserAPIKeyHandlerFunc(h.rotateKey)
 	api.UsersDeactivateUserHandler = users.DeactivateUserHandlerFunc(h.deactivateUser)
 	api.UsersActivateUserHandler = users.ActivateUserHandlerFunc(h.activateUser)
+	api.UsersListAllUsersHandler = users.ListAllUsersHandlerFunc(h.listUsers)
+}
+
+func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
+	isRootUser := h.isRequestFromRootUser(principal)
+
+	allDynamicUsers, err := h.dynamicUser.GetUsers()
+	if err != nil {
+		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	allUsers := make([]*apikey.User, 0, len(allDynamicUsers))
+	for _, dynamicUser := range allDynamicUsers {
+		allUsers = append(allUsers, dynamicUser)
+	}
+
+	resourceFilter := filter.New[*apikey.User](h.authorizer, h.rbacConfig)
+	filteredUsers := resourceFilter.Filter(
+		h.logger,
+		principal,
+		allUsers,
+		authorization.READ,
+		func(user *apikey.User) string {
+			return authorization.Users(user.Id)[0]
+		},
+	)
+
+	response := make([]*models.UserInfo, 0, len(filteredUsers))
+	for _, dynamicUser := range filteredUsers {
+		response, err = h.addToListAllResponse(response, dynamicUser.Id, userTypeDynamic, dynamicUser.Active)
+		if err != nil {
+			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+	}
+
+	if isRootUser {
+		for _, staticUser := range h.staticApiKeysConfigs.Users {
+			response, err = h.addToListAllResponse(response, staticUser, userTypeStatic, true)
+			if err != nil {
+				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+			}
+		}
+	}
+
+	return users.NewListAllUsersOK().WithPayload(response)
+}
+
+func (h *dynUserHandler) addToListAllResponse(response []*models.UserInfo, id, userType string, active bool) ([]*models.UserInfo, error) {
+	roles, err := h.dynamicUser.GetRolesForUser(id, models.UserTypeDb)
+	if err != nil {
+		return response, err
+	}
+
+	roleNames := make([]string, 0, len(roles))
+	for role := range roles {
+		roleNames = append(roleNames, role)
+	}
+	response = append(response, &models.UserInfo{
+		Active:     &active,
+		UserID:     &id,
+		DbUserType: &userType,
+		Roles:      roleNames,
+	})
+	return response, nil
 }
 
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {

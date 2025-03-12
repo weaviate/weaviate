@@ -168,6 +168,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzHasPermissionHandler: authz.HasPermissionHandlerFunc(func(params authz.HasPermissionParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.HasPermission has not yet been implemented")
 		}),
+		UsersListAllUsersHandler: users.ListAllUsersHandlerFunc(func(params users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.ListAllUsers has not yet been implemented")
+		}),
 		MetaMetaGetHandler: meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation meta.MetaGet has not yet been implemented")
 		}),
@@ -430,6 +433,8 @@ type WeaviateAPI struct {
 	GraphqlGraphqlPostHandler graphql.GraphqlPostHandler
 	// AuthzHasPermissionHandler sets the operation handler for the has permission operation
 	AuthzHasPermissionHandler authz.HasPermissionHandler
+	// UsersListAllUsersHandler sets the operation handler for the list all users operation
+	UsersListAllUsersHandler users.ListAllUsersHandler
 	// MetaMetaGetHandler sets the operation handler for the meta get operation
 	MetaMetaGetHandler meta.MetaGetHandler
 	// NodesNodesGetHandler sets the operation handler for the nodes get operation
@@ -698,6 +703,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzHasPermissionHandler == nil {
 		unregistered = append(unregistered, "authz.HasPermissionHandler")
+	}
+	if o.UsersListAllUsersHandler == nil {
+		unregistered = append(unregistered, "users.ListAllUsersHandler")
 	}
 	if o.MetaMetaGetHandler == nil {
 		unregistered = append(unregistered, "meta.MetaGetHandler")
@@ -1060,6 +1068,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/authz/roles/{id}/has-permission"] = authz.NewHasPermission(o.context, o.AuthzHasPermissionHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/users"] = users.NewListAllUsers(o.context, o.UsersListAllUsersHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

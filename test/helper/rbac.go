@@ -137,6 +137,14 @@ func ActivateUser(t *testing.T, key, userId string) {
 	require.NoError(t, err)
 }
 
+func ListAllUsers(t *testing.T, key string) []*models.UserInfo {
+	t.Helper()
+	resp, err := Client(t).Users.ListAllUsers(users.NewListAllUsersParams(), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
 func DeleteRole(t *testing.T, key, role string) {
 	t.Helper()
 	resp, err := Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID(role), CreateAuth(key))
@@ -145,6 +153,7 @@ func DeleteRole(t *testing.T, key, role string) {
 }
 
 func GetRoleByName(t *testing.T, key, role string) *models.Role {
+	t.Helper()
 	resp, err := Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(role), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)

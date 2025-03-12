@@ -13,6 +13,9 @@ package authz
 
 import (
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -305,7 +308,7 @@ func TestUserEndpoint(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
 	defer down()
 
 	testUser := "test-user"
@@ -470,6 +473,151 @@ func TestUserEndpoint(t *testing.T) {
 		helper.CreateUser(t, testUserName, adminKey)
 		testUserRolesNew := helper.GetRolesForUser(t, testUserName, adminKey)
 		require.Len(t, testUserRolesNew, 0)
+	})
+}
+
+func TestListAllUsers(t *testing.T) {
+	adminKey := "admin-key"
+	adminUser := "admin-user"
+
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	viewerUser := "viewer-user"
+	viewerKey := "viewer-key"
+
+	// match what is defined in the docker-compose file to allow switching between them
+	staticUsers := map[string]string{customUser: customKey, viewerUser: viewerKey, "editor-user": "editor-key"}
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, staticUsers, nil)
+	defer down()
+
+	helper.AssignRoleToUser(t, adminKey, "viewer", viewerUser)
+	t.Run("List all users", func(t *testing.T) {
+		userNames := make([]string, 0, 10)
+		for i := 0; i < cap(userNames); i++ {
+			userNames = append(userNames, fmt.Sprintf("user-%d", i))
+		}
+
+		for i, userName := range userNames {
+			helper.DeleteUser(t, userName, adminKey)
+			helper.CreateUser(t, userName, adminKey)
+			defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
+			if i%2 == 0 {
+				helper.AssignRoleToUser(t, adminKey, "viewer", userName)
+			}
+			if i%5 == 0 {
+				helper.DeactivateUser(t, adminKey, userName, false)
+			}
+		}
+
+		allUsersAdmin := helper.ListAllUsers(t, adminKey)
+		require.Len(t, allUsersAdmin, len(userNames)+len(staticUsers)+1)
+
+		for _, user := range allUsersAdmin {
+			name := *user.UserID
+
+			if *user.DbUserType == "static" {
+				continue
+			}
+
+			number, err := strconv.Atoi(strings.Split(name, "-")[1])
+			require.NoError(t, err)
+			if number%2 == 0 {
+				require.Len(t, user.Roles, 1)
+				require.Equal(t, user.Roles[0], "viewer")
+			}
+
+			require.Equal(t, number%5 != 0, *user.Active)
+		}
+
+		allUsersViewer := helper.ListAllUsers(t, viewerKey)
+		require.Len(t, allUsersViewer, len(userNames))
+	})
+
+	t.Run("List all users using non-admin", func(t *testing.T) {
+		userNames := make([]string, 0, 10)
+		for i := 0; i < cap(userNames); i++ {
+			userNames = append(userNames, fmt.Sprintf("user-%d", i))
+		}
+
+		for i, userName := range userNames {
+			helper.DeleteUser(t, userName, adminKey)
+			helper.CreateUser(t, userName, adminKey)
+			defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
+			if i%2 == 0 {
+				helper.AssignRoleToUser(t, adminKey, "viewer", userName)
+			}
+			if i%5 == 0 {
+				helper.DeactivateUser(t, adminKey, userName, false)
+			}
+		}
+
+		allUsers := helper.ListAllUsers(t, adminKey)
+		require.Len(t, allUsers, len(userNames)+len(staticUsers)+1)
+
+		for _, user := range allUsers {
+			name := *user.UserID
+
+			if *user.DbUserType == "static" {
+				continue
+			}
+
+			number, err := strconv.Atoi(strings.Split(name, "-")[1])
+			require.NoError(t, err)
+			if number%2 == 0 {
+				require.Len(t, user.Roles, 1)
+				require.Equal(t, user.Roles[0], "viewer")
+			}
+
+			require.Equal(t, number%5 != 0, *user.Active)
+		}
+	})
+
+	t.Run("filtered list users", func(t *testing.T) {
+		length := 10
+		userNames := make([]string, 0, length)
+		for i := 0; i < length; i++ {
+			var userName string
+			if i%2 == 0 {
+				userName = fmt.Sprintf("finance-user-%d", i)
+			} else {
+				userName = fmt.Sprintf("sales-user-%d", i)
+			}
+
+			userNames = append(userNames, userName)
+		}
+		for _, userName := range userNames {
+			helper.DeleteUser(t, userName, adminKey)
+			helper.CreateUser(t, userName, adminKey)
+			defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
+		}
+
+		// create role that can only view finance users
+		readUserAction := authorization.ReadUsers
+
+		finance := "finance-*"
+		readUserRoleName := "userRead"
+
+		readUserRole := &models.Role{
+			Name: &readUserRoleName,
+			Permissions: []*models.Permission{{
+				Action: &readUserAction,
+				Users:  &models.PermissionUsers{Users: &finance},
+			}},
+		}
+		financeUserViewer := "test-finance-user-viewer"
+		helper.DeleteUser(t, financeUserViewer, adminKey)
+		apiKey := helper.CreateUser(t, financeUserViewer, adminKey)
+		defer helper.DeleteUser(t, financeUserViewer, adminKey)
+		helper.DeleteRole(t, adminKey, readUserRoleName)
+		helper.CreateRole(t, adminKey, readUserRole)
+		defer helper.DeleteRole(t, adminKey, readUserRoleName)
+
+		helper.AssignRoleToUser(t, adminKey, readUserRoleName, financeUserViewer)
+
+		filteredUsers := helper.ListAllUsers(t, apiKey)
+		require.Len(t, filteredUsers, length/2)
 	})
 }
 
