@@ -49,10 +49,14 @@ var Tokenizations []string = []string{
 
 func init() {
 	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
+		UseGse = true
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
+		init_gse()
 	}
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationGseCh)
+		UseGseCh = true
+		init_gse_ch()
 	}
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
@@ -60,17 +64,11 @@ func init() {
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeJa)
 	}
-	init_gse()
-	init_gse_ch()
 	_ = initializeKagomeTokenizerKr()
 	_ = initializeKagomeTokenizerJa()
 }
 
 func init_gse() {
-	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
-		UseGse = true
-	}
-	if UseGse {
 		gseTokenizerLock.Lock()
 		defer gseTokenizerLock.Unlock()
 		if gseTokenizer == nil {
@@ -80,14 +78,10 @@ func init_gse() {
 			}
 			gseTokenizer = &seg
 		}
-	}
 }
 
 func init_gse_ch() {
-	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
-		UseGseCh = true
-	}
-	if UseGseCh {
+
 		gseTokenizerLock.Lock()
 		defer gseTokenizerLock.Unlock()
 		if gseTokenizerCh == nil {
@@ -97,7 +91,6 @@ func init_gse_ch() {
 			}
 			gseTokenizerCh = &seg
 		}
-	}
 }
 
 func Tokenize(tokenization string, in string) []string {
