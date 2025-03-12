@@ -119,9 +119,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	i := 0
 	for _, v := range classes {
 		migratePropertiesIfNecessary(&v.Class)
-		// an immutable copy of the sharding state has to be used to avoid conflicts
-		shardingState, _ := v.CopyShardingState()
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
+		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
