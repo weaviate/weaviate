@@ -38,6 +38,8 @@ const (
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
 	DefaultHNSWAcornFilterRatio = 0.4
+
+	DefaultRuntimeLoadInterval = 2 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -566,6 +568,14 @@ func FromEnv(config *Config) error {
 
 	if v := os.Getenv("RUNTIME_CONFIG_PATH"); v != "" {
 		config.RuntimeConfigPath = v
+	}
+
+	if err := parsePositiveInt(
+		"RUNTIME_CONFIG_LOAD_INTERVAL",
+		func(val int) { config.RuntimeConfigLoadInterval = time.Second * time.Duration(val) },
+		int(DefaultRuntimeLoadInterval.Seconds()),
+	); err != nil {
+		return err
 	}
 
 	return nil

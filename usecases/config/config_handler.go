@@ -81,6 +81,9 @@ type Flags struct {
 	RaftSnapshotThreshold  int      `long:"raft-snap-threshold" description:"number of outstanding log entries before performing a snapshot"`
 	RaftSnapshotInterval   int      `long:"raft-snap-interval" description:"controls how often raft checks if it should perform a snapshot"`
 	RaftMetadataOnlyVoters bool     `long:"raft-metadata-only-voters" description:"configures the voters to store metadata exclusively, without storing any other data"`
+
+	RuntimeConfigPath         string        `long:"runtime-config-path" description:"path to runtime overrides config"`
+	RuntimeConfigLoadInterval time.Duration `long:"runtime-config-load-interval" description:"load interval for runtime config"`
 }
 
 type SchemaHandlerConfig struct {
@@ -144,7 +147,8 @@ type Config struct {
 	// map[className][]propertyName
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
 
-	RuntimeConfigPath string `json:"runtime_config_path" yaml:"runtime_config_path"`
+	RuntimeConfigPath         string        `json:"runtime_config_path" yaml:"runtime_config_path"`
+	RuntimeConfigLoadInterval time.Duration `json:"runtime_config_load_interval" yaml:"runtime_config_load_interval"`
 }
 
 // Validate the configuration
@@ -588,6 +592,14 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 	}
 	if flags.RaftMetadataOnlyVoters {
 		f.Config.Raft.MetadataOnlyVoters = true
+	}
+
+	if flags.RuntimeConfigPath != "" {
+		f.Config.RuntimeConfigPath = flags.RuntimeConfigPath
+	}
+
+	if flags.RuntimeConfigLoadInterval > 0 {
+		f.Config.RuntimeConfigLoadInterval = flags.RuntimeConfigLoadInterval
 	}
 }
 
