@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -103,8 +104,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		}, tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, tombstoneCleanupCallbacks, testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
@@ -144,12 +144,9 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	index.Flush()
 
 	t.Run("verify there are no nodes with too many links - control", func(t *testing.T) {
-		for i, node := range index.nodes {
-			if node == nil {
-				continue
-			}
-
-			for level, conns := range node.connections {
+		index.nodes.Iter(func(i uint64, node *graph.Vertex) bool {
+			connections := node.CopyConnections()
+			for level, conns := range connections {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -157,8 +154,10 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 				assert.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
 					i, level, len(conns))
+
 			}
-		}
+			return true
+		})
 	})
 
 	t.Run("delete 10 percent of data", func(t *testing.T) {
@@ -195,12 +194,9 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	index.Flush()
 
 	t.Run("verify there are no nodes with too many links - post deletion", func(t *testing.T) {
-		for i, node := range index.nodes {
-			if node == nil {
-				continue
-			}
-
-			for level, conns := range node.connections {
+		index.nodes.Iter(func(i uint64, node *graph.Vertex) bool {
+			conns := node.CopyConnections()
+			for level, conns := range conns {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -209,7 +205,9 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				assert.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
 					i, level, len(conns))
 			}
-		}
+
+			return true
+		})
 	})
 
 	t.Run("destroy the old index", func(t *testing.T) {
@@ -238,20 +236,17 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		}, tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, tombstoneCleanupCallbacks, testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
 	})
 
 	t.Run("verify there are no nodes with too many links - after restart", func(t *testing.T) {
-		for i, node := range index.nodes {
-			if node == nil {
-				continue
-			}
+		index.nodes.Iter(func(i uint64, node *graph.Vertex) bool {
+			conns := node.CopyConnections()
 
-			for level, conns := range node.connections {
+			for level, conns := range conns {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -260,7 +255,9 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				require.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
 					i, level, len(conns))
 			}
-		}
+
+			return true
+		})
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {

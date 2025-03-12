@@ -28,46 +28,36 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return fmt.Errorf("async indexing is not enabled")
 	}
 
-	var vidx VectorIndex
-	var q *IndexQueue
-	if s.hasTargetVectors() {
-		vidx = s.vectorIndexes[targetVector]
-		q = s.queues[targetVector]
-	} else {
-		vidx = s.vectorIndex
-		q = s.queue
-	}
+	vidx, vok := s.GetVectorIndex(targetVector)
+	q, qok := s.GetVectorIndexQueue(targetVector)
 
-	if vidx == nil {
+	if !(vok && qok) {
 		return fmt.Errorf("vector index %q not found", targetVector)
 	}
 
-	q.PauseIndexing()
+	q.Pause()
+	q.Wait()
 
 	err := vidx.Drop(ctx)
 	if err != nil {
 		return errors.Wrap(err, "drop vector index")
 	}
 
-	if s.hasTargetVectors() {
-		s.vectorIndexes[targetVector], err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfigs[targetVector])
-		if err != nil {
-			return errors.Wrap(err, "init vector index")
-		}
-		vidx = s.vectorIndexes[targetVector]
-	} else {
+	if targetVector == "" {
 		s.vectorIndex, err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfig)
 		if err != nil {
 			return errors.Wrap(err, "init vector index")
 		}
 		vidx = s.vectorIndex
+	} else {
+		s.vectorIndexes[targetVector], err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfigs[targetVector])
+		if err != nil {
+			return errors.Wrap(err, "init vector index")
+		}
+		vidx = s.vectorIndexes[targetVector]
 	}
 
-	err = q.ResetWith(vidx)
-	if err != nil {
-		return errors.Wrap(err, "reset queue")
-	}
-
-	q.ResumeIndexing()
+	q.ResetWith(vidx)
+	q.Resume()
 	return nil
 }

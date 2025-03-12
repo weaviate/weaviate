@@ -178,6 +178,11 @@ type PQData struct {
 	TrainingLimit       int
 }
 
+type PQStats struct {
+	Ks int `json:"centroids"`
+	M  int `json:"segments"`
+}
+
 type PQEncoder interface {
 	Encode(x []float32) byte
 	Centroid(b byte) []float32
@@ -282,8 +287,8 @@ func PutCode8(code byte, buffer []byte, index int) {
 	buffer[index] = code
 }
 
-func (pq *ProductQuantizer) ExposeFields() PQData {
-	return PQData{
+func (pq *ProductQuantizer) PersistCompression(logger CommitLogger) {
+	logger.AddPQCompression(PQData{
 		Dimensions:          uint16(pq.dimensions),
 		EncoderType:         pq.encoderType,
 		Ks:                  uint16(pq.ks),
@@ -291,12 +296,12 @@ func (pq *ProductQuantizer) ExposeFields() PQData {
 		EncoderDistribution: byte(pq.encoderDistribution),
 		Encoders:            pq.kms,
 		TrainingLimit:       pq.trainingLimit,
-	}
+	})
 }
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
 	if len(x) != pq.m || len(y) != pq.m {
-		return 0, fmt.Errorf("inconsistent compressed vectors lengths")
+		return 0, fmt.Errorf("ProductQuantizer.DistanceBetweenCompressedVectors: inconsistent compressed vectors lengths")
 	}
 
 	dist := float32(0)
@@ -307,22 +312,6 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float
 		dist += pq.globalDistances[i*pq.ks*pq.ks+int(cX)*pq.ks+int(cY)]
 	}
 
-	return pq.distance.Wrap(dist), nil
-}
-
-func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []byte) (float32, error) {
-	if len(x) != pq.dimensions {
-		return 0, fmt.Errorf(
-			"ProductQuantizer.DistanceBetweenCompressedAndUncompressedVectors: "+
-				"mismatched dimensions: %d (search vector), %d (configured index dims)",
-			len(x), pq.dimensions)
-	}
-
-	dist := float32(0)
-	for i := 0; i < pq.m; i++ {
-		cY := pq.kms[i].Centroid(ExtractCode8(encoded, i))
-		dist += pq.distance.Step(x[i*pq.ds:(i+1)*pq.ds], cY)
-	}
 	return pq.distance.Wrap(dist), nil
 }
 
@@ -444,4 +433,15 @@ func (pq *ProductQuantizer) CenterAt(vec []float32) *DistanceLookUpTable {
 
 func (pq *ProductQuantizer) Distance(encoded []byte, lut *DistanceLookUpTable) float32 {
 	return lut.LookUp(encoded, pq)
+}
+
+func (p PQStats) CompressionType() string {
+	return "pq"
+}
+
+func (pq *ProductQuantizer) Stats() CompressionStats {
+	return PQStats{
+		Ks: pq.ks,
+		M:  pq.m,
+	}
 }

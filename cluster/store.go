@@ -22,6 +22,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
+	"github.com/prometheus/client_golang/prometheus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -29,6 +32,7 @@ import (
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
+	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -139,6 +143,9 @@ type Config struct {
 
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string
+
+	// 	AuthzController to manage RBAC commands and apply it to casbin
+	AuthzController authorization.Controller
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -181,13 +188,17 @@ type Store struct {
 	// schemaManager is responsible for applying changes committed by RAFT to the schema representation & querying the
 	// schema
 	schemaManager *schema.SchemaManager
+
+	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
+	authZManager *rbacRaft.Manager
+
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
 }
 
-func NewFSM(cfg Config) Store {
+func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 	// We have different resolver in raft so that depending on the environment we can resolve a node-id to an IP using
 	// different methods.
 	var raftResolver types.RaftResolver
@@ -206,13 +217,16 @@ func NewFSM(cfg Config) Store {
 		})
 	}
 
+	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+
 	return Store{
 		cfg:           cfg,
 		log:           cfg.Logger,
 		candidates:    make(map[string]string, cfg.BootstrapExpect),
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
-		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
+		schemaManager: schemaManager,
+		authZManager:  rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
 	}
 }
 

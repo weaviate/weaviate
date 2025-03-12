@@ -56,64 +56,54 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	// unregister all callbacks at once, in parallel
 	err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
 		s.cycleCallbacks.compactionCallbacksCtrl,
+		s.cycleCallbacks.compactionAuxCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
 		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
 	).Unregister(ctx)
 	ec.Add(err)
 
-	if s.hasTargetVectors() {
-		// TODO run in parallel?
-		for targetVector, queue := range s.queues {
-			err := queue.Close()
-			if err != nil {
-				ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
-			}
+	s.mayStopAsyncReplication()
+
+	_ = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Flush(); err != nil {
+			ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
 		}
 
-		for targetVector, vectorIndex := range s.vectorIndexes {
-			if vectorIndex == nil {
-				// a nil-vector index during shutdown would indicate that the shard was not
-				// fully initialized, the vector index shutdown becomes a no-op
-				continue
-			}
-
-			err := vectorIndex.Flush()
-			if err != nil {
-				ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
-			}
-
-			err = vectorIndex.Shutdown(ctx)
-			if err != nil {
-				ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
-			}
+		if err = queue.Close(); err != nil {
+			ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
 		}
-	} else {
-		err = s.queue.Close()
-		ec.AddWrap(err, "shut down vector index queue")
 
-		if s.vectorIndex != nil {
-			// a nil-vector index during shutdown would indicate that the shard was not
-			// fully initialized, the vector index shutdown becomes a no-op
+		return nil
+	})
 
-			// to ensure that all commitlog entries are written to disk.
-			// otherwise in some cases the tombstone cleanup process'
-			// 'RemoveTombstone' entry is not picked up on restarts
-			// resulting in perpetually attempting to remove a tombstone
-			// which doesn't actually exist anymore
-			err = s.vectorIndex.Flush()
-			ec.AddWrap(err, "flush vector index commitlog")
-
-			err = s.vectorIndex.Shutdown(ctx)
-			ec.AddWrap(err, "shut down vector index")
+	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		// to ensure that all commitlog entries are written to disk.
+		// otherwise in some cases the tombstone cleanup process'
+		// 'RemoveTombstone' entry is not picked up on restarts
+		// resulting in perpetually attempting to remove a tombstone
+		// which doesn't actually exist anymore
+		if err = index.Flush(); err != nil {
+			ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
 		}
-	}
+
+		if err = index.Shutdown(ctx); err != nil {
+			ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
+		}
+
+		return nil
+	})
 
 	if s.store != nil {
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)
 		ec.AddWrap(err, "stop lsmkv store")
+	}
+
+	if s.dynamicVectorIndexDB != nil {
+		err = s.dynamicVectorIndexDB.Close()
+		ec.AddWrap(err, "stop dynamic vector index db")
 	}
 
 	if s.dimensionTrackingInitialized.Load() {
@@ -184,3 +174,21 @@ func (s *Shard) checkEligibleForShutdown() (eligible bool, err error) {
 
 	return false, nil
 }
+
+// // cleanupPartialInit is called when the shard was only partially initialized.
+// // Internally it just uses [Shutdown], but also adds some logging.
+// func (s *Shard) cleanupPartialInit(ctx context.Context) {
+// 	log := s.index.logger.WithField("action", "cleanup_partial_initialization")
+// 	if err := s.Shutdown(ctx); err != nil {
+// 		log.WithError(err).Error("failed to shutdown store")
+// 	}
+
+// 	log.Debug("successfully cleaned up partially initialized shard")
+// }
+
+// func (s *Shard) NotifyReady() {
+// 	s.initStatus()
+// 	s.index.logger.
+// 		WithField("action", "startup").
+// 		Debugf("shard=%s is ready", s.name)
+// }

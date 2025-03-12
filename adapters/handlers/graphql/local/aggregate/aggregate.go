@@ -14,6 +14,8 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -21,17 +23,18 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type ModulesProvider interface {
 	AggregateArguments(class *models.Class) map[string]*graphql.ArgumentConfig
-	ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{}
+	ExtractSearchParams(arguments map[string]interface{}, className string) (map[string]interface{}, map[string]*dto.TargetCombination)
 }
 
 // Build the Aggregate Kinds schema
 func Build(dbSchema *schema.Schema, config config.Config,
-	modulesProvider ModulesProvider,
+	modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) (*graphql.Field, error) {
 	if len(dbSchema.Objects.Classes) == 0 {
 		return nil, utils.ErrEmptySchema
@@ -40,7 +43,7 @@ func Build(dbSchema *schema.Schema, config config.Config,
 	var err error
 	var localAggregateObjects *graphql.Object
 	if len(dbSchema.Objects.Classes) > 0 {
-		localAggregateObjects, err = classFields(dbSchema.Objects.Classes, config, modulesProvider)
+		localAggregateObjects, err = classFields(dbSchema.Objects.Classes, config, modulesProvider, authorizer)
 		if err != nil {
 			return nil, err
 		}
@@ -57,12 +60,12 @@ func Build(dbSchema *schema.Schema, config config.Config,
 }
 
 func classFields(databaseSchema []*models.Class,
-	config config.Config, modulesProvider ModulesProvider,
+	config config.Config, modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 
 	for _, class := range databaseSchema {
-		field, err := classField(class, class.Description, config, modulesProvider)
+		field, err := classField(class, class.Description, config, modulesProvider, authorizer)
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +81,7 @@ func classFields(databaseSchema []*models.Class,
 }
 
 func classField(class *models.Class, description string,
-	config config.Config, modulesProvider ModulesProvider,
+	config config.Config, modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) (*graphql.Field, error) {
 	metaClassName := fmt.Sprintf("Aggregate%s", class.Class)
 
@@ -127,7 +130,7 @@ func classField(class *models.Class, description string,
 			},
 			"hybrid": hybridArgument(fieldsObject, class, modulesProvider),
 		},
-		Resolve: makeResolveClass(modulesProvider, class),
+		Resolve: makeResolveClass(authorizer, modulesProvider, class),
 	}
 
 	if modulesProvider != nil {
@@ -148,7 +151,7 @@ func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 	for _, property := range class.Properties {
 		propertyType, err := schema.GetPropertyDataType(class, property.Name)
 		if err != nil {
-			return nil, fmt.Errorf("%s.%s: %s", class.Class, property.Name, err)
+			return nil, fmt.Errorf("%s.%s: %w", class.Class, property.Name, err)
 		}
 
 		convertedDataType, err := classPropertyField(*propertyType, class, property)

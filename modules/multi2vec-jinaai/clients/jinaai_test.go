@@ -39,7 +39,7 @@ func TestClient(t *testing.T) {
 
 		c := New("apiKey", 0, nullLogger())
 
-		expected := &modulecomponents.VectorizationCLIPResult{
+		expected := &modulecomponents.VectorizationCLIPResult[[]float32]{
 			TextVectors: [][]float32{{0.1, 0.2, 0.3}},
 		}
 		res, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil, defaultSettings(server.URL))
@@ -54,7 +54,7 @@ func TestClient(t *testing.T) {
 
 		c := New("apiKey", 0, nullLogger())
 
-		expected := &modulecomponents.VectorizationCLIPResult{
+		expected := &modulecomponents.VectorizationCLIPResult[[]float32]{
 			ImageVectors: [][]float32{{0.1, 0.2, 0.3}},
 		}
 		res, err := c.Vectorize(context.Background(), nil, []string{"base64"}, defaultSettings(server.URL))
@@ -99,7 +99,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Jinaai-Api-Key", []string{"some-key"})
 
-		expected := &modulecomponents.VectorizationCLIPResult{
+		expected := &modulecomponents.VectorizationCLIPResult[[]float32]{
 			TextVectors: [][]float32{{0.1, 0.2, 0.3}},
 		}
 		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, nil, defaultSettings(server.URL))

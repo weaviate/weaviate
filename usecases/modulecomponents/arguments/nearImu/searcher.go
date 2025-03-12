@@ -15,45 +15,41 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
-type Searcher struct {
-	vectorizer bindVectorizer
+type Searcher[T dto.Embedding] struct {
+	vectorizer bindVectorizer[T]
 }
 
-func NewSearcher(vectorizer bindVectorizer) *Searcher {
-	return &Searcher{vectorizer}
+func NewSearcher[T dto.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
+	return &Searcher[T]{vectorizer}
 }
 
-type bindVectorizer interface {
-	VectorizeIMU(ctx context.Context, video string, cfg moduletools.ClassConfig) ([]float32, error)
+type bindVectorizer[T dto.Embedding] interface {
+	VectorizeIMU(ctx context.Context, video string, cfg moduletools.ClassConfig) (T, error)
 }
 
-func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearIMU"] = s.vectorForNearIMUParam
+func (s *Searcher[T]) VectorSearches() map[string]modulecapabilities.VectorForParams[T] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[T]{}
+	vectorSearches["nearIMU"] = &vectorForParams[T]{s.vectorizer}
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForNearIMUParam(ctx context.Context, params interface{},
-	className string,
-	findVectorFn modulecapabilities.FindVectorFn,
-	cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	return s.vectorFromNearIMUParam(ctx, params.(*NearIMUParams), className, findVectorFn, cfg)
+type vectorForParams[T dto.Embedding] struct {
+	vectorizer bindVectorizer[T]
 }
 
-func (s *Searcher) vectorFromNearIMUParam(ctx context.Context,
-	params *NearIMUParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+func (v *vectorForParams[T]) VectorForParams(ctx context.Context, params interface{}, className string,
+	findVectorFn modulecapabilities.FindVectorFn[T],
 	cfg moduletools.ClassConfig,
-) ([]float32, error) {
+) (T, error) {
 	// find vector for given search query
-	vector, err := s.vectorizer.VectorizeIMU(ctx, params.IMU, cfg)
+	vector, err := v.vectorizer.VectorizeIMU(ctx, params.(*NearIMUParams).IMU, cfg)
 	if err != nil {
 		return nil, errors.Errorf("vectorize imu: %v", err)
 	}
-
 	return vector, nil
 }

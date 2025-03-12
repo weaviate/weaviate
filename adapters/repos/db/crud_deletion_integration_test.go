@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,7 +67,7 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil, 0)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -75,12 +77,12 @@ func TestDeleteJourney(t *testing.T) {
 	t.Run("verify vector search results are initially as expected",
 		func(t *testing.T) {
 			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-				ClassName:    "UpdateTestClass",
-				SearchVector: searchVector,
+				ClassName: "UpdateTestClass",
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
-			})
+				Properties: search.SelectProperties{{Name: "name"}},
+			}, []string{""}, []models.Vector{searchVector})
 
 			expectedOrder := []interface{}{
 				"element-0", "element-2", "element-3", "element-1",
@@ -140,12 +142,12 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
 		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ClassName:    "UpdateTestClass",
-			SearchVector: searchVector,
+			ClassName: "UpdateTestClass",
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		})
+			Properties: search.SelectProperties{{Name: "name"}},
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedOrder := []interface{}{
 			"element-2", "element-3", "element-1",
@@ -182,12 +184,12 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
 		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ClassName:    "UpdateTestClass",
-			SearchVector: searchVector,
+			ClassName: "UpdateTestClass",
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		})
+			Properties: search.SelectProperties{{Name: "name"}},
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedOrder := []interface{}{
 			"element-2", "element-3",
@@ -213,12 +215,12 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("delete the index", func(t *testing.T) {
 		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ClassName:    "UpdateTestClass",
-			SearchVector: searchVector,
+			ClassName: "UpdateTestClass",
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		})
+			Properties: search.SelectProperties{{Name: "name"}},
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedOrder := []interface{}{
 			"element-2", "element-3",

@@ -37,20 +37,20 @@ func New() *BindModule {
 type BindModule struct {
 	bindVectorizer             bindVectorizer
 	nearImageGraphqlProvider   modulecapabilities.GraphQLArguments
-	nearImageSearcher          modulecapabilities.Searcher
+	nearImageSearcher          modulecapabilities.Searcher[[]float32]
 	nearAudioGraphqlProvider   modulecapabilities.GraphQLArguments
-	nearAudioSearcher          modulecapabilities.Searcher
+	nearAudioSearcher          modulecapabilities.Searcher[[]float32]
 	nearVideoGraphqlProvider   modulecapabilities.GraphQLArguments
-	nearVideoSearcher          modulecapabilities.Searcher
+	nearVideoSearcher          modulecapabilities.Searcher[[]float32]
 	nearIMUGraphqlProvider     modulecapabilities.GraphQLArguments
-	nearIMUSearcher            modulecapabilities.Searcher
+	nearIMUSearcher            modulecapabilities.Searcher[[]float32]
 	nearThermalGraphqlProvider modulecapabilities.GraphQLArguments
-	nearThermalSearcher        modulecapabilities.Searcher
+	nearThermalSearcher        modulecapabilities.Searcher[[]float32]
 	nearDepthGraphqlProvider   modulecapabilities.GraphQLArguments
-	nearDepthSearcher          modulecapabilities.Searcher
+	nearDepthSearcher          modulecapabilities.Searcher[[]float32]
 	textVectorizer             textVectorizer
 	nearTextGraphqlProvider    modulecapabilities.GraphQLArguments
-	nearTextSearcher           modulecapabilities.Searcher
+	nearTextSearcher           modulecapabilities.Searcher[[]float32]
 	nearTextTransformer        modulecapabilities.TextTransform
 	metaClient                 metaClient
 	logger                     logrus.FieldLogger
@@ -192,6 +192,6 @@ func (m *BindModule) VectorizeInput(ctx context.Context,
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
-	_ = modulecapabilities.InputVectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
+	_ = modulecapabilities.InputVectorizer[[]float32](New())
 )

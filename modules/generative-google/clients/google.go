@@ -18,16 +18,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-google/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	googleparams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 )
 
 type harmCategory string
@@ -109,8 +110,6 @@ var (
 	FINISH_REASON_SPII               = "SPII"
 )
 
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
-
 func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string {
 	if useGenerativeAI {
 		// Generative AI endpoints, for more context check out this link:
@@ -152,33 +151,34 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 	}
 }
 
-func (v *google) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *google) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt)
+	return v.generate(ctx, cfg, forPrompt, generative.Blobs([]*modulecapabilities.GenerateProperties{properties}), options, debug)
 }
 
-func (v *google) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *google) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask)
+	return v.generate(ctx, cfg, forTask, generative.Blobs(properties), options, debug)
 }
 
-func (v *google) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
+func (v *google) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options, imageProperties)
+	debugInformation := v.getDebugInformation(debug, prompt)
 
-	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(settings.ApiEndpoint())
-	modelID := settings.ModelID()
-	if settings.EndpointID() != "" {
-		modelID = settings.EndpointID()
+	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(params.ApiEndpoint)
+	modelID := params.Model
+	if params.EndpointID != "" {
+		modelID = params.EndpointID
 	}
 
-	endpointURL := v.buildUrlFn(useGenerativeAIEndpoint, settings.ApiEndpoint(), settings.ProjectID(), modelID, settings.Region())
-	input := v.getPayload(useGenerativeAIEndpoint, prompt, settings)
+	endpointURL := v.buildUrlFn(useGenerativeAIEndpoint, params.ApiEndpoint, params.ProjectID, modelID, params.Region)
+	input := v.getPayload(useGenerativeAIEndpoint, prompt, params)
 
 	body, err := json.Marshal(input)
 	if err != nil {
@@ -215,17 +215,17 @@ func (v *google) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	if useGenerativeAIEndpoint {
 		if strings.HasPrefix(modelID, "gemini") {
-			return v.parseGenerateContentResponse(res.StatusCode, bodyBytes)
+			return v.parseGenerateContentResponse(res.StatusCode, bodyBytes, debugInformation)
 		}
-		return v.parseGenerateMessageResponse(res.StatusCode, bodyBytes)
+		return v.parseGenerateMessageResponse(res.StatusCode, bodyBytes, debugInformation)
 	}
 	if strings.HasPrefix(modelID, "gemini") {
-		return v.parseGenerateContentResponse(res.StatusCode, bodyBytes)
+		return v.parseGenerateContentResponse(res.StatusCode, bodyBytes, debugInformation)
 	}
-	return v.parseResponse(res.StatusCode, bodyBytes)
+	return v.parseResponse(res.StatusCode, bodyBytes, debugInformation)
 }
 
-func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
 	var resBody generateMessageResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
@@ -236,15 +236,74 @@ func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte) 
 	}
 
 	if len(resBody.Candidates) > 0 {
-		return v.getGenerateResponse(resBody.Candidates[0].Content)
+		return v.getGenerateResponse(resBody.Candidates[0].Content, nil, debug)
 	}
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: nil,
+		Debug:  debug,
 	}, nil
 }
 
-func (v *google) parseGenerateContentResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) googleparams.Params {
+	settings := config.NewClassSettings(cfg)
+
+	var params googleparams.Params
+	if p, ok := options.(googleparams.Params); ok {
+		params = p
+	}
+
+	if params.ApiEndpoint == "" {
+		params.ApiEndpoint = settings.ApiEndpoint()
+	}
+	if params.ProjectID == "" {
+		params.ProjectID = settings.ProjectID()
+	}
+	if params.EndpointID == "" {
+		params.EndpointID = settings.EndpointID()
+	}
+	if params.Region == "" {
+		params.Region = settings.Region()
+	}
+	if params.Model == "" {
+		model := settings.Model()
+		if model == "" {
+			model = settings.ModelID()
+		}
+		params.Model = model
+	}
+	if params.Temperature == nil {
+		temperature := settings.Temperature()
+		params.Temperature = &temperature
+	}
+	if params.TopP == nil {
+		topP := settings.TopP()
+		params.TopP = &topP
+	}
+	if params.TopK == nil {
+		topK := settings.TopK()
+		params.TopK = &topK
+	}
+	if params.MaxTokens == nil {
+		maxTokens := settings.TokenLimit()
+		params.MaxTokens = &maxTokens
+	}
+
+	params.Images = generative.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
+
+	return params
+}
+
+func (v *google) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{
+			Prompt: prompt,
+		}
+	}
+	return nil
+}
+
+func (v *google) parseGenerateContentResponse(statusCode int, bodyBytes []byte, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
 	var resBody generateContentResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
@@ -256,17 +315,24 @@ func (v *google) parseGenerateContentResponse(statusCode int, bodyBytes []byte) 
 
 	if len(resBody.Candidates) > 0 {
 		if len(resBody.Candidates[0].Content.Parts) > 0 {
-			return v.getGenerateResponse(resBody.Candidates[0].Content.Parts[0].Text)
+			var params map[string]interface{}
+			if resBody.UsageMetadata != nil {
+				params = v.getResponseParams(map[string]interface{}{
+					"usageMetadata": resBody.UsageMetadata,
+				})
+			}
+			return v.getGenerateResponse(resBody.Candidates[0].Content.Parts[0].Text, params, debug)
 		}
 		return nil, fmt.Errorf("%s", v.decodeFinishReason(resBody.Candidates[0].FinishReason))
 	}
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: nil,
+		Debug:  debug,
 	}, nil
 }
 
-func (v *google) parseResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+func (v *google) parseResponse(statusCode int, bodyBytes []byte, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
@@ -277,24 +343,52 @@ func (v *google) parseResponse(statusCode int, bodyBytes []byte) (*generativemod
 	}
 
 	if len(resBody.Predictions) > 0 && len(resBody.Predictions[0].Candidates) > 0 {
-		return v.getGenerateResponse(resBody.Predictions[0].Candidates[0].Content)
+		var params map[string]interface{}
+		if resBody.Metadata != nil {
+			params = v.getResponseParams(map[string]interface{}{
+				"metadata": resBody.Metadata,
+			})
+		}
+		return v.getGenerateResponse(resBody.Predictions[0].Candidates[0].Content, params, debug)
 	}
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: nil,
+		Debug:  debug,
 	}, nil
 }
 
-func (v *google) getGenerateResponse(content string) (*generativemodels.GenerateResponse, error) {
-	if content != "" {
-		trimmedResponse := strings.Trim(content, "\n")
-		return &generativemodels.GenerateResponse{
+func (v *google) getResponseParams(params map[string]interface{}) map[string]interface{} {
+	return map[string]interface{}{googleparams.Name: params}
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[googleparams.Name].(map[string]interface{}); ok {
+		responseParams := &responseParams{}
+		if metadata, ok := params["metadata"].(*metadata); ok {
+			responseParams.Metadata = metadata
+		}
+		if usageMetadata, ok := params["usageMetadata"].(*usageMetadata); ok {
+			responseParams.UsageMetadata = usageMetadata
+		}
+		return responseParams
+	}
+	return nil
+}
+
+func (v *google) getGenerateResponse(content *string, params map[string]interface{}, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
+	if content != nil && *content != "" {
+		trimmedResponse := strings.Trim(*content, "\n")
+		return &modulecapabilities.GenerateResponse{
 			Result: &trimmedResponse,
+			Params: params,
+			Debug:  debug,
 		}, nil
 	}
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: nil,
+		Debug:  debug,
 	}, nil
 }
 
@@ -313,28 +407,28 @@ func (v *google) useGenerativeAIEndpoint(apiEndpoint string) bool {
 	return apiEndpoint == "generativelanguage.googleapis.com"
 }
 
-func (v *google) getPayload(useGenerativeAI bool, prompt string, settings config.ClassSettings) any {
+func (v *google) getPayload(useGenerativeAI bool, prompt string, params googleparams.Params) any {
 	if useGenerativeAI {
-		if strings.HasPrefix(settings.ModelID(), "gemini") {
-			return v.getGeminiPayload(prompt, settings)
+		if strings.HasPrefix(params.Model, "gemini") {
+			return v.getGeminiPayload(prompt, params)
 		}
 		input := generateMessageRequest{
 			Prompt: &generateMessagePrompt{
 				Messages: []generateMessage{
 					{
-						Content: prompt,
+						Content: &prompt,
 					},
 				},
 			},
-			Temperature:    settings.Temperature(),
-			TopP:           settings.TopP(),
-			TopK:           settings.TopK(),
+			Temperature:    params.Temperature,
+			TopP:           params.TopP,
+			TopK:           params.TopK,
 			CandidateCount: 1,
 		}
 		return input
 	}
-	if strings.HasPrefix(settings.ModelID(), "gemini") {
-		return v.getGeminiPayload(prompt, settings)
+	if strings.HasPrefix(params.Model, "gemini") {
+		return v.getGeminiPayload(prompt, params)
 	}
 	input := generateInput{
 		Instances: []instance{
@@ -347,32 +441,45 @@ func (v *google) getPayload(useGenerativeAI bool, prompt string, settings config
 			},
 		},
 		Parameters: parameters{
-			Temperature:     settings.Temperature(),
-			MaxOutputTokens: settings.TokenLimit(),
-			TopP:            settings.TopP(),
-			TopK:            settings.TopK(),
+			Temperature:      params.Temperature,
+			MaxOutputTokens:  params.MaxTokens,
+			TopP:             params.TopP,
+			TopK:             params.TopK,
+			StopSequences:    params.StopSequences,
+			PresencePenalty:  params.PresencePenalty,
+			FrequencyPenalty: params.FrequencyPenalty,
 		},
 	}
 	return input
 }
 
-func (v *google) getGeminiPayload(prompt string, settings config.ClassSettings) any {
+func (v *google) getGeminiPayload(prompt string, params googleparams.Params) any {
+	parts := []part{
+		{
+			Text: &prompt,
+		},
+	}
+	for _, image := range params.Images {
+		parts = append(parts, part{
+			InlineData: &inlineData{Data: image, MimeType: "image/png"},
+		})
+	}
 	input := generateContentRequest{
 		Contents: []content{
 			{
-				Role: "user",
-				Parts: []part{
-					{
-						Text: prompt,
-					},
-				},
+				Role:  "user",
+				Parts: parts,
 			},
 		},
 		GenerationConfig: &generationConfig{
-			Temperature:    settings.Temperature(),
-			TopP:           settings.TopP(),
-			TopK:           settings.TopK(),
-			CandidateCount: 1,
+			Temperature:      params.Temperature,
+			MaxOutputTokens:  params.MaxTokens,
+			TopP:             params.TopP,
+			TopK:             params.TopK,
+			PresencePenalty:  params.PresencePenalty,
+			FrequencyPenalty: params.FrequencyPenalty,
+			StopSequences:    params.StopSequences,
+			CandidateCount:   1,
 		},
 		SafetySettings: []safetySetting{
 			{
@@ -390,30 +497,6 @@ func (v *google) getGeminiPayload(prompt string, settings config.ClassSettings) 
 		},
 	}
 	return input
-}
-
-func (v *google) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *google) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
 }
 
 func (v *google) getApiKey(ctx context.Context, useGenerativeAIEndpoint bool) (string, error) {
@@ -467,14 +550,18 @@ type example struct {
 }
 
 type parameters struct {
-	Temperature     float64 `json:"temperature"`
-	MaxOutputTokens int     `json:"maxOutputTokens"`
-	TopP            float64 `json:"topP"`
-	TopK            int     `json:"topK"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	MaxOutputTokens  *int     `json:"maxOutputTokens,omitempty"`
+	TopP             *float64 `json:"topP,omitempty"`
+	TopK             *int     `json:"topK,omitempty"`
+	StopSequences    []string `json:"stopSequences,omitempty"`
+	PresencePenalty  *float64 `json:"presencePenalty,omitempty"`
+	FrequencyPenalty *float64 `json:"frequencyPenalty,omitempty"`
 }
 
 type generateResponse struct {
 	Predictions      []prediction    `json:"predictions,omitempty"`
+	Metadata         *metadata       `json:"metadata,omitempty"`
 	Error            *googleApiError `json:"error,omitempty"`
 	DeployedModelId  string          `json:"deployedModelId,omitempty"`
 	Model            string          `json:"model,omitempty"`
@@ -487,9 +574,23 @@ type prediction struct {
 	SafetyAttributes *[]safetyAttributes `json:"safetyAttributes,omitempty"`
 }
 
+type metadata struct {
+	TokenMetadata *tokenMetadata `json:"tokenMetadata,omitempty"`
+}
+
+type tokenMetadata struct {
+	InputTokenCount  *tokenCount `json:"inputTokenCount,omitempty"`
+	OutputTokenCount *tokenCount `json:"outputTokenCount,omitempty"`
+}
+
+type tokenCount struct {
+	TotalBillableCharacters int64 `json:"totalBillableCharacters,omitempty"`
+	TotalTokens             int64 `json:"totalTokens,omitempty"`
+}
+
 type candidate struct {
-	Author  string `json:"author"`
-	Content string `json:"content"`
+	Author  *string `json:"author,omitempty"`
+	Content *string `json:"content,omitempty"`
 }
 
 type safetyAttributes struct {
@@ -506,10 +607,10 @@ type googleApiError struct {
 
 type generateMessageRequest struct {
 	Prompt         *generateMessagePrompt `json:"prompt,omitempty"`
-	Temperature    float64                `json:"temperature,omitempty"`
-	CandidateCount int                    `json:"candidateCount,omitempty"` // default 1
-	TopP           float64                `json:"topP"`
-	TopK           int                    `json:"topK"`
+	Temperature    *float64               `json:"temperature,omitempty"`
+	TopP           *float64               `json:"topP,omitempty"`
+	TopK           *int                   `json:"topK,omitempty"`
+	CandidateCount int                    `json:"candidateCount"` // default 1
 }
 
 type generateMessagePrompt struct {
@@ -520,7 +621,7 @@ type generateMessagePrompt struct {
 
 type generateMessage struct {
 	Author           string                    `json:"author,omitempty"`
-	Content          string                    `json:"content,omitempty"`
+	Content          *string                   `json:"content,omitempty"`
 	CitationMetadata *generateCitationMetadata `json:"citationMetadata,omitempty"`
 }
 
@@ -564,8 +665,13 @@ type content struct {
 }
 
 type part struct {
-	Text       string `json:"text,omitempty"`
-	InlineData string `json:"inline_data,omitempty"`
+	Text       *string     `json:"text,omitempty"`
+	InlineData *inlineData `json:"inline_data,omitempty"`
+}
+
+type inlineData struct {
+	MimeType string  `json:"mime_type,omitempty"`
+	Data     *string `json:"data,omitempty"`
 }
 
 type safetySetting struct {
@@ -574,16 +680,19 @@ type safetySetting struct {
 }
 
 type generationConfig struct {
-	StopSequences   []string `json:"stopSequences,omitempty"`
-	CandidateCount  int      `json:"candidateCount,omitempty"`
-	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
-	Temperature     float64  `json:"temperature,omitempty"`
-	TopP            float64  `json:"topP,omitempty"`
-	TopK            int      `json:"topK,omitempty"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	TopP             *float64 `json:"topP,omitempty"`
+	TopK             *int     `json:"topK,omitempty"`
+	MaxOutputTokens  *int     `json:"maxOutputTokens,omitempty"`
+	PresencePenalty  *float64 `json:"presencePenalty,omitempty"`
+	FrequencyPenalty *float64 `json:"frequencyPenalty,omitempty"`
+	StopSequences    []string `json:"stopSequences,omitempty"`
+	CandidateCount   int      `json:"candidateCount,omitempty"`
 }
 
 type generateContentResponse struct {
 	Candidates     []generateContentCandidate `json:"candidates,omitempty"`
+	UsageMetadata  *usageMetadata             `json:"usageMetadata,omitempty"`
 	PromptFeedback *promptFeedback            `json:"promptFeedback,omitempty"`
 	Error          *googleApiError            `json:"error,omitempty"`
 }
@@ -608,4 +717,15 @@ type safetyRating struct {
 	Category    harmCategory    `json:"category,omitempty"`
 	Probability harmProbability `json:"probability,omitempty"`
 	Blocked     *bool           `json:"blocked,omitempty"`
+}
+
+type usageMetadata struct {
+	PromptTokenCount     int `json:"promptTokenCount"`
+	CandidatesTokenCount int `json:"candidatesTokenCount"`
+	TotalTokenCount      int `json:"totalTokenCount"`
+}
+
+type responseParams struct {
+	Metadata      *metadata      `json:"metadata,omitempty"`
+	UsageMetadata *usageMetadata `json:"usageMetadata,omitempty"`
 }

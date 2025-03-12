@@ -25,6 +25,17 @@ import (
 const numTenants = 50
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
+	ctx := context.Background()
+
+	multiTenantBackupJourneyStart(t, ctx, false, "backups", "", "")
+	t.Run("with override bucket and path", func(t *testing.T) {
+		multiTenantBackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+	})
+}
+
+func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+	s3BackupJourneyBucketName := containerName
+
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
 		tenantNames[i] = fmt.Sprintf("Tenant%d", i)
@@ -39,7 +50,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName).
+			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviate().
 			Start(ctx)
@@ -51,13 +62,12 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, tenantNames)
+				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, tenantNames, override, overrideBucket, overridePath)
 		})
 	})
 
@@ -70,9 +80,9 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName).
+			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
-			WithWeaviateCluster().
+			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
@@ -82,14 +92,13 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "s3", s3BackupJourneyClassName,
-				s3BackupJourneyBackupIDCluster, tenantNames,
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+				s3BackupJourneyBackupIDCluster, tenantNames, override, overrideBucket, overridePath,
+				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
 }

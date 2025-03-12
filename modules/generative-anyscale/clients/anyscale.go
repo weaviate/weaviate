@@ -18,20 +18,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-anyscale/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	anyscaleparams "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type anyscale struct {
 	apiKey     string
@@ -49,34 +47,57 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *anysc
 	}
 }
 
-func (v *anyscale) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *anyscale) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt)
+	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *anyscale) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *anyscale) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask)
+	return v.Generate(ctx, cfg, forTask, options, debug)
 }
 
-func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+func (v *anyscale) getParameters(cfg moduletools.ClassConfig, options interface{}) anyscaleparams.Params {
 	settings := config.NewClassSettings(cfg)
 
-	anyscaleUrl := v.getAnyscaleUrl(ctx, settings.BaseURL())
+	var params anyscaleparams.Params
+	if p, ok := options.(anyscaleparams.Params); ok {
+		params = p
+	}
+	if params.BaseURL == "" {
+		baseURL := settings.BaseURL()
+		params.BaseURL = baseURL
+	}
+	if params.Model == "" {
+		model := settings.Model()
+		params.Model = model
+	}
+	if params.Temperature == nil {
+		temperature := settings.Temperature()
+		params.Temperature = &temperature
+	}
+	return params
+}
+
+func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options)
+	debugInformation := v.getDebugInformation(debug, prompt)
+
+	anyscaleUrl := v.getAnyscaleUrl(ctx, params.BaseURL)
 	anyscalePrompt := []map[string]string{
 		{"role": "system", "content": "You are a helpful assistant."},
 		{"role": "user", "content": prompt},
 	}
 	input := generateInput{
 		Messages:    anyscalePrompt,
-		Model:       settings.Model(),
-		Temperature: settings.Temperature(),
+		Model:       params.Model,
+		Temperature: params.Temperature,
 	}
 
 	body, err := json.Marshal(input)
@@ -121,59 +142,23 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 
 	textResponse := resBody.Choices[0].Message.Content
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: &textResponse,
+		Debug:  debugInformation,
 	}, nil
 }
 
 func (v *anyscale) getAnyscaleUrl(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Anyscale-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Anyscale-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL)
 }
 
-func (v *anyscale) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *anyscale) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
-}
-
-func (v *anyscale) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
-}
-
 func (v *anyscale) getApiKey(ctx context.Context) (string, error) {
 	// note Anyscale uses the OpenAI API Key in it's requests.
-	if apiKey := v.getValueFromContext(ctx, "X-Anyscale-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Anyscale-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
@@ -184,10 +169,19 @@ func (v *anyscale) getApiKey(ctx context.Context) (string, error) {
 		"nor in environment variable under ANYSCALE_APIKEY")
 }
 
+func (v *anyscale) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{
+			Prompt: prompt,
+		}
+	}
+	return nil
+}
+
 type generateInput struct {
 	Model       string              `json:"model"`
 	Messages    []map[string]string `json:"messages"`
-	Temperature int                 `json:"temperature"`
+	Temperature *float64            `json:"temperature,omitempty"`
 }
 
 type Message struct {

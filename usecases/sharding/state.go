@@ -18,6 +18,7 @@ import (
 	"sort"
 
 	"github.com/spaolacci/murmur3"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
@@ -307,7 +308,9 @@ func (s State) GetPartitions(nodes []string, shards []string, replFactor int64) 
 	partitions := make(map[string][]string, len(shards))
 	nodeSet := make(map[string]bool)
 	for _, name := range shards {
-		if _, alreadyExists := s.Physical[name]; alreadyExists {
+		if existedShard, exists := s.Physical[name]; exists &&
+			existedShard.Status != models.TenantActivityStatusFROZEN &&
+			existedShard.Status != models.TenantActivityStatusFREEZING {
 			continue
 		}
 		owners := make([]string, 0, replFactor)
@@ -347,9 +350,16 @@ func (s *State) AddPartition(name string, nodes []string, status string) Physica
 	return p
 }
 
-// DeletePartition to physical shards
-func (s *State) DeletePartition(name string) {
+// DeletePartition to physical shards. Return `true` if given partition is
+// actually deleted.
+func (s *State) DeletePartition(name string) (string, bool) {
+	t, ok := s.Physical[name]
+	if !ok {
+		return "", false
+	}
+	status := t.Status
 	delete(s.Physical, name)
+	return status, true
 }
 
 // ApplyNodeMapping replaces node names with their new value form nodeMapping in s.
@@ -424,7 +434,7 @@ func (s *State) distributeVirtualAmongPhysical() {
 	for i, vid := range ids {
 		pickedPhysical := physicalIDs[i%len(physicalIDs)]
 
-		virtual := s.virtualByName(vid)
+		virtual := s.VirtualByName(vid)
 		virtual.AssignedToPhysical = pickedPhysical
 		physical := s.Physical[pickedPhysical]
 		physical.OwnsVirtual = append(physical.OwnsVirtual, vid)
@@ -435,7 +445,7 @@ func (s *State) distributeVirtualAmongPhysical() {
 
 // uses linear search, but should only be used during shard init and update
 // operations, not in regular
-func (s *State) virtualByName(name string) *Virtual {
+func (s *State) VirtualByName(name string) *Virtual {
 	for i := range s.Virtual {
 		if s.Virtual[i].Name == name {
 			return &s.Virtual[i]

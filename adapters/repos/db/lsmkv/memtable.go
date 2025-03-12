@@ -19,7 +19,10 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -30,7 +33,8 @@ type Memtable struct {
 	keyMap             *binarySearchTreeMap
 	primaryIndex       *binarySearchTree
 	roaringSet         *roaringset.BinarySearchTree
-	commitlog          *commitLogger
+	roaringSetRange    *roaringsetrange.Memtable
+	commitlog          memtableCommitLogger
 	size               uint64
 	path               string
 	strategy           string
@@ -40,24 +44,31 @@ type Memtable struct {
 	dirtyAt   time.Time
 	createdAt time.Time
 	metrics   *memtableMetrics
+
+	tombstones *sroar.Bitmap
+
+	enableChecksumValidation bool
 }
 
-func newMemtable(path string, strategy string,
-	secondaryIndices uint16, cl *commitLogger, metrics *Metrics,
+func newMemtable(path string, strategy string, secondaryIndices uint16,
+	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
+	enableChecksumValidation bool,
 ) (*Memtable, error) {
 	m := &Memtable{
-		key:              &binarySearchTree{},
-		keyMulti:         &binarySearchTreeMulti{},
-		keyMap:           &binarySearchTreeMap{},
-		primaryIndex:     &binarySearchTree{}, // todo, sort upfront
-		roaringSet:       &roaringset.BinarySearchTree{},
-		commitlog:        cl,
-		path:             path,
-		strategy:         strategy,
-		secondaryIndices: secondaryIndices,
-		dirtyAt:          time.Time{},
-		createdAt:        time.Now(),
-		metrics:          newMemtableMetrics(metrics, filepath.Dir(path), strategy),
+		key:                      &binarySearchTree{},
+		keyMulti:                 &binarySearchTreeMulti{},
+		keyMap:                   &binarySearchTreeMap{},
+		primaryIndex:             &binarySearchTree{}, // todo, sort upfront
+		roaringSet:               &roaringset.BinarySearchTree{},
+		roaringSetRange:          roaringsetrange.NewMemtable(logger),
+		commitlog:                cl,
+		path:                     path,
+		strategy:                 strategy,
+		secondaryIndices:         secondaryIndices,
+		dirtyAt:                  time.Time{},
+		createdAt:                time.Now(),
+		metrics:                  newMemtableMetrics(metrics, filepath.Dir(path), strategy),
+		enableChecksumValidation: enableChecksumValidation,
 	}
 
 	if m.secondaryIndices > 0 {
@@ -68,6 +79,10 @@ func newMemtable(path string, strategy string,
 	}
 
 	m.metrics.size(m.size)
+
+	if m.strategy == StrategyInverted {
+		m.tombstones = sroar.NewBitmap()
+	}
 
 	return m, nil
 }
@@ -262,9 +277,10 @@ func (m *Memtable) getCollection(key []byte) ([]value, error) {
 	start := time.Now()
 	defer m.metrics.getCollection(start.UnixNano())
 
-	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection {
-		return nil, errors.Errorf("getCollection only possible with strategies %q, %q",
-			StrategySetCollection, StrategyMapCollection)
+	// TODO amourao: check if this is needed for StrategyInverted
+	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
+		return nil, errors.Errorf("getCollection only possible with strategies %q, %q, %q",
+			StrategySetCollection, StrategyMapCollection, StrategyInverted)
 	}
 
 	m.RLock()
@@ -282,9 +298,9 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 	start := time.Now()
 	defer m.metrics.getMap(start.UnixNano())
 
-	if m.strategy != StrategyMapCollection {
-		return nil, errors.Errorf("getCollection only possible with strategy %q",
-			StrategyMapCollection)
+	if m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
+		return nil, errors.Errorf("getMap only possible with strategies %q, %q",
+			StrategyMapCollection, StrategyInverted)
 	}
 
 	m.RLock()
@@ -331,9 +347,9 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	start := time.Now()
 	defer m.metrics.appendMapSorted(start.UnixNano())
 
-	if m.strategy != StrategyMapCollection {
-		return errors.Errorf("append only possible with strategy %q",
-			StrategyMapCollection)
+	if m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
+		return errors.Errorf("append only possible with strategy %q, %q",
+			StrategyMapCollection, StrategyInverted)
 	}
 
 	m.Lock()
@@ -360,6 +376,11 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.size += uint64(len(key) + len(valuesForCommitLog))
 	m.metrics.size(m.size)
 	m.updateDirtyAt()
+
+	if m.strategy == StrategyInverted {
+		docID := binary.BigEndian.Uint64(pair.Key)
+		m.tombstones.Set(docID)
+	}
 
 	return nil
 }
@@ -413,4 +434,19 @@ func (m *Memtable) writeWAL() error {
 	defer m.Unlock()
 
 	return m.commitlog.flushBuffers()
+}
+
+func (m *Memtable) GetTombstones() (*sroar.Bitmap, error) {
+	if m.strategy != StrategyInverted {
+		return nil, errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	if m.tombstones != nil {
+		return m.tombstones, nil
+	}
+
+	return nil, lsmkv.NotFound
 }

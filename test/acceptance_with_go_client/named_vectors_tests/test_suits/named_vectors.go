@@ -12,6 +12,7 @@
 package test_suits
 
 import (
+	"os"
 	"testing"
 
 	"github.com/weaviate/weaviate/test/docker"
@@ -30,9 +31,10 @@ func AllTests(endpoint string) func(t *testing.T) {
 		t.Run("validation", testSchemaValidation(endpoint))
 		t.Run("cross references", testReferenceProperties(endpoint))
 		t.Run("objects with vectorizer and objects", testCreateSchemaWithVectorizerAndBYOV(endpoint))
-		t.Run("hybrid", testHybrid(endpoint))
 		t.Run("generative modules", testNamedVectorsWithGenerativeModules(endpoint))
 		t.Run("aggregate", testAggregate(endpoint))
+		t.Run("vector index types", testVectorIndexTypesConfigurations(endpoint))
+		t.Run("colbert", testColBERT(endpoint))
 	}
 }
 
@@ -40,9 +42,10 @@ func ComposeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecContextionary().
 		WithText2VecTransformers().
-		WithText2VecOpenAI().
-		WithText2VecCohere().
-		WithGenerativeOpenAI().
-		WithGenerativeCohere()
+		WithText2VecOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
+		WithText2VecCohere(os.Getenv("COHERE_APIKEY")).
+		WithGenerativeOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
+		WithGenerativeCohere(os.Getenv("COHERE_APIKEY")).
+		WithText2ColBERTJinaAI(os.Getenv("JINAAI_APIKEY"))
 	return
 }

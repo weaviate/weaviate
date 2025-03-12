@@ -62,7 +62,7 @@ type classSettings struct {
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:               cfg,
-		BaseClassSettings: *basesettings.NewBaseClassSettingsWithAltNames(cfg, "text2vec-google", []string{"text2vec-palm"}, []string{modelIDProperty}),
+		BaseClassSettings: *basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "text2vec-google", []string{"text2vec-palm"}, []string{modelIDProperty}),
 	}
 }
 
@@ -76,7 +76,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	model := ic.ModelID()
 	if apiEndpoint == DefaultAIStudioEndpoint {
 		if model != "" && !ic.validateGoogleSetting(model, availableGenerativeAIModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available Generative AI model names are: %v", modelIDProperty, availableGenerativeAIModels))
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available AI Studio model names are: %v", modelIDProperty, availableGenerativeAIModels))
 		}
 	} else {
 		projectID := ic.ProjectID()

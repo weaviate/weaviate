@@ -38,7 +38,10 @@ import (
 
 // MinimumRequiredRemoteVersion describes the minimal semver version
 // (independent of the model version) of the remote model inference API
-const MinimumRequiredRemoteVersion = "1.0.0"
+const (
+	MinimumRequiredRemoteVersion = "1.0.0"
+	Name                         = "text2vec-contextionary"
+)
 
 func New() *ContextionaryModule {
 	return &ContextionaryModule{}
@@ -55,7 +58,7 @@ type ContextionaryModule struct {
 	configValidator              configValidator
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
-	searcher                     modulecapabilities.Searcher
+	searcher                     modulecapabilities.Searcher[[]float32]
 	remote                       remoteClient
 	classifierContextual         modulecapabilities.Classifier
 	logger                       logrus.FieldLogger
@@ -79,7 +82,7 @@ type configValidator interface {
 }
 
 func (m *ContextionaryModule) Name() string {
-	return "text2vec-contextionary"
+	return Name
 }
 
 func (m *ContextionaryModule) Type() modulecapabilities.ModuleType {
@@ -247,7 +250,7 @@ func (m *ContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLA
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *ContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *ContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	return m.searcher.VectorSearches()
 }
 
@@ -270,6 +273,6 @@ func (m *ContextionaryModule) MetaInfo() (map[string]interface{}, error) {
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
-	_ = modulecapabilities.InputVectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
+	_ = modulecapabilities.InputVectorizer[[]float32](New())
 )

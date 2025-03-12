@@ -63,6 +63,15 @@ func byteVector(vec []float32) []byte {
 	return vector
 }
 
+func byteVectorMulti(mat [][]float32) []byte {
+	matrix := make([]byte, 2)
+	binary.LittleEndian.PutUint16(matrix, uint16(len(mat[0])))
+	for _, vec := range mat {
+		matrix = append(matrix, byteVector(vec)...)
+	}
+	return matrix
+}
+
 func idByte(id string) []byte {
 	hexInteger, _ := new(big.Int).SetString(strings.Replace(id, "-", "", -1), 16)
 	return hexInteger.Bytes()
@@ -217,14 +226,14 @@ func TestGRPCReply(t *testing.T) {
 			name: "named vector only",
 			res: []interface{}{
 				map[string]interface{}{
-					"_additional": map[string]interface{}{"vectors": map[string][]float32{"custom": {1}, "first": {2}}},
+					"_additional": map[string]interface{}{"vectors": map[string]models.Vector{"custom": []float32{1}, "first": []float32{2}}},
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}}},
 			outSearch: []*pb.SearchResult{
 				{Metadata: &pb.MetadataResult{Vectors: []*pb.Vectors{
-					{Name: "custom", VectorBytes: byteVector([]float32{1})},
-					{Name: "first", VectorBytes: byteVector([]float32{2})},
+					{Name: "custom", VectorBytes: byteVector([]float32{1}), Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32},
+					{Name: "first", VectorBytes: byteVector([]float32{2}), Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32},
 				}}, Properties: &pb.PropertiesResult{}},
 			},
 			usesWeaviateStruct: true,
@@ -1235,14 +1244,18 @@ func TestGRPCReply(t *testing.T) {
 			res: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
-						"id":       UUID1,                                               // different place for generative
-						"generate": &addModels.GenerateResult{SingleResult: &refClass1}, // just use some string
+						"id": UUID1, // different place for generative
+						"generate": map[string]interface{}{
+							"singleResult": &refClass1, // just use some string
+						},
 					},
 				},
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
-						"id":       UUID2,
-						"generate": &addModels.GenerateResult{SingleResult: &refClass2},
+						"id": UUID2,
+						"generate": map[string]interface{}{
+							"singleResult": &refClass2, // just use some string
+						},
 					},
 				},
 			},
@@ -1280,12 +1293,16 @@ func TestGRPCReply(t *testing.T) {
 			res: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{ // different place for generative
-						"generate": &addModels.GenerateResult{SingleResult: &refClass1}, // just use some string
+						"generate": map[string]interface{}{
+							"singleResult": &refClass1, // just use some string
+						},
 					},
 				},
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
-						"generate": &addModels.GenerateResult{SingleResult: &refClass2},
+						"generate": map[string]interface{}{
+							"singleResult": &refClass2, // just use some string
+						},
 					},
 				},
 			},
@@ -1318,7 +1335,9 @@ func TestGRPCReply(t *testing.T) {
 			res: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{ // different place for generative
-						"generate": &addModels.GenerateResult{Error: errors.New("error")},
+						"generate": map[string]interface{}{
+							"error": errors.New("error"),
+						},
 					},
 				},
 			},
@@ -1336,14 +1355,16 @@ func TestGRPCReply(t *testing.T) {
 			res: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
-						"id":       UUID1,                                                // different place for generative
-						"generate": &addModels.GenerateResult{GroupedResult: &refClass1}, // just use some string
+						"id": UUID1, // different place for generative
+						"generate": map[string]interface{}{
+							"groupedResult": &refClass1, // just use some string
+						},
 					},
 				},
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
 						"id":       UUID2,
-						"generate": &addModels.GenerateResult{},
+						"generate": map[string]interface{}{},
 					},
 				},
 			},
@@ -1483,9 +1504,9 @@ func TestGRPCReply(t *testing.T) {
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
 						"id": UUID2,
-						"generate": &addModels.GenerateResult{
-							SingleResult:  &refClass1,
-							GroupedResult: &refClass2,
+						"generate": map[string]interface{}{
+							"singleResult":  &refClass1,
+							"groupedResult": &refClass2,
 						},
 						"rerank": []*addModels.RankResult{{Score: &someFloat64}},
 						"group": &additional.Group{
@@ -1575,7 +1596,7 @@ func TestGRPCReply(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		replier := NewReplier(tt.usesWeaviateStruct, false)
+		replier := NewReplier(tt.usesWeaviateStruct, false, false, fakeGenerativeParams{}, nil)
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := replier.Search(tt.res, time.Now(), tt.searchParams, scheme)
 			if tt.hasError {
@@ -1597,4 +1618,22 @@ func TestGRPCReply(t *testing.T) {
 			}
 		})
 	}
+}
+
+type fakeGenerativeParams struct{}
+
+func (f fakeGenerativeParams) ProviderName() string {
+	return ""
+}
+
+func (f fakeGenerativeParams) ReturnMetadataForSingle() bool {
+	return false
+}
+
+func (f fakeGenerativeParams) ReturnMetadataForGrouped() bool {
+	return false
+}
+
+func (f fakeGenerativeParams) Debug() bool {
+	return false
 }

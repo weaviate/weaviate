@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -76,19 +77,20 @@ func TestExecutor(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("DropClass", Anything, Anything).Return(nil)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteClass("A"))
+		assert.Nil(t, x.DeleteClass("A", false))
 	})
 	t.Run("DropClassWithError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("DropClass", Anything, Anything).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteClass("A"))
+		assert.Nil(t, x.DeleteClass("A", false))
 	})
 
 	t.Run("UpdateIndex", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
 		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(nil)
+		migrator.On("UpdateReplicationConfig", context.Background(), "A", false).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}))
@@ -97,6 +99,7 @@ func TestExecutor(t *testing.T) {
 	t.Run("UpdateVectorIndexConfig", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(ErrAny)
+		migrator.On("UpdateReplicationConfig", context.Background(), "A", false).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)
@@ -105,6 +108,7 @@ func TestExecutor(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
 		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(ErrAny)
+		migrator.On("UpdateReplicationConfig", context.Background(), "A", false).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)
@@ -122,17 +126,17 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("DeleteTenants", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &api.DeleteTenantsRequest{}
-		migrator.On("DeleteTenants", Anything, "A", req.Tenants).Return(nil)
+		tenants := []*models.Tenant{}
+		migrator.On("DeleteTenants", Anything, "A", tenants).Return(nil)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteTenants("A", req))
+		assert.Nil(t, x.DeleteTenants("A", tenants))
 	})
 	t.Run("DeleteTenantsWithError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &api.DeleteTenantsRequest{}
-		migrator.On("DeleteTenants", Anything, "A", req.Tenants).Return(ErrAny)
+		tenants := []*models.Tenant{}
+		migrator.On("DeleteTenants", Anything, "A", tenants).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteTenants("A", req))
+		assert.Nil(t, x.DeleteTenants("A", tenants))
 	})
 
 	t.Run("UpdateTenants", func(t *testing.T) {

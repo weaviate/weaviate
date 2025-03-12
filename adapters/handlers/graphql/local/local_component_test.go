@@ -207,8 +207,9 @@ type testCases []testCase
 func (tests testCases) AssertNoError(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			modules := usecaseModules.NewProvider()
-			localSchema, err := Build(&test.localSchema, nil, config.Config{}, modules)
+			logger, _ := logrus.NewNullLogger()
+			modules := usecaseModules.NewProvider(logger)
+			localSchema, err := Build(&test.localSchema, nil, config.Config{}, modules, nil)
 			require.Nil(t, err, test.name)
 
 			schemaObject := graphql.ObjectConfig{
@@ -240,9 +241,9 @@ func (tests testCases) AssertNoError(t *testing.T) {
 func (tests testCases) AssertErrorLogs(t *testing.T, expectedMsg string) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			modules := usecaseModules.NewProvider()
 			logger, logsHook := logrus.NewNullLogger()
-			localSchema, err := Build(&test.localSchema, logger, config.Config{}, modules)
+			modules := usecaseModules.NewProvider(logger)
+			localSchema, err := Build(&test.localSchema, logger, config.Config{}, modules, nil)
 			require.Nil(t, err, test.name)
 
 			schemaObject := graphql.ObjectConfig{

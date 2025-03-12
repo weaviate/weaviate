@@ -21,6 +21,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -31,7 +33,8 @@ import (
 func TestModulesProvider(t *testing.T) {
 	t.Run("should register simple module", func(t *testing.T) {
 		// given
-		modulesProvider := NewProvider()
+		logger, _ := test.NewNullLogger()
+		modulesProvider := NewProvider(logger)
 		class := &models.Class{
 			Class:      "ClassOne",
 			Vectorizer: "mod1",
@@ -49,12 +52,11 @@ func TestModulesProvider(t *testing.T) {
 
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
-		logger, _ := test.NewNullLogger()
 		err := modulesProvider.Init(context.Background(), nil, logger)
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
-		extractedArgs := modulesProvider.ExtractSearchParams(arguments, class.Class)
+		extractedArgs, _ := modulesProvider.ExtractSearchParams(arguments, class.Class)
 
 		// then
 		mod1 := registered[0]
@@ -67,14 +69,14 @@ func TestModulesProvider(t *testing.T) {
 
 	t.Run("should not register modules providing the same search param", func(t *testing.T) {
 		// given
-		modulesProvider := NewProvider()
+		logger, _ := test.NewNullLogger()
+		modulesProvider := NewProvider(logger)
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
 		modulesProvider.Register(newGraphQLModule("mod2").withArg("nearArgument"))
-		logger, _ := test.NewNullLogger()
 		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
@@ -83,7 +85,8 @@ func TestModulesProvider(t *testing.T) {
 
 	t.Run("should not register modules providing internal search param", func(t *testing.T) {
 		// given
-		modulesProvider := NewProvider()
+		logger, _ := test.NewNullLogger()
+		modulesProvider := NewProvider(logger)
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
@@ -96,7 +99,6 @@ func TestModulesProvider(t *testing.T) {
 			withExtractFn("nearObject").
 			withExtractFn("group"),
 		)
-		logger, _ := test.NewNullLogger()
 		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
@@ -110,7 +112,8 @@ func TestModulesProvider(t *testing.T) {
 
 	t.Run("should not register modules providing faulty params", func(t *testing.T) {
 		// given
-		modulesProvider := NewProvider()
+		logger, _ := test.NewNullLogger()
+		modulesProvider := NewProvider(logger)
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
@@ -124,7 +127,6 @@ func TestModulesProvider(t *testing.T) {
 			withExtractFn("nearObject").
 			withExtractFn("group"),
 		)
-		logger, _ := test.NewNullLogger()
 		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
@@ -138,7 +140,8 @@ func TestModulesProvider(t *testing.T) {
 
 	t.Run("should register simple additional property module", func(t *testing.T) {
 		// given
-		modulesProvider := NewProvider()
+		logger, _ := test.NewNullLogger()
+		modulesProvider := NewProvider(logger)
 		class := &models.Class{
 			Class:      "ClassOne",
 			Vectorizer: "mod1",
@@ -162,12 +165,11 @@ func TestModulesProvider(t *testing.T) {
 			withRestApiArg("interpretation", []string{"interpretation"}).
 			withArg("nearArgument"),
 		)
-		logger, _ := test.NewNullLogger()
 		err := modulesProvider.Init(context.Background(), nil, logger)
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
-		extractedArgs := modulesProvider.ExtractSearchParams(arguments, class.Class)
+		extractedArgs, _ := modulesProvider.ExtractSearchParams(arguments, class.Class)
 		restApiFPArgs := modulesProvider.RestApiAdditionalProperties("featureProjection", class)
 		restApiInterpretationArgs := modulesProvider.RestApiAdditionalProperties("interpretation", class)
 		graphQLArgs := modulesProvider.GraphQLAdditionalFieldNames()
@@ -187,7 +189,8 @@ func TestModulesProvider(t *testing.T) {
 
 	t.Run("should not register additional property modules providing the same params", func(t *testing.T) {
 		// given
-		modulesProvider := NewProvider()
+		logger, _ := test.NewNullLogger()
+		modulesProvider := NewProvider(logger)
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
@@ -202,7 +205,6 @@ func TestModulesProvider(t *testing.T) {
 			withGraphQLArg("featureProjection", []string{"featureProjection"}).
 			withRestApiArg("featureProjection", []string{"featureProjection", "fp", "f-p"}),
 		)
-		logger, _ := test.NewNullLogger()
 		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
@@ -211,7 +213,8 @@ func TestModulesProvider(t *testing.T) {
 
 	t.Run("should not register additional property modules providing internal search param", func(t *testing.T) {
 		// given
-		modulesProvider := NewProvider()
+		logger, _ := test.NewNullLogger()
+		modulesProvider := NewProvider(logger)
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
@@ -238,7 +241,6 @@ func TestModulesProvider(t *testing.T) {
 			withGraphQLArg("id", []string{"id"}).
 			withRestApiArg("id", []string{"id"}),
 		)
-		logger, _ := test.NewNullLogger()
 		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
@@ -266,7 +268,8 @@ func TestModulesProvider(t *testing.T) {
 
 	t.Run("should not register additional property modules providing faulty params", func(t *testing.T) {
 		// given
-		modulesProvider := NewProvider()
+		logger, _ := test.NewNullLogger()
+		modulesProvider := NewProvider(logger)
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
@@ -296,7 +299,6 @@ func TestModulesProvider(t *testing.T) {
 			withGraphQLArg("id", []string{"id"}).
 			withRestApiArg("id", []string{"id"}),
 		)
-		logger, _ := test.NewNullLogger()
 		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
@@ -315,8 +317,9 @@ func TestModulesProvider(t *testing.T) {
 	})
 
 	t.Run("should register module with alt names", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
 		module := &dummyBackupModuleWithAltNames{}
-		modulesProvider := NewProvider()
+		modulesProvider := NewProvider(logger)
 		modulesProvider.Register(module)
 
 		modByName := modulesProvider.GetByName("SomeBackend")
@@ -331,8 +334,9 @@ func TestModulesProvider(t *testing.T) {
 	})
 
 	t.Run("should provide backup backend", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
 		module := &dummyBackupModuleWithAltNames{}
-		modulesProvider := NewProvider()
+		modulesProvider := NewProvider(logger)
 		modulesProvider.Register(module)
 
 		provider, ok := interface{}(modulesProvider).(ubackup.BackupBackendProvider)
@@ -350,10 +354,10 @@ func TestModulesProvider(t *testing.T) {
 	})
 }
 
-func fakeExtractFn(param map[string]interface{}) interface{} {
+func fakeExtractFn(param map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
 	extracted := map[string]interface{}{}
 	extracted["nearArgumentParam"] = []string{"fake"}
-	return extracted
+	return extracted, nil, nil
 }
 
 func fakeValidateFn(param interface{}) error {
@@ -504,23 +508,27 @@ func (m *dummyBackupModuleWithAltNames) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Backup
 }
 
-func (m *dummyBackupModuleWithAltNames) HomeDir(backupID string) string {
+func (m *dummyBackupModuleWithAltNames) HomeDir(backupID, overrideBucket, overridePath string) string {
 	return ""
 }
 
-func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (m *dummyBackupModuleWithAltNames) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
 	return nil, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	return 0, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	return 0, nil
 }
 
@@ -532,14 +540,14 @@ func (*dummyBackupModuleWithAltNames) IsExternal() bool {
 	return true
 }
 
-func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, overrideBucket, overridePath, filePath string) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID string) error {
+func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	return nil
 }

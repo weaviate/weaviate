@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/locks"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -45,12 +45,14 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC                  *oidc.Client
-	AnonymousAccess       *anonymous.Client
-	APIKey                *apikey.Client
-	Authorizer            authorization.Authorizer
+	OIDC            *oidc.Client
+	AnonymousAccess *anonymous.Client
+	APIKey          *apikey.Client
+	Authorizer      authorization.Authorizer
+	AuthzController authorization.Controller
+
 	ServerConfig          *config.WeaviateConfig
-	Locks                 locks.ConnectorSchemaLock
+	LDIntegration         *configRuntime.LDIntegration
 	Logger                *logrus.Logger
 	gqlMutex              sync.Mutex
 	GraphQL               graphql.GraphQL
@@ -65,6 +67,8 @@ type State struct {
 
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics
+	HTTPServerMetrics  *monitoring.HTTPServerMetrics
+	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
@@ -74,6 +78,8 @@ type State struct {
 
 	ClusterService *rCluster.Service
 	TenantActivity *tenantactivity.Handler
+
+	Migrator *db.Migrator
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

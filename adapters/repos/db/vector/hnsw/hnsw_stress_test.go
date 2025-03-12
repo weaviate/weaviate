@@ -25,16 +25,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-
-	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/pkg/errors"
-	"github.com/stretchr/testify/require"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 const (
@@ -263,7 +262,7 @@ Ex: go test -v -run TestHnswStress . -download
 
 			time.Sleep(time.Microsecond * 100)
 			index.Lock()
-			require.NotNil(t, index.nodes[24])
+			require.NotNil(t, index.nodes.Get(24))
 			index.Unlock()
 
 		}
@@ -429,7 +428,7 @@ func readSiftFloat(file string, maxObjects int) [][]float32 {
 	vectorBytes := make([]byte, bytesPerF+vectorSize*bytesPerF)
 	for i := 0; i >= 0; i++ {
 		_, err = f.Read(vectorBytes)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
 			panic(err)
@@ -488,7 +487,7 @@ Ex: go test -v -run TestHnswStress . -download
 			MaxConnections:        30,
 			EFConstruction:        128,
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), store)
+		}, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 
 		var wg sync.WaitGroup

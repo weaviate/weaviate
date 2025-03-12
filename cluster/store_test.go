@@ -20,17 +20,18 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
+	gproto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 var (
@@ -368,7 +369,7 @@ func TestStoreApply(t *testing.T) {
 		{
 			name: "AddTenant/ClassNotFound",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, nil, &cmd.AddTenantsRequest{
-				Tenants: []*command.Tenant{nil, {Name: "T1"}, nil},
+				Tenants: []*cmd.Tenant{nil, {Name: "T1"}, nil},
 			})},
 			resp:     Response{Error: schema.ErrSchema},
 			doBefore: doFirst,
@@ -377,7 +378,7 @@ func TestStoreApply(t *testing.T) {
 			name: "AddTenant/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, nil, &cmd.AddTenantsRequest{
 				ClusterNodes: []string{"THIS"},
-				Tenants:      []*command.Tenant{nil, {Name: "T1"}, nil},
+				Tenants:      []*cmd.Tenant{nil, {Name: "T1"}, nil},
 			})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
@@ -412,14 +413,14 @@ func TestStoreApply(t *testing.T) {
 		{
 			name: "UpdateTenant/ClassNotFound",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
-				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{nil, {Name: "T1"}, nil}})},
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{nil, {Name: "T1"}, nil}})},
 			resp:     Response{Error: schema.ErrSchema},
 			doBefore: doFirst,
 		},
 		{
 			name: "UpdateTenant/NoFound",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
-				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
 					{Name: "T1", Status: models.TenantActivityStatusCOLD},
 				}})},
 			resp: Response{Error: schema.ErrSchema},
@@ -435,7 +436,7 @@ func TestStoreApply(t *testing.T) {
 		{
 			name: "UpdateTenant/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
-				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
 					{Name: "T1", Status: models.TenantActivityStatusCOLD},
 					{Name: "T2", Status: models.TenantActivityStatusCOLD},
 					{Name: "T3", Status: models.TenantActivityStatusCOLD},
@@ -585,7 +586,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			ConsistencyWaitTimeout: time.Millisecond * 50,
 		},
 	}
-	s := NewFSM(ms.cfg)
+	s := NewFSM(ms.cfg, prometheus.NewPedanticRegistry())
 	ms.store = &s
 	return ms
 }
@@ -632,7 +633,7 @@ func cmdAsBytes(class string,
 		}
 	}
 
-	cmd := command.ApplyRequest{
+	cmd := cmd.ApplyRequest{
 		Type:       cmdType,
 		Class:      class,
 		SubCommand: subData,

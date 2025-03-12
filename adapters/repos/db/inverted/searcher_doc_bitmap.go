@@ -13,42 +13,63 @@ package inverted
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
+var noopRelease = func() {}
+
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,
-) (docBitmap, error) {
+) (bm docBitmap, err error) {
+	before := time.Now()
+	defer func() {
+		took := time.Since(before)
+		vals := map[string]any{
+			"prop":        pv.prop,
+			"operator":    pv.operator,
+			"took":        took,
+			"took_string": took.String(),
+			"value":       pv.value,
+			"count":       bm.count(),
+		}
+
+		helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap", vals)
+	}()
+
 	// geo props cannot be served by the inverted index and they require an
 	// external index. So, instead of trying to serve this chunk of the filter
 	// request internally, we can pass it to an external geo index
 	if pv.operator == filters.OperatorWithinGeoRange {
-		return s.docBitmapGeo(ctx, pv)
+		bm, err = s.docBitmapGeo(ctx, pv)
+		return
 	}
+
 	// all other operators perform operations on the inverted index which we
 	// can serve directly
-
-	if pv.hasFilterableIndex {
-		// bucket with strategy roaring set serves bitmaps directly
-		if b.Strategy() == lsmkv.StrategyRoaringSet {
-			return s.docBitmapInvertedRoaringSet(ctx, b, limit, pv)
-		}
-
-		// bucket with strategy set serves docIds used to build bitmap
-		return s.docBitmapInvertedSet(ctx, b, limit, pv)
+	switch b.Strategy() {
+	case lsmkv.StrategySetCollection:
+		bm, err = s.docBitmapInvertedSet(ctx, b, limit, pv)
+	case lsmkv.StrategyRoaringSet:
+		bm, err = s.docBitmapInvertedRoaringSet(ctx, b, limit, pv)
+	case lsmkv.StrategyRoaringSetRange:
+		bm, err = s.docBitmapInvertedRoaringSetRange(ctx, b, pv)
+	case lsmkv.StrategyMapCollection:
+		bm, err = s.docBitmapInvertedMap(ctx, b, limit, pv)
+	case lsmkv.StrategyInverted: // TODO amourao, check
+		bm, err = s.docBitmapInvertedMap(ctx, b, limit, pv)
+	default:
+		return docBitmap{}, fmt.Errorf("property '%s' is neither filterable nor searchable nor rangeable", pv.prop)
 	}
 
-	if pv.hasSearchableIndex {
-		// bucket with strategy map serves docIds used to build bitmap
-		// and frequencies, which are ignored for filtering
-		return s.docBitmapInvertedMap(ctx, b, limit, pv)
-	}
-
-	return docBitmap{}, fmt.Errorf("property '%s' is neither filterable nor searchable", pv.prop)
+	return
 }
 
 func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
@@ -56,12 +77,14 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
-	var readFn ReadFn = func(k []byte, docIDs *sroar.Bitmap) (bool, error) {
+	var readFn ReadFn = func(k []byte, docIDs *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = docIDs
+			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(docIDs)
+			out.docIDs.OrConc(docIDs, concurrency.SROAR_MERGE)
+			release()
 		}
 
 		// NotEqual requires the full set of potentially existing doc ids
@@ -86,17 +109,40 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 	return out, nil
 }
 
+func (s *Searcher) docBitmapInvertedRoaringSetRange(ctx context.Context, b *lsmkv.Bucket,
+	pv *propValuePair,
+) (docBitmap, error) {
+	if len(pv.value) != 8 {
+		return newDocBitmap(), fmt.Errorf("readerRoaringSetRange: invalid value length %d, should be 8 bytes", len(pv.value))
+	}
+
+	reader := b.ReaderRoaringSetRange()
+	defer reader.Close()
+
+	docIds, err := reader.Read(ctx, binary.BigEndian.Uint64(pv.value), pv.operator)
+	if err != nil {
+		return newDocBitmap(), fmt.Errorf("readerRoaringSetRange: %w", err)
+	}
+
+	out := newUninitializedDocBitmap()
+	out.docIDs = docIds
+	out.release = noopRelease
+	return out, nil
+}
+
 func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
-	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
+	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = ids
+			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.docIDs.OrConc(ids, concurrency.SROAR_MERGE)
+			release()
 		}
 
 		// NotEqual requires the full set of potentially existing doc ids
@@ -126,12 +172,14 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
-	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
+	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = ids
+			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.docIDs.OrConc(ids, concurrency.SROAR_MERGE)
+			release()
 		}
 
 		// NotEqual requires the full set of potentially existing doc ids

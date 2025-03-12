@@ -1,4 +1,3 @@
-import os
 from typing import Any, Optional, List, Generator, Protocol, Type, Dict, Tuple, Union, Callable
 
 import pytest
@@ -11,16 +10,17 @@ from weaviate.collections.classes.config import (
     _VectorizerConfigCreate,
     _InvertedIndexConfigCreate,
     _ReferencePropertyBase,
-    _GenerativeConfigCreate,
+    _GenerativeProvider,
     _ReplicationConfigCreate,
     _MultiTenancyConfigCreate,
     _VectorIndexConfigCreate,
-    _RerankerConfigCreate,
+    _RerankerProvider,
 )
 from weaviate.collections.classes.types import Properties
 from weaviate.config import AdditionalConfig
 
 from weaviate.collections.classes.config_named_vectors import _NamedVectorConfigCreate
+import weaviate.classes as wvc
 
 
 class CollectionFactory(Protocol):
@@ -36,7 +36,7 @@ class CollectionFactory(Protocol):
         ] = None,
         inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
         multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
-        generative_config: Optional[_GenerativeConfigCreate] = None,
+        generative_config: Optional[_GenerativeProvider] = None,
         headers: Optional[Dict[str, str]] = None,
         ports: Tuple[int, int] = (8080, 50051),
         data_model_properties: Optional[Type[Properties]] = None,
@@ -44,19 +44,21 @@ class CollectionFactory(Protocol):
         replication_config: Optional[_ReplicationConfigCreate] = None,
         vector_index_config: Optional[_VectorIndexConfigCreate] = None,
         description: Optional[str] = None,
-        reranker_config: Optional[_RerankerConfigCreate] = None,
+        reranker_config: Optional[_RerankerProvider] = None,
     ) -> Collection[Any, Any]:
         """Typing for fixture."""
         ...
 
+
 @pytest.fixture
 def weaviate_client() -> Callable[[int, int], weaviate.WeaviateClient]:
-    def connect(http_port : int = 8080, grpc_port : int = 50051) -> weaviate.WeaviateClient:
+    def connect(http_port: int = 8080, grpc_port: int = 50051) -> weaviate.WeaviateClient:
         return weaviate.connect_to_local(
             port=http_port,
             grpc_port=grpc_port,
             additional_config=AdditionalConfig(timeout=(60, 120)),  # for image tests
         )
+
     return connect
 
 
@@ -74,7 +76,7 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
         ] = None,
         inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
         multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
-        generative_config: Optional[_GenerativeConfigCreate] = None,
+        generative_config: Optional[_GenerativeProvider] = None,
         headers: Optional[Dict[str, str]] = None,
         ports: Tuple[int, int] = (8080, 50051),
         data_model_properties: Optional[Type[Properties]] = None,
@@ -82,7 +84,7 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
         replication_config: Optional[_ReplicationConfigCreate] = None,
         vector_index_config: Optional[_VectorIndexConfigCreate] = None,
         description: Optional[str] = None,
-        reranker_config: Optional[_RerankerConfigCreate] = None,
+        reranker_config: Optional[_RerankerProvider] = None,
     ) -> Collection[Any, Any]:
         nonlocal client_fixture, name_fixture
         name_fixture = _sanitize_collection_name(request.node.name) + name
@@ -119,6 +121,51 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
             client_fixture.close()
 
 
+class NamedCollection(Protocol):
+    """Typing for fixture."""
+
+    def __call__(self, name: str = "", props: Optional[List[str]] = None) -> Collection:
+        """Typing for fixture."""
+        ...
+
+
+@pytest.fixture
+def named_collection(
+    collection_factory: CollectionFactory,
+) -> Generator[NamedCollection, None, None]:
+    def _factory(name: str = "", props: Optional[List[str]] = None) -> Collection:
+        if props is None:
+            props = ["title1", "title2", "title3"]
+
+        properties = [Property(name=prop, data_type=wvc.config.DataType.TEXT) for prop in props]
+        named_vectors = [
+            wvc.config.Configure.NamedVectors.text2vec_contextionary(
+                name=prop.name,
+                source_properties=[prop.name],
+                vectorize_collection_name=False,
+            )
+            for prop in properties
+        ]
+
+        collection = collection_factory(
+            name,
+            properties=properties,
+            vectorizer_config=named_vectors,
+        )
+
+        return collection
+
+    yield _factory
+
+
 def _sanitize_collection_name(name: str) -> str:
-    name = name.replace("[", "").replace("]", "").replace("-", "").replace(" ", "").replace(".", "")
+    name = (
+        name.replace("[", "")
+        .replace("]", "")
+        .replace("-", "")
+        .replace(" ", "")
+        .replace(".", "")
+        .replace("{", "")
+        .replace("}", "")
+    )
     return name[0].upper() + name[1:]

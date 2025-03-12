@@ -19,13 +19,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
-	bolt "go.etcd.io/bbolt"
 )
 
 // grouper is the component which identifies the top-n groups for a specific
@@ -50,8 +51,12 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 	if len(g.params.GroupBy.Slice()) > 1 {
 		return nil, fmt.Errorf("grouping by cross-refs not supported")
 	}
+	isVectorEmpty, err := dto.IsVectorEmpty(g.params.SearchVector)
+	if err != nil {
+		return nil, fmt.Errorf("grouper: %w", err)
+	}
 
-	if g.params.Filters == nil && len(g.params.SearchVector) == 0 && g.params.Hybrid == nil {
+	if g.params.Filters == nil && isVectorEmpty && g.params.Hybrid == nil {
 		return g.groupAll(ctx)
 	} else {
 		return g.groupFiltered(ctx)
@@ -61,6 +66,8 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
 	err := ScanAllLSM(g.store, func(prop *models.PropertySchema, docID uint64) (bool, error) {
 		return true, g.addElementById(prop, docID)
+	}, &storobj.PropertyExtraction{
+		PropertyPaths: [][]string{{g.params.GroupBy.Property.String()}},
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "group all (unfiltered)")
@@ -90,8 +97,16 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 	if err != nil {
 		return nil, err
 	}
+	if allowList != nil {
+		defer allowList.Close()
+	}
 
-	if len(g.params.SearchVector) > 0 {
+	isVectorEmpty, err := dto.IsVectorEmpty(g.params.SearchVector)
+	if err != nil {
+		return nil, fmt.Errorf("grouper: fetch doc ids: %w", err)
+	}
+
+	if !isVectorEmpty {
 		ids, _, err = g.vectorSearch(ctx, allowList, g.params.SearchVector)
 		if err != nil {
 			return nil, fmt.Errorf("failed to perform vector search: %w", err)
@@ -128,7 +143,7 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modul
 		return sparse, dists, nil
 	}
 
-	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
+	denseSearch := func(vec models.Vector) ([]*storobj.Object, []float32, error) {
 		res, dists, err := g.objectVectorSearch(ctx, vec, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate grouped dense search: %w", err)
@@ -260,31 +275,10 @@ func (g *grouper) insertOrdered(elem group) {
 	}
 }
 
-// ScanAll iterates over every row in the object buckets
-// TODO: where should this live?
-func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
-	b := tx.Bucket(helpers.ObjectsBucket)
-	if b == nil {
-		return fmt.Errorf("objects bucket not found")
-	}
-
-	b.ForEach(func(_, v []byte) error {
-		elem, err := storobj.FromBinary(v)
-		if err != nil {
-			return errors.Wrapf(err, "unmarshal data object")
-		}
-
-		// scanAll has no abort, so we can ignore the first arg
-		properties := elem.Properties()
-		_, err = scan(&properties, elem.DocID)
-		return err
-	})
-
-	return nil
-}
-
-// ScanAllLSM iterates over every row in the object buckets
-func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
+// ScanAllLSM iterates over every row in the object buckets.
+// Caller can specify which properties it is interested in to make the scanning more performant, or pass nil to
+// decode everything.
+func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn, properties *storobj.PropertyExtraction) error {
 	b := store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return fmt.Errorf("objects bucket not found")
@@ -294,7 +288,7 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		elem, err := storobj.FromBinary(v)
+		elem, err := storobj.FromBinaryOptional(v, additional.Properties{}, properties)
 		if err != nil {
 			return errors.Wrapf(err, "unmarshal data object")
 		}

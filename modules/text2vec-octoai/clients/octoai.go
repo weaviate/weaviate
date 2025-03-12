@@ -14,7 +14,6 @@ package clients
 import (
 	"context"
 	"errors"
-	"net/http"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -24,31 +23,21 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type vectorizer struct {
-	apiKey     string
-	httpClient *http.Client
-	logger     logrus.FieldLogger
-}
+type vectorizer struct{}
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
-	return &vectorizer{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
-	}
+	return &vectorizer{}
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	return nil, nil, 0, errors.New("OctoAI is permanently shut down")
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	return nil, errors.New("OctoAI is permanently shut down")
 }
 

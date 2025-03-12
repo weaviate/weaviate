@@ -29,6 +29,7 @@ import (
 type modulesProvider interface {
 	IsGenerative(string) bool
 	IsReranker(string) bool
+	IsMultiVector(string) bool
 }
 
 type Parser struct {
@@ -143,22 +144,19 @@ func (p *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 	return parsedMC, nil
 }
 
-func (p *Parser) parseVectorIndexConfig(class *models.Class,
-) error {
-	if !hasTargetVectors(class) {
-		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
+func (p *Parser) parseVectorIndexConfig(class *models.Class) error {
+	if !hasTargetVectors(class) || class.VectorIndexType != "" {
+		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer))
 		if err != nil {
 			return err
 		}
+		if parsed.IsMultiVector() {
+			return fmt.Errorf("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
+		}
 		class.VectorIndexConfig = parsed
-		return nil
 	}
 
-	if class.VectorIndexConfig != nil {
-		return fmt.Errorf("class.vectorIndexConfig can not be set if class.vectorConfig is configured")
-	}
-
-	if err := p.parseTargetVectorsVectorIndexConfig(class); err != nil {
+	if err := p.parseTargetVectorsIndexConfig(class); err != nil {
 		return err
 	}
 	return nil
@@ -168,8 +166,7 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
 	cfg := shardingConfig.Config{} // cfg is empty in case of MT
 	if !schema.MultiTenancyEnabled(class) {
-		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig,
-			p.clusterState.NodeCount())
+		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig, p.clusterState.NodeCount())
 		if err != nil {
 			return err
 		}
@@ -179,11 +176,22 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	return nil
 }
 
-func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
+func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 	for targetVector, vectorConfig := range class.VectorConfig {
-		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig)
+		isMultiVector := false
+		vectorizerModuleName := ""
+		if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
+			for name := range vectorizer {
+				isMultiVector = p.modules.IsMultiVector(name)
+				vectorizerModuleName = name
+			}
+		}
+		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector)
 		if err != nil {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
+		}
+		if parsed.IsMultiVector() && vectorizerModuleName != "none" && !isMultiVector {
+			return fmt.Errorf("parse vector config for %s: multi vector index configured but vectorizer: %q doesn't support multi vectors", targetVector, vectorizerModuleName)
 		}
 		vectorConfig.VectorIndexConfig = parsed
 		class.VectorConfig[targetVector] = vectorConfig
@@ -192,7 +200,7 @@ func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error 
 }
 
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
-	vectorIndexConfig interface{},
+	vectorIndexConfig interface{}, isMultiVector bool,
 ) (schemaConfig.VectorIndexConfig, error) {
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC {
 		return nil, errors.Errorf(
@@ -200,7 +208,13 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 			vectorIndexType)
 	}
 
-	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType)
+	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && isMultiVector {
+		return nil, errors.Errorf(
+			"parse vector index config: multi vector index is not supported for vector index type: %q, only supported type is hnsw",
+			vectorIndexType)
+	}
+
+	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType, isMultiVector)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse vector index config")
 	}
@@ -235,12 +249,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
-	if hasTargetVectors(update) {
-		if err := p.validator.ValidateVectorIndexConfigsUpdate(
-			asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
-			return nil, err
-		}
-	} else {
+	if class.VectorIndexConfig != nil || update.VectorIndexConfig != nil {
 		vIdxConfig, ok1 := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		vIdxConfigU, ok2 := update.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		if !ok1 || !ok2 {
@@ -248,6 +257,13 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		}
 		if err := p.validator.ValidateVectorIndexConfigUpdate(vIdxConfig, vIdxConfigU); err != nil {
 			return nil, fmt.Errorf("validate vector index config: %w", err)
+		}
+	}
+
+	if hasTargetVectors(update) {
+		if err := p.validator.ValidateVectorIndexConfigsUpdate(
+			asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
+			return nil, err
 		}
 	}
 
@@ -440,15 +456,6 @@ func asVectorIndexConfigs(c *models.Class) map[string]schemaConfig.VectorIndexCo
 		cfgs[vecName] = c.VectorConfig[vecName].VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 	}
 	return cfgs
-}
-
-func asVectorIndexConfig(c *models.Class) schemaConfig.VectorIndexConfig {
-	validCfg, ok := c.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
-	if !ok {
-		return nil
-	}
-
-	return validCfg
 }
 
 func validateShardingConfig(current, update *models.Class, mtEnabled bool) error {

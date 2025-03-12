@@ -24,6 +24,10 @@ type SafeErrorCompounder struct {
 	errors []error
 }
 
+func NewSafe() *SafeErrorCompounder {
+	return &SafeErrorCompounder{}
+}
+
 func (ec *SafeErrorCompounder) Add(err error) {
 	ec.Lock()
 	defer ec.Unlock()
@@ -55,4 +59,11 @@ func (ec *SafeErrorCompounder) ToError() error {
 	}
 
 	return errors.New(msg.String())
+}
+
+func (ec *SafeErrorCompounder) First() error {
+	if len(ec.errors) == 0 {
+		return nil
+	}
+	return ec.errors[0]
 }

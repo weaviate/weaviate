@@ -10,13 +10,14 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
 import (
 	"context"
 	"testing"
+
+	"github.com/weaviate/weaviate/entities/search"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -81,7 +82,7 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "the band is just fantastic that is really what I think",
 			},
-		}, []float32{0.1, 0.2, 0.3}, nil, nil, 0)
+		}, []float32{0.1, 0.2, 0.3}, nil, nil, nil, 0)
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -90,7 +91,7 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "oh by the way, which one's pink?",
 			},
-		}, []float32{-0.1, 0.2, -0.3}, nil, nil, 0)
+		}, []float32{-0.1, 0.2, -0.3}, nil, nil, nil, 0)
 		require.Nil(t, err)
 	})
 
@@ -148,12 +149,12 @@ func TestRestartJourney(t *testing.T) {
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := repo.VectorSearch(context.Background(),
 				dto.GetParams{
-					ClassName:    "Class",
-					SearchVector: []float32{0.05, 0.1, 0.15},
+					ClassName: "Class",
 					Pagination: &filters.Pagination{
 						Limit: 1,
 					},
-				})
+					Properties: search.SelectProperties{{Name: "description"}},
+				}, []string{""}, []models.Vector{[]float32{0.05, 0.1, 0.15}})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -231,12 +232,12 @@ func TestRestartJourney(t *testing.T) {
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := newRepo.VectorSearch(context.Background(),
 				dto.GetParams{
-					ClassName:    "Class",
-					SearchVector: []float32{0.05, 0.1, 0.15},
+					ClassName: "Class",
 					Pagination: &filters.Pagination{
 						Limit: 1,
 					},
-				})
+					Properties: search.SelectProperties{{Name: "description"}},
+				}, []string{""}, []models.Vector{[]float32{0.05, 0.1, 0.15}})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",

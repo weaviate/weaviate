@@ -20,6 +20,7 @@ import (
 	"time"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
@@ -108,7 +109,7 @@ func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Ha
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
-func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Handler {
+func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Context) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
 		handleCORS := cors.New(cors.Options{
 			OptionsPassthrough: true,
@@ -128,6 +129,16 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
+		if appState.ServerConfig.Config.Monitoring.Enabled {
+			handler = monitoring.InstrumentHTTP(
+				handler,
+				staticRoute(context),
+				appState.HTTPServerMetrics.InflightRequests,
+				appState.HTTPServerMetrics.RequestDuration,
+				appState.HTTPServerMetrics.RequestBodySize,
+				appState.HTTPServerMetrics.ResponseBodySize,
+			)
+		}
 		// Must be the last middleware as it might skip the next handler
 		handler = addClusterHandlerMiddleware(handler, appState)
 		if appState.ServerConfig.Config.Sentry.Enabled {
@@ -135,6 +146,28 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		}
 
 		return handler
+	}
+}
+
+// staticRoute is used to convert routes in our main http server into static routes
+// by removing all the dynamic variables in the route. Useful for instrumentation
+// where "route cardinality" matters.
+
+// Example:
+// `/schema/Movies/properties` -> `/schema/{className}`
+func staticRoute(context *middleware.Context) monitoring.StaticRouteLabel {
+	return func(r *http.Request) (*http.Request, string) {
+		route := r.URL.String()
+		req := r
+
+		matched, rr, ok := context.RouteInfo(r)
+		if ok {
+			// convert dynamic route to static route.
+			// `/api/v1/schema/Question/tenant1` -> `/api/v1/schema/{class}/{tenant}`
+			route = matched.PathPattern
+			req = rr
+		}
+		return req, route
 	}
 }
 
@@ -196,7 +229,7 @@ func addInjectHeadersIntoContext(next http.Handler) http.Handler {
 		ctx := r.Context()
 		changed := false
 		for k, v := range r.Header {
-			if strings.HasPrefix(k, "X-") {
+			if strings.HasPrefix(k, "X-") || k == "Authorization" {
 				ctx = context.WithValue(ctx, k, v)
 				changed = true
 			}
@@ -221,7 +254,7 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 			code := http.StatusOK
 			// if this node is in maintenance mode, we want to return live but not ready
 			// so that kubernetes will allow this pod to run but not send traffic to it
-			if state.Cluster.MaintenanceModeEnabled() {
+			if state.Cluster.MaintenanceModeEnabledForLocalhost() {
 				code = http.StatusServiceUnavailable
 			} else if !state.ClusterService.Ready() || state.Cluster.ClusterHealthScore() != 0 {
 				code = http.StatusServiceUnavailable

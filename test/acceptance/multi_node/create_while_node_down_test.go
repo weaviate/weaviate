@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
@@ -26,8 +25,7 @@ import (
 )
 
 func TestCreateClassWhileOneNodeIsDown(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	compose, err := docker.New().
 		With3NodeCluster().
@@ -95,8 +93,7 @@ func TestCreateClassWhileOneNodeIsDown(t *testing.T) {
 }
 
 func TestAddTenantWhileOneNodeIsDown(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	compose, err := docker.New().
 		With3NodeCluster().
@@ -141,8 +138,7 @@ func TestAddTenantWhileOneNodeIsDown(t *testing.T) {
 }
 
 func TestAddObjectsWhileOneNodeIsDown(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	compose, err := docker.New().
 		With3NodeCluster().

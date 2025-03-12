@@ -13,17 +13,21 @@ package cmd
 
 import (
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/benchmark_bm25/lib"
 )
 
@@ -42,8 +46,8 @@ type QueryExperimentResult struct {
 	Ranking string
 	// The time it took to query the dataset
 	TotalQueryTime float64
-	// Average time to query 1000 objects
-	QueryTimePer1000 float64
+	// Average query time
+	AvgQueryTime time.Duration
 	// Average time to query per 1000 indexed objects
 	QueryTimePer1000000Documents float64
 	// Objects per second
@@ -67,10 +71,50 @@ func init() {
 	queryCmd.PersistentFlags().IntVarP(&QueriesCount, "count", "c", DefaultQueriesCount, "run only the specified amount of queries, negative numbers mean unlimited")
 	queryCmd.PersistentFlags().IntVarP(&FilterObjectPercentage, "filter", "f", DefaultFilterObjectPercentage, "The given percentage of objects are filtered out. Off by default, use <=0 to disable")
 	queryCmd.PersistentFlags().Float32VarP(&Alpha, "alpha", "a", DefaultAlpha, "Weighting for keyword vs vector search. Alpha = 0 (Default) is pure BM25 search.")
-	queryCmd.PersistentFlags().StringVarP(&Ranking, "ranking´", "r", DefaultRanking, "Which ranking algorithm should be used for hybrid search, rankedFusion (default) and relativeScoreFusion.")
+	queryCmd.PersistentFlags().StringVarP(&Ranking, "ranking", "r", DefaultRanking, "Which ranking algorithm should be used for hybrid search, rankedFusion (default) and relativeScoreFusion.")
+	queryCmd.PersistentFlags().IntVarP(&Limit, "limit", "l", DefaultLimit, "Limit the number of results returned by the query")
+	queryCmd.PersistentFlags().BoolVarP(&AdditionalExplanations, "additional-explanations", "e", DefaultAdditionalExplanations, "Request additional explanations for the query results")
+	queryCmd.PersistentFlags().BoolVarP(&PrintDetailedResults, "print-detailed-results", "p", DefaultPrintDetailedResults, "Print detailed results")
 }
 
-func query(client *weaviate.Client, q lib.Queries, ds lib.Dataset) (*QueryExperimentResult, error) {
+func writeQueryResultsToFile(results *models.GraphQLResponse, filename, collection, queryId string, additionalExplanations bool) {
+	file, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	header := []string{"queryId", "id", "score"}
+	if additionalExplanations {
+		header = append(header, "explainScore")
+	}
+
+	// Write the header
+	writer.Write(header)
+	for _, obj := range results.Data["Get"].(map[string]interface{})[collection].([]interface{}) {
+		id := obj.(map[string]interface{})["_additional"].(map[string]interface{})["id"].(string)
+		score := obj.(map[string]interface{})["_additional"].(map[string]interface{})["score"].(string)
+
+		// round score to 2 decimal places
+		scoreFloat, err := strconv.ParseFloat(score, 64)
+		if err != nil {
+			log.Fatal(err)
+		}
+		score = fmt.Sprintf("%.2f", scoreFloat)
+
+		line := []string{queryId, id, score}
+		if additionalExplanations {
+			line = append(line, obj.(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string))
+		}
+
+		writer.Write(line)
+	}
+}
+
+func query(client *weaviate.Client, q lib.Queries, ds lib.Dataset, index int) (*QueryExperimentResult, error) {
 	propNameWithId := lib.SanitizePropName(ds.Queries.PropertyWithId)
 	propertiesToMatch := ds.Queries.PropertiesToMatch
 	for i := 0; i < len(propertiesToMatch); i++ {
@@ -79,9 +123,27 @@ func query(client *weaviate.Client, q lib.Queries, ds lib.Dataset) (*QueryExperi
 	className := lib.ClassNameFromDatasetID(ds.ID)
 	times := []time.Duration{}
 	scores := lib.Scores{}
+
+	// unix timestamp as string
+	t := strconv.FormatInt(time.Now().Unix(), 10)
+	propName := strings.Join(propertiesToMatch, "_")
+	if len(propertiesToMatch) == 0 {
+		propName = "all"
+	}
+	if index >= 0 {
+		propName = propName + "_" + strconv.Itoa(index)
+	}
+	filename := t + "_" + className + "_" + propName + ".csv"
+
+	additionalFlags := "id"
+	if PrintDetailedResults {
+		additionalFlags = "id score explainScore"
+	}
 	for i, query := range q {
 		before := time.Now()
-		queryBuilder := client.GraphQL().Get().WithClassName(className).WithLimit(100).WithFields(graphql.Field{Name: "_additional { id }"}, graphql.Field{Name: propNameWithId})
+		var queryBuilder *graphql.GetBuilder
+
+		queryBuilder = client.GraphQL().Get().WithClassName(className).WithLimit(Limit).WithFields(graphql.Field{Name: "_additional { " + additionalFlags + " }"}, graphql.Field{Name: propNameWithId})
 		if Alpha == 0 {
 			bm25 := &graphql.BM25ArgumentBuilder{}
 			bm25.WithQuery(query.Query)
@@ -110,6 +172,12 @@ func query(client *weaviate.Client, q lib.Queries, ds lib.Dataset) (*QueryExperi
 			return nil, errors.New(result.Errors[0].Message)
 		}
 		times = append(times, time.Since(before))
+
+		// print result scores and ids to a csv file
+		if PrintDetailedResults {
+			queryId := strconv.Itoa(i)
+			writeQueryResultsToFile(result, filename, className, queryId, AdditionalExplanations)
+		}
 
 		logMsg := fmt.Sprintf("completed %d/%d queries.", i, len(q))
 
@@ -150,7 +218,7 @@ func query(client *weaviate.Client, q lib.Queries, ds lib.Dataset) (*QueryExperi
 		Alpha:                        Alpha,
 		Ranking:                      Ranking,
 		TotalQueryTime:               totalTime,
-		QueryTimePer1000:             stat.Mean.Seconds() * 1000,
+		AvgQueryTime:                 stat.Mean,
 		QueriesPerSecond:             1 / stat.Mean.Seconds(),
 		QueryTimePer1000000Documents: float64(stat.Mean.Milliseconds()) * 1000000 / float64(objCount),
 		Min:                          stat.Min,
@@ -190,7 +258,7 @@ var queryCmd = &cobra.Command{
 
 		results := make([]*QueryExperimentResult, len(datasets.Datasets))
 		for di, ds := range datasets.Datasets {
-
+			log.Print("querying dataset " + ds.ID)
 			log.Print("parse queries")
 			q, err := lib.ParseQueries(ds, QueriesCount)
 			if err != nil {
@@ -199,7 +267,7 @@ var queryCmd = &cobra.Command{
 			log.Print("queries parsed")
 			log.Print("start querying")
 
-			result, err := query(client, q, ds)
+			result, err := query(client, q, ds, -1)
 			if err != nil {
 				return err
 			}
@@ -209,10 +277,10 @@ var queryCmd = &cobra.Command{
 		}
 
 		fmt.Printf("\nQuery Results:\n")
-		fmt.Printf("Dataset\tObjects\tQueries\tFilterObjectPercentage\tAlpha\tRanking\tQueryTime\tQueryTimePer1000\tQueriesPerSecond\tQueryTimePer1000000Documents\tMin\tMax\tP50\tP90\tP99\tnDCG\tP@1\tP@5\n")
+		fmt.Printf("Dataset\tObjects\tQueries\tFilterObjectPercentage\tAlpha\tRanking\tQueryTime\tAvgQueryTime\tQueriesPerSecond\tQueryTimePer1000000Documents\tMin\tMax\tP50\tP90\tP99\tnDCG\tP@1\tP@5\n")
 		for _, result := range results {
 			ranking, _ := strconv.ParseFloat(result.Ranking, 64) // Convert result.Ranking to float64
-			fmt.Printf("%s\t%d\t%d\t%d\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\n", result.Dataset, result.Objects, result.Queries, result.FilterObjectPercentage, result.Alpha, ranking, result.TotalQueryTime, result.QueryTimePer1000, result.QueriesPerSecond, result.QueryTimePer1000000Documents, float32(result.Min.Milliseconds())/1000.0, float32(result.Max.Milliseconds())/1000.0, float32(result.P50.Milliseconds())/1000.0, float32(result.P90.Milliseconds())/1000.0, float32(result.P99.Milliseconds())/1000.0, result.Scores.CurrentNDCG(), result.Scores.CurrentPrecisionAt1(), result.Scores.CurrentPrecisionAt5())
+			fmt.Printf("%s\t%d\t%d\t%d\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\n", result.Dataset, result.Objects, result.Queries, result.FilterObjectPercentage, result.Alpha, ranking, result.TotalQueryTime, result.AvgQueryTime.Seconds(), result.QueriesPerSecond, result.QueryTimePer1000000Documents, result.Min.Seconds(), result.Max.Seconds(), result.P50.Seconds(), result.P90.Seconds(), result.P99.Seconds(), result.Scores.CurrentNDCG(), result.Scores.CurrentPrecisionAt1(), result.Scores.CurrentPrecisionAt5())
 		}
 
 		return nil

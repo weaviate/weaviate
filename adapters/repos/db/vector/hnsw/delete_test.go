@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -66,8 +67,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), store)
+		}, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -160,8 +160,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), store)
+		}, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -279,8 +278,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), store)
+		}, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -353,7 +351,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 
 func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T) {
 	var vectors [][]float32
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10000; i++ {
 		vectors = append(vectors, []float32{rand.Float32(), rand.Float32(), rand.Float32()})
 	}
 	var vectorIndex *hnsw
@@ -375,7 +373,7 @@ func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T
 			MaxConnections:        30,
 			EFConstruction:        128,
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), store)
+		}, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 		vectorIndex.logger = logrus.New()
@@ -435,6 +433,18 @@ func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T
 		wg.Wait()
 	})
 
+	t.Run("final tombstone cleanup", func(t *testing.T) {
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+		require.Nil(t, err)
+	})
+
+	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
+		vectorIndex.tombstoneLock.Lock()
+		defer vectorIndex.tombstoneLock.Unlock()
+
+		assert.Len(t, vectorIndex.tombstones, 0)
+	})
+
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, vectorIndex.Drop(context.Background()))
 	})
@@ -466,8 +476,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), store)
+		}, cyclemanager.NewCallbackGroupNoop(), store)
 		// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
 		index.randFunc = func() float64 { return 0.1 }
 
@@ -589,8 +598,7 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32,
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), store)
+	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
 
 	// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
@@ -598,7 +606,7 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32,
 
 	// to speed up test execution, size of nodes array is decreased
 	// from default 25k to little over number of vectors
-	index.nodes = make([]*vertex, int(1.2*float64(len(vectors))))
+	index.nodes = graph.NewNodes(int(1.2 * float64(len(vectors))))
 
 	for i, vec := range vectors {
 		err := index.Add(ctx, uint64(i), vec)
@@ -771,6 +779,7 @@ func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 	ctx := context.Background()
+	defaultUC := ent.NewDefaultUserConfig()
 	var (
 		vectorIndex *hnsw
 		// there is a single bulk clean event after all the deletes
@@ -791,6 +800,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 					Distribution: ent.PQEncoderDistributionNormal,
 				},
 			},
+			BQ: defaultUC.BQ,
+			SQ: defaultUC.SQ,
 		}
 	)
 	store := testinghelpers.NewDummyStore(t)
@@ -809,8 +820,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), store)
+		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -827,6 +837,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			BitCompression: false,
 			Segments:       3,
 			Centroids:      256,
+			TrainingLimit:  100000,
 		}
 		userConfig.PQ = cfg
 		index.compress(userConfig)
@@ -956,8 +967,7 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), store)
+		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -1013,6 +1023,7 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *testing.T) {
 	ctx := context.Background()
+	defaultUC := ent.NewDefaultUserConfig()
 	var (
 		vectorIndex *hnsw
 		// there is a single bulk clean event after all the deletes
@@ -1026,7 +1037,15 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-			PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "tile", Distribution: "normal"}},
+			PQ: ent.PQConfig{
+				Enabled: true,
+				Encoder: ent.PQEncoder{
+					Type:         ent.PQEncoderTypeTile,
+					Distribution: ent.PQEncoderDistributionNormal,
+				},
+			},
+			BQ: defaultUC.BQ,
+			SQ: defaultUC.SQ,
 		}
 	)
 
@@ -1043,8 +1062,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 				return vectors[int(id%uint64(len(vectors)))], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), store)
+		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -1243,72 +1261,42 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	// manually build the index
 	index.entryPointID = 6
 	index.currentMaximumLayer = 1
-	index.nodes = make([]*vertex, 50)
-	index.nodes[0] = &vertex{
-		id: 0,
-		connections: [][]uint64{
-			{1, 2, 3, 4, 5, 6, 7, 8},
-		},
-	}
-	index.nodes[1] = &vertex{
-		id: 1,
-		connections: [][]uint64{
-			{0, 2, 3, 4, 5, 6, 7, 8},
-		},
-	}
-	index.nodes[2] = &vertex{
-		id: 2,
-		connections: [][]uint64{
-			{1, 0, 3, 4, 5, 6, 7, 8},
-		},
-	}
-	index.nodes[3] = &vertex{
-		id: 3,
-		connections: [][]uint64{
-			{2, 1, 0, 4, 5, 6, 7, 8},
-		},
-	}
-	index.nodes[4] = &vertex{
-		id: 4,
-		connections: [][]uint64{
-			{3, 2, 1, 0, 5, 6, 7, 8},
-		},
-	}
-	index.nodes[5] = &vertex{
-		id: 5,
-		connections: [][]uint64{
-			{3, 4, 2, 1, 0, 6, 7, 8},
-		},
-	}
-	index.nodes[6] = &vertex{
-		id: 6,
-		connections: [][]uint64{
-			{4, 3, 1, 3, 5, 0, 7, 8},
-			{7},
-		},
-		level: 1,
-	}
-	index.nodes[7] = &vertex{
-		id: 7,
-		connections: [][]uint64{
-			{6, 4, 3, 5, 2, 1, 0, 8},
-			{6},
-		},
-		level: 1,
-	}
-	index.nodes[8] = &vertex{
-		id: 8,
-		connections: [][]uint64{
-			8: {7, 6, 4, 3, 5, 2, 1, 0},
-		},
-	}
+	index.nodes = graph.NewNodes(50)
+	index.nodes.Set(graph.NewVertexWithConnections(0, 0, [][]uint64{
+		{1, 2, 3, 4, 5, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(1, 0, [][]uint64{
+		{0, 2, 3, 4, 5, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(2, 0, [][]uint64{
+		{1, 0, 3, 4, 5, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(3, 0, [][]uint64{
+		{2, 1, 0, 4, 5, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(4, 0, [][]uint64{
+		{3, 2, 1, 0, 5, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(5, 0, [][]uint64{
+		{3, 4, 2, 1, 0, 6, 7, 8},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(6, 1, [][]uint64{
+		{4, 3, 1, 3, 5, 0, 7, 8},
+		{7},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(7, 1, [][]uint64{
+		{6, 4, 3, 5, 2, 1, 0, 8},
+		{6},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(8, 0, [][]uint64{
+		8: {7, 6, 4, 3, 5, 2, 1, 0},
+	}))
 
 	dumpIndex(index, "before delete")
 
@@ -1389,8 +1377,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	// manually build the index
@@ -1400,27 +1387,18 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		0: {},
 		1: {},
 	}
-	index.nodes = make([]*vertex, 50)
-	index.nodes[0] = &vertex{
-		id: 0,
-		connections: [][]uint64{
-			0: {1},
-		},
-	}
-	index.nodes[1] = &vertex{
-		id: 1,
-		connections: [][]uint64{
-			0: {0, 2},
-			1: {2},
-		},
-	}
-	index.nodes[2] = &vertex{
-		id: 2,
-		connections: [][]uint64{
-			0: {1},
-			1: {1},
-		},
-	}
+	index.nodes = graph.NewNodes(50)
+	index.nodes.Set(graph.NewVertexWithConnections(0, 0, [][]uint64{
+		{1},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(1, 0, [][]uint64{
+		{0, 2},
+		{2},
+	}))
+	index.nodes.Set(graph.NewVertexWithConnections(2, 0, [][]uint64{
+		{1},
+		{1},
+	}))
 
 	dumpIndex(index, "before adding another element")
 	t.Run("adding a third element", func(t *testing.T) {
@@ -1467,8 +1445,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	objVec := []float32{0.1, 0.2}
@@ -1649,8 +1626,7 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), store)
+		}, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -1704,8 +1680,7 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), store)
+	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
 	vectorIndex = index
 
@@ -1716,13 +1691,11 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 
 	require.Equal(t, 60, index.maximumConnectionsLayerZero)
 	some := false
-	for _, node := range index.nodes {
-		if node == nil {
-			continue
-		}
-		require.LessOrEqual(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
-		some = some || len(node.connections[0]) > index.maximumConnections
-	}
+	index.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
+		require.LessOrEqual(t, node.LevelLen(0), index.maximumConnectionsLayerZero)
+		some = some || node.LevelLen(0) > index.maximumConnections
+		return true
+	})
 	require.True(t, some)
 
 	for i := range vectors {
@@ -1738,13 +1711,11 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 	require.Nil(t, err)
 	require.Equal(t, 60, index.maximumConnectionsLayerZero)
 	some = false
-	for _, node := range index.nodes {
-		if node == nil {
-			continue
-		}
-		require.LessOrEqual(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
-		some = some || len(node.connections[0]) > index.maximumConnections
-	}
+	index.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
+		require.LessOrEqual(t, node.LevelLen(0), index.maximumConnectionsLayerZero)
+		some = some || node.LevelLen(0) > index.maximumConnections
+		return true
+	})
 	require.True(t, some)
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -1776,8 +1747,7 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), store)
+	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
 	vectorIndex = index
 
@@ -1798,20 +1768,21 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 	err = vectorIndex.CleanUpTombstonedNodes(neverStop)
 	require.Nil(t, err)
 
-	for i, node := range vectorIndex.nodes {
-		if node == nil {
-			continue
-		}
-		assert.NotEqual(t, 0, i%2)
-		for level, connections := range node.connections {
-			for _, id := range connections {
-				assert.NotEqual(t, uint64(0), id%2)
-				if id%2 == 0 {
-					fmt.Println("at: ", vectorIndex.entryPointID, i, level, id)
+	vectorIndex.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
+		assert.NotEqual(t, uint64(0), id%2)
+
+		for level := range node.MaxLevel() {
+			node.IterConnections(level, func(u uint64) bool {
+				assert.NotEqual(t, uint64(0), u%2)
+				if u%2 == 0 {
+					fmt.Println("at: ", vectorIndex.entryPointID, id, level, u)
 				}
-			}
+
+				return true
+			})
 		}
-	}
+		return true
+	})
 
 	require.Nil(t, vectorIndex.Drop(context.Background()))
 	store.Shutdown(context.Background())
@@ -1846,8 +1817,7 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), store)
+		}, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 

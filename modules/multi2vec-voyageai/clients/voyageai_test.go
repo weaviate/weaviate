@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/voyageai"
 )
@@ -33,7 +34,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &vectorizer{voyageai.New("apiKey", 0, &voyageaiUrlBuilder{origin: server.URL, pathMask: "/multimodalembeddings"}, nullLogger())}
-		expected := &modulecomponents.VectorizationCLIPResult{
+		expected := &modulecomponents.VectorizationCLIPResult[[]float32]{
 			TextVectors:  [][]float32{{0.1, 0.2, 0.3}},
 			ImageVectors: [][]float32{{0.4, 0.5, 0.6}},
 		}
@@ -83,7 +84,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Voyageai-Api-Key", []string{"some-key"})
 
-		expected := &modulecomponents.VectorizationCLIPResult{
+		expected := &modulecomponents.VectorizationCLIPResult[[]float32]{
 			TextVectors:  [][]float32{{0.1, 0.2, 0.3}},
 			ImageVectors: [][]float32{{0.4, 0.5, 0.6}},
 		}
@@ -182,4 +183,8 @@ func (f fakeClassConfig) Tenant() string {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
 }

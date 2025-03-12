@@ -13,39 +13,28 @@ package clients
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
-type octoai struct {
-	apiKey     string
-	httpClient *http.Client
-	logger     logrus.FieldLogger
-}
+type octoai struct{}
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *octoai {
-	return &octoai{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
-	}
+	return &octoai{}
 }
 
-func (v *octoai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *octoai) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	return nil, errors.New("OctoAI is permanently shut down")
 }
 
-func (v *octoai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *octoai) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	return nil, errors.New("OctoAI is permanently shut down")
 }
 
-func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	return nil, errors.New("OctoAI is permanently shut down")
 }

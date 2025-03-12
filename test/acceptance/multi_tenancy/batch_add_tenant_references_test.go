@@ -124,12 +124,14 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		Class: className4,
 	}
 
-	defer func() {
+	delClasses := func() {
 		helper.DeleteClass(t, className1)
 		helper.DeleteClass(t, className2)
 		helper.DeleteClass(t, className3)
 		helper.DeleteClass(t, className4)
-	}()
+	}
+	delClasses()
+	defer delClasses()
 
 	t.Run("create classes", func(t *testing.T) {
 		helper.CreateClass(t, &stClass1)

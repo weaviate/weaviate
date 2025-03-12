@@ -150,6 +150,9 @@ func TestMappings(t *testing.T) {
 	})
 
 	t.Run("check mappings, by open many file mappings and close them only after the test is done", func(t *testing.T) {
+		if runtime.GOOS == "darwin" {
+			t.Skip("macOS does not have a limit on mappings")
+		}
 		currentMappings := getCurrentMappings()
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))

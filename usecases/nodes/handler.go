@@ -17,14 +17,11 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 const GetNodeStatusTimeout = 30 * time.Second
-
-type authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
-}
 
 type db interface {
 	GetNodeStatus(ctx context.Context, className, verbosity string) ([]*models.NodeStatus, error)
@@ -33,12 +30,12 @@ type db interface {
 
 type Manager struct {
 	logger        logrus.FieldLogger
-	authorizer    authorizer
+	authorizer    authorization.Authorizer
 	db            db
 	schemaManager *schemaUC.Manager
 }
 
-func NewManager(logger logrus.FieldLogger, authorizer authorizer,
+func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	db db, schemaManager *schemaUC.Manager,
 ) *Manager {
 	return &Manager{logger, authorizer, db, schemaManager}
@@ -52,9 +49,10 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
 	defer cancel()
 
-	if err := m.authorizer.Authorize(principal, "list", "nodes"); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Nodes(verbosity, className)...); err != nil {
 		return nil, err
 	}
+
 	return m.db.GetNodeStatus(ctxWithTimeout, className, verbosity)
 }
 
@@ -64,7 +62,7 @@ func (m *Manager) GetNodeStatistics(ctx context.Context,
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
 	defer cancel()
 
-	if err := m.authorizer.Authorize(principal, "list", "cluster"); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Cluster()); err != nil {
 		return nil, err
 	}
 	return m.db.GetNodeStatistics(ctxWithTimeout)

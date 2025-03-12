@@ -211,7 +211,7 @@ func TestNestedReferences(t *testing.T) {
 
 		for _, thing := range objects {
 			t.Run(fmt.Sprintf("add %s", thing.ID), func(t *testing.T) {
-				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil, nil, 0)
+				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil, nil, nil, 0)
 				require.Nil(t, err)
 			})
 		}
@@ -381,7 +381,7 @@ func TestNestedReferences(t *testing.T) {
 			CreationTimeUnix: 1566464912,
 		}
 
-		err := repo.PutObject(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7}, nil, nil, 0)
+		err := repo.PutObject(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7}, nil, nil, nil, 0)
 		require.Nil(t, err)
 	})
 }
@@ -517,7 +517,7 @@ func GetDimensionsFromRepo(ctx context.Context, repo *DB, className string) int 
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		sum += shard.Dimensions(ctx)
+		sum += shard.Dimensions(ctx, "")
 		return nil
 	})
 	return sum
@@ -531,7 +531,7 @@ func GetQuantizedDimensionsFromRepo(ctx context.Context, repo *DB, className str
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		sum += shard.QuantizedDimensions(ctx, segments)
+		sum += shard.QuantizedDimensions(ctx, "", segments)
 		return nil
 	})
 	return sum
@@ -612,7 +612,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "source item",
 			},
-		}, []float32{0.5}, nil, nil, 0)
+		}, []float32{0.5}, nil, nil, nil, 0)
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -621,7 +621,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "target item",
 			},
-		}, []float32{0.5}, nil, nil, 0)
+		}, []float32{0.5}, nil, nil, nil, 0)
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -630,7 +630,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "another target item",
 			},
-		}, []float32{0.5}, nil, nil, 0)
+		}, []float32{0.5}, nil, nil, nil, 0)
 		require.Nil(t, err)
 	})
 

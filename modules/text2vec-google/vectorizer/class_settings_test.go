@@ -130,7 +130,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"modelId":     "textembedding-gecko@001",
 				},
 			},
-			wantErr: errors.Errorf("wrong modelId available Generative AI model names are: [embedding-001 text-embedding-004]"),
+			wantErr: errors.Errorf("wrong modelId available AI Studio model names are: [embedding-001 text-embedding-004]"),
 		},
 		{
 			name: "wrong properties",

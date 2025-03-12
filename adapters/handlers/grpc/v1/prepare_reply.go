@@ -17,11 +17,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
 	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	generative "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	generate "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 
 	"github.com/go-openapi/strfmt"
@@ -39,15 +41,35 @@ type mapper interface {
 	NewNilValue() *pb.Value
 }
 
-type Replier struct {
-	mapper  mapper
-	uses123 bool
+type generativeReplier interface {
+	Extract(_additional map[string]any, params any, metadata *pb.MetadataResult) (*pb.GenerativeResult, *pb.GenerativeResult, string, error)
 }
 
-func NewReplier(uses123, uses125 bool) *Replier {
+type Replier struct {
+	generative generativeReplier
+	mapper     mapper
+	uses123    bool
+	logger     logrus.FieldLogger
+}
+
+type generativeQueryParams interface {
+	ProviderName() string
+	ReturnMetadataForSingle() bool
+	ReturnMetadataForGrouped() bool
+	Debug() bool
+}
+
+func NewReplier(uses123 bool,
+	uses125 bool,
+	uses127 bool,
+	generativeQueryParams generativeQueryParams,
+	logger logrus.FieldLogger,
+) *Replier {
 	return &Replier{
-		mapper:  &Mapper{uses125: uses125},
-		uses123: uses123,
+		generative: generative.NewReplier(logger, generativeQueryParams, uses127),
+		mapper:     &Mapper{uses125: uses125},
+		uses123:    uses123,
+		logger:     logger,
 	}
 }
 
@@ -71,23 +93,25 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 			out.GroupByResults[i] = group
 		}
 	} else {
-		objects, generativeGroupResponse, err := r.extractObjectsToResults(res, searchParams, scheme, false)
+		objects, generativeGroupedResult, generativeGroupedResults, err := r.extractObjectsToResults(res, searchParams, scheme, false)
 		if err != nil {
 			return nil, err
 		}
-		out.GenerativeGroupedResult = &generativeGroupResponse
+		out.GenerativeGroupedResult = &generativeGroupedResult
+		out.GenerativeGroupedResults = generativeGroupedResults
 		out.Results = objects
 	}
 	return out, nil
 }
 
-func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup bool) ([]*pb.SearchResult, string, error) {
+func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup bool) ([]*pb.SearchResult, string, *pb.GenerativeResult, error) {
 	results := make([]*pb.SearchResult, len(res))
-	generativeGroupResultsReturn := ""
+	generativeGroupResultsReturnDeprecated := ""
+	var generativeGroupResults *pb.GenerativeResult
 	for i, raw := range res {
 		asMap, ok := raw.(map[string]interface{})
 		if !ok {
-			return nil, "", fmt.Errorf("could not parse returns %v", raw)
+			return nil, "", nil, fmt.Errorf("could not parse returns %v", raw)
 		}
 		firstObject := i == 0
 
@@ -100,26 +124,30 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 			props, err = r.extractPropertiesAnswerDeprecated(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		}
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
 
-		additionalProps, generativeGroupResults, err := r.extractAdditionalProps(asMap, searchParams.AdditionalProperties, firstObject, fromGroup)
+		additionalProps, err := r.extractAdditionalProps(asMap, searchParams.AdditionalProperties, firstObject, fromGroup)
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
 
-		if generativeGroupResultsReturn == "" && generativeGroupResults != "" {
-			generativeGroupResultsReturn = generativeGroupResults
+		if generativeGroupResultsReturnDeprecated == "" && additionalProps.GenerativeGroupedDeprecated != "" {
+			generativeGroupResultsReturnDeprecated = additionalProps.GenerativeGroupedDeprecated
+		}
+		if generativeGroupResults == nil && additionalProps.GenerativeGrouped != nil {
+			generativeGroupResults = additionalProps.GenerativeGrouped
 		}
 
 		result := &pb.SearchResult{
 			Properties: props,
-			Metadata:   additionalProps,
+			Metadata:   additionalProps.Metadata,
+			Generative: additionalProps.GenerativeSingle,
 		}
 
 		results[i] = result
 	}
-	return results, generativeGroupResultsReturn, nil
+	return results, generativeGroupResultsReturnDeprecated, generativeGroupResults, nil
 }
 
 func idToByte(idRaw interface{}) ([]byte, string, error) {
@@ -135,27 +163,27 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 	return hexInteger.Bytes(), idStrfmtStr, nil
 }
 
-func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.MetadataResult, string, error) {
+func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*additionalProps, error) {
 	generativeSearchRaw, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
 	_, rerankEnabled := additionalPropsParams.ModuleParams["rerank"]
 
-	metadata := &pb.MetadataResult{}
+	addProps := &additionalProps{Metadata: &pb.MetadataResult{}}
 	if additionalPropsParams.ID && !generativeSearchEnabled && !rerankEnabled && !fromGroup {
 		idRaw, ok := asMap["id"]
 		if !ok {
-			return nil, "", errors.New("could not extract get id in additional prop")
+			return nil, errors.New("could not extract get id in additional prop")
 		}
 
 		idToBytes, idAsString, err := idToByte(idRaw)
 		if err != nil {
-			return nil, "", errors.Wrap(err, "could not extract format id in additional prop")
+			return nil, errors.Wrap(err, "could not extract format id in additional prop")
 		}
-		metadata.Id = idAsString
-		metadata.IdAsBytes = idToBytes
+		addProps.Metadata.Id = idAsString
+		addProps.Metadata.IdAsBytes = idToBytes
 	}
 	_, ok := asMap["_additional"]
 	if !ok {
-		return metadata, "", nil
+		return addProps, nil
 	}
 
 	var additionalPropertiesMap map[string]interface{}
@@ -168,76 +196,43 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 		additionalPropertiesMap["vector"] = addPropertiesGroup.Vector
 		additionalPropertiesMap["distance"] = addPropertiesGroup.Distance
 	}
-	generativeGroupResults := ""
 	// id is part of the _additional map in case of generative search, group, & rerank - don't aks me why
 	if additionalPropsParams.ID && (generativeSearchEnabled || fromGroup || rerankEnabled) {
 		idRaw, ok := additionalPropertiesMap["id"]
 		if !ok {
-			return nil, "", errors.New("could not extract get id generative in additional prop")
+			return nil, errors.New("could not extract get id generative in additional prop")
 		}
 
 		idToBytes, idAsString, err := idToByte(idRaw)
 		if err != nil {
-			return nil, "", errors.Wrap(err, "could not extract format id in additional prop")
+			return nil, errors.Wrap(err, "could not extract format id in additional prop")
 		}
-		metadata.Id = idAsString
-		metadata.IdAsBytes = idToBytes
+		addProps.Metadata.Id = idAsString
+		addProps.Metadata.IdAsBytes = idToBytes
 	}
 
 	if generativeSearchEnabled {
-		var generateFmt *additionalModels.GenerateResult
-
-		generate, ok := additionalPropertiesMap["generate"]
-		if !ok {
-			generateFmt = &additionalModels.GenerateResult{}
-		} else {
-			generateFmt, ok = generate.(*additionalModels.GenerateResult)
-			if !ok {
-				return nil, "", errors.New("could not cast generative result additional prop")
-			}
+		singleGenerativeResult, groupedGenerativeResult, groupedDeprecated, err := r.generative.Extract(additionalPropertiesMap, generativeSearchRaw, addProps.Metadata)
+		if err != nil {
+			return nil, err
 		}
-
-		if generateFmt.Error != nil {
-			return nil, "", generateFmt.Error
-		}
-
-		generativeSearch, ok := generativeSearchRaw.(*generative.Params)
-		if !ok {
-			return nil, "", errors.New("could not cast generative search params")
-		}
-		if generativeSearch.Prompt != nil && generateFmt.SingleResult == nil {
-			return nil, "", errors.New("No results for generative search despite a search request. Is a generative module enabled?")
-		}
-
-		if generateFmt.Error != nil {
-			return nil, "", generateFmt.Error
-		}
-
-		if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
-			metadata.Generative = *generateFmt.SingleResult
-			metadata.GenerativePresent = true
-		}
-
-		// grouped results are only added to the first object for GQL reasons
-		// however, reranking can result in a different order, so we need to check every object
-		// recording the result if it's present assuming that it is at least somewhere and will be caught
-		if generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
-			generativeGroupResults = *generateFmt.GroupedResult
-		}
+		addProps.GenerativeSingle = singleGenerativeResult
+		addProps.GenerativeGrouped = groupedGenerativeResult
+		addProps.GenerativeGroupedDeprecated = groupedDeprecated
 	}
 
 	if rerankEnabled {
 		rerank, ok := additionalPropertiesMap["rerank"]
 		if !ok {
-			return nil, "", errors.New("No results for rerank despite a search request. Is a the rerank module enabled?")
+			return nil, errors.New("No results for rerank despite a search request. Is a the rerank module enabled?")
 		}
 
 		rerankFmt, ok := rerank.([]*additionalModels.RankResult)
 		if !ok {
-			return nil, "", errors.New("could not cast rerank result additional prop")
+			return nil, errors.New("could not cast rerank result additional prop")
 		}
-		metadata.RerankScore = *rerankFmt[0].Score
-		metadata.RerankScorePresent = true
+		addProps.Metadata.RerankScore = *rerankFmt[0].Score
+		addProps.Metadata.RerankScorePresent = true
 	}
 
 	// additional properties are only present for certain searches/configs => don't return an error if not available
@@ -246,8 +241,8 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 		if ok {
 			vectorfmt, ok2 := vector.([]float32)
 			if ok2 {
-				metadata.Vector = vectorfmt // deprecated, remove in a bit
-				metadata.VectorBytes = byteops.Float32ToByteVector(vectorfmt)
+				addProps.Metadata.Vector = vectorfmt // deprecated, remove in a bit
+				addProps.Metadata.VectorBytes = byteops.Fp32SliceToBytes(vectorfmt)
 			}
 		}
 	}
@@ -255,88 +250,99 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 	if len(additionalPropsParams.Vectors) > 0 {
 		vectors, ok := additionalPropertiesMap["vectors"]
 		if ok {
-			vectorfmt, ok2 := vectors.(map[string][]float32)
+			vectorfmt, ok2 := vectors.(map[string]models.Vector)
 			if ok2 {
-				metadata.Vectors = make([]*pb.Vectors, 0, len(vectorfmt))
+				addProps.Metadata.Vectors = make([]*pb.Vectors, 0, len(vectorfmt))
 				for name, vector := range vectorfmt {
-					metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
-						VectorBytes: byteops.Float32ToByteVector(vector),
-						Name:        name,
-					})
+					switch vec := vector.(type) {
+					case []float32:
+						addProps.Metadata.Vectors = append(addProps.Metadata.Vectors, &pb.Vectors{
+							VectorBytes: byteops.Fp32SliceToBytes(vec),
+							Name:        name,
+							Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
+						})
+					case [][]float32:
+						addProps.Metadata.Vectors = append(addProps.Metadata.Vectors, &pb.Vectors{
+							VectorBytes: byteops.Fp32SliceOfSlicesToBytes(vec),
+							Name:        name,
+							Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
+						})
+					default:
+						// do nothing
+					}
 				}
 			}
-
 		}
 	}
 
 	if additionalPropsParams.Certainty {
-		metadata.CertaintyPresent = false
+		addProps.Metadata.CertaintyPresent = false
 		certainty, ok := additionalPropertiesMap["certainty"]
 		if ok {
 			certaintyfmt, ok2 := certainty.(float64)
 			if ok2 {
-				metadata.Certainty = float32(certaintyfmt)
-				metadata.CertaintyPresent = true
+				addProps.Metadata.Certainty = float32(certaintyfmt)
+				addProps.Metadata.CertaintyPresent = true
 			}
 		}
 	}
 
 	if additionalPropsParams.Distance {
-		metadata.DistancePresent = false
+		addProps.Metadata.DistancePresent = false
 		distance, ok := additionalPropertiesMap["distance"]
 		if ok {
 			distancefmt, ok2 := distance.(float32)
 			if ok2 {
-				metadata.Distance = distancefmt
-				metadata.DistancePresent = true
+				addProps.Metadata.Distance = distancefmt
+				addProps.Metadata.DistancePresent = true
 			}
 		}
 	}
 
 	if additionalPropsParams.CreationTimeUnix {
-		metadata.CreationTimeUnixPresent = false
+		addProps.Metadata.CreationTimeUnixPresent = false
 		creationtime, ok := additionalPropertiesMap["creationTimeUnix"]
 		if ok {
 			creationtimefmt, ok2 := creationtime.(int64)
 			if ok2 {
-				metadata.CreationTimeUnix = creationtimefmt
-				metadata.CreationTimeUnixPresent = true
+				addProps.Metadata.CreationTimeUnix = creationtimefmt
+				addProps.Metadata.CreationTimeUnixPresent = true
 			}
 		}
 	}
 
 	if additionalPropsParams.LastUpdateTimeUnix {
-		metadata.LastUpdateTimeUnixPresent = false
+		addProps.Metadata.LastUpdateTimeUnixPresent = false
 		lastUpdateTime, ok := additionalPropertiesMap["lastUpdateTimeUnix"]
 		if ok {
 			lastUpdateTimefmt, ok2 := lastUpdateTime.(int64)
 			if ok2 {
-				metadata.LastUpdateTimeUnix = lastUpdateTimefmt
-				metadata.LastUpdateTimeUnixPresent = true
+				addProps.Metadata.LastUpdateTimeUnix = lastUpdateTimefmt
+				addProps.Metadata.LastUpdateTimeUnixPresent = true
 			}
 		}
 	}
 
 	if additionalPropsParams.ExplainScore {
-		metadata.ExplainScorePresent = false
+		addProps.Metadata.ExplainScorePresent = false
 		explainScore, ok := additionalPropertiesMap["explainScore"]
 		if ok {
 			explainScorefmt, ok2 := explainScore.(string)
 			if ok2 {
-				metadata.ExplainScore = explainScorefmt
-				metadata.ExplainScorePresent = true
+				addProps.Metadata.ExplainScore = explainScorefmt
+				addProps.Metadata.ExplainScorePresent = true
 			}
 		}
 	}
 
 	if additionalPropsParams.Score {
-		metadata.ScorePresent = false
+		addProps.Metadata.ScorePresent = false
 		score, ok := additionalPropertiesMap["score"]
 		if ok {
 			scorefmt, ok2 := score.(float32)
 			if ok2 {
-				metadata.Score = scorefmt
-				metadata.ScorePresent = true
+				addProps.Metadata.Score = scorefmt
+				addProps.Metadata.ScorePresent = true
 			}
 		}
 	}
@@ -346,13 +352,13 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 		if ok {
 			isConsistentfmt, ok2 := isConsistent.(bool)
 			if ok2 {
-				metadata.IsConsistent = &isConsistentfmt
-				metadata.IsConsistentPresent = true
+				addProps.Metadata.IsConsistent = &isConsistentfmt
+				addProps.Metadata.IsConsistentPresent = true
 			}
 		}
 	}
 
-	return metadata, generativeGroupResults, nil
+	return addProps, nil
 }
 
 func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*pb.GroupByResult, string, error) {
@@ -391,19 +397,12 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 
 	groupedGenerativeResults := ""
 	if generativeSearchEnabled {
-		var generateFmt *additionalModels.GenerateResult
-
-		generate, ok := addProps["generate"]
-		if !ok {
-			generateFmt = &additionalModels.GenerateResult{}
-		} else {
-			generateFmt, ok = generate.(*additionalModels.GenerateResult)
-			if !ok {
-				return nil, "", errors.New("could not cast generative result additional prop")
-			}
+		generateFmt, err := extractGenerateResult(addProps)
+		if err != nil {
+			return nil, "", err
 		}
 
-		generativeSearch, ok := generativeSearchRaw.(*generative.Params)
+		generativeSearch, ok := generativeSearchRaw.(*generate.Params)
 		if !ok {
 			return nil, "", errors.New("could not cast generative search params")
 		}
@@ -458,7 +457,7 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 		returnObjectsUntyped[i] = group.Hits[i]
 	}
 
-	objects, _, err := r.extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true)
+	objects, _, _, err := r.extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "extracting hits from group")
 	}
@@ -540,11 +539,14 @@ func (r *Replier) extractPropertiesAnswerDeprecated(scheme schema.Schema, result
 			if err != nil {
 				continue
 			}
-			additionalProps, _, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
+			additionalProps, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
 			if err != nil {
 				return nil, err
 			}
-			extractedRefProp.Metadata = additionalProps
+			if additionalProps == nil {
+				return nil, fmt.Errorf("additional props are nil somehow")
+			}
+			extractedRefProp.Metadata = additionalProps.Metadata
 			extractedRefProps = append(extractedRefProps, extractedRefProp)
 		}
 
@@ -643,11 +645,14 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 			if err != nil {
 				continue
 			}
-			additionalProps, _, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
+			additionalProps, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
 			if err != nil {
 				return nil, err
 			}
-			extractedRefProp.Metadata = additionalProps
+			if additionalProps == nil {
+				return nil, fmt.Errorf("additional props are nil somehow")
+			}
+			extractedRefProp.Metadata = additionalProps.Metadata
 			extractedRefProps = append(extractedRefProps, extractedRefProp)
 		}
 
@@ -831,7 +836,7 @@ func extractArrayTypes(rawProps map[string]interface{}, props *pb.ObjectProperti
 			}
 			props.NumberArrayProperties = append(
 				props.NumberArrayProperties,
-				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: byteops.Float64ToByteVector(propFloat), Values: propFloat},
+				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: byteops.Fp64SliceToBytes(propFloat), Values: propFloat},
 			)
 			delete(rawProps, propName)
 		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeUUIDArray:
@@ -870,4 +875,37 @@ func extractArrayTypes(rawProps map[string]interface{}, props *pb.ObjectProperti
 		}
 	}
 	return nil
+}
+
+func extractGenerateResult(additionalPropertiesMap map[string]interface{}) (*additionalModels.GenerateResult, error) {
+	generateFmt := &additionalModels.GenerateResult{}
+	if generate, ok := additionalPropertiesMap["generate"]; ok {
+		generateParams, ok := generate.(map[string]interface{})
+		if !ok {
+			return nil, errors.New("could not cast generative result additional prop")
+		}
+		if generateParams["singleResult"] != nil {
+			if singleResult, ok := generateParams["singleResult"].(*string); ok {
+				generateFmt.SingleResult = singleResult
+			}
+		}
+		if generateParams["groupedResult"] != nil {
+			if groupedResult, ok := generateParams["groupedResult"].(*string); ok {
+				generateFmt.GroupedResult = groupedResult
+			}
+		}
+		if generateParams["error"] != nil {
+			if err, ok := generateParams["error"].(error); ok {
+				generateFmt.Error = err
+			}
+		}
+	}
+	return generateFmt, nil
+}
+
+type additionalProps struct {
+	Metadata                    *pb.MetadataResult
+	GenerativeSingle            *pb.GenerativeResult
+	GenerativeGrouped           *pb.GenerativeResult
+	GenerativeGroupedDeprecated string
 }

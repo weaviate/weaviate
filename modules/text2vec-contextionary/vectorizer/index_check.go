@@ -23,7 +23,7 @@ type classSettings struct {
 }
 
 func NewIndexChecker(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, true)}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {

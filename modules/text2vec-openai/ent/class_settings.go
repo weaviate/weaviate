@@ -30,6 +30,7 @@ const (
 	DefaultVectorizePropertyName = false
 	DefaultBaseURL               = "https://api.openai.com"
 	DefaultApiVersion            = "2024-02-01"
+	LowerCaseInput               = false
 )
 
 const (
@@ -82,7 +83,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
 }
 
 func (cs *classSettings) Model() string {
@@ -151,7 +152,7 @@ func (cs *classSettings) IsThirdPartyProvider() bool {
 }
 
 func (cs *classSettings) IsAzure() bool {
-	return cs.ResourceName() != "" && cs.DeploymentID() != ""
+	return cs.BaseClassSettings.GetPropertyAsBool("isAzure", false) || (cs.ResourceName() != "" && cs.DeploymentID() != "")
 }
 
 func (cs *classSettings) Dimensions() *int64 {
@@ -194,9 +195,11 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID(), cs.ApiVersion())
-	if err != nil {
-		return err
+	if cs.IsAzure() {
+		err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID(), cs.ApiVersion())
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

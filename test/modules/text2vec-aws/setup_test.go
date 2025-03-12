@@ -49,15 +49,17 @@ func TestText2VecAWS_SingleNode(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	rest := compose.GetWeaviate().URI()
+	grpc := compose.GetWeaviate().GrpcURI()
 
-	t.Run("tests", testText2VecAWS(endpoint, region))
+	t.Run("tests", testText2VecAWS(rest, grpc, region))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, accessKey, secretKey, sessionToken string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(accessKey, secretKey, sessionToken).
 		WithWeaviate().
+		WithWeaviateWithGRPC().
 		Start(ctx)
 	return
 }

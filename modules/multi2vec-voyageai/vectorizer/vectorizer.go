@@ -39,13 +39,13 @@ func New(client Client) *Vectorizer {
 type Client interface {
 	Vectorize(ctx context.Context,
 		texts, images []string, cfg moduletools.ClassConfig,
-	) (*modulecomponents.VectorizationCLIPResult, error)
+	) (*modulecomponents.VectorizationCLIPResult[[]float32], error)
 	VectorizeQuery(ctx context.Context,
 		input []string, cfg moduletools.ClassConfig,
-	) (*modulecomponents.VectorizationCLIPResult, error)
+	) (*modulecomponents.VectorizationCLIPResult[[]float32], error)
 	VectorizeImageQuery(ctx context.Context,
 		images []string, cfg moduletools.ClassConfig,
-	) (*modulecomponents.VectorizationCLIPResult, error)
+	) (*modulecomponents.VectorizationCLIPResult[[]float32], error)
 }
 
 type ClassSettings interface {

@@ -1,7 +1,9 @@
 ##
-# This docker-compose is used for developing Weaviate, i.e. for contributors. 
-# THIS IS NOT INTENDED FOR USERS !!
-#
+# NOTE:
+# This docker-compose file is intended only for Weaviate development by contributors and is not meant for end-users.
+# Additionally, it should not be used directly with `docker compose up`; instead, please utilize the scripts provided
+# under tools/dev for execution.
+
 # To get a docker-compose file to run Weaviate, please follow the instructions at
 # https://weaviate.io/developers/weaviate/installation/docker-compose
 ##

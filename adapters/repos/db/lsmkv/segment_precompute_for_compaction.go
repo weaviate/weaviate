@@ -27,8 +27,14 @@ import (
 // result this can be run without the need to obtain any locks. All files
 // created will have a .tmp suffix so they don't interfere with existing
 // segments that might have a similar name.
+//
+// This function is a partial copy of what happens in newSegment(). Any changes
+// made here should likely be made in newSegment, and vice versa. This is
+// absolutely not ideal, but in the short time I was able to consider this, I wasn't
+// able to find a way to unify the two -- there are subtle differences.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
+	enableChecksumValidation bool,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -49,6 +55,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	if err != nil {
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
+	size := fileInfo.Size()
 
 	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 	if err != nil {
@@ -62,11 +69,15 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
-	switch header.Strategy {
-	case segmentindex.StrategyReplace, segmentindex.StrategySetCollection,
-		segmentindex.StrategyMapCollection, segmentindex.StrategyRoaringSet:
-	default:
-		return nil, fmt.Errorf("unsupported strategy in segment")
+	if err := segmentindex.CheckExpectedStrategy(header.Strategy); err != nil {
+		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
+	}
+
+	if header.Version >= segmentindex.SegmentV1 && enableChecksumValidation {
+		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
+		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
+			return nil, fmt.Errorf("validate segment %q: %w", path, err)
+		}
 	}
 
 	primaryIndex, err := header.PrimaryIndex(contents)
@@ -75,6 +86,19 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	}
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
+
+	dataStartPos := uint64(segmentindex.HeaderSize)
+	dataEndPos := header.IndexStart
+
+	var invertedHeader *segmentindex.HeaderInverted
+	if header.Strategy == segmentindex.StrategyInverted {
+		invertedHeader, err = segmentindex.LoadHeaderInverted(contents[segmentindex.HeaderSize : segmentindex.HeaderSize+segmentindex.HeaderInvertedSize])
+		if err != nil {
+			return nil, errors.Wrap(err, "load inverted header")
+		}
+		dataStartPos = invertedHeader.KeysOffset
+		dataEndPos = invertedHeader.TombstoneOffset
+	}
 
 	seg := &segment{
 		level: header.Level,
@@ -89,14 +113,17 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		version:               header.Version,
 		secondaryIndexCount:   header.SecondaryIndices,
 		segmentStartPos:       header.IndexStart,
-		segmentEndPos:         uint64(fileInfo.Size()),
+		segmentEndPos:         uint64(size),
+		size:                  size,
 		strategy:              header.Strategy,
-		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:            header.IndexStart,
+		dataStartPos:          dataStartPos,
+		dataEndPos:            dataEndPos,
 		index:                 primaryDiskIndex,
 		logger:                logger,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
+		invertedHeader:        invertedHeader,
+		invertedData:          &segmentInvertedData{},
 	}
 
 	if seg.secondaryIndexCount > 0 {

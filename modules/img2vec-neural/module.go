@@ -28,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/modules/img2vec-neural/vectorizer"
 )
 
+const Name = "img2vec-neural"
+
 func New() *ImageModule {
 	return &ImageModule{}
 }
@@ -35,7 +37,7 @@ func New() *ImageModule {
 type ImageModule struct {
 	vectorizer      imageVectorizer
 	graphqlProvider modulecapabilities.GraphQLArguments
-	searcher        modulecapabilities.Searcher
+	searcher        modulecapabilities.Searcher[[]float32]
 	logger          logrus.FieldLogger
 }
 
@@ -46,7 +48,7 @@ type imageVectorizer interface {
 }
 
 func (m *ImageModule) Name() string {
-	return "img2vec-neural"
+	return Name
 }
 
 func (m *ImageModule) Type() modulecapabilities.ModuleType {
@@ -115,5 +117,5 @@ func (m *ImageModule) MetaInfo() (map[string]interface{}, error) {
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
 )

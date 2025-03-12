@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
@@ -471,6 +472,295 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 			res, err = bRec.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, expected3, res)
+		})
+	})
+}
+
+func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
+	dirNameOriginal := t.TempDir()
+	dirNameRecovered := t.TempDir()
+
+	t.Run("without prior state", func(t *testing.T) {
+		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyRoaringSet))
+		require.Nil(t, err)
+
+		key1 := []byte("test1-key-1")
+		key2 := []byte("test1-key-2")
+		key3 := []byte("test1-key-3")
+
+		t.Run("set original values and verify", func(t *testing.T) {
+			orig1 := []uint64{11, 12}
+			orig2 := []uint64{21, 22}
+			orig3 := []uint64{31, 32}
+
+			err = b.RoaringSetAddList(key1, orig1)
+			require.NoError(t, err)
+			err = b.RoaringSetAddList(key2, orig2)
+			require.NoError(t, err)
+			err = b.RoaringSetAddList(key3, orig3)
+			require.NoError(t, err)
+
+			bm1, err := b.RoaringSetGet(key1)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, orig1, bm1.ToArray())
+
+			bm2, err := b.RoaringSetGet(key2)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, orig2, bm2.ToArray())
+
+			bm3, err := b.RoaringSetGet(key3)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, orig3, bm3.ToArray())
+		})
+
+		t.Run("delete individual keys", func(t *testing.T) {
+			delete2 := uint64(21)
+			delete3 := uint64(32)
+
+			err = b.RoaringSetRemoveOne(key2, delete2)
+			require.NoError(t, err)
+			err = b.RoaringSetRemoveOne(key3, delete3)
+			require.NoError(t, err)
+		})
+
+		t.Run("re-add keys which were previously deleted and new ones", func(t *testing.T) {
+			reAdd2 := []uint64{21, 23}
+			reAdd3 := []uint64{31, 33}
+
+			err = b.RoaringSetAddList(key2, reAdd2)
+			require.NoError(t, err)
+			err = b.RoaringSetAddList(key3, reAdd3)
+			require.NoError(t, err)
+		})
+
+		t.Run("validate the results prior to recovery", func(t *testing.T) {
+			expected1 := []uint64{11, 12} // unchanged
+			expected2 := []uint64{
+				22, // from original import
+				21, // added again after initial deletion
+				23, // newly added
+			}
+			expected3 := []uint64{
+				31, // form original import
+				33, // newly added
+			} // 32 deleted
+
+			bm1, err := b.RoaringSetGet(key1)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected1, bm1.ToArray())
+
+			bm2, err := b.RoaringSetGet(key2)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected2, bm2.ToArray())
+
+			bm3, err := b.RoaringSetGet(key3)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected3, bm3.ToArray())
+		})
+
+		t.Run("make sure the WAL is flushed", func(t *testing.T) {
+			require.Nil(t, b.WriteWAL())
+		})
+
+		t.Run("copy state into recovery folder and destroy original", func(t *testing.T) {
+			cmd := exec.Command("/bin/bash", "-c", fmt.Sprintf("cp -r %s/*.wal %s",
+				dirNameOriginal, dirNameRecovered))
+			var out bytes.Buffer
+			cmd.Stderr = &out
+			err := cmd.Run()
+			if err != nil {
+				fmt.Println(out.String())
+				t.Fatal(err)
+			}
+			b = nil
+			require.Nil(t, os.RemoveAll(dirNameOriginal))
+		})
+
+		var bRec *Bucket
+
+		t.Run("create new bucket from existing state", func(t *testing.T) {
+			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(StrategyRoaringSet))
+			require.Nil(t, err)
+
+			bRec = b
+		})
+
+		t.Run("validate the results after recovery", func(t *testing.T) {
+			expected1 := []uint64{11, 12} // unchanged
+			expected2 := []uint64{
+				22, // from original import
+				21, // added again after initial deletion
+				23, // newly added
+			}
+			expected3 := []uint64{
+				31, // form original import
+				33, // newly added
+			} // 32 deleted
+
+			bm1, err := bRec.RoaringSetGet(key1)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected1, bm1.ToArray())
+
+			bm2, err := bRec.RoaringSetGet(key2)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected2, bm2.ToArray())
+
+			bm3, err := bRec.RoaringSetGet(key3)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected3, bm3.ToArray())
+		})
+	})
+}
+
+func TestRoaringSetRangeStrategy_RecoverFromWAL(t *testing.T) {
+	dirNameOriginal := t.TempDir()
+	dirNameRecovered := t.TempDir()
+
+	t.Run("without prior state", func(t *testing.T) {
+		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyRoaringSetRange))
+		require.Nil(t, err)
+
+		key1 := uint64(1)
+		key2 := uint64(2)
+		key3 := uint64(3)
+
+		t.Run("set original values and verify", func(t *testing.T) {
+			orig1 := []uint64{11, 12}
+			orig2 := []uint64{21, 22}
+			orig3 := []uint64{31, 32}
+
+			err = b.RoaringSetRangeAdd(key1, orig1...)
+			require.NoError(t, err)
+			err = b.RoaringSetRangeAdd(key2, orig2...)
+			require.NoError(t, err)
+			err = b.RoaringSetRangeAdd(key3, orig3...)
+			require.NoError(t, err)
+
+			reader := b.ReaderRoaringSetRange()
+			defer reader.Close()
+
+			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, orig1, bm1.ToArray())
+
+			bm2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, orig2, bm2.ToArray())
+
+			bm3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, orig3, bm3.ToArray())
+		})
+
+		t.Run("delete individual keys", func(t *testing.T) {
+			delete2 := uint64(21)
+			delete3 := uint64(32)
+
+			err = b.RoaringSetRangeRemove(key2, delete2)
+			require.NoError(t, err)
+			err = b.RoaringSetRangeRemove(key3, delete3)
+			require.NoError(t, err)
+		})
+
+		t.Run("re-add keys which were previously deleted and new ones", func(t *testing.T) {
+			reAdd2 := []uint64{21, 23}
+			reAdd3 := []uint64{31, 33}
+
+			err = b.RoaringSetRangeAdd(key2, reAdd2...)
+			require.NoError(t, err)
+			err = b.RoaringSetRangeAdd(key3, reAdd3...)
+			require.NoError(t, err)
+		})
+
+		t.Run("validate the results prior to recovery", func(t *testing.T) {
+			expected1 := []uint64{11, 12} // unchanged
+			expected2 := []uint64{
+				22, // from original import
+				21, // added again after initial deletion
+				23, // newly added
+			}
+			expected3 := []uint64{
+				31, // form original import
+				33, // newly added
+			} // 32 deleted
+
+			reader := b.ReaderRoaringSetRange()
+			defer reader.Close()
+
+			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected1, bm1.ToArray())
+
+			bm2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected2, bm2.ToArray())
+
+			bm3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected3, bm3.ToArray())
+		})
+
+		t.Run("make sure the WAL is flushed", func(t *testing.T) {
+			require.Nil(t, b.WriteWAL())
+		})
+
+		t.Run("copy state into recovery folder and destroy original", func(t *testing.T) {
+			cmd := exec.Command("/bin/bash", "-c", fmt.Sprintf("cp -r %s/*.wal %s",
+				dirNameOriginal, dirNameRecovered))
+			var out bytes.Buffer
+			cmd.Stderr = &out
+			err := cmd.Run()
+			if err != nil {
+				fmt.Println(out.String())
+				t.Fatal(err)
+			}
+			b = nil
+			require.Nil(t, os.RemoveAll(dirNameOriginal))
+		})
+
+		var bRec *Bucket
+
+		t.Run("create new bucket from existing state", func(t *testing.T) {
+			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(StrategyRoaringSetRange))
+			require.Nil(t, err)
+
+			bRec = b
+		})
+
+		t.Run("validate the results after recovery", func(t *testing.T) {
+			expected1 := []uint64{11, 12} // unchanged
+			expected2 := []uint64{
+				22, // from original import
+				21, // added again after initial deletion
+				23, // newly added
+			}
+			expected3 := []uint64{
+				31, // form original import
+				33, // newly added
+			} // 32 deleted
+
+			reader := bRec.ReaderRoaringSetRange()
+			defer reader.Close()
+
+			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected1, bm1.ToArray())
+
+			bm2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected2, bm2.ToArray())
+
+			bm3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expected3, bm3.ToArray())
 		})
 	})
 }

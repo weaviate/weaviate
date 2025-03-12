@@ -21,6 +21,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/diskio"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -55,8 +56,9 @@ func newSegmentCleaner(sg *SegmentGroup) (segmentCleaner, error) {
 		return cleaner, nil
 	case StrategyMapCollection,
 		StrategySetCollection,
-		StrategyRoaringSet:
-		// TODO AL: add roaring set range
+		StrategyRoaringSet,
+		StrategyRoaringSetRange,
+		StrategyInverted:
 		return &segmentCleanerNoop{}, nil
 	default:
 		return nil, fmt.Errorf("unrecognized strategy %q", sg.strategy)
@@ -139,36 +141,37 @@ func (c *segmentCleanerCommon) close() error {
 }
 
 // findCandidate returns index of segment that should be cleaned as next one,
-// index of first newer segment to start cleanup from, callback to be executed after cleanup
-// is successfully completed and error in case of issues occurred while finding candidate
-func (c *segmentCleanerCommon) findCandidate() (int, int, onCompletedFunc, error) {
+// index of first newer segment to start cleanup from, index of last newer segment
+// to finish cleanup on, callback to be executed after cleanup is successfully completed
+// and error in case of issues occurred while finding candidate
+func (c *segmentCleanerCommon) findCandidate() (int, int, int, onCompletedFunc, error) {
 	nowTs := time.Now().UnixNano()
 	nextAllowedTs := nowTs - int64(c.sg.cleanupInterval)
 	nextAllowedStoredTs := c.readNextAllowed()
 
 	if nextAllowedStoredTs > nextAllowedTs {
 		// too soon for next cleanup
-		return emptyIdx, emptyIdx, nil, nil
+		return emptyIdx, emptyIdx, emptyIdx, nil, nil
 	}
 
 	ids, sizes, err := c.getSegmentIdsAndSizes()
 	if err != nil {
-		return emptyIdx, emptyIdx, nil, err
+		return emptyIdx, emptyIdx, emptyIdx, nil, err
 	}
 	if count := len(ids); count <= 1 {
 		// too few segments for cleanup, update next allowed timestamp for cleanup to now
 		if err := c.storeNextAllowed(nowTs); err != nil {
-			return emptyIdx, emptyIdx, nil, err
+			return emptyIdx, emptyIdx, emptyIdx, nil, err
 		}
-		return emptyIdx, emptyIdx, nil, nil
+		return emptyIdx, emptyIdx, emptyIdx, nil, nil
 	}
 
 	// get idx and cleanup timestamp of earliest cleaned segment,
 	// take the opportunity to find obsolete segment keys to be deleted later from cleanup db
-	candidateIdx, startIdx, earliestCleanedTs, nonExistentSegmentKeys := c.readEarliestCleaned(ids, sizes, nowTs)
+	candidateIdx, startIdx, lastIdx, earliestCleanedTs, nonExistentSegmentKeys := c.readEarliestCleaned(ids, sizes, nowTs)
 
 	if err := c.deleteSegmentMetas(nonExistentSegmentKeys); err != nil {
-		return emptyIdx, emptyIdx, nil, err
+		return emptyIdx, emptyIdx, emptyIdx, nil, err
 	}
 
 	if candidateIdx != emptyIdx && earliestCleanedTs <= nextAllowedTs {
@@ -178,29 +181,29 @@ func (c *segmentCleanerCommon) findCandidate() (int, int, onCompletedFunc, error
 		onCompleted := func(size int64) error {
 			return c.storeSegmentMeta(id, lastProcessedId, size, nowTs)
 		}
-		return candidateIdx, startIdx, onCompleted, nil
+		return candidateIdx, startIdx, lastIdx, onCompleted, nil
 	}
 
 	// candidate not found or not ready for cleanup, update next allowed timestamp to earliest cleaned segment
 	// (which is "now" if candidate was not found)
 	if err := c.storeNextAllowed(earliestCleanedTs); err != nil {
-		return emptyIdx, emptyIdx, nil, err
+		return emptyIdx, emptyIdx, emptyIdx, nil, err
 	}
 
-	return emptyIdx, emptyIdx, nil, nil
+	return emptyIdx, emptyIdx, emptyIdx, nil, nil
 }
 
 func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error) {
-	c.sg.maintenanceLock.RLock()
-	defer c.sg.maintenanceLock.RUnlock()
+	segments, release := c.sg.getAndLockSegments()
+	defer release()
 
 	var ids []int64
 	var sizes []int64
-	if count := len(c.sg.segments); count > 1 {
+	if count := len(segments); count > 1 {
 		ids = make([]int64, count)
 		sizes = make([]int64, count)
 
-		for i, seg := range c.sg.segments {
+		for i, seg := range segments {
 			idStr := segmentID(seg.path)
 			id, err := strconv.ParseInt(idStr, 10, 64)
 			if err != nil {
@@ -261,6 +264,7 @@ func (c *segmentCleanerCommon) deleteSegmentMetas(segIds [][]byte) error {
 // method returns:
 // - index of candidate segment best suitable for cleanup,
 // - index of segment, cleanup of candidate should be started from,
+// - index of segment, cleanup of candidate should be finished on,
 // - time of previous candidate's cleanup,
 // - list of segmentIds stored in cleanup bolt db that no longer exist in filesystem
 // - error (if occurred).
@@ -273,10 +277,11 @@ func (c *segmentCleanerCommon) deleteSegmentMetas(segIds [][]byte) error {
 // percent of size of cleaned segment, to increase the chance of segment being actually cleaned,
 // not just copied.
 func (c *segmentCleanerCommon) readEarliestCleaned(ids, sizes []int64, nowTs int64,
-) (int, int, int64, [][]byte) {
+) (int, int, int, int64, [][]byte) {
 	earliestCleanedTs := nowTs
 	candidateIdx := emptyIdx
 	startIdx := emptyIdx
+	lastIdx := emptyIdx
 
 	count := len(ids)
 	nonExistentSegmentKeys := [][]byte{}
@@ -324,6 +329,7 @@ func (c *segmentCleanerCommon) readEarliestCleaned(ids, sizes []int64, nowTs int
 					earliestCleanedTs = 0
 					candidateIdx = idx
 					startIdx = idx + 1
+					lastIdx = count - 1
 				}
 				// advance index
 				idx++
@@ -351,7 +357,12 @@ func (c *segmentCleanerCommon) readEarliestCleaned(ids, sizes []int64, nowTs int
 					// not the left one, it is unknown what was last segment used for cleanup of removed
 					// left segment, therefore compacted segment will be cleaned again using all newer segments.
 					possibleStartIdx := idx + 1
+					// in case of using segments that were already used for cleanup, process them in reverse
+					// order starting with newest ones, to maximize the chance of finding redundant entries
+					// as soon as possible (leaving segments that were already used for cleanup as last ones)
+					reverseOrder := true
 					if size == storedSize {
+						reverseOrder = false
 						// size not changed (not compacted), clean using only newly created segments,
 						// skipping segments already processed in previous cleanup
 						for i := idx + 1; i < count; i++ {
@@ -373,6 +384,11 @@ func (c *segmentCleanerCommon) readEarliestCleaned(ids, sizes []int64, nowTs int
 						earliestCleanedTs = storedCleanedTs
 						candidateIdx = idx
 						startIdx = possibleStartIdx
+						lastIdx = count - 1
+
+						if reverseOrder {
+							startIdx, lastIdx = lastIdx, startIdx
+						}
 					}
 				}
 			}
@@ -382,7 +398,7 @@ func (c *segmentCleanerCommon) readEarliestCleaned(ids, sizes []int64, nowTs int
 		}
 		return nil
 	})
-	return candidateIdx, startIdx, earliestCleanedTs, nonExistentSegmentKeys
+	return candidateIdx, startIdx, lastIdx, earliestCleanedTs, nonExistentSegmentKeys
 }
 
 func (c *segmentCleanerCommon) storeSegmentMeta(id, lastProcessedId, size, cleanedTs int64) error {
@@ -409,7 +425,8 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		return false, nil
 	}
 
-	candidateIdx, startIdx, onCompleted, err := c.findCandidate()
+	var err error
+	candidateIdx, startIdx, lastIdx, onCompleted, err := c.findCandidate()
 	if err != nil {
 		return false, err
 	}
@@ -446,8 +463,32 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	}
 
 	oldSegment := c.sg.segmentAtPos(candidateIdx)
-	tmpSegmentPath := filepath.Join(c.sg.dir, "segment-"+segmentID(oldSegment.path)+".db.tmp")
+	segmentId := segmentID(oldSegment.path)
+	tmpSegmentPath := filepath.Join(c.sg.dir, "segment-"+segmentId+".db.tmp")
 	scratchSpacePath := oldSegment.path + "cleanup.scratch.d"
+
+	start := time.Now()
+	c.sg.logger.WithFields(logrus.Fields{
+		"action":       "lsm_cleanup",
+		"path":         c.sg.dir,
+		"candidateIdx": candidateIdx,
+		"startIdx":     startIdx,
+		"lastIdx":      lastIdx,
+		"segmentId":    segmentId,
+	}).Info("cleanup started with candidate")
+	defer func() {
+		l := c.sg.logger.WithFields(logrus.Fields{
+			"action":    "lsm_cleanup",
+			"path":      c.sg.dir,
+			"segmentId": segmentId,
+			"took":      time.Since(start),
+		})
+		if err == nil {
+			l.Info("clenaup finished")
+		} else {
+			l.WithError(err).Error("cleanup failed")
+		}
+	}()
 
 	file, err := os.Create(tmpSegmentPath)
 	if err != nil {
@@ -457,28 +498,33 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	switch c.sg.strategy {
 	case StrategyReplace:
 		c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
-			c.sg.makeKeyExistsOnUpperSegments(startIdx), oldSegment.level,
-			oldSegment.secondaryIndexCount, scratchSpacePath)
-		if err := c.do(shouldAbort); err != nil {
+			c.sg.makeKeyExistsOnUpperSegments(startIdx, lastIdx), oldSegment.level,
+			oldSegment.secondaryIndexCount, scratchSpacePath, c.sg.enableChecksumValidation)
+		if err = c.do(shouldAbort); err != nil {
 			return false, err
 		}
 	default:
-		return false, fmt.Errorf("unsported strategy %q", c.sg.strategy)
+		err = fmt.Errorf("unsported strategy %q", c.sg.strategy)
+		return false, err
 	}
 
-	if err := file.Sync(); err != nil {
-		return false, fmt.Errorf("fsync cleaned segment file: %w", err)
+	if err = file.Sync(); err != nil {
+		err = fmt.Errorf("fsync cleaned segment file: %w", err)
+		return false, err
 	}
-	if err := file.Close(); err != nil {
-		return false, fmt.Errorf("close cleaned segment file: %w", err)
+	if err = file.Close(); err != nil {
+		err = fmt.Errorf("close cleaned segment file: %w", err)
+		return false, err
 	}
 
 	segment, err := c.sg.replaceSegment(candidateIdx, tmpSegmentPath)
 	if err != nil {
-		return false, fmt.Errorf("replace compacted segments: %w", err)
+		err = fmt.Errorf("replace compacted segments: %w", err)
+		return false, err
 	}
-	if err := onCompleted(segment.size); err != nil {
-		return false, fmt.Errorf("callback cleaned segment file: %w", err)
+	if err = onCompleted(segment.size); err != nil {
+		err = fmt.Errorf("callback cleaned segment file: %w", err)
+		return false, err
 	}
 
 	return true, nil
@@ -490,19 +536,25 @@ type onCompletedFunc func(size int64) error
 
 type keyExistsOnUpperSegmentsFunc func(key []byte) (bool, error)
 
-func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx int) keyExistsOnUpperSegmentsFunc {
+func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyExistsOnUpperSegmentsFunc {
 	return func(key []byte) (bool, error) {
-		// current len could be higher than the one stored in bolt db as last processed one.
-		// that is acceptable and not considered an issue.
-
+		// asc order by default
 		i := startIdx
-		segAtPos := func() *segment {
-			sg.maintenanceLock.RLock()
-			defer sg.maintenanceLock.RUnlock()
+		updateI := func() { i++ }
+		if startIdx > lastIdx {
+			// dest order
+			i = lastIdx
+			updateI = func() { i-- }
+		}
 
-			if i < len(sg.segments) {
-				i++
-				return sg.segments[i-1]
+		segAtPos := func() *segment {
+			segments, release := sg.getAndLockSegments()
+			defer release()
+
+			if i >= startIdx && i <= lastIdx {
+				j := i
+				updateI()
+				return segments[j]
 			}
 			return nil
 		}
@@ -524,7 +576,7 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 	countNetAdditions := oldSegment.countNetAdditions
 
 	precomputedFiles, err := preComputeSegmentMeta(tmpSegmentPath, countNetAdditions,
-		sg.logger, sg.useBloomFilter, sg.calcCountNetAdditions)
+		sg.logger, sg.useBloomFilter, sg.calcCountNetAdditions, sg.enableChecksumValidation)
 	if err != nil {
 		return nil, fmt.Errorf("precompute segment meta: %w", err)
 	}
@@ -561,7 +613,7 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 	if err := oldSegment.markForDeletion(); err != nil {
 		return nil, fmt.Errorf("drop disk segment %q: %w", oldSegment.path, err)
 	}
-	if err := fsync(sg.dir); err != nil {
+	if err := diskio.Fsync(sg.dir); err != nil {
 		return nil, fmt.Errorf("fsync segment directory %q: %w", sg.dir, err)
 	}
 
@@ -582,9 +634,15 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 	}
 
 	newSegment, err := newSegment(segmentPath, sg.logger, sg.metrics, nil,
-		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
+		segmentConfig{
+			mmapContents:             sg.mmapContents,
+			useBloomFilter:           sg.useBloomFilter,
+			calcCountNetAdditions:    sg.calcCountNetAdditions,
+			overwriteDerived:         false,
+			enableChecksumValidation: sg.enableChecksumValidation,
+		})
 	if err != nil {
-		return nil, fmt.Errorf("create new segment %q: %w", newSegment.path, err)
+		return nil, fmt.Errorf("create new segment %q: %w", segmentPath, err)
 	}
 
 	sg.segments[segmentIdx] = newSegment

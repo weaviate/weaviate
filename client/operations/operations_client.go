@@ -51,7 +51,9 @@ type ClientService interface {
 }
 
 /*
-WeaviateRoot Home. Discover the REST API
+WeaviateRoot lists available endpoints
+
+Get links to other endpoints to help discover the REST API
 */
 func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateRootOK, error) {
 	// TODO: Validate the params before sending
@@ -90,7 +92,9 @@ func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.Clien
 }
 
 /*
-WeaviateWellknownLiveness Determines whether the application is alive. Can be used for kubernetes liveness probe
+WeaviateWellknownLiveness gets application liveness
+
+Determines whether the application is alive. Can be used for kubernetes liveness probe
 */
 func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownLivenessOK, error) {
 	// TODO: Validate the params before sending
@@ -129,7 +133,9 @@ func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessPara
 }
 
 /*
-WeaviateWellknownReadiness Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.
+WeaviateWellknownReadiness gets application readiness
+
+Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.
 */
 func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownReadinessOK, error) {
 	// TODO: Validate the params before sending

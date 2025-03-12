@@ -19,20 +19,18 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-mistral/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	mistralparams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type mistral struct {
 	apiKey     string
@@ -50,26 +48,27 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *mistr
 	}
 }
 
-func (v *mistral) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *mistral) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt)
+	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *mistral) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *mistral) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask)
+	return v.Generate(ctx, cfg, forTask, options, debug)
 }
 
-func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
+func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options)
+	debugInformation := v.getDebugInformation(debug, prompt)
 
-	mistralUrl, err := v.getMistralUrl(ctx, settings.BaseURL())
+	mistralUrl, err := v.getMistralUrl(ctx, params.BaseURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "join Mistral API host and path")
 	}
@@ -81,9 +80,10 @@ func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 
 	input := generateInput{
 		Messages:    []Message{message},
-		Model:       settings.Model(),
-		MaxTokens:   settings.MaxTokens(),
-		Temperature: settings.Temperature(),
+		Model:       params.Model,
+		Temperature: params.Temperature,
+		TopP:        params.TopP,
+		MaxTokens:   params.MaxTokens,
 	}
 
 	body, err := json.Marshal(input)
@@ -128,58 +128,73 @@ func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 
 	textResponse := resBody.Choices[0].Message.Content
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: &textResponse,
+		Debug:  debugInformation,
+		Params: v.getResponseParams(resBody.Usage),
 	}, nil
+}
+
+func (v *mistral) getResponseParams(usage *usage) map[string]interface{} {
+	if usage != nil {
+		return map[string]interface{}{mistralparams.Name: map[string]interface{}{"usage": usage}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[mistralparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
+	}
+	return nil
+}
+
+func (v *mistral) getParameters(cfg moduletools.ClassConfig, options interface{}) mistralparams.Params {
+	settings := config.NewClassSettings(cfg)
+
+	var params mistralparams.Params
+	if p, ok := options.(mistralparams.Params); ok {
+		params = p
+	}
+	if params.BaseURL == "" {
+		params.BaseURL = settings.BaseURL()
+	}
+	if params.Model == "" {
+		model := settings.Model()
+		params.Model = model
+	}
+	if params.Temperature == nil {
+		temperature := settings.Temperature()
+		params.Temperature = &temperature
+	}
+	if params.MaxTokens == nil {
+		maxTokens := settings.MaxTokens()
+		params.MaxTokens = &maxTokens
+	}
+	return params
+}
+
+func (v *mistral) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{
+			Prompt: prompt,
+		}
+	}
+	return nil
 }
 
 func (v *mistral) getMistralUrl(ctx context.Context, baseURL string) (string, error) {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Mistral-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Mistral-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return url.JoinPath(passedBaseURL, "/v1/chat/completions")
 }
 
-func (v *mistral) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *mistral) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
-}
-
-func (v *mistral) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
-}
-
 func (v *mistral) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := v.getValueFromContext(ctx, "X-Mistral-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Mistral-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
@@ -191,14 +206,16 @@ func (v *mistral) getApiKey(ctx context.Context) (string, error) {
 }
 
 type generateInput struct {
-	Messages    []Message `json:"messages"`
 	Model       string    `json:"model"`
-	MaxTokens   int       `json:"max_tokens"`
-	Temperature int       `json:"temperature"`
+	Messages    []Message `json:"messages"`
+	Temperature *float64  `json:"temperature,omitempty"`
+	TopP        *float64  `json:"top_p,omitempty"`
+	MaxTokens   *int      `json:"max_tokens,omitempty"`
 }
 
 type generateResponse struct {
 	Choices []Choice
+	Usage   *usage           `json:"usage,omitempty"`
 	Error   *mistralApiError `json:"error,omitempty"`
 }
 
@@ -218,4 +235,14 @@ type Message struct {
 // I think you just get message
 type mistralApiError struct {
 	Message string `json:"message"`
+}
+
+type usage struct {
+	PromptTokens     *int `json:"prompt_tokens,omitempty"`
+	CompletionTokens *int `json:"completion_tokens,omitempty"`
+	TotalTokens      *int `json:"total_tokens,omitempty"`
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

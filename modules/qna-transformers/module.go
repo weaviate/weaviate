@@ -30,6 +30,8 @@ import (
 	"github.com/weaviate/weaviate/modules/qna-transformers/ent"
 )
 
+const Name = "qna-transformers"
+
 func New() *QnAModule {
 	return &QnAModule{}
 }
@@ -37,9 +39,9 @@ func New() *QnAModule {
 type QnAModule struct {
 	qna                          qnaClient
 	graphqlProvider              modulecapabilities.GraphQLArguments
-	searcher                     modulecapabilities.DependencySearcher
+	searcher                     modulecapabilities.DependencySearcher[[]float32]
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
-	nearTextDependencies         []modulecapabilities.Dependency
+	nearTextDependencies         []modulecapabilities.Dependency[[]float32]
 	askTextTransformer           modulecapabilities.TextTransform
 }
 
@@ -50,7 +52,7 @@ type qnaClient interface {
 }
 
 func (m *QnAModule) Name() string {
-	return "qna-transformers"
+	return Name
 }
 
 func (m *QnAModule) Type() modulecapabilities.ModuleType {
@@ -90,13 +92,13 @@ func (m *QnAModule) InitExtension(modules []modulecapabilities.Module) error {
 }
 
 func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
-	nearTextDependencies := []modulecapabilities.Dependency{}
+	nearTextDependencies := []modulecapabilities.Dependency[[]float32]{}
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue
 		}
 		var argument modulecapabilities.GraphQLArgument
-		var searcher modulecapabilities.VectorForParams
+		var searcher modulecapabilities.VectorForParams[[]float32]
 		if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 			if arg != nil && arg.Arguments() != nil {
 				if nearTextArg, ok := arg.Arguments()["nearText"]; ok {
@@ -104,7 +106,7 @@ func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
 				}
 			}
 		}
-		if arg, ok := module.(modulecapabilities.Searcher); ok {
+		if arg, ok := module.(modulecapabilities.Searcher[[]float32]); ok {
 			if arg != nil && arg.VectorSearches() != nil {
 				if nearTextSearcher, ok := arg.VectorSearches()["nearText"]; ok {
 					searcher = nearTextSearcher

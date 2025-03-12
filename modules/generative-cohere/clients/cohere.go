@@ -19,20 +19,18 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-cohere/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	cohereparams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type cohere struct {
 	apiKey     string
@@ -50,36 +48,40 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *coher
 	}
 }
 
-func (v *cohere) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *cohere) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt)
+	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *cohere) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask)
+	return v.Generate(ctx, cfg, forTask, options, debug)
 }
 
-func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
+func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options)
+	debugInformation := v.getDebugInformation(debug, prompt)
 
-	cohereUrl, err := v.getCohereUrl(ctx, settings.BaseURL())
+	cohereUrl, err := v.getCohereUrl(ctx, params.BaseURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "join Cohere API host and path")
 	}
 	input := generateInput{
-		Message:       prompt,
-		Model:         settings.Model(),
-		MaxTokens:     settings.MaxTokens(),
-		Temperature:   settings.Temperature(),
-		K:             settings.K(),
-		StopSequences: settings.StopSequences(),
+		Message:          prompt,
+		Model:            params.Model,
+		Temperature:      params.Temperature,
+		MaxTokens:        params.MaxTokens,
+		K:                params.K,
+		P:                params.P,
+		StopSequences:    params.StopSequences,
+		FrequencyPenalty: params.FrequencyPenalty,
+		PresencePenalty:  params.PresencePenalty,
 	}
 
 	body, err := json.Marshal(input)
@@ -125,58 +127,81 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	textResponse := resBody.Text
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: &textResponse,
+		Debug:  debugInformation,
+		Params: v.getResponseParams(resBody.Meta),
 	}, nil
+}
+
+func (v *cohere) getParameters(cfg moduletools.ClassConfig, options interface{}) cohereparams.Params {
+	settings := config.NewClassSettings(cfg)
+
+	var params cohereparams.Params
+	if p, ok := options.(cohereparams.Params); ok {
+		params = p
+	}
+	if params.BaseURL == "" {
+		baseURL := settings.BaseURL()
+		params.BaseURL = baseURL
+	}
+	if params.Model == "" {
+		model := settings.Model()
+		params.Model = model
+	}
+	if params.Temperature == nil {
+		temperature := settings.Temperature()
+		params.Temperature = &temperature
+	}
+	if params.K == nil {
+		k := settings.K()
+		params.K = &k
+	}
+	if len(params.StopSequences) == 0 {
+		params.StopSequences = settings.StopSequences()
+	}
+	if params.MaxTokens == nil {
+		maxTokens := settings.GetMaxTokensForModel(params.Model)
+		params.MaxTokens = &maxTokens
+	}
+	return params
+}
+
+func (v *cohere) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{
+			Prompt: prompt,
+		}
+	}
+	return nil
+}
+
+func (v *cohere) getResponseParams(meta *meta) map[string]interface{} {
+	if meta != nil {
+		return map[string]interface{}{cohereparams.Name: map[string]interface{}{"meta": meta}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[cohereparams.Name].(map[string]interface{}); ok {
+		if meta, ok := params["meta"].(*meta); ok {
+			return &responseParams{Meta: meta}
+		}
+	}
+	return nil
 }
 
 func (v *cohere) getCohereUrl(ctx context.Context, baseURL string) (string, error) {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return url.JoinPath(passedBaseURL, "/v1/chat")
 }
 
-func (v *cohere) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *cohere) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
-}
-
-func (v *cohere) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
-}
-
 func (v *cohere) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := v.getValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
@@ -188,13 +213,16 @@ func (v *cohere) getApiKey(ctx context.Context) (string, error) {
 }
 
 type generateInput struct {
-	ChatHistory   []message `json:"chat_history,omitempty"`
-	Message       string    `json:"message"`
-	Model         string    `json:"model"`
-	MaxTokens     int       `json:"max_tokens"`
-	Temperature   int       `json:"temperature"`
-	K             int       `json:"k"`
-	StopSequences []string  `json:"stop_sequences"`
+	ChatHistory      []message `json:"chat_history,omitempty"`
+	Message          string    `json:"message"`
+	Model            string    `json:"model"`
+	Temperature      *float64  `json:"temperature,omitempty"`
+	MaxTokens        *int      `json:"max_tokens,omitempty"`
+	K                *int      `json:"k,omitempty"`
+	P                *float64  `json:"p,omitempty"`
+	StopSequences    []string  `json:"stop_sequences,omitempty"`
+	FrequencyPenalty *float64  `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64  `json:"presence_penalty,omitempty"`
 }
 
 type message struct {
@@ -207,4 +235,34 @@ type generateResponse struct {
 	// When an error occurs then the error message object is being returned with an error message
 	// https://docs.cohere.com/reference/errors
 	Message string `json:"message"`
+	Meta    *meta  `json:"meta,omitempty"`
+}
+
+type meta struct {
+	ApiVersion  *apiVersion  `json:"api_version,omitempty"`
+	BilledUnits *billedUnits `json:"billed_units,omitempty"`
+	Tokens      *tokens      `json:"tokens,omitempty"`
+	Warnings    []string     `json:"warnings,omitempty"`
+}
+
+type apiVersion struct {
+	Version        *string `json:"version,omitempty"`
+	IsDeprecated   *bool   `json:"is_deprecated,omitempty"`
+	IsExperimental *bool   `json:"is_experimental,omitempty"`
+}
+
+type billedUnits struct {
+	InputTokens     *float64 `json:"input_tokens,omitempty"`
+	OutputTokens    *float64 `json:"output_tokens,omitempty"`
+	SearchUnits     *float64 `json:"search_units,omitempty"`
+	Classifications *float64 `json:"classifications,omitempty"`
+}
+
+type tokens struct {
+	InputTokens  *float64 `json:"input_tokens,omitempty"`
+	OutputTokens *float64 `json:"output_tokens,omitempty"`
+}
+
+type responseParams struct {
+	Meta *meta `json:"meta,omitempty"`
 }

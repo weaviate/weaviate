@@ -28,6 +28,7 @@ const (
 	Weaviate1      = "weaviate"
 	Weaviate2      = "weaviate2"
 	Weaviate3      = "weaviate3"
+	Weaviate       = "weaviate"
 	SecondWeaviate = "second-weaviate"
 )
 
@@ -63,8 +64,8 @@ func startWeaviate(ctx context.Context,
 			Context:    contextPath,
 			Dockerfile: "Dockerfile",
 			BuildArgs: map[string]*string{
-				"TARGETARCH": &targetArch,
-				"GITHASH":    &gitHash,
+				"TARGETARCH":   &targetArch,
+				"GIT_REVISION": &gitHash,
 			},
 			PrintBuildLog: true,
 			KeepImage:     false,
@@ -106,6 +107,7 @@ func startWeaviate(ctx context.Context,
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
 		Hostname:       containerName,
+		Name:           containerName,
 		Networks:       []string{networkName},
 		NetworkAliases: map[string][]string{
 			networkName: {containerName},

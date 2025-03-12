@@ -19,10 +19,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -65,6 +65,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 	vectors_size := 1000
 	queries_size := 100
 	k := 100
+	centroids := 255
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, int(dimensions))
 	distanceProvider := distancer.NewDotProductProvider()
 
@@ -74,7 +75,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 			Type:         ent.PQEncoderTypeKMeans,
 			Distribution: ent.PQEncoderDistributionLogNormal,
 		},
-		Centroids: 255,
+		Centroids: centroids,
 		Segments:  dimensions,
 	}
 	pq, _ := compressionhelpers.NewProductQuantizer(
@@ -113,6 +114,10 @@ func Test_NoRacePQKMeans(t *testing.T) {
 	recall := float32(relevant) / float32(k*queries_size)
 	fmt.Println(recall)
 	assert.True(t, recall > 0.99)
+
+	pqStats := pq.Stats().(compressionhelpers.PQStats)
+	assert.Equal(t, pqStats.M, dimensions)
+	assert.Equal(t, pqStats.Ks, centroids)
 }
 
 func Test_NoRacePQDecodeBytes(t *testing.T) {
@@ -202,34 +207,6 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 		)
 		assert.ErrorContains(t, err, "segments should be an integer divisor of dimensions")
 	})
-	t.Run("validate training limit applied", func(t *testing.T) {
-		amount := 64
-		centroids := 256
-		vectors_size := 400
-		vectors, _ := testinghelpers.RandomVecs(vectors_size, vectors_size, amount)
-		distanceProvider := distancer.NewL2SquaredProvider()
-
-		cfg := ent.PQConfig{
-			Enabled: true,
-			Encoder: ent.PQEncoder{
-				Type:         hnsw.PQEncoderTypeKMeans,
-				Distribution: ent.PQEncoderDistributionLogNormal,
-			},
-			Centroids:     centroids,
-			TrainingLimit: 260,
-			Segments:      amount,
-		}
-		pq, err := compressionhelpers.NewProductQuantizer(
-			cfg,
-			distanceProvider,
-			amount,
-			logger,
-		)
-		assert.NoError(t, err)
-		pq.Fit(vectors)
-		pqdata := pq.ExposeFields()
-		assert.Equal(t, pqdata.TrainingLimit, 260)
-	})
 }
 
 func Test_NoRacePQEncodeBytes(t *testing.T) {
@@ -244,4 +221,31 @@ func Test_NoRacePQEncodeBytes(t *testing.T) {
 			assert.Equal(t, code, uint8(i))
 		}
 	})
+}
+
+func Test_PQDistanceError(t *testing.T) {
+	distanceProvider := distancer.NewL2SquaredProvider()
+
+	cfg := ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeKMeans,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		Centroids: 256,
+		Segments:  128,
+	}
+
+	q, err := compressionhelpers.NewProductQuantizer(
+		cfg,
+		distanceProvider,
+		128,
+		logger,
+	)
+	require.NoError(t, err)
+
+	_, err = q.DistanceBetweenCompressedVectors(nil, nil)
+	require.Error(t, err)
+	msg := "ProductQuantizer.DistanceBetweenCompressedVectors: inconsistent compressed vectors lengths"
+	assert.EqualError(t, err, msg)
 }

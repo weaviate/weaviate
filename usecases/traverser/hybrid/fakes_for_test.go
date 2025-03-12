@@ -32,7 +32,7 @@ func newFakeSchemaManager() *fakeSchemaManager {
 
 type fakeTargetVectorParamHelper struct{}
 
-func (*fakeTargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, className, targetVector string) (string, error) {
+func (*fakeTargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, className string, targetVector []string) ([]string, error) {
 	return targetVector, nil
 }
 

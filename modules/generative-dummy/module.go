@@ -21,8 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-dummy/clients"
-	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 const Name = "generative-dummy"
@@ -32,14 +30,11 @@ func New() *GenerativeDummyModule {
 }
 
 type GenerativeDummyModule struct {
-	generative                   generativeClient
-	additionalPropertiesProvider modulecapabilities.AdditionalProperties
+	generative generativeClient
 }
 
 type generativeClient interface {
-	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
-	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
-	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error)
+	modulecapabilities.GenerativeClient
 	MetaInfo() (map[string]interface{}, error)
 }
 
@@ -55,26 +50,16 @@ func (m *GenerativeDummyModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	if err := m.initAdditional(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
-		return errors.Wrap(err, "init q/a")
+		return errors.Wrapf(err, "init %s", Name)
 	}
-
 	return nil
 }
 
 func (m *GenerativeDummyModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	client := clients.New(logger)
-
-	m.generative = client
-
-	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative, logger)
-
+	m.generative = clients.New(logger)
 	return nil
-}
-
-func (m *GenerativeDummyModule) MetaInfo() (map[string]interface{}, error) {
-	return m.generative.MetaInfo()
 }
 
 func (m *GenerativeDummyModule) RootHandler() http.Handler {
@@ -82,13 +67,17 @@ func (m *GenerativeDummyModule) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *GenerativeDummyModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	return m.additionalPropertiesProvider.AdditionalProperties()
+func (m *GenerativeDummyModule) MetaInfo() (map[string]interface{}, error) {
+	return m.generative.MetaInfo()
+}
+
+func (m *GenerativeDummyModule) AdditionalGenerativeProperties() map[string]modulecapabilities.GenerativeProperty {
+	return map[string]modulecapabilities.GenerativeProperty{"dummy": {Client: m.generative}}
 }
 
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.AdditionalProperties(New())
+	_ = modulecapabilities.AdditionalGenerativeProperties(New())
 	_ = modulecapabilities.MetaProvider(New())
 )

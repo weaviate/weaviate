@@ -20,6 +20,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -53,7 +54,7 @@ func Test_Middleware_IncompleteConfiguration(t *testing.T) {
 		"missing required field 'username_claim', missing required field 'client_id': either set a client_id or explicitly disable the check with 'skip_client_id_check: true'")
 
 	_, err := New(cfg)
-	assert.Equal(t, expectedErr, err)
+	assert.ErrorAs(t, err, &expectedErr)
 }
 
 type claims struct {
@@ -163,7 +164,6 @@ func tokenWithGroups(t *testing.T, subject string, issuer string, aud string, gr
 }
 
 func tokenWithClaims(t *testing.T, subject string, issuer string, aud string, claims claims) string {
-	//nolint:staticcheck // is deprecated, but for the purpose of this test, this doesn't matter
 	claims.StandardClaims = jwt.StandardClaims{
 		Subject:   subject,
 		Issuer:    issuer,

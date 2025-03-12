@@ -15,45 +15,40 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
-type Searcher struct {
-	vectorizer bindVectorizer
+type Searcher[T dto.Embedding] struct {
+	vectorizer bindVectorizer[T]
 }
 
-func NewSearcher(vectorizer bindVectorizer) *Searcher {
-	return &Searcher{vectorizer}
+func NewSearcher[T dto.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
+	return &Searcher[T]{vectorizer}
 }
 
-type bindVectorizer interface {
-	VectorizeAudio(ctx context.Context, audio string, cfg moduletools.ClassConfig) ([]float32, error)
+type bindVectorizer[T dto.Embedding] interface {
+	VectorizeAudio(ctx context.Context, audio string, cfg moduletools.ClassConfig) (T, error)
 }
 
-func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearAudio"] = s.vectorForNearAudioParam
+func (s *Searcher[T]) VectorSearches() map[string]modulecapabilities.VectorForParams[T] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[T]{}
+	vectorSearches["nearAudio"] = &vectorForParams[T]{s.vectorizer}
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForNearAudioParam(ctx context.Context, params interface{},
-	className string,
-	findVectorFn modulecapabilities.FindVectorFn,
-	cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	return s.vectorFromNearAudioParam(ctx, params.(*NearAudioParams), className, findVectorFn, cfg)
+type vectorForParams[T dto.Embedding] struct {
+	vectorizer bindVectorizer[T]
 }
 
-func (s *Searcher) vectorFromNearAudioParam(ctx context.Context,
-	params *NearAudioParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+func (v *vectorForParams[T]) VectorForParams(ctx context.Context, params interface{}, className string,
+	findVectorFn modulecapabilities.FindVectorFn[T],
 	cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	// find vector for given search query
-	vector, err := s.vectorizer.VectorizeAudio(ctx, params.Audio, cfg)
+) (T, error) {
+	vector, err := v.vectorizer.VectorizeAudio(ctx, params.(*NearAudioParams).Audio, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("vectorize audio: %w", err)
 	}
-
 	return vector, nil
 }

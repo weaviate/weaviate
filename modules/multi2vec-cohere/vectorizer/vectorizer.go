@@ -38,7 +38,7 @@ func New(client Client) *Vectorizer {
 
 type Client interface {
 	Vectorize(ctx context.Context,
-		texts, images []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationCLIPResult, error)
+		texts, images []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationCLIPResult[[]float32], error)
 }
 
 type ClassSettings interface {

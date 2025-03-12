@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 // A BitmapLayer contains all the bitmap related delta-information stored for a
@@ -82,19 +83,19 @@ type BitmapLayers []BitmapLayer
 //     should be represented in the final bitmap. If the order is reversed and
 //     layer 2 adds X, whereas layer 3 removes X, it is should not be contained
 //     in the final map.
-func (bml BitmapLayers) Flatten() *sroar.Bitmap {
+func (bml BitmapLayers) Flatten(clone bool) *sroar.Bitmap {
 	if len(bml) == 0 {
 		return sroar.NewBitmap()
 	}
 
-	cur := bml[0]
-	// TODO: is this copy really needed? aren't we already operating on copied
-	// bms?
-	merged := cur.Additions.Clone()
+	merged := bml[0].Additions
+	if clone {
+		merged = merged.Clone()
+	}
 
 	for i := 1; i < len(bml); i++ {
-		merged.AndNot(bml[i].Deletions)
-		merged.Or(bml[i].Additions)
+		merged.AndNotConc(bml[i].Deletions, concurrency.SROAR_MERGE)
+		merged.OrConc(bml[i].Additions, concurrency.SROAR_MERGE)
 	}
 
 	return merged
@@ -116,14 +117,14 @@ func (bml BitmapLayers) Merge() (BitmapLayer, error) {
 	left, right := bml[0], bml[1]
 
 	additions := left.Additions.Clone()
-	additions.Or(right.Additions)
-	additions.AndNot(right.Deletions)
+	additions.AndNotConc(right.Deletions, concurrency.SROAR_MERGE)
+	additions.OrConc(right.Additions, concurrency.SROAR_MERGE)
 
 	deletions := left.Deletions.Clone()
-	deletions.AndNot(right.Additions)
-	deletions.Or(right.Deletions)
+	deletions.AndNotConc(right.Additions, concurrency.SROAR_MERGE)
+	deletions.OrConc(right.Deletions, concurrency.SROAR_MERGE)
 
-	out.Additions = Condense(additions)
-	out.Deletions = Condense(deletions)
+	out.Additions = additions
+	out.Deletions = deletions
 	return out, nil
 }

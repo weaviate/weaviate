@@ -35,7 +35,12 @@ func (v *Validator) vector(ctx context.Context, class *models.Class,
 		for key := range class.VectorConfig {
 			namedVectorName = key
 		}
-		incomingObject.Vectors = map[string]models.Vector{namedVectorName: models.Vector(incomingObject.Vector)}
+		var vector []float32
+		if len(incomingObject.Vector) > 0 {
+			vector = make([]float32, len(incomingObject.Vector))
+			copy(vector, incomingObject.Vector)
+		}
+		incomingObject.Vectors = map[string]models.Vector{namedVectorName: models.Vector(vector)}
 		incomingObject.Vector = nil
 	}
 

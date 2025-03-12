@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -65,6 +65,7 @@ func TestCompression_AdaptSegments(t *testing.T) {
 		compose, err := docker.New().
 			WithWeaviate().
 			WithWeaviateEnv("ASYNC_INDEXING", "true").
+			WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
 			Start(ctx)
 		require.NoError(t, err)
 		defer func() {
@@ -202,7 +203,6 @@ func createClassTargetVectors(t *testing.T, client *wvt.Client, className string
 	err := client.Schema().ClassCreator().
 		WithClass(class).
 		Do(context.Background())
-
 	if err != nil {
 		require.NoError(t, err)
 	}

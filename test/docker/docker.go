@@ -14,7 +14,6 @@ package docker
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -35,10 +34,7 @@ func (d *DockerCompose) Containers() []*DockerContainer {
 func (d *DockerCompose) Terminate(ctx context.Context) error {
 	var errs error
 	for _, c := range d.containers {
-		// TODO : remove this once issue got resolved in testcontainers
-		// this because the timeout is too short and hardcoded
-		// ref https://github.com/testcontainers/testcontainers-go/blob/35bf0cd0707d6ff21a8e7c7fdb39c5dfa560f142/docker.go#L309
-		if err := c.container.Terminate(ctx); err != nil && !strings.Contains(err.Error(), "is already in progress") {
+		if err := testcontainers.TerminateContainer(c.container, testcontainers.StopContext(ctx)); err != nil {
 			errs = errors.Wrapf(err, "cannot terminate: %v", c.name)
 		}
 	}
@@ -56,6 +52,20 @@ func (d *DockerCompose) Stop(ctx context.Context, container string, timeout *tim
 			if err := c.container.Stop(ctx, timeout); err != nil {
 				return fmt.Errorf("cannot stop %q: %w", c.name, err)
 			}
+			break
+		}
+	}
+	return nil
+}
+
+func (d *DockerCompose) TerminateContainer(ctx context.Context, container string) error {
+	for idx, c := range d.containers {
+		if c.name == container {
+			if err := testcontainers.TerminateContainer(c.container, testcontainers.StopContext(ctx)); err != nil {
+				return fmt.Errorf("cannot stop %q: %w", c.name, err)
+			}
+			d.containers = append(d.containers[:idx], d.containers[idx+1:]...)
+			break
 		}
 	}
 	return nil
@@ -77,7 +87,7 @@ func (d *DockerCompose) Start(ctx context.Context, container string) error {
 
 func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time.Duration) error {
 	if nodeIndex >= len(d.containers) {
-		return errors.Errorf("node index is greater than available nodes")
+		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
 	}
 	if err := d.containers[nodeIndex].container.Stop(ctx, timeout); err != nil {
 		return err
@@ -136,6 +146,12 @@ func (d *DockerCompose) GetMinIO() *DockerContainer {
 	return d.getContainerByName(MinIO)
 }
 
+func (d *DockerCompose) StopMinIO(ctx context.Context) error {
+	minio := d.getContainerByName(MinIO)
+
+	return minio.container.Stop(ctx, nil)
+}
+
 func (d *DockerCompose) GetGCS() *DockerContainer {
 	return d.getContainerByName(GCS)
 }
@@ -160,6 +176,13 @@ func (d *DockerCompose) GetWeaviateNode3() *DockerContainer {
 	return d.getContainerByName(Weaviate3)
 }
 
+func (d *DockerCompose) GetWeaviateNode(n int) *DockerContainer {
+	if n == 1 {
+		return d.GetWeaviate()
+	}
+	return d.getContainerByName(fmt.Sprintf("%s%d", Weaviate, n))
+}
+
 func (d *DockerCompose) GetText2VecTransformers() *DockerContainer {
 	return d.getContainerByName(Text2VecTransformers)
 }
@@ -178,6 +201,10 @@ func (d *DockerCompose) GetOllamaVectorizer() *DockerContainer {
 
 func (d *DockerCompose) GetOllamaGenerative() *DockerContainer {
 	return d.getContainerByName(OllamaGenerative)
+}
+
+func (d *DockerCompose) GetMockOIDC() *DockerContainer {
+	return d.getContainerByName(MockOIDC)
 }
 
 func (d *DockerCompose) getContainerByName(name string) *DockerContainer {

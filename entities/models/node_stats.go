@@ -31,7 +31,7 @@ type NodeStats struct {
 	// The total number of objects in DB.
 	ObjectCount int64 `json:"objectCount"`
 
-	// The count of Weaviate's shards.
+	// The count of Weaviate's shards. To see this value, set `output` to `verbose`.
 	ShardCount int64 `json:"shardCount"`
 }
 

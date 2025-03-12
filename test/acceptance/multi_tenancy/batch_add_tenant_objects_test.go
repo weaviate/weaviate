@@ -277,7 +277,7 @@ func testAddNonTenantBatchToMultiClass(t *testing.T, implicitTenants bool) {
 	if implicitTenants {
 		require.Nil(t, resp)
 		require.NotNil(t, err)
-		batchErr := &batch.BatchObjectsCreateInternalServerError{}
+		batchErr := &batch.BatchObjectsCreateUnprocessableEntity{}
 		as := errors.As(err, &batchErr)
 		require.True(t, as)
 		require.NotNil(t, batchErr.Payload)

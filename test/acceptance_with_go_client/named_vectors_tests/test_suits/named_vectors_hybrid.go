@@ -14,13 +14,14 @@ package test_suits
 import (
 	"context"
 	"testing"
+	"time"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
+	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -31,18 +32,14 @@ func testHybrid(host string) func(t *testing.T) {
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
 		require.Nil(t, err)
 
-		cleanup := func() {
-			err := client.Schema().AllDeleter().Do(context.Background())
-			require.Nil(t, err)
-		}
-
-		cleanup()
-
 		class := &models.Class{
 			Class: "TestClass",
 			Properties: []*models.Property{
 				{
 					Name: "text", DataType: []string{schema.DataTypeText.String()},
+				},
+				{
+					Name: "text2", DataType: []string{schema.DataTypeText.String()},
 				},
 			},
 			VectorConfig: map[string]models.VectorConfig{
@@ -50,16 +47,41 @@ func testHybrid(host string) func(t *testing.T) {
 					Vectorizer: map[string]interface{}{
 						text2vecTransformers: map[string]interface{}{
 							"vectorizeClassName": false,
+							"sourceProperties":   []string{"text"},
+						},
+					},
+					VectorIndexType: "flat",
+				},
+				contextionary: {
+					Vectorizer: map[string]interface{}{
+						text2vecContextionary: map[string]interface{}{
+							"vectorizeClassName": false,
+							"sourceProperties":   []string{"text2"},
 						},
 					},
 					VectorIndexType: "flat",
 				},
 			},
 		}
+
+		cleanup := func() {
+			err := client.Schema().ClassDeleter().WithClassName(class.Class).Do(context.Background())
+			require.Nil(t, err)
+		}
+
+		field := graphql.Field{
+			Name: "_additional",
+			Fields: []graphql.Field{
+				{Name: "id"},
+			},
+		}
+		id := "1aa6fbff-461b-4ca5-9ff7-47ccd6d07519"
+		id2 := "1aa6fbff-463b-4ca5-9ff7-47ccd6d07519"
+
 		t.Run("hybrid with 1 vectorizer", func(t *testing.T) {
-			id := "1aa6fbff-461b-4ca5-9ff7-47ccd6d07519"
 			// create class
 			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+			defer cleanup()
 			require.NoError(t, err)
 			// insert object
 			objWrapper, err := client.Data().Creator().
@@ -71,26 +93,64 @@ func testHybrid(host string) func(t *testing.T) {
 				Do(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, objWrapper)
-			assert.Len(t, objWrapper.Object.Vectors, 1)
-
-			field := graphql.Field{
-				Name: "_additional",
-				Fields: []graphql.Field{
-					{Name: "id"},
-				},
-			}
+			assert.Len(t, objWrapper.Object.Vectors, 2)
 
 			resp, err := client.GraphQL().Get().
 				WithClassName(class.Class).
 				WithHybrid(client.GraphQL().
 					HybridArgumentBuilder().
 					WithQuery("Some text goes here").
-					WithAlpha(0.5)).
+					WithAlpha(0.5).WithTargetVectors(transformers)).
 				WithFields(field).
 				Do(ctx)
 			require.NoError(t, err)
 			ids := acceptance_with_go_client.GetIds(t, resp, class.Class)
 			require.ElementsMatch(t, ids, []string{id})
+		})
+
+		t.Run("hybrid with 2 vectorizers", func(t *testing.T) {
+			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+			defer cleanup()
+			require.NoError(t, err)
+			// insert object
+			objWrapper, err := client.Data().Creator().
+				WithClassName(class.Class).
+				WithID(id).
+				WithProperties(map[string]interface{}{
+					"text":  "apple",
+					"text2": "mountain",
+				}).
+				Do(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, objWrapper)
+			assert.Len(t, objWrapper.Object.Vectors, 2)
+
+			_, err = client.Data().Creator().
+				WithClassName(class.Class).
+				WithID(id2).
+				WithProperties(map[string]interface{}{
+					"text":  "mountain",
+					"text2": "apple",
+				}).
+				Do(ctx)
+			require.NoError(t, err)
+
+			var ids []string
+			require.Eventually(t, func() bool {
+				resp, err := client.GraphQL().Get().
+					WithClassName(class.Class).
+					WithHybrid(client.GraphQL().
+						HybridArgumentBuilder().
+						WithQuery("apple").
+						WithAlpha(1).WithTargetVectors(transformers, contextionary)).
+					WithFields(field).
+					Do(ctx)
+				require.NoError(t, err)
+				ids = acceptance_with_go_client.GetIds(t, resp, class.Class)
+				return len(ids) == 2
+			}, 5*time.Second, 1*time.Second)
+
+			require.ElementsMatch(t, ids, []string{id, id2})
 		})
 	}
 }

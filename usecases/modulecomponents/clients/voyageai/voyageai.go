@@ -108,7 +108,7 @@ func New(apiKey string, timeout time.Duration, urlBuilder UrlBuilder, logger log
 }
 
 func (c *Client) Vectorize(ctx context.Context, input []string, settings Settings,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	resBody, err := c.vectorize(ctx, settings.BaseURL, embeddingsRequest{
 		Input:      input,
 		Model:      settings.Model,
@@ -123,7 +123,7 @@ func (c *Client) Vectorize(ctx context.Context, input []string, settings Setting
 }
 
 func (c *Client) VectorizeQuery(ctx context.Context, input []string, settings Settings,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	resBody, err := c.vectorize(ctx, settings.BaseURL, embeddingsRequest{
 		Input:      input,
 		Model:      settings.Model,
@@ -139,7 +139,7 @@ func (c *Client) VectorizeQuery(ctx context.Context, input []string, settings Se
 
 func (c *Client) VectorizeMultiModal(ctx context.Context, texts, images []string,
 	settings Settings,
-) (*modulecomponents.VectorizationCLIPResult, error) {
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	request := c.getMultiModalEmbeddingsRequest(texts, images, settings)
 	resBody, err := c.vectorize(ctx, settings.BaseURL, request)
 	if err != nil {
@@ -155,7 +155,7 @@ func (c *Client) VectorizeMultiModal(ctx context.Context, texts, images []string
 		}
 	}
 
-	res := &modulecomponents.VectorizationCLIPResult{
+	res := &modulecomponents.VectorizationCLIPResult[[]float32]{
 		TextVectors:  textVectors,
 		ImageVectors: imageVectors,
 	}
@@ -230,13 +230,14 @@ func (c *Client) vectorize(ctx context.Context, baseURL string, request interfac
 	return &resBody, nil
 }
 
-func (c *Client) getVectorizationResult(input []string, resBody *embeddingsResponse) (*modulecomponents.VectorizationResult, int, error) {
+func (c *Client) getVectorizationResult(input []string, resBody *embeddingsResponse,
+) (*modulecomponents.VectorizationResult[[]float32], int, error) {
 	vectors := make([][]float32, len(resBody.Data))
 	for i, data := range resBody.Data {
 		vectors[i] = data.Embedding
 	}
 
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Text:       input,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     vectors,

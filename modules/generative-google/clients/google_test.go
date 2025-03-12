@@ -23,7 +23,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	googleparams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
@@ -34,6 +35,7 @@ func nullLogger() logrus.FieldLogger {
 
 func TestGetAnswer(t *testing.T) {
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
+		prompt := "John"
 		handler := &testAnswerHandler{
 			t: t,
 			answer: generateResponse{
@@ -41,7 +43,7 @@ func TestGetAnswer(t *testing.T) {
 					{
 						Candidates: []candidate{
 							{
-								Content: "John",
+								Content: &prompt,
 							},
 						},
 					},
@@ -62,12 +64,13 @@ func TestGetAnswer(t *testing.T) {
 			logger: nullLogger(),
 		}
 
-		textProperties := []map[string]string{{"prop": "My name is john"}}
-		expected := generativemodels.GenerateResponse{
+		params := googleparams.Params{ApiEndpoint: server.URL}
+		props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
+		expected := modulecapabilities.GenerateResponse{
 			Result: ptString("John"),
 		}
 
-		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
+		res, err := c.GenerateAllResults(context.Background(), props, "What is my name?", params, false, nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, *res)
@@ -94,9 +97,9 @@ func TestGetAnswer(t *testing.T) {
 			logger: nullLogger(),
 		}
 
-		textProperties := []map[string]string{{"prop": "My name is john"}}
+		props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
 
-		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
+		_, err := c.GenerateAllResults(context.Background(), props, "What is my name?", nil, false, nil)
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to Google failed with status: 500 error: some error from the server")

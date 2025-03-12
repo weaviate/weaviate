@@ -43,10 +43,11 @@ type NodeSelector interface {
 type State struct {
 	config Config
 	// that lock to serialize access to memberlist
-	listLock        sync.RWMutex
-	list            *memberlist.Memberlist
-	nonStorageNodes map[string]struct{}
-	delegate        delegate
+	listLock             sync.RWMutex
+	list                 *memberlist.Memberlist
+	nonStorageNodes      map[string]struct{}
+	delegate             delegate
+	maintenanceNodesLock sync.RWMutex
 }
 
 type Config struct {
@@ -64,11 +65,12 @@ type Config struct {
 	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
 	Localhost bool `json:"localhost" yaml:"localhost"`
-	// MaintenanceNodes is experimental. is a list of nodes (by Hostname) that are in maintenance mode
-	// (eg return an error for all data requests). We use a list here instead of a bool because it
-	// allows us to set the same config/env vars on all nodes to put a subset of them in maintenance
-	// mode. In addition, we may want to have the cluster nodes not in maintenance mode be aware of
-	// which nodes are in maintenance mode in the future.
+	// MaintenanceNodes is experimental. You should not use this directly, but should use the
+	// public methods on the State struct. This is a list of nodes (by Hostname) that are in
+	// maintenance mode (eg return a 418 for all data requests). We use a list here instead of a
+	// bool because it allows us to set the same config/env vars on all nodes to put a subset of
+	// them in maintenance mode. In addition, we may want to have the cluster nodes not in
+	// maintenance mode be aware of which nodes are in maintenance mode in the future.
 	MaintenanceNodes []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
 }
 
@@ -159,6 +161,9 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 // Hostnames for all live members, except self. Use AllHostnames to include
 // self, prefixes the data port.
 func (s *State) Hostnames() []string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -178,9 +183,13 @@ func (s *State) Hostnames() []string {
 
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	if s.list == nil {
 		return []string{}
 	}
+
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -195,6 +204,9 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -210,6 +222,10 @@ func (s *State) storageNodes() []string {
 	if len(s.nonStorageNodes) == 0 {
 		return s.AllNames()
 	}
+
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	members := s.list.Members()
 	out := make([]string, len(members))
 	n := 0
@@ -249,19 +265,31 @@ func (s *State) SortCandidates(nodes []string) []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	return s.list.NumMembers()
 }
 
 // LocalName() return local node name
 func (s *State) LocalName() string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	return s.list.LocalNode().Name
 }
 
 func (s *State) ClusterHealthScore() int {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	return s.list.GetHealthScore()
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on
@@ -297,12 +325,44 @@ func (s *State) NodeInfo(node string) (NodeInfo, bool) {
 	return s.delegate.get(node)
 }
 
-// MaintenanceModeEnabled is experimental, may be removed/changed. It returns true if the node is in
+// MaintenanceModeEnabledForLocalhost is experimental, may be removed/changed. It returns true if this node is in
 // maintenance mode (which means it should return an error for all data requests).
-func (s *State) MaintenanceModeEnabled() bool {
+func (s *State) MaintenanceModeEnabledForLocalhost() bool {
 	return s.nodeInMaintenanceMode(s.config.Hostname)
 }
 
+// SetMaintenanceModeForLocalhost is experimental, may be removed/changed. Enables/disables maintenance
+// mode for this node.
+func (s *State) SetMaintenanceModeForLocalhost(enabled bool) {
+	s.setMaintenanceModeForNode(s.config.Hostname, enabled)
+}
+
+func (s *State) setMaintenanceModeForNode(node string, enabled bool) {
+	s.maintenanceNodesLock.Lock()
+	defer s.maintenanceNodesLock.Unlock()
+
+	if s.config.MaintenanceNodes == nil {
+		s.config.MaintenanceNodes = []string{}
+	}
+	if !enabled {
+		// we're disabling maintenance mode, remove the node from the list
+		for i, enabledNode := range s.config.MaintenanceNodes {
+			if enabledNode == node {
+				s.config.MaintenanceNodes = append(s.config.MaintenanceNodes[:i], s.config.MaintenanceNodes[i+1:]...)
+			}
+		}
+		return
+	}
+	if !slices.Contains(s.config.MaintenanceNodes, node) {
+		// we're enabling maintenance mode, add the node to the list
+		s.config.MaintenanceNodes = append(s.config.MaintenanceNodes, node)
+		return
+	}
+}
+
 func (s *State) nodeInMaintenanceMode(node string) bool {
+	s.maintenanceNodesLock.RLock()
+	defer s.maintenanceNodesLock.RUnlock()
+
 	return slices.Contains(s.config.MaintenanceNodes, node)
 }

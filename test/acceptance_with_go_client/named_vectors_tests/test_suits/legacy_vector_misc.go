@@ -17,7 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -175,10 +175,8 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 
 			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 			require.Error(t, err)
-			assert.ErrorContains(t, err, "multiple vectorizers configured in property's \\\"text\\\" moduleConfig")
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, text2vecCohere)
-			assert.ErrorContains(t, err, "class.vectorizer is set to \\\"text2vec-cohere\\\"")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.Error(t, err)
@@ -211,10 +209,8 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 
 			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 			require.Error(t, err)
-			assert.ErrorContains(t, err, "multiple vectorizers configured in property's \\\"text\\\" moduleConfig")
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, text2vecCohere)
-			assert.ErrorContains(t, err, "class.vectorizer is set to \\\"text2vec-cohere\\\"")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.Error(t, err)
@@ -288,10 +284,8 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 
 			err = client.Schema().PropertyCreator().WithClassName(className).WithProperty(property).Do(ctx)
 			require.Error(t, err)
-			assert.ErrorContains(t, err, "multiple vectorizers configured in property's \\\"otherText\\\" moduleConfig")
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, text2vecCohere)
-			assert.ErrorContains(t, err, "class.vectorizer is set to \\\"text2vec-cohere\\\"")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.NoError(t, err)
@@ -333,10 +327,8 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 
 			err = client.Schema().PropertyCreator().WithClassName(className).WithProperty(property).Do(ctx)
 			require.Error(t, err)
-			assert.ErrorContains(t, err, "multiple vectorizers configured in property's \\\"otherText\\\" moduleConfig")
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, text2vecCohere)
-			assert.ErrorContains(t, err, "class.vectorizer is set to \\\"text2vec-cohere\\\"")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.NoError(t, err)

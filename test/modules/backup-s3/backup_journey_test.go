@@ -15,6 +15,8 @@ import (
 	"context"
 	"testing"
 
+	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -33,24 +35,32 @@ const (
 	s3BackupJourneyClassName          = "S3Backup"
 	s3BackupJourneyBackupIDSingleNode = "s3-backup-single-node"
 	s3BackupJourneyBackupIDCluster    = "s3-backup-cluster"
-	s3BackupJourneyBucketName         = "backups"
 	s3BackupJourneyRegion             = "eu-west-1"
 	s3BackupJourneyAccessKey          = "aws_access_key"
 	s3BackupJourneySecretKey          = "aws_secret_key"
 )
 
 func Test_BackupJourney(t *testing.T) {
-	t.Run("single node", func(t *testing.T) {
-		ctx := context.Background()
+	ctx := context.Background()
 
+	runBackupJourney(t, ctx, false, "backups", "", "")
+	t.Run("with override bucket and path", func(t *testing.T) {
+		runBackupJourney(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+	})
+}
+
+func runBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+	s3BackupJourneyBucketName := containerName
+	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName).
+			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
+			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -61,13 +71,17 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, nil)
+				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, nil, override, overrideBucket, overridePath)
+		})
+
+		t.Run("cancel after restart", func(t *testing.T) {
+			helper.SetupClient(compose.GetWeaviate().URI())
+			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstgs3.Name)
 		})
 	})
 
@@ -80,9 +94,9 @@ func Test_BackupJourney(t *testing.T) {
 		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName).
+			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
-			WithWeaviateCluster().
+			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
@@ -92,14 +106,13 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "s3", s3BackupJourneyClassName,
-				s3BackupJourneyBackupIDCluster, nil,
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+				s3BackupJourneyBackupIDCluster, nil, override, overrideBucket, overridePath,
+				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
 }

@@ -17,81 +17,128 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/weaviate/weaviate/entities/classcache"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/versioned"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // AddReferences Class Instances in batch to the connected DB
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
 	refs []*models.BatchReference, repl *additional.ReplicationProperties,
 ) (BatchReferences, error) {
-	err := b.authorizer.Authorize(principal, "update", "batch/*")
-	if err != nil {
-		return nil, err
+	// only validates form of input, no schema access
+	if err := validateReferenceForm(refs); err != nil {
+		return nil, NewErrInvalidUserInput("invalid params: %v", err)
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
-	unlock, err := b.locks.LockSchema()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
+	batchReferences := validateReferencesConcurrently(ctx, refs, b.logger)
+
+	uniqueClass := map[string]struct{}{}
+	type classAndShard struct {
+		Class string
+		Shard string
 	}
-	defer unlock()
+	uniqueClassShard := map[string]classAndShard{}
+	for idx := range batchReferences {
+		if batchReferences[idx].Err != nil {
+			continue
+		}
+		class := batchReferences[idx].From.Class.String()
+		uniqueClass[class] = struct{}{}
+		uniqueClassShard[class+"#"+batchReferences[idx].Tenant] = classAndShard{Class: class, Shard: batchReferences[idx].Tenant}
+	}
+
+	allClasses := make([]string, 0, len(uniqueClass))
+	for classname := range uniqueClass {
+		allClasses = append(allClasses, classname)
+	}
+	fetchedClasses, err := b.schemaManager.GetCachedClass(ctx, principal, allClasses...)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathsData []string
+	for _, val := range uniqueClassShard {
+		pathsData = append(pathsData, authorization.ShardsData(val.Class, val.Shard)...)
+	}
+
+	if err := b.authorizer.Authorize(principal, authorization.UPDATE, pathsData...); err != nil {
+		return nil, err
+	}
 
 	b.metrics.BatchRefInc()
 	defer b.metrics.BatchRefDec()
 
-	return b.addReferences(ctx, principal, refs, repl)
+	return b.addReferences(ctx, principal, batchReferences, repl, fetchedClasses)
 }
 
 func (b *BatchManager) addReferences(ctx context.Context, principal *models.Principal,
-	refs []*models.BatchReference, repl *additional.ReplicationProperties,
+	refs BatchReferences, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchReferences, error) {
-	if err := b.validateReferenceForm(refs); err != nil {
-		return nil, NewErrInvalidUserInput("invalid params: %v", err)
-	}
-
-	batchReferences := b.validateReferencesConcurrently(ctx, principal, refs)
-
-	if err := b.autodetectToClass(ctx, principal, batchReferences); err != nil {
+	if err := b.autodetectToClass(refs, fetchedClasses); err != nil {
 		return nil, err
 	}
 
 	// MT validation must be done after auto-detection as we cannot know the target class beforehand in all cases
+	type classAndShard struct {
+		Class string
+		Shard string
+	}
+	uniqueClassShard := map[string]classAndShard{}
 	var schemaVersion uint64
-	for i, ref := range batchReferences {
-		if ref.Err == nil {
-			if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
-				// can only validate multi-tenancy when everything above succeeds
-				classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, ref.To, ref.Tenant)
-				if err != nil {
-					batchReferences[i].Err = err
-				}
-				if classVersion > schemaVersion {
-					schemaVersion = classVersion
-				}
+	for i, ref := range refs {
+		if ref.Err != nil {
+			continue
+		}
+
+		if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
+			// can only validate multi-tenancy when everything above succeeds
+			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, ref.To, ref.Tenant, fetchedClasses)
+			if err != nil {
+				refs[i].Err = err
+			}
+			if classVersion > schemaVersion {
+				schemaVersion = classVersion
 			}
 		}
+
+		uniqueClassShard[ref.To.Class+"#"+ref.Tenant] = classAndShard{Class: ref.To.Class, Shard: ref.Tenant}
+	}
+
+	shardsDataPaths := make([]string, 0, len(uniqueClassShard))
+	for _, val := range uniqueClassShard {
+		shardsDataPaths = append(shardsDataPaths, authorization.ShardsData(val.Class, val.Shard)...)
+	}
+
+	// target object is checked for existence - this is currently ONLY done with tenants enabled, but we should require
+	// the permission for everything, to not complicate things too much
+	if err := b.authorizer.Authorize(principal, authorization.READ, shardsDataPaths...); err != nil {
+		return nil, err
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
 	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
-	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl, schemaVersion); err != nil {
+	if res, err := b.vectorRepo.AddBatchReferences(ctx, refs, repl, schemaVersion); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {
 		return res, nil
 	}
 }
 
-func (b *BatchManager) validateReferenceForm(refs []*models.BatchReference) error {
+func validateReferenceForm(refs []*models.BatchReference) error {
 	if len(refs) == 0 {
 		return fmt.Errorf("length cannot be 0, need at least one reference for batching")
 	}
@@ -99,9 +146,7 @@ func (b *BatchManager) validateReferenceForm(refs []*models.BatchReference) erro
 	return nil
 }
 
-func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
-	principal *models.Principal, refs []*models.BatchReference,
-) BatchReferences {
+func validateReferencesConcurrently(ctx context.Context, refs []*models.BatchReference, logger logrus.FieldLogger) BatchReferences {
 	c := make(chan BatchReference, len(refs))
 	wg := new(sync.WaitGroup)
 
@@ -110,7 +155,7 @@ func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
 		i := i
 		ref := ref
 		wg.Add(1)
-		enterrors.GoWrapper(func() { b.validateReference(ctx, principal, wg, ref, i, &c) }, b.logger)
+		enterrors.GoWrapper(func() { validateReference(ctx, wg, ref, i, &c) }, logger)
 	}
 
 	wg.Wait()
@@ -120,9 +165,7 @@ func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
 }
 
 // autodetectToClass gets the class name of the referenced class through the schema definition
-func (b *BatchManager) autodetectToClass(ctx context.Context,
-	principal *models.Principal, batchReferences BatchReferences,
-) error {
+func (b *BatchManager) autodetectToClass(batchReferences BatchReferences, fetchedClasses map[string]versioned.Class) error {
 	classPropTarget := make(map[string]string, len(batchReferences))
 	for i, ref := range batchReferences {
 		// get to class from property datatype
@@ -134,13 +177,13 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 
 		target, ok := classPropTarget[className+propName]
 		if !ok {
-			class, err := b.schemaManager.GetClass(ctx, principal, ref.From.Class.String())
-			if class == nil || err != nil {
-				batchReferences[i].Err = fmt.Errorf("class %s does not exist or there was an error getting it err=%v", className, err)
+			class := fetchedClasses[className]
+			if class.Class == nil {
+				batchReferences[i].Err = fmt.Errorf("source class %q not found in schema", className)
 				continue
 			}
 
-			prop, err := schema.GetPropertyByName(class, propName)
+			prop, err := schema.GetPropertyByName(class.Class, propName)
 			if err != nil {
 				batchReferences[i].Err = fmt.Errorf("property %s does not exist for class %s", propName, className)
 				continue
@@ -156,7 +199,7 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 	return nil
 }
 
-func (b *BatchManager) validateReference(ctx context.Context, principal *models.Principal,
+func validateReference(ctx context.Context,
 	wg *sync.WaitGroup, ref *models.BatchReference, i int, resultsC *chan BatchReference,
 ) {
 	defer wg.Done()
@@ -179,7 +222,9 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 	}
 
 	// target id must be lowercase
-	target.TargetID = strfmt.UUID(strings.ToLower(target.TargetID.String()))
+	if target != nil {
+		target.TargetID = strfmt.UUID(strings.ToLower(target.TargetID.String()))
+	}
 
 	if len(validateErrors) == 0 {
 		err = nil
@@ -199,14 +244,14 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 func validateReferenceMultiTenancy(ctx context.Context,
 	principal *models.Principal, schemaManager schemaManager,
 	repo VectorRepo, source *crossref.RefSource, target *crossref.Ref,
-	tenant string,
+	tenant string, fetchedClasses map[string]versioned.Class,
 ) (uint64, error) {
 	if source == nil || target == nil {
 		return 0, fmt.Errorf("can't validate multi-tenancy for nil refs")
 	}
 
 	sourceClass, targetClass, schemaVersion, err := getReferenceClasses(
-		ctx, principal, schemaManager, source.Class.String(), source.Property.String(), target.Class)
+		ctx, principal, schemaManager, source.Class.String(), source.Property.String(), target.Class, fetchedClasses)
 	if err != nil {
 		return 0, err
 	}
@@ -242,7 +287,7 @@ func validateReferenceMultiTenancy(ctx context.Context,
 
 func getReferenceClasses(ctx context.Context,
 	principal *models.Principal, schemaManager schemaManager,
-	classFrom, fromProperty, classTo string,
+	classFrom, fromProperty, toClassName string, fetchedClasses map[string]versioned.Class,
 ) (sourceClass *models.Class, targetClass *models.Class, schemaVersion uint64, err error) {
 	if classFrom == "" {
 		err = fmt.Errorf("references involving a multi-tenancy enabled class " +
@@ -250,21 +295,17 @@ func getReferenceClasses(ctx context.Context,
 		return
 	}
 
-	vclasses, err := schemaManager.GetCachedClass(ctx, principal, classFrom)
-	if err != nil {
-		err = fmt.Errorf("get source class %q: %w", classFrom, err)
-		return
-	}
-	if vclasses[classFrom].Class == nil {
+	fromClass := fetchedClasses[classFrom]
+	if fromClass.Class == nil {
 		err = fmt.Errorf("source class %q not found in schema", classFrom)
 		return
 	}
 
-	sourceClass = vclasses[classFrom].Class
-	schemaVersion = vclasses[classFrom].Version
+	sourceClass = fromClass.Class
+	schemaVersion = fromClass.Version
 
 	// we can auto-detect the to class from the schema if it is a single target reference
-	if classTo == "" {
+	if toClassName == "" {
 		refProp, err2 := schema.GetPropertyByName(sourceClass, fromProperty)
 		if err2 != nil {
 			err = fmt.Errorf("get source refprop %q: %w", classFrom, err2)
@@ -275,18 +316,25 @@ func getReferenceClasses(ctx context.Context,
 			err = fmt.Errorf("multi-target references require the class name in the target beacon url")
 			return
 		}
-		classTo = refProp.DataType[0]
+		toClassName = refProp.DataType[0]
 	}
 
-	targetClass, err = schemaManager.GetClass(ctx, principal, classTo)
-	if err != nil {
-		err = fmt.Errorf("get target class %q: %w", classTo, err)
+	toClass, ok := fetchedClasses[toClassName]
+	if !ok {
+		targetVclasses, err2 := schemaManager.GetCachedClass(ctx, principal, toClassName)
+		if err2 != nil {
+			err = fmt.Errorf("get target class %q: %w", toClassName, err2)
+			return
+		}
+		toClass = targetVclasses[toClassName]
+		fetchedClasses[toClassName] = toClass
+	}
+	if toClass.Class == nil {
+		err = fmt.Errorf("target class %q not found in schema", classFrom)
 		return
 	}
-	if targetClass == nil {
-		err = fmt.Errorf("target class %q not found in schema", classTo)
-		return
-	}
+	targetClass = toClass.Class
+
 	return
 }
 

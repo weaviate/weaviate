@@ -34,19 +34,10 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
-
-type fakeLocks struct{}
-
-func (f *fakeLocks) LockConnector() (func() error, error) {
-	return func() error { return nil }, nil
-}
-
-func (f *fakeLocks) LockSchema() (func() error, error) {
-	return func() error { return nil }, nil
-}
 
 type ClassIndexCheck interface {
 	PropertyIndexed(property string) bool
@@ -82,14 +73,14 @@ func (f *fakeTxt2VecVectorizer) MoveAwayFrom(source []float32, target []float32,
 
 type fakeVectorSearcher struct {
 	mock.Mock
-	calledWithVector []float32
+	calledWithVector models.Vector
 	calledWithLimit  int
 	calledWithOffset int
 	results          []search.Result
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
-	vector []float32, targetVector string, offset, limit int, filters *filters.LocalFilter,
+	vector models.Vector, targetVector string, offset, limit int, filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
@@ -105,9 +96,9 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
-	params dto.GetParams,
+	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
-	args := f.Called(params)
+	args := f.Called(params, searchVectors)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
@@ -140,23 +131,11 @@ func (f *fakeVectorSearcher) SparseObjectSearch(ctx context.Context,
 	return nil, nil, nil
 }
 
-func (f *fakeVectorSearcher) DenseObjectSearch(context.Context, string,
-	[]float32, string, int, int, *filters.LocalFilter, additional.Properties, string,
-) ([]*storobj.Object, []float32, error) {
-	return nil, nil, nil
-}
-
 func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
 	return nil, nil
-}
-
-type fakeAuthorizer struct{}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return nil
 }
 
 type fakeVectorRepo struct {
@@ -290,7 +269,7 @@ func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
 	return in, nil
 }
 
-func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return true
 }
 
@@ -309,7 +288,7 @@ func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -338,7 +317,7 @@ func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -359,7 +338,7 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -398,7 +377,7 @@ func (m *fakeText2vecContextionaryModule) Arguments() map[string]modulecapabilit
 	return newNearCustomTextModule(m.getExtender(), m.getProjector(), m.getPathBuilder(), m.getInterpretation()).Arguments()
 }
 
-func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	searcher := &fakeSearcher{&fakeTxt2VecVectorizer{}}
 	return searcher.VectorSearches()
 }
@@ -457,8 +436,16 @@ func (p nearCustomTextParams) SimilarityMetricProvided() bool {
 	return p.Certainty != 0 || p.WithDistance
 }
 
+func (n nearCustomTextParams) SupportMultiTargetVector() bool {
+	return false
+}
+
 func (p nearCustomTextParams) GetTargetVectors() []string {
 	return p.TargetVectors
+}
+
+func (p nearCustomTextParams) GetTargetCombination() *dto.TargetCombination {
+	return nil
 }
 
 type nearExploreMove struct {
@@ -674,8 +661,9 @@ func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQL
 		ExploreArgumentsFunction: func() *graphql.ArgumentConfig {
 			return m.getNearCustomTextArgument("")
 		},
-		ExtractFunction: func(source map[string]interface{}) interface{} {
-			return m.extractNearCustomTextArgument(source)
+		ExtractFunction: func(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
+			params := m.extractNearCustomTextArgument(source)
+			return params, nil, nil
 		},
 		ValidateFunction: func(param interface{}) error {
 			nearText, ok := param.(*nearCustomTextParams)
@@ -852,8 +840,8 @@ func (m *nearCustomTextModule) getInterpretation() modulecapabilities.Additional
 	}
 }
 
-func (m *nearCustomTextModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
+func (m *nearCustomTextModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
 	return vectorSearches
 }
 
@@ -861,14 +849,14 @@ type fakeSearcher struct {
 	vectorizer *fakeTxt2VecVectorizer
 }
 
-func (s *fakeSearcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearCustomText"] = s.vectorForNearTextParam
+func (s *fakeSearcher) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
+	vectorSearches["nearCustomText"] = generictypes.VectorForParams(s.vectorForNearTextParam)
 	return vectorSearches
 }
 
 func (s *fakeSearcher) vectorForNearTextParam(ctx context.Context, params interface{},
-	className string, findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig,
+	className string, findVectorFn modulecapabilities.FindVectorFn[[]float32], cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	vector, err := s.vectorizer.Corpi(ctx, nil)
 	if err != nil {

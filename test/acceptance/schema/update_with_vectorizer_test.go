@@ -24,7 +24,7 @@ import (
 func Test_UpdateClassWithText2VecOpenAI(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithText2VecOpenAI().
+		WithText2VecOpenAI("", "", "").
 		WithWeaviate().
 		Start(ctx)
 	require.NoError(t, err)

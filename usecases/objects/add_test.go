@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -60,7 +61,6 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: sch,
 		}
-		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{
 			Config: config.Config{
 				AutoSchema: config.AutoSchema{
@@ -69,12 +69,12 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 				},
 			},
 		}
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		logger, _ := test.NewNullLogger()
 
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
+		manager = NewManager(schemaManager, cfg, logger, authorizer,
 			vectorRepo, modulesProvider, metrics, nil)
 	}
 
@@ -262,14 +262,13 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
-		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		logger, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		modulesProvider = getFakeModulesProvider()
 		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
+		manager = NewManager(schemaManager, cfg, logger, authorizer,
 			vectorRepo, modulesProvider, metrics, nil)
 	}
 
@@ -376,13 +375,12 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
-		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		logger, _ := test.NewNullLogger()
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger,
+		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil)
 	}
 
@@ -437,13 +435,12 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
-		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		logger, _ := test.NewNullLogger()
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger,
+		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil)
 	}
 	reset()
@@ -493,13 +490,12 @@ func Test_AddObjectWithUUIDProps(t *testing.T) {
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
-		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		logger, _ := test.NewNullLogger()
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger,
+		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil)
 	}
 	reset()

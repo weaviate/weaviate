@@ -74,7 +74,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 		},
 	}
 
-	quantization := []string{"pq", "bq"}
+	quantization := []string{"pq", "bq", "sq"}
 	testsWithQuantization := make([]iteratorTestCase, len(tests)*len(quantization))
 	for i, test := range tests {
 		for j, q := range quantization {
@@ -105,6 +105,16 @@ func TestCompressedParallelIterator(t *testing.T) {
 					assert.Equal(t, vec.Id, vec.Vec[0])
 				}
 				q := NewBinaryQuantizer(nil)
+				fromCompressed := q.FromCompressedBytesWithSubsliceBuffer
+				cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
+				testIterator(t, cpi, test, assertValue)
+
+			case "sq":
+				assertValue := func(t *testing.T, vec VecAndID[byte]) {
+					valAsUint64 := binary.LittleEndian.Uint64(vec.Vec)
+					assert.Equal(t, vec.Id, valAsUint64)
+				}
+				q := &ScalarQuantizer{}
 				fromCompressed := q.FromCompressedBytesWithSubsliceBuffer
 				cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
 				testIterator(t, cpi, test, assertValue)
@@ -150,8 +160,9 @@ func testIterator[T uint64 | byte](t *testing.T, cpi *parallelIterator[T], test 
 func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
-	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		lsmkv.WithPread(true))
+	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		lsmkv.WithPread(true), lsmkv.WithSegmentsChecksumValidationEnabled(false))
 	require.Nil(t, err)
 
 	for i := 0; i < totalVecs; i++ {

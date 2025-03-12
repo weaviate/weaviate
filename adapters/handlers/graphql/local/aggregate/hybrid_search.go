@@ -45,6 +45,7 @@ func hybridOperands(classObject *graphql.Object,
 		Fields: hybridSubSearch(classObject, class, modulesProvider),
 	})
 	prefixName := class.Class + "HybridSubSearch"
+	searchesPrefixName := prefixName + "Searches"
 	fieldMap := graphql.InputObjectConfigFieldMap{
 		"query": &graphql.InputObjectFieldConfig{
 			Description: "Query string",
@@ -54,9 +55,13 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Search weight",
 			Type:        graphql.Float,
 		},
+		"maxVectorDistance": &graphql.InputObjectFieldConfig{
+			Description: "Removes all results that have a vector distance larger than the given value",
+			Type:        graphql.Float,
+		},
 		"vector": &graphql.InputObjectFieldConfig{
 			Description: "Vector search",
-			Type:        graphql.NewList(graphql.Float),
+			Type:        common_filters.Vector(prefixName),
 		},
 		"targetVectors": &graphql.InputObjectFieldConfig{
 			Description: "Target vectors",
@@ -72,7 +77,7 @@ func hybridOperands(classObject *graphql.Object,
 			Type: graphql.NewList(graphql.NewInputObject(
 				graphql.InputObjectConfig{
 					Description: "Subsearch list",
-					Name:        fmt.Sprintf("%sSearchesInpObj", prefixName),
+					Name:        fmt.Sprintf("%sSearchesInpObj", searchesPrefixName),
 					Fields: (func() graphql.InputObjectConfigFieldMap {
 						subSearchFields := make(graphql.InputObjectConfigFieldMap)
 						fieldMap := graphql.InputObjectConfigFieldMap{
@@ -81,8 +86,8 @@ func hybridOperands(classObject *graphql.Object,
 
 								Type: graphql.NewInputObject(
 									graphql.InputObjectConfig{
-										Name:        fmt.Sprintf("%sNearTextInpObj", prefixName),
-										Fields:      nearTextFields(prefixName),
+										Name:        fmt.Sprintf("%sNearTextInpObj", searchesPrefixName),
+										Fields:      nearTextFields(searchesPrefixName),
 										Description: "Near text search",
 									},
 								),
@@ -91,9 +96,9 @@ func hybridOperands(classObject *graphql.Object,
 								Description: "nearVector element",
 								Type: graphql.NewInputObject(
 									graphql.InputObjectConfig{
-										Name:        fmt.Sprintf("%sNearVectorInpObj", prefixName),
+										Name:        fmt.Sprintf("%sNearVectorInpObj", searchesPrefixName),
 										Description: "Near vector search",
-										Fields:      common_filters.NearVectorFields(prefixName),
+										Fields:      common_filters.NearVectorFields(searchesPrefixName, false),
 									},
 								),
 							},

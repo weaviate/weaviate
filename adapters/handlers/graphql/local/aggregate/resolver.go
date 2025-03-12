@@ -21,12 +21,14 @@ import (
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // GroupedByFieldName is a special graphQL field that appears alongside the
@@ -47,9 +49,9 @@ type RequestsLog interface {
 	Register(requestType string, identifier string)
 }
 
-func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) graphql.FieldResolveFn {
+func makeResolveClass(authorizer authorization.Authorizer, modulesProvider ModulesProvider, class *models.Class) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
-		res, err := resolveAggregate(p, modulesProvider, class)
+		res, err := resolveAggregate(p, authorizer, modulesProvider, class)
 		if err != nil {
 			return res, enterrors.NewErrGraphQLUser(err, "Aggregate", schema.ClassName(p.Info.FieldName).String())
 		}
@@ -57,8 +59,10 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 	}
 }
 
-func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, class *models.Class) (interface{}, error) {
+func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authorizer, modulesProvider ModulesProvider, class *models.Class) (interface{}, error) {
+	principal := restCtx.GetPrincipalFromContext(p.Context)
 	className := schema.ClassName(p.Info.FieldName)
+
 	source, ok := p.Source.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("expected source to be a map, but was %t", p.Source)
@@ -67,6 +71,15 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 	resolver, ok := source["Resolver"].(Resolver)
 	if !ok {
 		return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %t", p.Source)
+	}
+
+	var tenant string
+	if tk, ok := p.Args["tenant"]; ok {
+		tenant = tk.(string)
+	}
+
+	if err := authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(className.String(), tenant)...); err != nil {
+		return nil, err
 	}
 
 	// There can only be exactly one ast.Field; it is the class name.
@@ -102,10 +115,15 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 	if err != nil {
 		return nil, fmt.Errorf("could not extract filters: %w", err)
 	}
+	if filters != nil {
+		if err := common_filters.AuthorizeFilters(authorizer, filters.Root, principal); err != nil {
+			return nil, err
+		}
+	}
 
 	var nearVectorParams *searchparams.NearVector
 	if nearVector, ok := p.Args["nearVector"]; ok {
-		p, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+		p, _, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}), nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract nearVector params: %w", err)
 		}
@@ -114,7 +132,7 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 
 	var nearObjectParams *searchparams.NearObject
 	if nearObject, ok := p.Args["nearObject"]; ok {
-		p, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
+		p, _, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract nearObject params: %w", err)
 		}
@@ -123,7 +141,7 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 
 	var moduleParams map[string]interface{}
 	if modulesProvider != nil {
-		extractedParams := modulesProvider.ExtractSearchParams(p.Args, class.Class)
+		extractedParams, _ := modulesProvider.ExtractSearchParams(p.Args, class.Class)
 		if len(extractedParams) > 0 {
 			moduleParams = extractedParams
 		}
@@ -134,16 +152,11 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 	// refactored
 	var hybridParams *searchparams.HybridSearch
 	if hybrid, ok := p.Args["hybrid"]; ok {
-		p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), false)
+		p, _, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
 		}
 		hybridParams = p
-	}
-
-	var tenant string
-	if tk, ok := p.Args["tenant"]; ok {
-		tenant = tk.(string)
 	}
 
 	params := &aggregation.Params{
@@ -166,7 +179,7 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 		return nil, fmt.Errorf("objectLimit can only be used with a near<Media> or hybrid filter")
 	}
 
-	res, err := resolver.Aggregate(p.Context, principalFromContext(p.Context), params)
+	res, err := resolver.Aggregate(p.Context, principal, params)
 	if err != nil {
 		return nil, err
 	}
@@ -262,15 +275,6 @@ func extractGroupBy(args map[string]interface{}, rootClass string) (*filters.Pat
 	}
 
 	return filters.ParsePath(pathSegments, rootClass)
-}
-
-func principalFromContext(ctx context.Context) *models.Principal {
-	principal := ctx.Value("principal")
-	if principal == nil {
-		return nil
-	}
-
-	return principal.(*models.Principal)
 }
 
 func extractLimit(args map[string]interface{}) (*int, error) {

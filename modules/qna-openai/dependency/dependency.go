@@ -16,11 +16,11 @@ import "github.com/weaviate/weaviate/entities/modulecapabilities"
 type NearTextDependecy struct {
 	moduleName string
 	argument   modulecapabilities.GraphQLArgument
-	searcher   modulecapabilities.VectorForParams
+	searcher   modulecapabilities.VectorForParams[[]float32]
 }
 
 func New(moduleName string, argument modulecapabilities.GraphQLArgument,
-	searcher modulecapabilities.VectorForParams,
+	searcher modulecapabilities.VectorForParams[[]float32],
 ) *NearTextDependecy {
 	return &NearTextDependecy{moduleName, argument, searcher}
 }
@@ -37,6 +37,6 @@ func (d *NearTextDependecy) GraphQLArgument() modulecapabilities.GraphQLArgument
 	return d.argument
 }
 
-func (d *NearTextDependecy) VectorSearch() modulecapabilities.VectorForParams {
+func (d *NearTextDependecy) VectorSearch() modulecapabilities.VectorForParams[[]float32] {
 	return d.searcher
 }

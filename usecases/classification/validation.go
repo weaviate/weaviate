@@ -26,25 +26,25 @@ const (
 )
 
 type Validator struct {
-	getClass func(string) *models.Class
-	errors   *errorcompounder.SafeErrorCompounder
-	subject  models.Classification
+	authorizedGetClass func(string) (*models.Class, error)
+	errors             *errorcompounder.SafeErrorCompounder
+	subject            models.Classification
 }
 
-func NewValidator(getClass func(string) *models.Class, subject models.Classification) *Validator {
+func NewValidator(authorizedGetClass func(string) (*models.Class, error), subject models.Classification) *Validator {
 	return &Validator{
-		getClass: getClass,
-		errors:   &errorcompounder.SafeErrorCompounder{},
-		subject:  subject,
+		authorizedGetClass: authorizedGetClass,
+		errors:             &errorcompounder.SafeErrorCompounder{},
+		subject:            subject,
 	}
 }
 
 func (v *Validator) Do() error {
 	v.validate()
 
-	err := v.errors.ToError()
+	err := v.errors.First()
 	if err != nil {
-		return fmt.Errorf("invalid classification: %v", err)
+		return fmt.Errorf("invalid classification: %w", err)
 	}
 
 	return nil
@@ -56,7 +56,11 @@ func (v *Validator) validate() {
 		return
 	}
 
-	class := v.getClass(v.subject.Class)
+	class, err := v.authorizedGetClass(v.subject.Class)
+	if err != nil {
+		v.errors.Add(err)
+		return
+	}
 	if class == nil {
 		v.errors.Addf("class '%s' not found in schema", v.subject.Class)
 		return
@@ -112,7 +116,7 @@ func (v *Validator) basedOnProperty(class *models.Class, propName string) {
 		return
 	}
 
-	dt, err := schema.FindPropertyDataTypeWithRefs(v.getClass, prop.DataType, false, "")
+	dt, err := schema.FindPropertyDataTypeWithRefsAndAuth(v.authorizedGetClass, prop.DataType, false, "")
 	if err != nil {
 		v.errors.Addf("basedOnProperties: %v", err)
 		return
@@ -147,9 +151,9 @@ func (v *Validator) classifyProperty(class *models.Class, propName string) {
 		return
 	}
 
-	dt, err := schema.FindPropertyDataTypeWithRefs(v.getClass, prop.DataType, false, "")
+	dt, err := schema.FindPropertyDataTypeWithRefsAndAuth(v.authorizedGetClass, prop.DataType, false, "")
 	if err != nil {
-		v.errors.Addf("classifyProperties: %v", err)
+		v.errors.Addf("classifyProperties: %w", err)
 		return
 	}
 

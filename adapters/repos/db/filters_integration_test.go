@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -125,7 +127,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, 0))
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, nil, 0))
 			})
 		}
 	}
@@ -148,7 +150,7 @@ func prepareCarTestSchemaAndDataNoLength(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, 0))
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, nil, 0))
 			})
 		}
 	}
@@ -191,10 +193,9 @@ func testPrimitivePropsWithNoLengthIndex(repo *DB) func(t *testing.T) {
 					test.limit = 100
 				}
 				params := dto.GetParams{
-					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-					ClassName:    carClass.Class,
-					Pagination:   &filters.Pagination{Limit: test.limit},
-					Filters:      test.filter,
+					ClassName:  carClass.Class,
+					Pagination: &filters.Pagination{Limit: test.limit},
+					Filters:    test.filter,
 				}
 				res, err := repo.Search(context.Background(), params)
 				if len(test.ErrMsg) > 0 {
@@ -575,10 +576,9 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 					test.limit = 100
 				}
 				params := dto.GetParams{
-					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-					ClassName:    carClass.Class,
-					Pagination:   &filters.Pagination{Limit: test.limit},
-					Filters:      test.filter,
+					ClassName:  carClass.Class,
+					Pagination: &filters.Pagination{Limit: test.limit},
+					Filters:    test.filter,
 				}
 				res, err := repo.Search(context.Background(), params)
 				if len(test.ErrMsg) > 0 {
@@ -606,10 +606,9 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 			limit := 1
 
 			params := dto.GetParams{
-				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-				ClassName:    carClass.Class,
-				Pagination:   &filters.Pagination{Limit: limit},
-				Filters:      buildFilter("horsepower", 2, gt, dtInt), // would otherwise return 3 results
+				ClassName:  carClass.Class,
+				Pagination: &filters.Pagination{Limit: limit},
+				Filters:    buildFilter("horsepower", 2, gt, dtInt), // would otherwise return 3 results
 			}
 			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
@@ -620,10 +619,9 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 			limit := 1
 
 			params := dto.GetParams{
-				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-				ClassName:    carClass.Class,
-				Pagination:   &filters.Pagination{Limit: limit},
-				Filters:      buildFilter("horsepower", 20000, lt, dtInt), // would otherwise return 3 results
+				ClassName:  carClass.Class,
+				Pagination: &filters.Pagination{Limit: limit},
+				Filters:    buildFilter("horsepower", 20000, lt, dtInt), // would otherwise return 3 results
 			}
 			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
@@ -702,7 +700,6 @@ func testChainedPrimitiveProps(repo *DB,
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				params := dto.GetParams{
-					// SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
 					ClassName:  carClass.Class,
 					Pagination: &filters.Pagination{Limit: 100},
 					Filters:    test.filter,
@@ -1089,7 +1086,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 							Longitude: &coordinates[i][1],
 						},
 					},
-				}, []float32{0.5}, nil, nil, 0)
+				}, []float32{0.5}, nil, nil, nil, 0)
 			}
 		}
 	}
@@ -1233,7 +1230,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, nil, 0))
 			})
 		}
 	})
@@ -1346,6 +1343,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 					ClassName:  class.Class,
 					Pagination: &filters.Pagination{Limit: test.limit},
 					Filters:    test.filter,
+					Properties: search.SelectProperties{{Name: "name"}},
 				}
 				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
@@ -1604,7 +1602,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, nil, 0))
 			})
 		}
 	})

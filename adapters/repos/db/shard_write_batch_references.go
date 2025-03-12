@@ -134,6 +134,13 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 			continue
 		}
 
+		if err := b.shard.mayUpsertObjectHashTree(res.next, idBytes, res.status); err != nil {
+			errLock.Lock()
+			errs[i] = fmt.Errorf("object merge in hashtree: %w", err)
+			errLock.Unlock()
+			continue
+		}
+
 		prop, ok := propsByName[ref.From.Property.String()]
 		if !ok {
 			errLock.Lock()
@@ -290,13 +297,15 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object, ref objects.BatchRef
 	return []inverted.Property{{
 		Name:               helpers.MetaCountProp(ref.From.Property.String()),
 		Items:              countItems,
-		HasFilterableIndex: inverted.HasFilterableIndexMetaCount && inverted.HasInvertedIndex(prop),
-		HasSearchableIndex: inverted.HasSearchableIndexMetaCount && inverted.HasInvertedIndex(prop),
+		HasFilterableIndex: inverted.HasFilterableIndexMetaCount && inverted.HasAnyInvertedIndex(prop),
+		HasSearchableIndex: inverted.HasSearchableIndexMetaCount && inverted.HasAnyInvertedIndex(prop),
+		HasRangeableIndex:  inverted.HasRangeableIndexMetaCount && inverted.HasAnyInvertedIndex(prop),
 	}, {
 		Name:               ref.From.Property.String(),
 		Items:              valueItems,
 		HasFilterableIndex: inverted.HasFilterableIndex(prop),
 		HasSearchableIndex: inverted.HasSearchableIndex(prop),
+		HasRangeableIndex:  inverted.HasRangeableIndex(prop),
 	}}, nil
 }
 
@@ -324,21 +333,14 @@ func (b *referencesBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	if b.shard.hasTargetVectors() {
-		for targetVector, vectorIndex := range b.shard.VectorIndexes() {
-			if err := vectorIndex.Flush(); err != nil {
-				for i := range b.refs {
-					b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
-				}
-			}
-		}
-	} else {
-		if err := b.shard.VectorIndex().Flush(); err != nil {
+	_ = b.shard.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
 			for i := range b.refs {
-				b.setErrorAtIndex(err, i)
+				b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
 			}
 		}
-	}
+		return nil
+	})
 }
 
 func (b *referencesBatcher) getSchemaPropsByName() (map[string]*models.Property, error) {

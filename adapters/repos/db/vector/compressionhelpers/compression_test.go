@@ -145,13 +145,9 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 			testinghelpers.NewDummyStore(t),
 			memwatch.NewDummyMonitor(),
 		)
-		compressor.Preload(0, storedVec)
 		require.Nil(t, err)
-		_, err = compressor.DistanceBetweenCompressedAndUncompressedVectorsFromID(
-			context.Background(),
-			0, mismatchedVec)
-		msg := "ProductQuantizer.DistanceBetweenCompressedAndUncompressedVectors: " +
-			"mismatched dimensions: 2 (search vector), 3 (configured index dims)"
-		assert.EqualError(t, err, msg)
+		d, _ := compressor.NewDistancer(storedVec)
+		_, err = d.DistanceToFloat(mismatchedVec)
+		assert.EqualError(t, err, "2 vs 3: vector lengths don't match")
 	})
 }

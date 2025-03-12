@@ -18,12 +18,16 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -58,10 +62,12 @@ type SchemaManager interface {
 	// from an up to date schema.
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
-	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
+	QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error)
+	QueryCollectionsCount() (int, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
+	QueryClassVersions(names ...string) (map[string]uint64, error)
 }
 
 // SchemaReader allows reading the local schema with or without using a schema version.
@@ -76,6 +82,7 @@ type SchemaReader interface {
 	MultiTenancy(class string) models.MultiTenancyConfig
 	ClassInfo(class string) (ci clusterSchema.ClassInfo)
 	ReadOnlyClass(name string) *models.Class
+	ReadOnlyVersionedClass(name string) versioned.Class
 	ReadOnlySchema() models.Schema
 	CopyShardingState(class string) *sharding.State
 	ShardReplicas(class, shard string) ([]string, error)
@@ -112,10 +119,12 @@ type Handler struct {
 	schemaManager SchemaManager
 	schemaReader  SchemaReader
 
+	cloud modulecapabilities.OffloadCloud
+
 	validator validator
 
 	logger                  logrus.FieldLogger
-	Authorizer              authorizer
+	Authorizer              authorization.Authorizer
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
@@ -124,6 +133,7 @@ type Handler struct {
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	parser                  Parser
+	classGetter             *ClassGetter
 }
 
 // NewHandler creates a new handler
@@ -131,17 +141,19 @@ func NewHandler(
 	schemaReader SchemaReader,
 	schemaManager SchemaManager,
 	validator validator,
-	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
+	cloud modulecapabilities.OffloadCloud,
+	parser Parser, classGetter *ClassGetter,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
-		parser:                  Parser{clusterState: clusterState, configParser: configParser, validator: validator},
+		parser:                  parser,
 		validator:               validator,
 		logger:                  logger,
 		Authorizer:              authorizer,
@@ -151,6 +163,8 @@ func NewHandler(
 		moduleConfig:            moduleConfig,
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
+		cloud:                   cloud,
+		classGetter:             classGetter,
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)
@@ -159,32 +173,35 @@ func NewHandler(
 }
 
 // GetSchema retrieves a locally cached copy of the schema
-func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := h.Authorizer.Authorize(principal, "list", "schema/*")
-	if err != nil {
-		return schema.Schema{}, err
-	}
-
-	return h.getSchema(), nil
-}
-
-// GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
-		return schema.Schema{}, err
-	}
-
+	var fullSchema schema.Schema
 	if !consistency {
-		return h.getSchema(), nil
+		fullSchema = h.getSchema()
+	} else {
+		consistentSchema, err := h.schemaManager.QuerySchema()
+		if err != nil {
+			return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
+		}
+		fullSchema = schema.Schema{
+			Objects: &consistentSchema,
+		}
 	}
 
-	if consistentSchema, err := h.schemaManager.QuerySchema(); err != nil {
-		return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
-	} else {
-		return schema.Schema{
-			Objects: &consistentSchema,
-		}, nil
-	}
+	filteredClasses := filter.New[*models.Class](h.Authorizer, h.config.Authorization.Rbac).Filter(
+		h.logger,
+		principal,
+		fullSchema.Objects.Classes,
+		authorization.READ,
+		func(class *models.Class) string {
+			return authorization.CollectionsMetadata(class.Class)[0]
+		},
+	)
+
+	return schema.Schema{
+		Objects: &models.Schema{
+			Classes: filteredClasses,
+		},
+	}, nil
 }
 
 // GetSchemaSkipAuth can never be used as a response to a user request as it
@@ -210,8 +227,7 @@ func (h *Handler) NodeName() string {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	err := h.Authorizer.Authorize(principal, "update",
-		fmt.Sprintf("schema/%s/shards/%s", class, shard))
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...)
 	if err != nil {
 		return 0, err
 	}
@@ -220,14 +236,14 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 }
 
 func (h *Handler) ShardsStatus(ctx context.Context,
-	principal *models.Principal, class, tenant string,
+	principal *models.Principal, class, shard string,
 ) (models.ShardStatusList, error) {
-	err := h.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", class))
+	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shard)...)
 	if err != nil {
 		return nil, err
 	}
 
-	return h.schemaReader.GetShardsStatus(class, tenant)
+	return h.schemaReader.GetShardsStatus(class, shard)
 }
 
 // JoinNode adds the given node to the cluster.

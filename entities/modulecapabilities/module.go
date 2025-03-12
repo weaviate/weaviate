@@ -15,18 +15,21 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 type ModuleType string
 
 const (
+	Offload             ModuleType = "Offload"
 	Backup              ModuleType = "Backup"
 	Extension           ModuleType = "Extension"
 	Img2Vec             ModuleType = "Img2Vec"
 	Multi2Vec           ModuleType = "Multi2Vec"
 	Ref2Vec             ModuleType = "Ref2Vec"
 	Text2MultiVec       ModuleType = "Text2MultiVec"
+	Text2ColBERT        ModuleType = "Text2ColBERT"
 	Text2TextGenerative ModuleType = "Text2TextGenerative"
 	Text2TextSummarize  ModuleType = "Text2TextSummarize"
 	Text2TextReranker   ModuleType = "Text2TextReranker"
@@ -52,11 +55,11 @@ type ModuleDependency interface {
 	InitDependency(modules []Module) error
 }
 
-type Dependency interface {
+type Dependency[T dto.Embedding] interface {
 	ModuleName() string
 	Argument() string
 	GraphQLArgument() GraphQLArgument
-	VectorSearch() VectorForParams
+	VectorSearch() VectorForParams[T]
 }
 
 type ModuleHasAltNames interface {

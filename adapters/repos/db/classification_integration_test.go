@@ -64,7 +64,7 @@ func TestClassifications(t *testing.T) {
 	t.Run("importing categories", func(t *testing.T) {
 		for _, res := range classificationTestCategories() {
 			thing := res.Object()
-			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil, 0)
+			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -72,14 +72,14 @@ func TestClassifications(t *testing.T) {
 	t.Run("importing articles", func(t *testing.T) {
 		for _, res := range classificationTestArticles() {
 			thing := res.Object()
-			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil, 0)
+			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
 
 	t.Run("finding all unclassified (no filters)", func(t *testing.T) {
 		res, err := repo.GetUnclassified(context.Background(),
-			"Article", []string{"exactCategory", "mainCategory"}, nil)
+			"Article", []string{"exactCategory", "mainCategory"}, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, res, 6)
 	})
@@ -99,7 +99,7 @@ func TestClassifications(t *testing.T) {
 		}
 
 		res, err := repo.GetUnclassified(context.Background(),
-			"Article", []string{"exactCategory", "mainCategory"}, filter)
+			"Article", []string{"exactCategory", "mainCategory"}, nil, filter)
 		require.Nil(t, err)
 		require.Len(t, res, 1)
 		assert.Equal(t, strfmt.UUID("a2bbcbdc-76e1-477d-9e72-a6d2cfb50109"), res[0].ID)

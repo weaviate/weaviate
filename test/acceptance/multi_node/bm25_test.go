@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
@@ -32,8 +31,7 @@ var paragraphs = []string{
 }
 
 func TestBm25MultiNode(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 	for i := 0; i < 5; i++ {
 		t.Run(fmt.Sprintf("iteration: %v", i), func(t *testing.T) {
 			runBM25MultinodeTest(t, ctx)

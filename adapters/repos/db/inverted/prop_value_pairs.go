@@ -14,14 +14,16 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -41,6 +43,7 @@ type propValuePair struct {
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
+	hasRangeableIndex  bool
 	Class              *models.Class // The schema
 	logger             logrus.FieldLogger
 }
@@ -52,9 +55,8 @@ func newPropValuePair(class *models.Class, logger logrus.FieldLogger) (*propValu
 	return &propValuePair{logger: logger, docIDs: newDocBitmap(), Class: class}, nil
 }
 
-func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
+func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
-
 		// TODO text_rbm_inverted_index find better way check whether prop len
 		if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
 			!pv.Class.InvertedIndexConfig.IndexPropertyLength {
@@ -71,12 +73,8 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("Timestamps must be indexed to be filterable! Add `IndexTimestamps: true` to the InvertedIndexConfig in %v", pv.Class.Class)
 		}
 
-		var bucketName string
-		if pv.hasFilterableIndex {
-			bucketName = helpers.BucketFromPropNameLSM(pv.prop)
-		} else if pv.hasSearchableIndex {
-			bucketName = helpers.BucketSearchableFromPropNameLSM(pv.prop)
-		} else {
+		bucketName := pv.getBucketName()
+		if bucketName == "" {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
@@ -90,7 +88,6 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		ctx := context.TODO() // TODO: pass through instead of spawning new
 		dbm, err := s.docBitmap(ctx, b, limit, pv)
 		if err != nil {
 			return err
@@ -108,7 +105,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 				// otherwise we run into situations where each subfilter on their own
 				// runs into the limit, possibly yielding in "less than limit" results
 				// after merging.
-				err := child.fetchDocIDs(s, 0)
+				err := child.fetchDocIDs(ctx, s, 0)
 				if err != nil {
 					return errors.Wrapf(err, "nested child %d", i)
 				}
@@ -129,33 +126,80 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 		return &pv.docIDs, nil
 	}
 
-	if pv.operator != filters.OperatorAnd && pv.operator != filters.OperatorOr {
+	switch pv.operator {
+	case filters.OperatorAnd:
+	case filters.OperatorOr:
+		// ok
+	default:
 		return nil, fmt.Errorf("unsupported operator: %s", pv.operator.Name())
 	}
-	if len(pv.children) == 0 {
+
+	switch len(pv.children) {
+	case 0:
 		return nil, fmt.Errorf("no children for operator: %s", pv.operator.Name())
+	case 1:
+		return pv.children[0].mergeDocIDs()
 	}
 
+	var err error
 	dbms := make([]*docBitmap, len(pv.children))
 	for i, child := range pv.children {
-		dbm, err := child.mergeDocIDs()
+		dbms[i], err = child.mergeDocIDs()
 		if err != nil {
 			return nil, errors.Wrapf(err, "retrieve doc bitmap of child %d", i)
 		}
-		dbms[i] = dbm
 	}
 
-	mergeRes := dbms[0].docIDs.Clone()
-	mergeFn := mergeRes.And
+	var mergeFn func(*sroar.Bitmap, int) *sroar.Bitmap
 	if pv.operator == filters.OperatorOr {
-		mergeFn = mergeRes.Or
+		// biggest to smallest, so smaller bitmaps are merged into biggest one,
+		// minimising chance of expanding destination bitmap (memory allocations)
+		sort.Slice(dbms, func(i, j int) bool {
+			return dbms[i].docIDs.CompareNumKeys(dbms[j].docIDs) > 0
+		})
+		mergeFn = dbms[0].docIDs.OrConc
+	} else {
+		// smallest to biggest, so data is removed from smallest bitmap
+		// allowing bigger bitmaps to be garbage collected asap
+		sort.Slice(dbms, func(i, j int) bool {
+			return dbms[i].docIDs.CompareNumKeys(dbms[j].docIDs) < 0
+		})
+		mergeFn = dbms[0].docIDs.AndConc
 	}
 
 	for i := 1; i < len(dbms); i++ {
-		mergeFn(dbms[i].docIDs)
+		mergeFn(dbms[i].docIDs, concurrency.SROAR_MERGE)
+		dbms[i].release()
 	}
+	return dbms[0], nil
+}
 
-	return &docBitmap{
-		docIDs: roaringset.Condense(mergeRes),
-	}, nil
+func (pv *propValuePair) getBucketName() string {
+	if pv.hasRangeableIndex {
+		switch pv.operator {
+		// decide whether handle equal/not_equal with rangeable index
+		case filters.OperatorGreaterThan,
+			filters.OperatorGreaterThanEqual,
+			filters.OperatorLessThan,
+			filters.OperatorLessThanEqual:
+			return helpers.BucketRangeableFromPropNameLSM(pv.prop)
+		default:
+		}
+	}
+	if pv.hasFilterableIndex {
+		return helpers.BucketFromPropNameLSM(pv.prop)
+	}
+	// fallback equal/not_equal to rangeable
+	if pv.hasRangeableIndex {
+		switch pv.operator {
+		case filters.OperatorEqual,
+			filters.OperatorNotEqual:
+			return helpers.BucketRangeableFromPropNameLSM(pv.prop)
+		default:
+		}
+	}
+	if pv.hasSearchableIndex {
+		return helpers.BucketSearchableFromPropNameLSM(pv.prop)
+	}
+	return ""
 }

@@ -23,10 +23,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/test_utils"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -599,12 +601,15 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 			DefaultNumber: "number",
 			DefaultDate:   "date",
 		},
-		logger: logger,
+		authorizer: fakeAuthorizer{},
+		logger:     logger,
 	}
 
 	var obj *models.Object
 
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, obj)
+	knownClasses := map[string]versioned.Class{}
+
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
 	assert.EqualError(t, fmt.Errorf(validation.ErrorMissingObject), err.Error())
 }
 
@@ -624,7 +629,8 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 			DefaultNumber: "number",
 			DefaultDate:   "date",
 		},
-		logger: logger,
+		authorizer: fakeAuthorizer{},
+		logger:     logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
@@ -636,9 +642,11 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 			"numberArray":     []interface{}{json.Number("30")},
 		},
 	}
+	knownClasses := map[string]versioned.Class{}
+
 	// when
 	schemaBefore := schemaManager.GetSchemaResponse
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, obj)
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
 	schemaAfter := schemaManager.GetSchemaResponse
 
 	// then
@@ -671,20 +679,20 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	logger, _ := test.NewNullLogger()
+
+	class := &models.Class{
+		Class: "Publication",
+		Properties: []*models.Property{
+			{
+				Name:     "age",
+				DataType: []string{"int"},
+			},
+		},
+	}
 	schemaManager := &fakeSchemaManager{
 		GetSchemaResponse: schema.Schema{
 			Objects: &models.Schema{
-				Classes: []*models.Class{
-					{
-						Class: "Publication",
-						Properties: []*models.Property{
-							{
-								Name:     "age",
-								DataType: []string{"int"},
-							},
-						},
-					},
-				},
+				Classes: []*models.Class{class},
 			},
 		},
 	}
@@ -697,7 +705,8 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 			DefaultNumber: "int",
 			DefaultDate:   "date",
 		},
-		logger: logger,
+		authorizer: fakeAuthorizer{},
+		logger:     logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
@@ -719,7 +728,11 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	assert.Equal(t, "age", (schemaBefore.Objects.Classes)[0].Properties[0].Name)
 	assert.Equal(t, "int", (schemaBefore.Objects.Classes)[0].Properties[0].DataType[0])
 
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, obj)
+	knownClasses := map[string]versioned.Class{
+		class.Class: {Version: 0, Class: class},
+	}
+
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
 	require.Nil(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse
@@ -1271,6 +1284,7 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   schema.DataTypeDate.String(),
 		},
+		authorizer: fakeAuthorizer{},
 	}
 
 	for i, tc := range testCases {
@@ -1632,10 +1646,15 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   schema.DataTypeDate.String(),
 		},
-		logger: logger,
+		logger:     logger,
+		authorizer: fakeAuthorizer{},
 	}
 
-	_, err := manager.autoSchema(context.Background(), &models.Principal{}, true, object)
+	knownClasses := map[string]versioned.Class{
+		class.Class: {Version: 0, Class: class},
+	}
+
+	_, err := manager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, object)
 	require.NoError(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse
@@ -1670,4 +1689,18 @@ func assertPropsMatch(t *testing.T, propsA, propsB []*models.Property) {
 		assert.Equal(t, pA.DataType, pB.DataType)
 		test_utils.AssertNestedPropsMatch(t, pA.NestedProperties, pB.NestedProperties)
 	}
+}
+
+type fakeAuthorizer struct{}
+
+func (f fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
+	return nil
+}
+
+func (f fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
+	return nil
+}
+
+func (f fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	return resources, nil
 }

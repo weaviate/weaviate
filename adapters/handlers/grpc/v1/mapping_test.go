@@ -133,7 +133,7 @@ func TestNewPrimitiveValue(t *testing.T) {
 				}),
 				true: makeTestList(map[schema.DataType]*pb.Value{
 					schema.DataTypeNumberArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
-						Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: byteops.Float64ToByteVector([]float64{1.1, 2.2, 3.3})}},
+						Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: byteops.Fp64SliceToBytes([]float64{1.1, 2.2, 3.3})}},
 					}}},
 					schema.DataTypeIntArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
 						Kind: &pb.ListValue_IntValues{IntValues: &pb.IntValues{Values: byteops.IntsToByteVector([]float64{1, 2, 3})}},
@@ -162,7 +162,7 @@ func TestNewPrimitiveValue(t *testing.T) {
 						Kind: &pb.ListValue_DateValues{DateValues: &pb.DateValues{Values: []string{}}},
 					}}},
 					schema.DataTypeNumberArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
-						Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: byteops.Float64ToByteVector([]float64{})}},
+						Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: byteops.Fp64SliceToBytes([]float64{})}},
 					}}},
 					schema.DataTypeIntArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
 						Kind: &pb.ListValue_IntValues{IntValues: &pb.IntValues{Values: byteops.IntsToByteVector([]float64{})}},

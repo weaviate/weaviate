@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
@@ -43,8 +44,9 @@ type Store struct {
 
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
-	bucketAccessLock sync.RWMutex
-	bucketsByName    map[string]*Bucket
+	bucketAccessLock  sync.RWMutex
+	bucketsByName     map[string]*Bucket
+	bucketsByStrategy map[string]map[string]*Bucket // map[strategy][name]*Bucket
 
 	logger  logrus.FieldLogger
 	metrics *Metrics
@@ -63,18 +65,20 @@ type Store struct {
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
 func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
-	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
+	shardCompactionCallbacks, shardCompactionAuxCallbacks,
+	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
 	s := &Store{
-		dir:           dir,
-		rootDir:       rootDir,
-		bucketsByName: map[string]*Bucket{},
-		bucketsLocks:  wsync.NewKeyLocker(),
-		bcreator:      NewBucketCreator(),
-		logger:        logger,
-		metrics:       metrics,
+		dir:               dir,
+		rootDir:           rootDir,
+		bucketsByName:     map[string]*Bucket{},
+		bucketsByStrategy: map[string]map[string]*Bucket{},
+		bucketsLocks:      wsync.NewKeyLocker(),
+		bcreator:          NewBucketCreator(),
+		logger:            logger,
+		metrics:           metrics,
 	}
-	s.initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks)
+	s.initCycleCallbacks(shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 
 	return s, s.init()
 }
@@ -181,10 +185,15 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 		return nil
 	}
 
+	compactionCallbacks := s.cycleCallbacks.compactionCallbacks
+	if bucketName == helpers.ObjectsBucketLSM && s.cycleCallbacks.compactionAuxCallbacks != nil {
+		compactionCallbacks = s.cycleCallbacks.compactionAuxCallbacks
+	}
+
 	// bucket can be concurrently loaded with another buckets but
 	// the same bucket will be loaded only once
 	b, err := s.bcreator.NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
-		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
+		compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err
 	}
@@ -199,6 +208,10 @@ func (s *Store) setBucket(name string, b *Bucket) {
 	defer s.bucketAccessLock.Unlock()
 
 	s.bucketsByName[name] = b
+	if _, ok := s.bucketsByStrategy[b.strategy]; !ok {
+		s.bucketsByStrategy[b.strategy] = map[string]*Bucket{}
+	}
+	s.bucketsByStrategy[b.strategy][name] = b
 }
 
 func (s *Store) Shutdown(ctx context.Context) error {
@@ -273,7 +286,7 @@ type rollbackFunc func(context.Context, *Bucket) error
 
 func (s *Store) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	listFiles := func(ctx context.Context, b *Bucket) (interface{}, error) {
-		basePath, err := filepath.Rel(basePath, b.dir)
+		basePath, err := filepath.Rel(basePath, b.GetDir())
 		if err != nil {
 			return nil, fmt.Errorf("bucket relative path: %w", err)
 		}
@@ -365,6 +378,20 @@ func (s *Store) GetBucketsByName() map[string]*Bucket {
 	return newMap
 }
 
+func (s *Store) GetBucketsByStrategy(strategy string) map[string]*Bucket {
+	s.bucketAccessLock.RLock()
+	defer s.bucketAccessLock.RUnlock()
+
+	newMap := map[string]*Bucket{}
+	if bucketsByName, ok := s.bucketsByStrategy[strategy]; ok {
+		for name, bucket := range bucketsByName {
+			newMap[name] = bucket
+		}
+	}
+
+	return newMap
+}
+
 // Creates bucket, first removing any files if already exist
 // Bucket can not be registered in bucketsByName before removal
 func (s *Store) CreateBucket(ctx context.Context, bucketName string,
@@ -389,8 +416,13 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 		return errors.Wrapf(err, "failed removing bucket %s files", bucketName)
 	}
 
+	compactionCallbacks := s.cycleCallbacks.compactionCallbacks
+	if bucketName == helpers.ObjectsBucketLSM && s.cycleCallbacks.compactionAuxCallbacks != nil {
+		compactionCallbacks = s.cycleCallbacks.compactionAuxCallbacks
+	}
+
 	b, err := s.bcreator.NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
-		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
+		compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err
 	}
@@ -398,6 +430,37 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	s.setBucket(bucketName, b)
 
 	return nil
+}
+
+func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, string, error) {
+	replacementBucket.disk.maintenanceLock.Lock()
+	defer replacementBucket.disk.maintenanceLock.Unlock()
+
+	currBucketDir := bucket.dir
+	newBucketDir := bucket.dir + "___del"
+	currReplacementBucketDir := replacementBucket.dir
+	newReplacementBucketDir := currBucketDir
+
+	if err := bucket.Shutdown(ctx); err != nil {
+		return "", "", "", "", errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
+	}
+
+	s.logger.WithField("action", "lsm_replace_bucket").
+		WithField("bucket", bucketName).
+		WithField("replacement_bucket", replacementBucketName).
+		WithField("dir", s.dir).
+		Info("replacing bucket")
+
+	replacementBucket.flushLock.Lock()
+	defer replacementBucket.flushLock.Unlock()
+	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
+		return "", "", "", "", errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
+	}
+	if err := os.Rename(currReplacementBucketDir, newReplacementBucketDir); err != nil {
+		return "", "", "", "", errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
+	}
+
+	return currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, nil
 }
 
 // Replaces 1st bucket with 2nd one. Both buckets have to registered in bucketsByName.
@@ -422,31 +485,44 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	if bucket == nil {
 		return fmt.Errorf("bucket '%s' not found", bucketName)
 	}
+
 	replacementBucket := s.bucketsByName[replacementBucketName]
 	if replacementBucket == nil {
 		return fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
 	}
 	s.bucketsByName[bucketName] = replacementBucket
 	delete(s.bucketsByName, replacementBucketName)
-
-	currBucketDir := bucket.dir
-	newBucketDir := bucket.dir + "___del"
-	currReplacementBucketDir := replacementBucket.dir
-	newReplacementBucketDir := currBucketDir
-
-	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
-		return errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
+	s.bucketsByStrategy[replacementBucket.strategy][bucketName] = replacementBucket
+	delete(s.bucketsByStrategy[bucket.strategy], bucketName)
+	delete(s.bucketsByStrategy[replacementBucket.strategy], replacementBucketName)
+	if len(s.bucketsByStrategy[bucket.strategy]) == 0 {
+		delete(s.bucketsByStrategy, bucket.strategy)
 	}
-	if err := os.Rename(currReplacementBucketDir, newReplacementBucketDir); err != nil {
-		return errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
+
+	var currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir string
+	var err error
+	currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err = s.replaceBucket(ctx, replacementBucket, replacementBucketName, bucket, bucketName)
+	if err != nil {
+		return errors.Wrapf(err, "failed renaming bucket '%s' to '%s'", bucketName, replacementBucketName)
+	}
+
+	replacementBucket.flushLock.Lock()
+	defer replacementBucket.flushLock.Unlock()
+
+	if replacementBucket.flushing != nil {
+		return fmt.Errorf("bucket '%s' can not be renamed before flushing", replacementBucketName)
+	}
+
+	replacementBucket.dir = newReplacementBucketDir
+
+	err = replacementBucket.setNewActiveMemtable()
+	if err != nil {
+		return fmt.Errorf("switch active memtable: %w", err)
 	}
 
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
 
-	if err := bucket.Shutdown(ctx); err != nil {
-		return errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
-	}
 	if err := os.RemoveAll(newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed removing dir '%s'", newBucketDir)
 	}
@@ -473,17 +549,39 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	if newBucket != nil {
 		return fmt.Errorf("bucket '%s' already exists", newBucketName)
 	}
-	s.bucketsByName[newBucketName] = currBucket
-	delete(s.bucketsByName, bucketName)
+
+	if !currBucket.isReadOnly() {
+		return fmt.Errorf("bucket '%s' must be in %s mode to be renamed", bucketName, storagestate.StatusReadOnly)
+	}
 
 	currBucketDir := currBucket.dir
 	newBucketDir := s.bucketDir(newBucketName)
+
+	currBucket.flushLock.Lock()
+	defer currBucket.flushLock.Unlock()
+
+	if currBucket.flushing != nil {
+		return fmt.Errorf("bucket '%s' can not be renamed before flushing", bucketName)
+	}
+
+	currBucket.dir = newBucketDir
+
+	err := currBucket.setNewActiveMemtable()
+	if err != nil {
+		return fmt.Errorf("switch active memtable: %w", err)
+	}
+
+	s.bucketsByName[newBucketName] = currBucket
+	delete(s.bucketsByName, bucketName)
+	s.bucketsByStrategy[currBucket.strategy][newBucketName] = currBucket
+	delete(s.bucketsByStrategy[currBucket.strategy], bucketName)
 
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
 	}
 
 	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)
+
 	return nil
 }
 
@@ -492,22 +590,11 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 		return strings.Replace(src, bucketDir, newBucketDir, 1)
 	}
 
-	bucket.flushLock.Lock()
-	bucket.dir = newBucketDir
-	if bucket.active != nil {
-		bucket.active.path = updatePath(bucket.active.path)
-		bucket.active.commitlog.path = updatePath(bucket.active.commitlog.path)
-	}
-	if bucket.flushing != nil {
-		bucket.flushing.path = updatePath(bucket.flushing.path)
-		bucket.flushing.commitlog.path = updatePath(bucket.flushing.commitlog.path)
-	}
-	bucket.flushLock.Unlock()
+	segments, release := bucket.disk.getAndLockSegments()
+	defer release()
 
-	bucket.disk.maintenanceLock.Lock()
 	bucket.disk.dir = newBucketDir
-	for _, segment := range bucket.disk.segments {
+	for _, segment := range segments {
 		segment.path = updatePath(segment.path)
 	}
-	bucket.disk.maintenanceLock.Unlock()
 }

@@ -14,6 +14,7 @@ package hnsw
 import (
 	"encoding/json"
 	"math"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,6 +58,16 @@ func Test_UserConfig(t *testing.T) {
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -86,6 +97,16 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
 				},
 			},
 		},
@@ -128,6 +149,16 @@ func Test_UserConfig(t *testing.T) {
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -169,6 +200,16 @@ func Test_UserConfig(t *testing.T) {
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -186,6 +227,7 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfFactor":        json.Number("19"),
 				"skip":                   true,
 				"distance":               "hamming",
+				"filterStrategy":         "sweeping",
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: 11,
@@ -209,6 +251,16 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
 				},
 			},
 		},
@@ -248,6 +300,16 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
 				},
 			},
 		},
@@ -297,6 +359,16 @@ func Test_UserConfig(t *testing.T) {
 						Distribution: "normal",
 					},
 				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -343,6 +415,16 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
 				},
 			},
 		},
@@ -410,6 +492,16 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
 				},
 			},
 		},
@@ -489,6 +581,65 @@ func Test_UserConfig(t *testing.T) {
 				BQ: BQConfig{
 					Enabled: true,
 				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
+			},
+		},
+		{
+			name: "with sq",
+			input: map[string]interface{}{
+				"cleanupIntervalSeconds": float64(11),
+				"maxConnections":         float64(12),
+				"efConstruction":         float64(13),
+				"vectorCacheMaxObjects":  float64(14),
+				"ef":                     float64(15),
+				"flatSearchCutoff":       float64(16),
+				"dynamicEfMin":           float64(17),
+				"dynamicEfMax":           float64(18),
+				"dynamicEfFactor":        float64(19),
+				"sq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: 11,
+				MaxConnections:         12,
+				EFConstruction:         13,
+				VectorCacheMaxObjects:  14,
+				EF:                     15,
+				FlatSearchCutoff:       16,
+				DynamicEFMin:           17,
+				DynamicEFMax:           18,
+				DynamicEFFactor:        19,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:       false,
+					Segments:      0,
+					Centroids:     DefaultPQCentroids,
+					TrainingLimit: DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled:       true,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 		{
@@ -505,13 +656,61 @@ func Test_UserConfig(t *testing.T) {
 				},
 			},
 			expectErr:    true,
-			expectErrMsg: "invalid hnsw config: two compression methods enabled: PQ and BQ",
+			expectErrMsg: "invalid hnsw config: more than a single compression methods enabled",
+		},
+		{
+			name: "with invalid filter strategy",
+			input: map[string]interface{}{
+				"filterStrategy": "chestnut",
+			},
+			expectErr:    true,
+			expectErrMsg: "invalid hnsw config: filterStrategy must be either 'sweeping' or 'acorn'",
+		},
+		{
+			name: "acorn enabled, all defaults",
+			input: map[string]interface{}{
+				"filterStrategy": "acorn",
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         DefaultMaxConnections,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        DefaultPQEnabled,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       DefaultPQSegments,
+					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				FilterStrategy: FilterStrategyAcorn,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
+			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cfg, err := ParseAndValidateConfig(test.input)
+			cfg, err := ParseAndValidateConfig(test.input, false)
 			if test.expectErr {
 				require.NotNil(t, err)
 				assert.Contains(t, err.Error(), test.expectErrMsg)
@@ -522,4 +721,20 @@ func Test_UserConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_UserConfigFilterStrategy(t *testing.T) {
+	t.Run("default filter strategy is sweeping", func(t *testing.T) {
+		cfg := UserConfig{}
+		cfg.SetDefaults()
+		assert.Equal(t, FilterStrategySweeping, cfg.FilterStrategy)
+	})
+
+	t.Run("can override default strategy", func(t *testing.T) {
+		os.Setenv("HNSW_DEFAULT_FILTER_STRATEGY", FilterStrategyAcorn)
+		cfg := UserConfig{}
+		cfg.SetDefaults()
+		assert.Equal(t, FilterStrategyAcorn, cfg.FilterStrategy)
+		assert.Nil(t, os.Unsetenv("HNSW_DEFAULT_FILTER_STRATEGY"))
+	})
 }

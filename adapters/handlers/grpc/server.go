@@ -13,6 +13,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -24,24 +25,28 @@ import (
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
+	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	_ "google.golang.org/grpc/encoding/gzip" // Install the gzip compressor
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	v0 "github.com/weaviate/weaviate/adapters/handlers/grpc/v0"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
 )
 
-const maxMsgSize = 104858000 // 10mb, needs to be synchronized with clients
-
-func CreateGRPCServer(state *state.State) *GRPCServer {
+// CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
+func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Server {
 	o := []grpc.ServerOption{
-		grpc.MaxRecvMsgSize(maxMsgSize),
-		grpc.MaxSendMsgSize(maxMsgSize),
+		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
+		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 	}
+
+	o = append(o, options...)
 
 	// Add TLS creds for the GRPC connection, if defined.
 	if len(state.ServerConfig.Config.GRPC.CertFile) > 0 || len(state.ServerConfig.Config.GRPC.KeyFile) > 0 {
@@ -55,6 +60,8 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 	}
 
 	var interceptors []grpc.UnaryServerInterceptor
+
+	interceptors = append(interceptors, makeAuthInterceptor())
 
 	// If sentry is enabled add automatic spans on gRPC requests
 	if state.ServerConfig.Config.Sentry.Enabled {
@@ -82,13 +89,14 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 		state.SchemaManager,
 		state.BatchManager,
 		&state.ServerConfig.Config,
+		state.Authorizer,
 		state.Logger,
 	)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
-	return &GRPCServer{s}
+	return s
 }
 
 func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
@@ -123,7 +131,25 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 	}
 }
 
-func StartAndListen(s *GRPCServer, state *state.State) error {
+func makeAuthInterceptor() grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (any, error) {
+		resp, err := handler(ctx, req)
+
+		if errors.As(err, &authErrs.Unauthenticated{}) {
+			return nil, status.Error(codes.Unauthenticated, err.Error())
+		}
+
+		if errors.As(err, &authErrs.Forbidden{}) {
+			return nil, status.Error(codes.PermissionDenied, err.Error())
+		}
+
+		return resp, err
+	}
+}
+
+func StartAndListen(s *grpc.Server, state *state.State) error {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
 		state.ServerConfig.Config.GRPC.Port))
 	if err != nil {
@@ -132,12 +158,8 @@ func StartAndListen(s *GRPCServer, state *state.State) error {
 	state.Logger.WithField("action", "grpc_startup").
 		Infof("grpc server listening at %v", lis.Addr())
 	if err := s.Serve(lis); err != nil {
-		return fmt.Errorf("failed to serve: %v", err)
+		return fmt.Errorf("failed to serve: %w", err)
 	}
 
 	return nil
-}
-
-type GRPCServer struct {
-	*grpc.Server
 }

@@ -43,9 +43,17 @@ func (d *DockerContainer) URI() string {
 	return d.GetEndpoint(HTTP)
 }
 
+func (d *DockerContainer) GrpcURI() string {
+	return d.GetEndpoint(GRPC)
+}
+
 func (d *DockerContainer) GetEndpoint(name EndpointName) string {
 	if endpoint, ok := d.endpoints[name]; ok {
 		return endpoint.uri
 	}
 	return ""
+}
+
+func (d *DockerContainer) Container() testcontainers.Container {
+	return d.container
 }

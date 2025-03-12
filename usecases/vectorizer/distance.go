@@ -21,7 +21,7 @@ import (
 func NormalizedDistance(a, b []float32) (float32, error) {
 	sim, err := cosineSim(a, b)
 	if err != nil {
-		return 1, fmt.Errorf("normalized distance: %v", err)
+		return 1, fmt.Errorf("normalized distance: %w", err)
 	}
 
 	return (1 - sim) / 2, nil

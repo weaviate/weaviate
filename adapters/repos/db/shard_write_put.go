@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -53,13 +55,18 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return nil
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, vector := range object.Vectors {
-			if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
-				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
-			}
+	for targetVector, vector := range object.Vectors {
+		if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
+			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 		}
-	} else {
+	}
+	for targetVector, multiVector := range object.MultiVectors {
+		if err := s.updateMultiVectorIndexForName(ctx, multiVector, status, targetVector); err != nil {
+			return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
+		}
+	}
+
+	if s.hasLegacyVectorIndex() {
 		if err := s.updateVectorIndex(ctx, object.Vector, status); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
@@ -75,6 +82,10 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 
 	if err := s.GetPropertyLengthTracker().Flush(); err != nil {
 		return errors.Wrap(err, "flush prop length tracker to disk")
+	}
+
+	if err := s.mayUpsertObjectHashTree(object, uuid, status); err != nil {
+		return errors.Wrap(err, "object creation in hashtree")
 	}
 
 	return nil
@@ -99,7 +110,7 @@ func (s *Shard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []floa
 		return nil
 	}
 
-	if err := s.vectorIndex.Add(ctx, status.docID, vector); err != nil {
+	if err := s.queue.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector}); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
@@ -126,9 +137,38 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(ctx context.Context,
 	}
 
 	for targetVector, vector := range vectors {
-		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
-			if err := vectorIndex.Add(ctx, status.docID, vector); err != nil {
+		if q := s.QueueForName(targetVector); q != nil {
+			if err := q.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector}); err != nil {
 				return errors.Wrapf(err, "insert doc id %d to vector index for target vector %s", status.docID, targetVector)
+			}
+		}
+	}
+
+	return nil
+}
+
+// this method implements the same logic as updateVectorIndexesIgnoreDelete but
+// supports multi vectors
+func (s *Shard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context,
+	multiVectors map[string][][]float32, status objectInsertStatus,
+) error {
+	// vector was not changed, object was not changed or changed without changing vector
+	// https://github.com/weaviate/weaviate/issues/3948
+	// https://github.com/weaviate/weaviate/issues/3949
+	if status.docIDPreserved || status.skipUpsert {
+		return nil
+	}
+
+	// vector is now optional as of
+	// https://github.com/weaviate/weaviate/issues/1800
+	if len(multiVectors) == 0 {
+		return nil
+	}
+
+	for targetVector, vector := range multiVectors {
+		if q := s.QueueForName(targetVector); q != nil {
+			if err := q.Insert(ctx, &common.Vector[[][]float32]{ID: status.docID, Vector: vector}); err != nil {
+				return errors.Wrapf(err, "insert doc id %d to multi vector index for target vector %s", status.docID, targetVector)
 			}
 		}
 	}
@@ -139,57 +179,39 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(ctx context.Context,
 func (s *Shard) updateVectorIndex(ctx context.Context, vector []float32,
 	status objectInsertStatus,
 ) error {
-	return s.updateVectorInVectorIndex(ctx, vector, status, s.queue, s.vectorIndex)
+	return updateVectorInVectorIndex(ctx, vector, status, s.queue, s.vectorIndex)
 }
 
 func (s *Shard) updateVectorIndexForName(ctx context.Context, vector []float32,
 	status objectInsertStatus, targetVector string,
 ) error {
+	queue, vectorIndex, err := s.getQueueAndVectorIndexForName(targetVector)
+	if err != nil {
+		return fmt.Errorf("update vector index: %w", err)
+	}
+	return updateVectorInVectorIndex(ctx, vector, status, queue, vectorIndex)
+}
+
+func (s *Shard) updateMultiVectorIndexForName(ctx context.Context, vector [][]float32,
+	status objectInsertStatus, targetVector string,
+) error {
+	queue, vectorIndex, err := s.getQueueAndVectorIndexForName(targetVector)
+	if err != nil {
+		return fmt.Errorf("update multi vector index: %w", err)
+	}
+	return updateVectorInVectorIndex(ctx, vector, status, queue, vectorIndex)
+}
+
+func (s *Shard) getQueueAndVectorIndexForName(targetVector string) (*VectorIndexQueue, VectorIndex, error) {
 	queue, ok := s.queues[targetVector]
 	if !ok {
-		return fmt.Errorf("vector queue not found for target vector %s", targetVector)
+		return nil, nil, fmt.Errorf("vector queue not found for target vector %s", targetVector)
 	}
 	vectorIndex := s.VectorIndexForName(targetVector)
 	if vectorIndex == nil {
-		return fmt.Errorf("vector index not found for target vector %s", targetVector)
+		return nil, nil, fmt.Errorf("vector index not found for target vector %s", targetVector)
 	}
-	return s.updateVectorInVectorIndex(ctx, vector, status, queue, vectorIndex)
-}
-
-func (s *Shard) updateVectorInVectorIndex(ctx context.Context, vector []float32,
-	status objectInsertStatus, queue *IndexQueue, vectorIndex VectorIndex,
-) error {
-	// even if no vector is provided in an update, we still need
-	// to delete the previous vector from the index, if it
-	// exists. otherwise, the associated doc id is left dangling,
-	// resulting in failed attempts to merge an object on restarts.
-	if status.docIDChanged {
-		if err := queue.Delete(status.oldDocID); err != nil {
-			return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
-		}
-	}
-
-	// vector was not changed, object was updated without changing docID
-	// https://github.com/weaviate/weaviate/issues/3948
-	if status.docIDPreserved {
-		return nil
-	}
-
-	// vector is now optional as of
-	// https://github.com/weaviate/weaviate/issues/1800
-	if len(vector) == 0 {
-		return nil
-	}
-
-	if err := vectorIndex.Add(ctx, status.docID, vector); err != nil {
-		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
-	}
-
-	if err := vectorIndex.Flush(); err != nil {
-		return errors.Wrap(err, "flush all vector index buffered WALs")
-	}
-
-	return nil
+	return queue, vectorIndex, nil
 }
 
 func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) {
@@ -214,23 +236,27 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
-	if s.hasTargetVectors() {
-		if len(obj.Vectors) > 0 {
-			for targetVector, vector := range obj.Vectors {
-				if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
-					if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
-						return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
-					}
-				}
+	for targetVector, vector := range obj.Vectors {
+		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+			if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
+				return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
 			}
 		}
-	} else {
-		if obj.Vector != nil {
-			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-			err := s.vectorIndex.ValidateBeforeInsert(obj.Vector)
-			if err != nil {
-				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+	}
+
+	for targetVector, vector := range obj.MultiVectors {
+		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+			if err := vectorIndex.ValidateMultiBeforeInsert(vector); err != nil {
+				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
 			}
+		}
+	}
+
+	if len(obj.Vector) > 0 && s.hasLegacyVectorIndex() {
+		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+		err := s.vectorIndex.ValidateBeforeInsert(obj.Vector)
+		if err != nil {
+			return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
 		}
 	}
 
@@ -293,10 +319,58 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	return status, nil
 }
 
+func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte, status objectInsertStatus) error {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	if s.hashtree == nil {
+		return nil
+	}
+
+	return s.upsertObjectHashTree(object, uuidBytes, status)
+}
+
+func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, status objectInsertStatus) error {
+	if len(uuidBytes) != 16 {
+		return fmt.Errorf("invalid object uuid")
+	}
+
+	if object.Object.LastUpdateTimeUnix < 1 {
+		return fmt.Errorf("invalid object last update time")
+	}
+
+	leaf := s.hashtreeLeafFor(uuidBytes)
+
+	var objectDigest [16 + 8]byte
+	copy(objectDigest[:], uuidBytes)
+
+	if status.oldUpdateTime > 0 {
+		// Given only latest object version is maintained, previous registration is erased
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
+		s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
+	}
+
+	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
+	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
+
+	return nil
+}
+
+func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {
+	hashtreeHeight := s.asyncReplicationConfig.hashtreeHeight
+
+	if hashtreeHeight == 0 {
+		return 0
+	}
+
+	return binary.BigEndian.Uint64(uuidBytes[:8]) >> (64 - hashtreeHeight)
+}
+
 type objectInsertStatus struct {
-	docID        uint64
-	docIDChanged bool
-	oldDocID     uint64
+	docID         uint64
+	docIDChanged  bool
+	oldDocID      uint64
+	oldUpdateTime int64
 	// docID was not changed, although object itself did. DocID can be preserved if
 	// object's vector remain the same, allowing to omit vector index update which is time
 	// consuming operation. New object is saved and inverted indexes updated if required.
@@ -323,6 +397,7 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	}
 
 	out.oldDocID = prevObj.DocID
+	out.oldUpdateTime = prevObj.LastUpdateTimeUnix()
 
 	// If object was not changed (props and additional props of prev and next objects are the same)
 	// skip updates of object, inverted indexes and vector index.
@@ -369,6 +444,7 @@ func (s *Shard) determineMutableInsertStatus(previous, next *storobj.Object) (ob
 	}
 
 	out.docID = previous.DocID
+	out.oldUpdateTime = previous.LastUpdateTimeUnix()
 
 	// we are planning on mutating and thus not altering the doc id
 	return out, nil
@@ -384,7 +460,9 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 	}
 	docIDBytes := keyBuf.Bytes()
 
-	return bucket.Put(id, data, lsmkv.WithSecondaryKey(0, docIDBytes))
+	return bucket.Put(id, data,
+		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes),
+	)
 }
 
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
@@ -423,7 +501,18 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	// determine only changed properties to avoid unnecessary updates of inverted indexes
 	if status.docIDPreserved {
-		delta := inverted.Delta(prevProps, props)
+		skipDeltaForProps := []string{}
+		// TODO:aliszka	optimize fetching skipDeltaForProps
+		if bucketsInverted := s.store.GetBucketsByStrategy(lsmkv.StrategyInverted); len(bucketsInverted) > 0 {
+			for bucketName := range bucketsInverted {
+				if strings.HasSuffix(bucketName, "_searchable") && strings.HasPrefix(bucketName, "property_") {
+					propName := strings.TrimPrefix(strings.TrimSuffix(bucketName, "_searchable"), "property_")
+					skipDeltaForProps = append(skipDeltaForProps, propName)
+				}
+			}
+		}
+
+		delta := inverted.DeltaSkipSearchable(prevProps, props, skipDeltaForProps)
 		propsToAdd = delta.ToAdd
 		propsToDel = delta.ToDelete
 		deltaNil := inverted.DeltaNil(prevNilprops, nilprops)
@@ -442,16 +531,14 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
 		if s.index.Config.TrackVectorDimensions {
-			if s.hasTargetVectors() {
-				for vecName, vec := range prevObject.Vectors {
-					if err := s.removeDimensionsForVecLSM(len(vec), status.oldDocID, vecName); err != nil {
-						return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
-					}
+			err = prevObject.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+				if err = s.removeDimensionsLSM(dims, status.oldDocID, targetVector); err != nil {
+					return fmt.Errorf("remove dimension tracking for vector %q: %w", targetVector, err)
 				}
-			} else {
-				if err := s.removeDimensionsLSM(len(prevObject.Vector), status.oldDocID); err != nil {
-					return fmt.Errorf("track dimensions (delete): %w", err)
-				}
+				return nil
+			})
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -463,16 +550,14 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 
 	if s.index.Config.TrackVectorDimensions {
-		if s.hasTargetVectors() {
-			for vecName, vec := range object.Vectors {
-				if err := s.extendDimensionTrackerForVecLSM(len(vec), status.docID, vecName); err != nil {
-					return fmt.Errorf("track dimensions of '%s': %w", vecName, err)
-				}
+		err = object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+			if err = s.extendDimensionTrackerLSM(dims, status.docID, targetVector); err != nil {
+				return fmt.Errorf("add dimension tracking for vector %q: %w", targetVector, err)
 			}
-		} else {
-			if err := s.extendDimensionTrackerLSM(len(object.Vector), status.docID); err != nil {
-				return fmt.Errorf("track dimensions: %w", err)
-			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 	}
 
@@ -495,6 +580,9 @@ func compareObjsForInsertStatus(prevObj, nextObj *storobj.Object) (preserve, ski
 		return false, false
 	}
 	if !targetVectorsEqual(prevObj.Vectors, nextObj.Vectors) {
+		return false, false
+	}
+	if !targetMultiVectorsEqual(prevObj.MultiVectors, nextObj.MultiVectors) {
 		return false, false
 	}
 	if !addPropsEqual(prevObj.Object.Additional, nextObj.Object.Additional) {
@@ -560,20 +648,30 @@ func uuidToString(u uuid.UUID) string {
 }
 
 func targetVectorsEqual(prevTargetVectors, nextTargetVectors map[string][]float32) bool {
+	return targetVectorsEqualCheck(prevTargetVectors, nextTargetVectors, common.VectorsEqual)
+}
+
+func targetMultiVectorsEqual(prevTargetVectors, nextTargetVectors map[string][][]float32) bool {
+	return targetVectorsEqualCheck(prevTargetVectors, nextTargetVectors, common.MultiVectorsEqual)
+}
+
+func targetVectorsEqualCheck[T []float32 | [][]float32](prevTargetVectors, nextTargetVectors map[string]T,
+	vectorsEqual func(vecA, vecB T) bool,
+) bool {
 	if len(prevTargetVectors) == 0 && len(nextTargetVectors) == 0 {
 		return true
 	}
 
 	visited := map[string]struct{}{}
 	for vecName, vec := range prevTargetVectors {
-		if !common.VectorsEqual(vec, nextTargetVectors[vecName]) {
+		if !vectorsEqual(vec, nextTargetVectors[vecName]) {
 			return false
 		}
 		visited[vecName] = struct{}{}
 	}
 	for vecName, vec := range nextTargetVectors {
 		if _, ok := visited[vecName]; !ok {
-			if !common.VectorsEqual(vec, prevTargetVectors[vecName]) {
+			if !vectorsEqual(vec, prevTargetVectors[vecName]) {
 				return false
 			}
 		}
@@ -674,4 +772,40 @@ func propsEqual(prevProps, nextProps map[string]interface{}) bool {
 	}
 
 	return true
+}
+
+func updateVectorInVectorIndex[T dto.Embedding](ctx context.Context, vector T,
+	status objectInsertStatus, queue *VectorIndexQueue, vectorIndex VectorIndex,
+) error {
+	// even if no vector is provided in an update, we still need
+	// to delete the previous vector from the index, if it
+	// exists. otherwise, the associated doc id is left dangling,
+	// resulting in failed attempts to merge an object on restarts.
+	if status.docIDChanged {
+		if err := queue.Delete(status.oldDocID); err != nil {
+			return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
+		}
+	}
+
+	// vector was not changed, object was updated without changing docID
+	// https://github.com/weaviate/weaviate/issues/3948
+	if status.docIDPreserved {
+		return nil
+	}
+
+	// vector is now optional as of
+	// https://github.com/weaviate/weaviate/issues/1800
+	if len(vector) == 0 {
+		return nil
+	}
+
+	if err := queue.Insert(ctx, &common.Vector[T]{ID: status.docID, Vector: vector}); err != nil {
+		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
+	}
+
+	if err := queue.Flush(); err != nil {
+		return errors.Wrap(err, "flush all vector index buffered WALs")
+	}
+
+	return nil
 }

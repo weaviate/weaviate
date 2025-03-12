@@ -22,32 +22,42 @@ import (
 
 	"github.com/pkg/errors"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
+	"golang.org/x/sync/errgroup"
+
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeanthropic "github.com/weaviate/weaviate/modules/generative-anthropic"
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
+	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
+	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
+	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
+	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2colbert-jinaai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
-	"golang.org/x/sync/errgroup"
+	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 )
 
 const (
@@ -83,7 +93,9 @@ type Compose struct {
 	withAzurite                bool
 	withBackendFilesystem      bool
 	withBackendS3              bool
-	withBackendS3Bucket        string
+	withBackendS3Buckets       map[string]string
+	withBackupS3Bucket         string
+	withOffloadS3Bucket        string
 	withBackendGCS             bool
 	withBackendGCSBucket       string
 	withBackendAzure           bool
@@ -93,33 +105,38 @@ type Compose struct {
 	withQnATransformers        bool
 	withWeaviateExposeGRPCPort bool
 	withSecondWeaviate         bool
-	size                       int
+	withWeaviateCluster        bool
+	withWeaviateClusterSize    int
 
-	withWeaviateAuth              bool
-	withWeaviateBasicAuth         bool
-	withWeaviateBasicAuthUsername string
-	withWeaviateBasicAuthPassword string
-	withWeaviateCluster           bool
-	withSUMTransformers           bool
-	withCentroid                  bool
-	withCLIP                      bool
-	withGoogleApiKey              string
-	withBind                      bool
-	withImg2Vec                   bool
-	withRerankerTransformers      bool
-	withOllamaVectorizer          bool
-	withOllamaGenerative          bool
-	weaviateEnvs                  map[string]string
+	withWeaviateAuth               bool
+	withWeaviateBasicAuth          bool
+	withWeaviateBasicAuthUsername  string
+	withWeaviateBasicAuthPassword  string
+	withWeaviateApiKey             bool
+	weaviateApiKeyUsers            []ApiKeyUser
+	weaviateAdminlistAdminUsers    []string
+	weaviateAdminlistReadOnlyUsers []string
+	withWeaviateRbac               bool
+	weaviateRbacAdmins             []string
+	weaviateRbacRootGroups         []string
+	weaviateRbacViewers            []string
+	withSUMTransformers            bool
+	withCentroid                   bool
+	withCLIP                       bool
+	withGoogleApiKey               string
+	withBind                       bool
+	withImg2Vec                    bool
+	withRerankerTransformers       bool
+	withOllamaVectorizer           bool
+	withOllamaGenerative           bool
+	withAutoschema                 bool
+	withMockOIDC                   bool
+	weaviateEnvs                   map[string]string
+	removeEnvs                     map[string]struct{}
 }
 
 func New() *Compose {
-	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string)}
-}
-
-func (d *Compose) WithMinIO() *Compose {
-	d.withMinIO = true
-	d.enableModules = append(d.enableModules, modstgs3.Name)
-	return d
+	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string), removeEnvs: make(map[string]struct{}), withBackendS3Buckets: make(map[string]string)}
 }
 
 func (d *Compose) WithGCS() *Compose {
@@ -166,11 +183,23 @@ func (d *Compose) WithBackendFilesystem() *Compose {
 	return d
 }
 
-func (d *Compose) WithBackendS3(bucket string) *Compose {
+// WithBackendS3 will prepare MinIO
+func (d *Compose) WithBackendS3(bucket, region string) *Compose {
 	d.withBackendS3 = true
-	d.withBackendS3Bucket = bucket
+	d.withBackupS3Bucket = bucket
+	d.withBackendS3Buckets[bucket] = region
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modstgs3.Name)
+	return d
+}
+
+// WithOffloadS3 will prepare MinIO
+func (d *Compose) WithOffloadS3(bucket, region string) *Compose {
+	d.withBackendS3 = true
+	d.withOffloadS3Bucket = bucket
+	d.withBackendS3Buckets[bucket] = region
+	d.withMinIO = true
+	d.enableModules = append(d.enableModules, modsloads3.Name)
 	return d
 }
 
@@ -214,6 +243,12 @@ func (d *Compose) WithMulti2VecCohere(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2VecNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecnvidia.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecVoyageAI(apiKey string) *Compose {
 	d.weaviateEnvs["VOYAGEAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecvoyageai.Name)
@@ -244,12 +279,16 @@ func (d *Compose) WithRef2VecCentroid() *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecOpenAI() *Compose {
+func (d *Compose) WithText2VecOpenAI(openAIApiKey, openAIOrganization, azureApiKey string) *Compose {
+	d.weaviateEnvs["OPENAI_APIKEY"] = openAIApiKey
+	d.weaviateEnvs["OPENAI_ORGANIZATION"] = openAIOrganization
+	d.weaviateEnvs["AZURE_APIKEY"] = azureApiKey
 	d.enableModules = append(d.enableModules, modopenai.Name)
 	return d
 }
 
-func (d *Compose) WithText2VecCohere() *Compose {
+func (d *Compose) WithText2VecCohere(apiKey string) *Compose {
+	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modcohere.Name)
 	return d
 }
@@ -279,14 +318,46 @@ func (d *Compose) WithText2VecHuggingFace() *Compose {
 	return d
 }
 
+func (d *Compose) WithText2VecWeaviate() *Compose {
+	d.enableModules = append(d.enableModules, modweaviateembed.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeOpenAI(openAIApiKey, openAIOrganization, azureApiKey string) *Compose {
+	d.weaviateEnvs["OPENAI_APIKEY"] = openAIApiKey
+	d.weaviateEnvs["OPENAI_ORGANIZATION"] = openAIOrganization
+	d.weaviateEnvs["AZURE_APIKEY"] = azureApiKey
+	d.enableModules = append(d.enableModules, modgenerativeopenai.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativenvidia.Name)
+	return d
+}
+
 func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modjinaai.Name)
 	return d
 }
 
-func (d *Compose) WithGenerativeOpenAI() *Compose {
-	d.enableModules = append(d.enableModules, modgenerativeopenai.Name)
+func (d *Compose) WithText2ColBERTJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modtext2colbertjinaai.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankernvidia.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modnvidia.Name)
 	return d
 }
 
@@ -298,8 +369,15 @@ func (d *Compose) WithGenerativeAWS(accessKey, secretKey, sessionToken string) *
 	return d
 }
 
-func (d *Compose) WithGenerativeCohere() *Compose {
+func (d *Compose) WithGenerativeCohere(apiKey string) *Compose {
+	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativecohere.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeFriendliAI(apiKey string) *Compose {
+	d.weaviateEnvs["FRIENDLI_TOKEN"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativefriendliai.Name)
 	return d
 }
 
@@ -317,6 +395,12 @@ func (d *Compose) WithGenerativeAnyscale() *Compose {
 func (d *Compose) WithGenerativeOllama() *Compose {
 	d.withOllamaGenerative = true
 	d.enableModules = append(d.enableModules, modgenerativeollama.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeAnthropic(apiKey string) *Compose {
+	d.weaviateEnvs["ANTHROPIC_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativeanthropic.Name)
 	return d
 }
 
@@ -361,8 +445,13 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	return d
 }
 
-func (d *Compose) WithWeaviateCluster() *Compose {
-	return d.With3NodeCluster()
+func (d *Compose) WithWeaviateCluster(size int) *Compose {
+	if size%2 == 0 {
+		panic("it's essential for the cluster size to be an odd number to ensure a majority can be achieved for quorum decisions, even if some nodes become unavailable")
+	}
+	d.withWeaviateCluster = true
+	d.withWeaviateClusterSize = size
+	return d
 }
 
 func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
@@ -371,7 +460,7 @@ func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
 	return d
 }
 
-func (d *Compose) WithBasicAuth(username, password string) *Compose {
+func (d *Compose) WithWeaviateBasicAuth(username, password string) *Compose {
 	d.withWeaviateBasicAuth = true
 	d.withWeaviateBasicAuthUsername = username
 	d.withWeaviateBasicAuthPassword = password
@@ -383,8 +472,80 @@ func (d *Compose) WithWeaviateAuth() *Compose {
 	return d.With1NodeCluster()
 }
 
+func (d *Compose) WithAdminListAdmins(users ...string) *Compose {
+	d.weaviateAdminlistAdminUsers = users
+	return d
+}
+
+func (d *Compose) WithAdminListUsers(users ...string) *Compose {
+	d.weaviateAdminlistReadOnlyUsers = users
+	return d
+}
+
 func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	d.weaviateEnvs[name] = value
+	return d
+}
+
+func (d *Compose) WithMockOIDC() *Compose {
+	d.withMockOIDC = true
+	return d
+}
+
+func (d *Compose) WithApiKey() *Compose {
+	d.withWeaviateApiKey = true
+	return d
+}
+
+func (d *Compose) WithUserApiKey(username, key string) *Compose {
+	if !d.withWeaviateApiKey {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateApiKeyUsers = append(d.weaviateApiKeyUsers, ApiKeyUser{
+		Username: username,
+		Key:      key,
+	})
+	return d
+}
+
+func (d *Compose) WithRBAC() *Compose {
+	d.withWeaviateRbac = true
+	return d
+}
+
+func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacAdmins = append(d.weaviateRbacAdmins, usernames...)
+	return d
+}
+
+func (d *Compose) WithRbacRootGroups(groups ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacRootGroups = append(d.weaviateRbacRootGroups, groups...)
+	return d
+}
+
+func (d *Compose) WithRbacViewers(usernames ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacViewers = append(d.weaviateRbacViewers, usernames...)
+	return d
+}
+
+func (d *Compose) WithoutWeaviateEnvs(names ...string) *Compose {
+	for _, name := range names {
+		d.removeEnvs[name] = struct{}{}
+	}
+	return d
+}
+
+func (d *Compose) WithAutoschema() *Compose {
+	d.withAutoschema = true
 	return d
 }
 
@@ -394,25 +555,36 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		ctx,
 		tescontainersnetwork.WithAttachable(),
 	)
-	networkName := network.Name
 	if err != nil {
-		return nil, errors.Wrapf(err, "network: %s", networkName)
+		return nil, errors.Wrapf(err, "connecting to network")
 	}
+
+	networkName := network.Name
+
 	envSettings := make(map[string]string)
 	envSettings["network"] = networkName
 	envSettings["DISABLE_TELEMETRY"] = "true"
 	containers := []*DockerContainer{}
 	if d.withMinIO {
-		container, err := startMinIO(ctx, networkName)
+		container, err := startMinIO(ctx, networkName, d.withBackendS3Buckets)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
 		}
 		containers = append(containers, container)
+
 		if d.withBackendS3 {
+			if d.withBackupS3Bucket != "" {
+				envSettings["BACKUP_S3_BUCKET"] = d.withBackupS3Bucket
+			}
+
+			if d.withOffloadS3Bucket != "" {
+				envSettings["OFFLOAD_S3_BUCKET"] = d.withOffloadS3Bucket
+				envSettings["OFFLOAD_S3_BUCKET_AUTO_CREATE"] = "true"
+			}
+
 			for k, v := range container.envSettings {
 				envSettings[k] = v
 			}
-			envSettings["BACKUP_S3_BUCKET"] = d.withBackendS3Bucket
 		}
 	}
 	if d.withGCS {
@@ -555,8 +727,19 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
+	if d.withMockOIDC {
+		container, err := startMockOIDC(ctx, networkName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", MockOIDC)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
+
 	if d.withWeaviateCluster {
-		cs, err := d.startCluster(ctx, d.size, envSettings)
+		cs, err := d.startCluster(ctx, d.withWeaviateClusterSize, envSettings)
 		for _, c := range cs {
 			if c != nil {
 				containers = append(containers, c)
@@ -585,6 +768,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
 		containers = append(containers, container)
+		if err != nil {
+			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", hostname)
+		}
 	}
 
 	return &DockerCompose{network, containers}, nil
@@ -592,13 +778,13 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 
 func (d *Compose) With1NodeCluster() *Compose {
 	d.withWeaviateCluster = true
-	d.size = 1
+	d.withWeaviateClusterSize = 1
 	return d
 }
 
 func (d *Compose) With3NodeCluster() *Compose {
 	d.withWeaviateCluster = true
-	d.size = 3
+	d.withWeaviateClusterSize = 3
 	return d
 }
 
@@ -608,6 +794,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	for k, v := range d.weaviateEnvs {
 		settings[k] = v
+	}
+
+	for k := range d.removeEnvs {
+		delete(settings, k)
 	}
 
 	raft_join := "node1,node2,node3"
@@ -634,11 +824,56 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
 	}
+	if len(d.weaviateAdminlistAdminUsers) > 0 {
+		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
+		settings["AUTHORIZATION_ADMINLIST_USERS"] = strings.Join(d.weaviateAdminlistAdminUsers, ",")
+		if len(d.weaviateAdminlistReadOnlyUsers) > 0 {
+			settings["AUTHORIZATION_ADMINLIST_READONLY_USERS"] = strings.Join(d.weaviateAdminlistReadOnlyUsers, ",")
+		}
+	}
+
+	if d.withWeaviateApiKey {
+		usernames := make([]string, 0, len(d.weaviateApiKeyUsers))
+		keys := make([]string, 0, len(d.weaviateApiKeyUsers))
+
+		for _, user := range d.weaviateApiKeyUsers {
+			usernames = append(usernames, user.Username)
+			keys = append(keys, user.Key)
+		}
+		if len(keys) > 0 {
+			settings["AUTHENTICATION_APIKEY_ALLOWED_KEYS"] = strings.Join(keys, ",")
+			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
+		}
+		if len(usernames) > 0 {
+			settings["AUTHENTICATION_APIKEY_USERS"] = strings.Join(usernames, ",")
+			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
+		}
+	}
+
+	if d.withWeaviateRbac {
+		settings["AUTHORIZATION_RBAC_ENABLED"] = "true"
+		settings["AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"] = "false" // incompatible
+
+		if len(d.weaviateRbacAdmins) > 0 {
+			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
+		}
+		if len(d.weaviateRbacViewers) > 0 {
+			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
+		}
+
+		if len(d.weaviateRbacRootGroups) > 0 {
+			settings["AUTHORIZATION_RBAC_ROOT_GROUPS"] = strings.Join(d.weaviateRbacRootGroups, ",")
+		}
+	}
+
+	if d.withAutoschema {
+		settings["AUTOSCHEMA_ENABLED"] = "true"
+	}
 
 	settings["RAFT_PORT"] = "8300"
 	settings["RAFT_INTERNAL_RPC_PORT"] = "8301"
 	settings["RAFT_JOIN"] = raft_join
-	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.size)
+	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.withWeaviateClusterSize)
 
 	// first node
 	config1 := copySettings(settings)

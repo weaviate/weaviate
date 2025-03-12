@@ -31,25 +31,33 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 		return err
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, vector := range merge.Vectors {
-			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-			vectorIndex := s.VectorIndexForName(targetVector)
-			if vectorIndex == nil {
-				return errors.Errorf("Validate vector index for update of %v for target vector %s: vector index not found", merge.ID, targetVector)
-			}
-			err := vectorIndex.ValidateBeforeInsert(vector)
+	for targetVector, vector := range merge.Vectors {
+		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+		vectorIndex := s.VectorIndexForName(targetVector)
+		if vectorIndex == nil {
+			return errors.Errorf("Validate vector index for update of %v for target vector %s: vector index not found", merge.ID, targetVector)
+		}
+		switch v := vector.(type) {
+		case []float32:
+			err := vectorIndex.ValidateBeforeInsert(v)
 			if err != nil {
 				return errors.Wrapf(err, "Validate vector index for update of %v for target vector %s", merge.ID, targetVector)
 			}
-		}
-	} else {
-		if merge.Vector != nil {
-			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-			err := s.vectorIndex.ValidateBeforeInsert(merge.Vector)
+		case [][]float32:
+			err := vectorIndex.ValidateMultiBeforeInsert(v)
 			if err != nil {
-				return errors.Wrapf(err, "Validate vector index for update of %v", merge.ID)
+				return errors.Wrapf(err, "Validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
 			}
+		default:
+			return errors.Errorf("Validate vector index for update of %v for target vector %s: unrecongnized vector type: %T", merge.ID, targetVector, vector)
+		}
+	}
+
+	if len(merge.Vector) > 0 && s.hasLegacyVectorIndex() {
+		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+		err := s.vectorIndex.ValidateBeforeInsert(merge.Vector)
+		if err != nil {
+			return errors.Wrapf(err, "Validate vector index for update of %v", merge.ID)
 		}
 	}
 
@@ -73,14 +81,19 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		return nil
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, vector := range obj.Vectors {
-			if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
-				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
-			}
+	for targetVector, vector := range obj.Vectors {
+		if err = s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
+			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 		}
-	} else {
-		if err := s.updateVectorIndex(ctx, obj.Vector, status); err != nil {
+	}
+	for targetVector, vector := range obj.MultiVectors {
+		if err = s.updateMultiVectorIndexForName(ctx, vector, status, targetVector); err != nil {
+			return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
+		}
+	}
+
+	if s.hasLegacyVectorIndex() {
+		if err = s.updateVectorIndex(ctx, obj.Vector, status); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
 	}
@@ -91,6 +104,10 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 
 	if err := s.store.WriteWALs(); err != nil {
 		return errors.Wrap(err, "flush all buffered WALs")
+	}
+
+	if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
+		return errors.Wrap(err, "object merge in hashtree")
 	}
 
 	return nil
@@ -290,8 +307,10 @@ func mergeProps(previous *storobj.Object,
 
 	if len(merge.Vectors) == 0 {
 		next.Vectors = previous.Vectors
+		next.MultiVectors = previous.MultiVectors
 	} else {
 		next.Vectors = vectorsAsMap(merge.Vectors)
+		next.MultiVectors = multiVectorsAsMap(merge.Vectors)
 	}
 
 	next.Object.LastUpdateTimeUnix = merge.UpdateTime
@@ -304,7 +323,22 @@ func vectorsAsMap(in models.Vectors) map[string][]float32 {
 	if len(in) > 0 {
 		out := make(map[string][]float32)
 		for targetVector, vector := range in {
-			out[targetVector] = vector
+			if v, ok := vector.([]float32); ok {
+				out[targetVector] = v
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func multiVectorsAsMap(in models.Vectors) map[string][][]float32 {
+	if len(in) > 0 {
+		out := make(map[string][][]float32)
+		for targetVector, vector := range in {
+			if v, ok := vector.([][]float32); ok {
+				out[targetVector] = v
+			}
 		}
 		return out
 	}

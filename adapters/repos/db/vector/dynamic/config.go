@@ -23,23 +23,23 @@ import (
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	bolt "go.etcd.io/bbolt"
 )
 
 type Config struct {
-	ID                       string
-	TargetVector             string
-	Logger                   logrus.FieldLogger
-	RootPath                 string
-	ShardName                string
-	ClassName                string
-	PrometheusMetrics        *monitoring.PrometheusMetrics
-	VectorForIDThunk         common.VectorForID[float32]
-	TempVectorForIDThunk     common.TempVectorForID
-	DistanceProvider         distancer.Provider
-	MakeCommitLoggerThunk    hnsw.MakeCommitLogger
-	TombstoneCallbacks       cyclemanager.CycleCallbackGroup
-	ShardCompactionCallbacks cyclemanager.CycleCallbackGroup
-	ShardFlushCallbacks      cyclemanager.CycleCallbackGroup
+	ID                    string
+	TargetVector          string
+	Logger                logrus.FieldLogger
+	RootPath              string
+	ShardName             string
+	ClassName             string
+	PrometheusMetrics     *monitoring.PrometheusMetrics
+	VectorForIDThunk      common.VectorForID[float32]
+	TempVectorForIDThunk  common.TempVectorForID[float32]
+	DistanceProvider      distancer.Provider
+	MakeCommitLoggerThunk hnsw.MakeCommitLogger
+	TombstoneCallbacks    cyclemanager.CycleCallbackGroup
+	SharedDB              *bolt.DB
 }
 
 func (c Config) Validate() error {

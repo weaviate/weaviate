@@ -22,15 +22,18 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 type Replicator interface {
@@ -250,7 +253,7 @@ func (i *Index) CommitReplication(shard, requestID string) interface{} {
 
 	defer release()
 
-	return localShard.commitReplication(context.Background(), requestID, &i.backupMutex)
+	return localShard.commitReplication(context.Background(), requestID, &i.shardTransferMutex)
 }
 
 func (i *Index) AbortReplication(shard, requestID string) interface{} {
@@ -338,11 +341,14 @@ func (s *Shard) filePutter(ctx context.Context,
 // OverwriteObjects if their state didn't change in the meantime
 // It returns nil if all object have been successfully overwritten
 // and otherwise a list of failed operations.
-func (i *Index) OverwriteObjects(ctx context.Context,
+func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
-	s, release, err := i.getOrInitShard(ctx, shard)
+	s, release, err := idx.GetShard(ctx, shard)
 	if err != nil {
+		return nil, fmt.Errorf("shard %q not found locally", shard)
+	}
+	if s == nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
 	defer release()
@@ -366,13 +372,15 @@ func (i *Index) OverwriteObjects(ctx context.Context,
 		}
 
 		var currUpdateTime int64 // 0 means object doesn't exist on this node
+		var locallyDeleted bool
 
 		localObj, err := s.ObjectByIDErrDeleted(ctx, id, nil, additional.Properties{})
 		if err == nil {
 			currUpdateTime = localObj.LastUpdateTimeUnix()
 		} else if errors.Is(err, lsmkv.Deleted) {
-			errDeleted, ok := err.(lsmkv.ErrDeleted)
-			if ok {
+			locallyDeleted = true
+			var errDeleted lsmkv.ErrDeleted
+			if errors.As(err, &errDeleted) {
 				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
 			} // otherwise an unknown deletion time
 		} else if !errors.Is(err, lsmkv.NotFound) {
@@ -384,9 +392,48 @@ func (i *Index) OverwriteObjects(ctx context.Context,
 		}
 
 		if currUpdateTime != u.StaleUpdateTime {
-			// object changed and its state differs from recent known state
+
+			if currUpdateTime == u.LastUpdateTimeUnixMilli {
+				// local object was updated in the mean time, no need to do anything
+				continue
+			}
+
+			// a conflict is returned except for a particular situation
+			// that can be locally solved at this point:
+			// the node propagating the object change may have no information about
+			// the object from this node because it was deleted, it means that
+			// if a time-based resolution is used and the update was more recent
+			// than the deletion, the object update can be proccessed despite
+			// the fact `currUpdateTime == u.StaleUpdateTime` does not hold.
+			if !locallyDeleted ||
+				idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
+				currUpdateTime > u.LastUpdateTimeUnixMilli {
+				// object changed and its state differs from recent known state
+				r := replica.RepairResponse{
+					ID:         id.String(),
+					Deleted:    locallyDeleted,
+					UpdateTime: currUpdateTime,
+					Err:        "conflict",
+				}
+
+				result = append(result, r)
+				continue
+			}
+			// the object is locally deleted, the resolution strategy is time-based and
+			// the deletion was not made after the received update
+		}
+
+		// another validation is needed for backward-compatibility reasons:
+		// objects may have been deleted without a deletionTime, it means
+		// if an object is locally deleted currUpdateTime == 0
+		// so to avoid creating/updating the locally deleted object
+		// time-based strategy and a more recent creation/update is required
+		if !u.Deleted && locallyDeleted &&
+			(idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
+				currUpdateTime > u.LastUpdateTimeUnixMilli) {
 			r := replica.RepairResponse{
 				ID:         id.String(),
+				Deleted:    locallyDeleted,
 				UpdateTime: currUpdateTime,
 				Err:        "conflict",
 			}
@@ -407,9 +454,7 @@ func (i *Index) OverwriteObjects(ctx context.Context,
 			continue
 		}
 
-		// the stored object is not the most recent version. in
-		// this case, we overwrite it with the more recent one.
-		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, u.Vectors))
+		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
 		if err != nil {
 			r := replica.RepairResponse{
 				ID:  id.String(),
@@ -493,6 +538,50 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 	return i.DigestObjects(ctx, shardName, ids)
 }
 
+func (i *Index) DigestObjectsInRange(ctx context.Context,
+	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
+) (result []replica.RepairResponse, err error) {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+	if shard == nil {
+		return nil, nil
+	}
+
+	defer release()
+
+	return shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
+}
+
+func (i *Index) IncomingDigestObjectsInRange(ctx context.Context,
+	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
+) (result []replica.RepairResponse, err error) {
+	return i.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
+}
+
+func (i *Index) HashTreeLevel(ctx context.Context,
+	shardName string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("%w: shard %q", err, shardName)
+	}
+	if shard == nil {
+		return nil, nil
+	}
+
+	defer release()
+
+	return shard.HashTreeLevel(ctx, level, discriminant)
+}
+
+func (i *Index) IncomingHashTreeLevel(ctx context.Context,
+	shardName string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	return i.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
 func (i *Index) FetchObject(ctx context.Context,
 	shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
@@ -540,11 +629,13 @@ func (i *Index) FetchObject(ctx context.Context,
 func (i *Index) FetchObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
-
+	if shard == nil {
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
 	defer release()
 
 	if shard.GetStatus() == storagestate.StatusLoading {

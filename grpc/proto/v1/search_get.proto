@@ -4,6 +4,8 @@ package weaviate.v1;
 
 import "google/protobuf/struct.proto";
 import "v1/base.proto";
+import "v1/base_search.proto";
+import "v1/generative.proto";
 import "v1/properties.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
@@ -49,7 +51,8 @@ message SearchRequest {
   optional Rerank rerank = 61;
 
   bool uses_123_api = 100 [deprecated = true];
-  bool uses_125_api = 101;
+  bool uses_125_api = 101 [deprecated = true];
+  bool uses_127_api = 102; 
 }
 
 message GroupBy {
@@ -68,12 +71,6 @@ message SortBy {
   // extendable in the future
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated string path = 2;
-}
-
-message GenerativeSearch {
-  string single_response_prompt = 1;
-  string grouped_response_task = 2;
-  repeated string grouped_properties = 3;
 }
 
 message MetadataRequest {
@@ -102,108 +99,11 @@ message ObjectPropertiesRequest {
   repeated ObjectPropertiesRequest object_properties = 3;
 }
 
-message Hybrid {
-  string query = 1;
-  repeated string properties = 2;
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 3 [deprecated = true];  // will be removed in the future, use vector_bytes
-  float alpha = 4;
-  enum FusionType {
-    FUSION_TYPE_UNSPECIFIED = 0;
-    FUSION_TYPE_RANKED = 1;
-    FUSION_TYPE_RELATIVE_SCORE = 2;
-  }
-  FusionType fusion_type = 5;
-  bytes vector_bytes = 6;
-  repeated string target_vectors = 7;
-  NearTextSearch near_text = 8;  // target_vector in msg is ignored and should not be set for hybrid
-  NearVector near_vector = 9;  // same as above. Use the target vector in the hybrid message
-}
-
-message NearTextSearch {
-  message Move {
-    float force = 1;
-    repeated string concepts = 2;
-    repeated string uuids = 3;
-  }
-
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated string query = 1;
-  optional double certainty = 2;
-  optional double distance = 3;
-  optional Move move_to = 4;
-  optional Move move_away = 5;
-  repeated string target_vectors = 6;
-};
-
-message NearImageSearch {
-  string image = 1;
-  optional double certainty = 2;
-  optional double distance = 3;
-  repeated string target_vectors = 4;
-};
-
-message NearAudioSearch {
-  string audio = 1;
-  optional double certainty = 2;
-  optional double distance = 3;
-  repeated string target_vectors = 4;
-};
-
-message NearVideoSearch {
-  string video = 1;
-  optional double certainty = 2;
-  optional double distance = 3;
-  repeated string target_vectors = 4;
-};
-
-message NearDepthSearch {
-  string depth = 1;
-  optional double certainty = 2;
-  optional double distance = 3;
-  repeated string target_vectors = 4;
-}
-
-message NearThermalSearch {
-  string thermal = 1;
-  optional double certainty = 2;
-  optional double distance = 3;
-  repeated string target_vectors = 4;
-}
-
-message NearIMUSearch {
-  string imu = 1;
-  optional double certainty = 2;
-  optional double distance = 3;
-  repeated string target_vectors = 4;
-}
-
-message BM25 {
-  string query = 1;
-  repeated string properties = 2;
-}
-
 message RefPropertiesRequest {
   string reference_property = 1;
   PropertiesRequest properties = 2;
   MetadataRequest metadata = 3;
   string target_collection = 4;
-}
-
-message NearVector {
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 1 [deprecated = true];  // will be removed in the future, use vector_bytes
-  optional double certainty = 2;
-  optional double distance = 3;
-  bytes vector_bytes = 4;
-  repeated string target_vectors = 5;
-}
-
-message NearObject {
-  string id = 1;
-  optional double certainty = 2;
-  optional double distance = 3;
-  repeated string target_vectors = 4;
 }
 
 message Rerank {
@@ -214,16 +114,13 @@ message Rerank {
 message SearchReply {
   float took = 1;
   repeated SearchResult results = 2;
-  optional string generative_grouped_result = 3;
+  optional string generative_grouped_result = 3 [deprecated = true];
   repeated GroupByResult group_by_results = 4;
+  optional GenerativeResult generative_grouped_results = 5;
 }
 
 message RerankReply {
   double score = 1;
-}
-
-message GenerativeReply {
-  string result = 1;
 }
 
 message GroupByResult {
@@ -233,13 +130,16 @@ message GroupByResult {
   int64 number_of_objects = 4;
   repeated SearchResult objects = 5;
   optional RerankReply rerank = 6;
-  optional GenerativeReply generative = 7;
+  optional GenerativeReply generative = 7 [deprecated = true];
+  optional GenerativeResult generative_result = 8;
 }
 
 message SearchResult {
   PropertiesResult properties = 1;
   MetadataResult metadata = 2;
+  optional GenerativeResult generative = 3;
 }
+
 
 message MetadataResult {
   string id = 1;
@@ -258,8 +158,8 @@ message MetadataResult {
   string explain_score = 13;
   bool explain_score_present = 14;
   optional bool is_consistent = 15;
-  string generative = 16;
-  bool generative_present = 17;
+  string generative = 16 [deprecated = true];
+  bool generative_present = 17 [deprecated = true];
   bool is_consistent_present = 18;
   bytes vector_bytes = 19;
   bytes id_as_bytes = 20;

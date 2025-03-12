@@ -12,11 +12,12 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -37,7 +38,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantApiVersion       string
 	}{
 		{
-			name: "Happy flow",
+			name: "default settings",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
@@ -78,7 +79,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":            "gpt-3.5-turbo",
-					"maxTokens":        4097,
+					"maxTokens":        4096,
 					"temperature":      0.5,
 					"topP":             3,
 					"frequencyPenalty": 0.1,
@@ -89,7 +90,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantBaseURL:          "https://proxy.weaviate.dev/",
 			wantApiVersion:       "2024-02-01",
 			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4097,
+			wantMaxTokens:        4096,
 			wantTemperature:      0.5,
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
@@ -122,9 +123,10 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Azure OpenAI config",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"isAzure":          true,
 					"resourceName":     "weaviate",
 					"deploymentId":     "gpt-3.5-turbo",
-					"maxTokens":        4097,
+					"maxTokens":        4096,
 					"temperature":      0.5,
 					"topP":             3,
 					"frequencyPenalty": 0.1,
@@ -135,7 +137,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantDeploymentID:     "gpt-3.5-turbo",
 			wantIsAzure:          true,
 			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4097,
+			wantMaxTokens:        4096,
 			wantTemperature:      0.5,
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
@@ -148,10 +150,11 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Azure OpenAI config with baseURL",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"isAzure":          true,
 					"baseURL":          "some-base-url",
 					"resourceName":     "weaviate",
 					"deploymentId":     "gpt-3.5-turbo",
-					"maxTokens":        4097,
+					"maxTokens":        4096,
 					"temperature":      0.5,
 					"topP":             3,
 					"frequencyPenalty": 0.1,
@@ -162,7 +165,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantDeploymentID:     "gpt-3.5-turbo",
 			wantIsAzure:          true,
 			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4097,
+			wantMaxTokens:        4096,
 			wantTemperature:      0.5,
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
@@ -176,7 +179,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":            "gpt-3.5-turbo-16k",
-					"maxTokens":        4097,
+					"maxTokens":        4096,
 					"temperature":      0.5,
 					"topP":             3,
 					"frequencyPenalty": 0.1,
@@ -184,7 +187,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel:            "gpt-3.5-turbo-16k",
-			wantMaxTokens:        4097,
+			wantMaxTokens:        4096,
 			wantTemperature:      0.5,
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
@@ -200,7 +203,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"maxTokens": true,
 				},
 			},
-			wantErr: errors.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used"),
+			wantErr: fmt.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used"),
 		},
 		{
 			name: "Wrong temperature configured",
@@ -209,7 +212,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"temperature": true,
 				},
 			},
-			wantErr: errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0"),
+			wantErr: fmt.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0"),
 		},
 		{
 			name: "Third party provider, use max tokens",
@@ -217,15 +220,10 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{
 					"model":     "model-that-openai-does-not-have",
 					"baseURL":   "https://something-else.com",
-					"maxTokens": 4097,
+					"maxTokens": 4096,
 				},
 			},
-			wantMaxTokens:  4097,
-			wantBaseURL:    "https://something-else.com",
-			wantApiVersion: "2024-02-01",
-			wantModel:      "model-that-openai-does-not-have",
-			wantTopP:       1,
-			wantErr:        nil,
+			wantErr: fmt.Errorf("wrong OpenAI model name, available model names are: [gpt-3.5-turbo gpt-3.5-turbo-16k gpt-3.5-turbo-1106 gpt-4 gpt-4-32k gpt-4-1106-preview gpt-4o gpt-4o-mini]"),
 		},
 		{
 			name: "Wrong frequencyPenalty configured",
@@ -234,7 +232,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"frequencyPenalty": true,
 				},
 			},
-			wantErr: errors.Errorf("Wrong frequencyPenalty configuration, values are between 0.0 and 1.0"),
+			wantErr: fmt.Errorf("Wrong frequencyPenalty configuration, values are between 0.0 and 1.0"),
 		},
 		{
 			name: "Wrong presencePenalty configured",
@@ -243,7 +241,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"presencePenalty": true,
 				},
 			},
-			wantErr: errors.Errorf("Wrong presencePenalty configuration, values are between 0.0 and 1.0"),
+			wantErr: fmt.Errorf("Wrong presencePenalty configuration, values are between 0.0 and 1.0"),
 		},
 		{
 			name: "Wrong topP configured",
@@ -252,25 +250,27 @@ func Test_classSettings_Validate(t *testing.T) {
 					"topP": true,
 				},
 			},
-			wantErr: errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5"),
+			wantErr: fmt.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5"),
 		},
 		{
 			name: "Wrong Azure config - empty deploymentId",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"resourceName": "resource-name",
+					"isAzure":      true,
 				},
 			},
-			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
+			wantErr: fmt.Errorf("both resourceName and deploymentId must be provided"),
 		},
 		{
 			name: "Wrong Azure config - empty resourceName",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"deploymentId": "deployment-name",
+					"isAzure":      true,
 				},
 			},
-			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
+			wantErr: fmt.Errorf("both resourceName and deploymentId must be provided"),
 		},
 		{
 			name: "Wrong Azure config - wrong api version",
@@ -279,10 +279,10 @@ func Test_classSettings_Validate(t *testing.T) {
 					"apiVersion": "wrong-api-version",
 				},
 			},
-			wantErr: errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: " +
+			wantErr: fmt.Errorf("wrong Azure OpenAI apiVersion, available api versions are: " +
 				"[2022-12-01 2023-03-15-preview 2023-05-15 2023-06-01-preview 2023-07-01-preview " +
 				"2023-08-01-preview 2023-09-01-preview 2023-12-01-preview 2024-02-15-preview " +
-				"2024-03-01-preview 2024-02-01]"),
+				"2024-03-01-preview 2024-02-01 2024-06-01]"),
 		},
 	}
 	for _, tt := range tests {
@@ -291,6 +291,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			if tt.wantErr != nil {
 				assert.EqualError(t, tt.wantErr, ic.Validate(nil).Error())
 			} else {
+				assert.NoError(t, ic.Validate(nil))
 				assert.Equal(t, tt.wantModel, ic.Model())
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
@@ -329,4 +330,8 @@ func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
 }

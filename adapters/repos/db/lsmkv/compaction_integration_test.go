@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func testCtx() context.Context {
@@ -41,6 +42,7 @@ type bucketIntegrationTests []bucketIntegrationTest
 func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			test.opts = append(test.opts, WithSegmentsChecksumValidationEnabled(false))
 			t.Run("mmap", func(t *testing.T) {
 				test.f(ctx, t, test.opts)
 			})
@@ -253,6 +255,7 @@ func TestCompaction(t *testing.T) {
 			},
 		},
 
+		// RoaringSet
 		{
 			name: "compactionRoaringSetStrategy_Random",
 			f:    compactionRoaringSetStrategy_Random,
@@ -317,6 +320,129 @@ func TestCompaction(t *testing.T) {
 				WithKeepTombstones(true),
 			},
 		},
+
+		// RoaringSetRange
+		{
+			name: "compactionRoaringSetRangeStrategy_Random",
+			f:    compactionRoaringSetRangeStrategy_Random,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_Random_KeepTombstones",
+			f:    compactionRoaringSetRangeStrategy_Random,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy",
+			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
+				compactionRoaringSetRangeStrategy(ctx, t, opts, 1824, 1824)
+			},
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_KeepTombstones",
+			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
+				compactionRoaringSetRangeStrategy(ctx, t, opts, 2384, 2384)
+			},
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_RemoveUnnecessary",
+			f:    compactionRoaringSetRangeStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_RemoveUnnecessary_KeepTombstones",
+			f:    compactionRoaringSetRangeStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations",
+			f:    compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations_KeepTombstones",
+			f:    compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_BugfixOverwrittenBuffer",
+			f:    compactionRoaringSetRangeStrategy_BugfixOverwrittenBuffer,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+			},
+		},
+		// Inverted
+		{
+			name: "compactionInvertedStrategy",
+			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
+				compactionInvertedStrategy(ctx, t, opts, 8627, 8627)
+			},
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+			},
+		},
+		{
+			name: "compactionInvertedStrategy_KeepTombstones",
+			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
+				compactionInvertedStrategy(ctx, t, opts, 9059, 9059)
+			},
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionInvertedStrategy_RemoveUnnecessary",
+			f:    compactionInvertedStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+			},
+		},
+		{
+			name: "compactionInvertedStrategy_RemoveUnnecessary_KeepTombstones",
+			f:    compactionInvertedStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionInvertedStrategy_FrequentPutDeleteOperations",
+			f:    compactionInvertedStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+			},
+		},
+		{
+			name: "compactionInvertedStrategy_FrequentPutDeleteOperations_KeepTombstones",
+			f:    compactionInvertedStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+				WithKeepTombstones(true),
+			},
+		},
 	}
 	tests.run(ctx, t)
 }
@@ -347,7 +473,7 @@ func assertSingleSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 	fi, err := os.Stat(dbFiles[0])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, expectedMinSize, fi.Size())
-	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
+	assert.GreaterOrEqual(t, expectedMaxSize+segmentindex.ChecksumSize, fi.Size())
 }
 
 func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, expectedMaxSize int64) {
@@ -365,5 +491,5 @@ func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 	fi, err := os.Stat(dbFiles[1])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, expectedMinSize, fi.Size())
-	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
+	assert.GreaterOrEqual(t, expectedMaxSize+segmentindex.ChecksumSize, fi.Size())
 }

@@ -15,6 +15,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
@@ -73,4 +74,8 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx con
 
 func (t *ShardInvertedReindexTaskSetToRoaringSet) OnPostResumeStore(ctx context.Context, shard ShardLike) error {
 	return nil
+}
+
+func (t *ShardInvertedReindexTaskSetToRoaringSet) ObjectsIterator(shard ShardLike) objectsIterator {
+	return shard.Store().Bucket(helpers.ObjectsBucketLSM).IterateObjects
 }

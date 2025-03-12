@@ -61,10 +61,9 @@ func TestFilterNullStateError(t *testing.T) {
 	}
 
 	params := dto.GetParams{
-		SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-		ClassName:    class.Class,
-		Pagination:   &filters.Pagination{Limit: 5},
-		Filters:      nilFilter,
+		ClassName:  class.Class,
+		Pagination: &filters.Pagination{Limit: 5},
+		Filters:    nilFilter,
 	}
 	_, err = repo.Search(context.Background(), params)
 	require.NotNil(t, err)
@@ -116,8 +115,8 @@ func TestNullArrayClass(t *testing.T) {
 			}
 
 			if name == names[0] {
-				assert.Nil(t, repo.PutObject(context.Background(), arrayObjNil, []float32{1}, nil, nil, 0))
-				assert.Nil(t, repo.PutObject(context.Background(), arrayObjEmpty, []float32{1}, nil, nil, 0))
+				assert.Nil(t, repo.PutObject(context.Background(), arrayObjNil, []float32{1}, nil, nil, nil, 0))
+				assert.Nil(t, repo.PutObject(context.Background(), arrayObjEmpty, []float32{1}, nil, nil, nil, 0))
 
 			} else {
 				batch := make([]objects.BatchObject, 2)

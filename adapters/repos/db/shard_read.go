@@ -18,6 +18,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -34,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
@@ -118,6 +123,52 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	return objects, nil
 }
 
+func (s *Shard) ObjectDigestsInRange(ctx context.Context,
+	initialUUID, finalUUID strfmt.UUID, limit int) (
+	objs []replica.RepairResponse, err error,
+) {
+	initialUUIDBytes, err := uuid.MustParse(initialUUID.String()).MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	finalUUIDBytes, err := uuid.MustParse(finalUUID.String()).MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	cursor := bucket.Cursor()
+	defer cursor.Close()
+
+	n := 0
+
+	for k, v := cursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = cursor.Next() {
+		if ctx.Err() != nil {
+			return objs, ctx.Err()
+		}
+
+		obj, err := storobj.FromBinaryUUIDOnly(v)
+		if err != nil {
+			return objs, fmt.Errorf("cannot unmarshal object: %w", err)
+		}
+
+		replicaObj := replica.RepairResponse{
+			ID:         obj.ID().String(),
+			UpdateTime: obj.LastUpdateTimeUnix(),
+			// TODO: use version when supported
+			Version: 0,
+		}
+
+		objs = append(objs, replicaObj)
+
+		n++
+	}
+
+	return objs, nil
+}
+
 // TODO: This does an actual read which is not really needed, if we see this
 // come up in profiling, we could optimize this by adding an explicit Exists()
 // on the LSMKV which only checks the bloom filters, which at least in the case
@@ -188,9 +239,32 @@ func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64
 	return storobj.VectorFromBinary(bytes, container.Slice, targetVector)
 }
 
+func (s *Shard) multiVectorByIndexID(ctx context.Context, indexID uint64, targetVector string) ([][]float32, error) {
+	keyBuf := make([]byte, 8)
+	return s.readMultiVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector)
+}
+
+func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error) {
+	binary.LittleEndian.PutUint64(container.Buff8, indexID)
+
+	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+		GetBySecondaryIntoMemory(0, container.Buff8, container.Buff)
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes == nil {
+		return nil, storobj.NewErrNotFoundf(indexID,
+			"no object for doc id, it could have been deleted")
+	}
+
+	container.Buff = newBuff
+	return storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+}
+
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	additional additional.Properties,
+	additional additional.Properties, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	var err error
 
@@ -239,6 +313,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			}
 
 			filterDocIds = objs
+			defer objs.Close()
 		}
 
 		className := s.index.Config.ClassName
@@ -263,28 +338,41 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
+		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties)
 	return objs, nil, err
 }
 
-func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
-	if s.hasTargetVectors() {
-		if targetVector == "" {
-			return nil, fmt.Errorf("index queue: missing target vector")
-		}
-		queue, ok := s.queues[targetVector]
+func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, searchVectors []models.Vector, targetVectors []string) ([]float32, error) {
+	if len(targetVectors) != len(searchVectors) || len(targetVectors) == 0 {
+		return nil, fmt.Errorf("target vectors and search vectors must have the same non-zero length")
+	}
+
+	distances := make([]float32, len(targetVectors))
+	indexes := s.VectorIndexes()
+	for j, target := range targetVectors {
+		index, ok := indexes[target]
 		if !ok {
-			return nil, fmt.Errorf("index queue for target vector: %s doesn't exist", targetVector)
+			return nil, fmt.Errorf("index %s not found", target)
 		}
-		return queue, nil
+		var distancer common.QueryVectorDistancer
+		switch v := searchVectors[j].(type) {
+		case []float32:
+			distancer = index.QueryVectorDistancer(v)
+		case [][]float32:
+			distancer = index.QueryMultiVectorDistancer(v)
+		default:
+			return nil, fmt.Errorf("unsupported vector type: %T", v)
+		}
+		dist, err := distancer.DistanceToNode(docId)
+		if err != nil {
+			return nil, err
+		}
+		distances[j] = dist
 	}
-	if targetVector != "" {
-		return nil, fmt.Errorf("index queue: target vector not found: %q", targetVector)
-	}
-	return s.queue, nil
+	return distances, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
 	defer func() {
@@ -305,13 +393,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 	}()
 
 	s.activityTracker.Add(1)
-	var (
-		ids       []uint64
-		dists     []float32
-		err       error
-		allowList helpers.AllowList
-	)
 
+	var allowList helpers.AllowList
 	if filters != nil {
 		beforeFilter := time.Now()
 		list, err := s.buildAllowList(ctx, filters, additional)
@@ -322,41 +405,107 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 		took := time.Since(beforeFilter)
 		s.metrics.FilteredVectorFilter(took)
 		helpers.AnnotateSlowQueryLog(ctx, "filters_build_allow_list_took", took)
+		helpers.AnnotateSlowQueryLog(ctx, "filters_ids_matched", allowList.Len())
 	}
 
-	queue, err := s.getIndexQueue(targetVector)
-	if err != nil {
+	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	eg.SetLimit(_NUMCPU)
+	idss := make([][]uint64, len(targetVectors))
+	distss := make([][]float32, len(targetVectors))
+	beforeVector := time.Now()
+
+	for i, targetVector := range targetVectors {
+		i := i
+		targetVector := targetVector
+		eg.Go(func() error {
+			var (
+				ids   []uint64
+				dists []float32
+				err   error
+			)
+
+			vidx, ok := s.GetVectorIndex(targetVector)
+			if !ok {
+				return fmt.Errorf("index for target vector %q not found", targetVector)
+			}
+
+			if limit < 0 {
+				switch searchVector := searchVectors[i].(type) {
+				case []float32:
+					ids, dists, err = vidx.SearchByVectorDistance(
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+					if err != nil {
+						// This should normally not fail. A failure here could indicate that more
+						// attention is required, for example because data is corrupted. That's
+						// why this error is explicitly pushed to sentry.
+						err = fmt.Errorf("vector search by distance: %w", err)
+						entsentry.CaptureException(err)
+						return err
+					}
+				case [][]float32:
+					ids, dists, err = vidx.SearchByMultiVectorDistance(
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+					if err != nil {
+						// This should normally not fail. A failure here could indicate that more
+						// attention is required, for example because data is corrupted. That's
+						// why this error is explicitly pushed to sentry.
+						err = fmt.Errorf("multi vector search by distance: %w", err)
+						entsentry.CaptureException(err)
+						return err
+					}
+				default:
+					return fmt.Errorf("vector search by distance: unsupported type: %T", searchVectors[i])
+				}
+			} else {
+				switch searchVector := searchVectors[i].(type) {
+				case []float32:
+					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
+					if err != nil {
+						// This should normally not fail. A failure here could indicate that more
+						// attention is required, for example because data is corrupted. That's
+						// why this error is explicitly pushed to sentry.
+						err = fmt.Errorf("vector search: %w", err)
+						// annotate for sentry so we know which collection/shard this happened on
+						entsentry.CaptureException(fmt.Errorf("collection %q shard %q: %w",
+							s.index.Config.ClassName, s.name, err))
+						return err
+					}
+				case [][]float32:
+					ids, dists, err = vidx.SearchByMultiVector(ctx, searchVector, limit, allowList)
+					if err != nil {
+						// This should normally not fail. A failure here could indicate that more
+						// attention is required, for example because data is corrupted. That's
+						// why this error is explicitly pushed to sentry.
+						err = fmt.Errorf("multi vector search: %w", err)
+						// annotate for sentry so we know which collection/shard this happened on
+						entsentry.CaptureException(fmt.Errorf("collection %q shard %q: %w",
+							s.index.Config.ClassName, s.name, err))
+						return err
+					}
+				default:
+					return fmt.Errorf("vector search: unsupported type: %T", searchVectors[i])
+				}
+			}
+			if len(ids) == 0 {
+				return nil
+			}
+
+			idss[i] = ids
+			distss[i] = dists
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
-
-	beforeVector := time.Now()
-	if limit < 0 {
-		ids, dists, err = queue.SearchByVectorDistance(
-			ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
-		if err != nil {
-			// This should normally not fail. A failure here could indicate that more
-			// attention is required, for example because data is corrupted. That's
-			// why this error is explicitly pushed to sentry.
-			err = fmt.Errorf("vector search by distance: %w", err)
-			entsentry.CaptureException(err)
-
-			return nil, nil, err
-		}
-	} else {
-		ids, dists, err = queue.SearchByVector(ctx, searchVector, limit, allowList)
-		if err != nil {
-			// This should normally not fail. A failure here could indicate that more
-			// attention is required, for example because data is corrupted. That's
-			// why this error is explicitly pushed to sentry.
-			err = fmt.Errorf("vector search: %w", err)
-			// annotate for sentry so we know which collection/shard this happened on
-			entsentry.CaptureException(fmt.Errorf("collection %q shard %q: %w",
-				s.index.Config.ClassName, s.name, err))
-			return nil, nil, err
-		}
+	if allowList != nil {
+		defer allowList.Close()
 	}
-	if len(ids) == 0 {
-		return nil, nil, nil
+
+	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, targetCombination, limit, targetDist)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if filters != nil {
@@ -365,13 +514,17 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 	helpers.AnnotateSlowQueryLog(ctx, "vector_search_took", time.Since(beforeVector))
 
 	if groupBy != nil {
-		return s.groupResults(ctx, ids, dists, groupBy, additional)
+		objs, dists, err := s.groupResults(ctx, idsCombined, distCombined, groupBy, additional, properties)
+		if err != nil {
+			return nil, nil, err
+		}
+		return objs, dists, nil
 	}
 
 	if len(sort) > 0 {
 		beforeSort := time.Now()
-		ids, dists, err = s.sortDocIDsAndDists(ctx, limit, sort,
-			s.index.Config.ClassName, ids, dists)
+		idsCombined, distCombined, err = s.sortDocIDsAndDists(ctx, limit, sort,
+			s.index.Config.ClassName, idsCombined, distCombined)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search sort")
 		}
@@ -385,7 +538,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 	beforeObjects := time.Now()
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocID(bucket, ids, additional, s.index.logger)
+	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -394,9 +547,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 	if filters != nil {
 		s.metrics.FilteredVectorObjects(took)
 	}
-	helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 
-	return objs, dists, nil
+	helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
+	return objs, distCombined, nil
 }
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
@@ -407,7 +560,7 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			return nil, err
 		}
 		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-		return storobj.ObjectsByDocID(bucket, docIDs, additional, s.index.logger)
+		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
 	}
 
 	if cursor == nil {
@@ -521,7 +674,6 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return err
 	}
 
-	var docID uint64
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	existing, err := bucket.Get(idBytes)
 	if err != nil {
@@ -535,7 +687,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
-	docID, err = storobj.DocIDFromBinary(existing)
+	docID, updateTime, err := storobj.DocIDAndTimeFromBinary(existing)
 	if err != nil {
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
@@ -554,16 +706,18 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, queue := range s.queues {
-			if err = queue.Delete(docID); err != nil {
-				return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
-			}
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
 		}
-	} else {
-		if err = s.queue.Delete(docID); err != nil {
-			return errors.Wrap(err, "delete from vector index queue")
-		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+		return errors.Wrap(err, "object deletion in hashtree")
 	}
 
 	return nil

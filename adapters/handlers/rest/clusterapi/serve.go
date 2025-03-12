@@ -18,6 +18,7 @@ import (
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func Serve(appState *state.State) {
@@ -28,9 +29,8 @@ func Serve(appState *state.State) {
 		WithField("action", "cluster_api_startup").
 		Debugf("serving cluster api on port %d", port)
 
-	maintenanceModeEnabled := appState.Cluster.MaintenanceModeEnabled()
-	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, maintenanceModeEnabled, appState.Logger)
-	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler, auth, maintenanceModeEnabled)
+	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
+	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
@@ -61,6 +61,18 @@ func Serve(appState *state.State) {
 		// use different options for different parts of your app.
 		handler = sentryhttp.New(sentryhttp.Options{}).Handle(mux)
 	}
+
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		handler = monitoring.InstrumentHTTP(
+			handler,
+			staticRoute(mux),
+			appState.HTTPServerMetrics.InflightRequests,
+			appState.HTTPServerMetrics.RequestDuration,
+			appState.HTTPServerMetrics.RequestBodySize,
+			appState.HTTPServerMetrics.ResponseBodySize,
+		)
+	}
+
 	http.ListenAndServe(fmt.Sprintf(":%d", port), handler)
 }
 
@@ -77,4 +89,21 @@ func index() http.Handler {
 
 		json.NewEncoder(w).Encode(payload)
 	})
+}
+
+// staticRoute is used to convert routes in our internal http server into static routes
+// by removing all the dynamic variables in the route. Useful for instrumentation
+// where "route cardinality" matters.
+
+// Example: `/replicas/indices/Movies/shards/hello0/objects` -> `/replicas/indices`
+func staticRoute(mux *http.ServeMux) monitoring.StaticRouteLabel {
+	return func(r *http.Request) (*http.Request, string) {
+		route := r.URL.String()
+
+		_, pattern := mux.Handler(r)
+		if pattern != "" {
+			route = pattern
+		}
+		return r, route
+	}
 }

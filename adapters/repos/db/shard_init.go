@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -31,8 +32,12 @@ import (
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
+	scheduler *queue.Scheduler,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (_ *Shard, err error) {
+	promMetrics.StartLoadingShard()
+	defer promMetrics.FinishLoadingShard()
+
 	before := time.Now()
 
 	index.logger.WithFields(logrus.Fields{
@@ -43,6 +48,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	s := &Shard{
 		index:       index,
+		class:       class,
 		name:        shardName,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
@@ -51,6 +57,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		stopDimensionTracking: make(chan struct{}),
 		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:       jobQueueCh,
+		scheduler:             scheduler,
 		indexCheckpoints:      indexCheckpoints,
 
 		shut:         false,
@@ -110,40 +117,20 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
-	if s.hasTargetVectors() {
-		if err := s.initTargetVectors(ctx); err != nil {
-			return nil, err
-		}
-		if err := s.initTargetQueues(); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := s.initLegacyVector(ctx); err != nil {
-			return nil, err
-		}
-		if err := s.initLegacyQueue(); err != nil {
-			return nil, err
-		}
+	if err = s.initShardVectors(ctx); err != nil {
+		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
 
 	s.initDimensionTracking()
 
 	if asyncEnabled() {
 		f := func() {
-			// preload unindexed objects in the background
-			if s.hasTargetVectors() {
-				for targetVector, queue := range s.queues {
-					err := s.PreloadQueue(targetVector)
-					if err != nil {
-						queue.Logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
-					}
+			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
+				if err := s.ConvertQueue(targetVector); err != nil {
+					index.logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
 				}
-			} else {
-				err := s.PreloadQueue("")
-				if err != nil {
-					s.queue.Logger.WithError(err).Error("preload shard")
-				}
-			}
+				return nil
+			})
 		}
 		enterrors.GoWrapper(f, s.index.logger)
 	}

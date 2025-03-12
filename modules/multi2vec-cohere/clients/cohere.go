@@ -37,19 +37,19 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationCLIPResult, error) {
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	return v.vectorize(ctx, texts, images, cfg)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context,
 	input []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationCLIPResult, error) {
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	return v.vectorize(ctx, input, nil, cfg)
 }
 
 func (v *vectorizer) vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationCLIPResult, error) {
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	var textVectors [][]float32
 	var imageVectors [][]float32
 	settings := ent.NewClassSettings(cfg)
@@ -76,7 +76,7 @@ func (v *vectorizer) vectorize(ctx context.Context,
 		}
 		imageVectors = imageEmbeddings.Vector
 	}
-	return &modulecomponents.VectorizationCLIPResult{
+	return &modulecomponents.VectorizationCLIPResult[[]float32]{
 		TextVectors:  textVectors,
 		ImageVectors: imageVectors,
 	}, nil

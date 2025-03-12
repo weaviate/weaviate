@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 )
 
 type Deserializer struct {
@@ -30,14 +31,15 @@ type Deserializer struct {
 }
 
 type DeserializationResult struct {
-	Nodes             []*vertex
+	Nodes             *graph.Nodes
 	NodesDeleted      map[uint64]struct{}
 	Entrypoint        uint64
 	Level             uint16
 	Tombstones        map[uint64]struct{}
 	TombstonesDeleted map[uint64]struct{}
 	EntrypointChanged bool
-	PQData            compressionhelpers.PQData
+	CompressionPQData *compressionhelpers.PQData
+	CompressionSQData *compressionhelpers.SQData
 	Compressed        bool
 
 	// If there is no entry for the links at a level to be replaced, we must
@@ -86,12 +88,16 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 	commitTypeMetrics := make(map[HnswCommitType]int)
 	if out == nil {
 		out = &DeserializationResult{
-			Nodes:             make([]*vertex, cache.InitialSize),
+			Nodes:             graph.NewNodes(cache.InitialSize),
 			NodesDeleted:      make(map[uint64]struct{}),
 			Tombstones:        make(map[uint64]struct{}),
 			TombstonesDeleted: make(map[uint64]struct{}),
 			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 		}
+	}
+
+	if out.Nodes == nil {
+		out.Nodes = graph.NewNodes(cache.InitialSize)
 	}
 
 	for {
@@ -141,11 +147,15 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		case ResetIndex:
 			out.Entrypoint = 0
 			out.Level = 0
-			out.Nodes = make([]*vertex, cache.InitialSize)
+			out.Nodes = graph.NewNodes(cache.InitialSize)
+			out.Tombstones = make(map[uint64]struct{})
 		case AddPQ:
 			var totalRead int
 			totalRead, err = d.ReadPQ(fd, out)
 			readThisRound = 9 + totalRead
+		case AddSQ:
+			err = d.ReadSQ(fd, out)
+			readThisRound = 10
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -173,20 +183,16 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
-	if err != nil {
-		return err
-	}
+	res.Nodes.Grow(id)
 
-	if changed {
-		res.Nodes = newNodes
-	}
-
-	if res.Nodes[id] == nil {
-		res.Nodes[id] = &vertex{level: int(level), id: id, connections: make([][]uint64, level+1)}
+	node := res.Nodes.Get(id)
+	if node == nil {
+		res.Nodes.Set(graph.NewVertexWithConnections(id, int(level), make([][]uint64, level+1)))
 	} else {
-		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
-		res.Nodes[id].level = int(level)
+		node.Edit(func(v *graph.VertexEditor) error {
+			v.SetLevel(int(level))
+			return nil
+		})
 	}
 	return nil
 }
@@ -221,23 +227,19 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
-	if err != nil {
-		return err
+	res.Nodes.Grow(source)
+
+	node := res.Nodes.Get(source)
+	if node == nil {
+		node = graph.NewVertexWithConnections(source, int(level), make([][]uint64, level+1))
+		res.Nodes.Set(node)
 	}
 
-	if changed {
-		res.Nodes = newNodes
-	}
-
-	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
-	}
-
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-
-	res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], target)
-	return nil
+	return node.Edit(func(v *graph.VertexEditor) error {
+		v.SetLevel(int(level))
+		v.AppendConnectionAtLevel(int(level), target, 0)
+		return nil
+	})
 }
 
 func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
@@ -258,22 +260,21 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 		return 0, err
 	}
 
-	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
-	if err != nil {
-		return 0, err
+	res.Nodes.Grow(source)
+
+	node := res.Nodes.Get(source)
+	if node == nil {
+		node = graph.NewVertexWithConnections(source, 0, make([][]uint64, level+1))
+		res.Nodes.Set(node)
 	}
 
-	if changed {
-		res.Nodes = newNodes
-	}
-
-	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
-	}
-
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-	res.Nodes[int(source)].connections[int(level)] = make([]uint64, len(targets))
-	copy(res.Nodes[int(source)].connections[int(level)], targets)
+	node.Edit(func(node *graph.VertexEditor) error {
+		node.SetLevel(int(level))
+		conns := make([]uint64, len(targets))
+		copy(conns, targets)
+		node.SetConnectionsAtLevel(int(level), conns)
+		return nil
+	})
 
 	if keepReplaceInfo {
 		// mark the replace flag for this node and level, so that new commit logs
@@ -307,23 +308,21 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 		return 0, err
 	}
 
-	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
-	if err != nil {
-		return 0, err
+	res.Nodes.Grow(source)
+
+	node := res.Nodes.Get(source)
+	if node == nil {
+		node = graph.NewVertexWithConnections(source, int(level), make([][]uint64, level+1))
+		res.Nodes.Set(node)
 	}
 
-	if changed {
-		res.Nodes = newNodes
-	}
-
-	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
-	}
-
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-
-	res.Nodes[int(source)].connections[int(level)] = append(
-		res.Nodes[int(source)].connections[int(level)], targets...)
+	node.Edit(func(node *graph.VertexEditor) error {
+		node.EnsureLevel(int(level))
+		for _, target := range targets {
+			node.AppendConnectionAtLevel(int(level), target, 0)
+		}
+		return nil
+	})
 
 	return 12 + int(length)*8, nil
 }
@@ -366,21 +365,19 @@ func (d *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 		return err
 	}
 
-	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
-	if err != nil {
-		return err
-	}
+	res.Nodes.Grow(id)
 
-	if changed {
-		res.Nodes = newNodes
-	}
-
-	if res.Nodes[id] == nil {
+	node := res.Nodes.Get(id)
+	if node == nil {
 		// node has been deleted or never existed, nothing to do
 		return nil
 	}
 
-	res.Nodes[id].connections = make([][]uint64, len(res.Nodes[id].connections))
+	node.Edit(func(v *graph.VertexEditor) error {
+		v.ResetConnections()
+		return nil
+	})
+
 	return nil
 }
 
@@ -397,14 +394,7 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		return err
 	}
 
-	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
-	if err != nil {
-		return err
-	}
-
-	if changed {
-		res.Nodes = newNodes
-	}
+	res.Nodes.Grow(id)
 
 	if keepReplaceInfo {
 		// mark the replace flag for this node and level, so that new commit logs
@@ -417,7 +407,8 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		res.LinksReplaced[id][level] = struct{}{}
 	}
 
-	if res.Nodes[id] == nil {
+	node := res.Nodes.Get(id)
+	if node == nil {
 		if !keepReplaceInfo {
 			// node has been deleted or never existed and we are not looking at a
 			// single log in isolation, nothing to do
@@ -427,18 +418,15 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		// we need to keep the replace info, meaning we have to explicitly create
 		// this node in order to be able to store the "clear links" information for
 		// it
-		res.Nodes[id] = &vertex{
-			id:          id,
-			connections: make([][]uint64, level+1),
-		}
+		node = graph.NewVertex(id, int(level))
+		res.Nodes.Set(node)
 	}
 
-	if res.Nodes[id].connections == nil {
-		res.Nodes[id].connections = make([][]uint64, level+1)
-	} else {
-		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
-		res.Nodes[id].connections[int(level)] = []uint64{}
-	}
+	node.Edit(func(v *graph.VertexEditor) error {
+		v.EnsureLevel(int(level))
+		v.ResetConnectionsAtLevel(int(level))
+		return nil
+	})
 
 	if keepReplaceInfo {
 		// mark the replace flag for this node and level, so that new commit logs
@@ -460,21 +448,14 @@ func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult, n
 		return err
 	}
 
-	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
-	if err != nil {
-		return err
-	}
+	res.Nodes.Grow(id)
+	res.Nodes.Delete(id)
 
-	if changed {
-		res.Nodes = newNodes
-	}
-
-	res.Nodes[id] = nil
 	nodesDeleted[id] = struct{}{}
 	return nil
 }
 
-func ReadTileEncoder(r io.Reader, res *DeserializationResult, i uint16) (compressionhelpers.PQEncoder, error) {
+func ReadTileEncoder(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
 	bins, err := readFloat64(r)
 	if err != nil {
 		return nil, err
@@ -510,10 +491,10 @@ func ReadTileEncoder(r io.Reader, res *DeserializationResult, i uint16) (compres
 	return compressionhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment, encDistribution), nil
 }
 
-func ReadKMeansEncoder(r io.Reader, res *DeserializationResult, i uint16) (compressionhelpers.PQEncoder, error) {
-	ds := int(res.PQData.Dimensions / res.PQData.M)
-	centers := make([][]float32, 0, res.PQData.Ks)
-	for k := uint16(0); k < res.PQData.Ks; k++ {
+func ReadKMeansEncoder(r io.Reader, data *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+	ds := int(data.Dimensions / data.M)
+	centers := make([][]float32, 0, data.Ks)
+	for k := uint16(0); k < data.Ks; k++ {
 		center := make([]float32, 0, ds)
 		for i := 0; i < ds; i++ {
 			c, err := readFloat32(r)
@@ -525,7 +506,7 @@ func ReadKMeansEncoder(r io.Reader, res *DeserializationResult, i uint16) (compr
 		centers = append(centers, center)
 	}
 	kms := compressionhelpers.NewKMeansWithCenters(
-		int(res.PQData.Ks),
+		int(data.Ks),
 		ds,
 		int(i),
 		centers,
@@ -559,7 +540,7 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, err
 		return 0, err
 	}
 	encoder := compressionhelpers.Encoder(enc)
-	res.PQData = compressionhelpers.PQData{
+	pqData := compressionhelpers.PQData{
 		Dimensions:          dims,
 		EncoderType:         encoder,
 		Ks:                  ks,
@@ -567,30 +548,55 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, err
 		EncoderDistribution: byte(dist),
 		UseBitsEncoding:     useBitsEncoding != 0,
 	}
-	var encoderReader func(io.Reader, *DeserializationResult, uint16) (compressionhelpers.PQEncoder, error)
+	var encoderReader func(io.Reader, *compressionhelpers.PQData, uint16) (compressionhelpers.PQEncoder, error)
+	// var encoderReader func(io.Reader, *DeserializationResult, uint16) (compressionhelpers.PQEncoder, error)
 	var totalRead int
 	switch encoder {
 	case compressionhelpers.UseTileEncoder:
 		encoderReader = ReadTileEncoder
-		totalRead = 51 * int(res.PQData.M)
+		totalRead = 51 * int(pqData.M)
 	case compressionhelpers.UseKMeansEncoder:
 		encoderReader = ReadKMeansEncoder
-		totalRead = int(res.PQData.Dimensions) * int(res.PQData.Ks) * 4
+		totalRead = int(pqData.Dimensions) * int(pqData.Ks) * 4
 	default:
 		return 0, errors.New("Unsuported encoder type")
 	}
 
 	for i := uint16(0); i < m; i++ {
-		encoder, err := encoderReader(r, res, i)
+		encoder, err := encoderReader(r, &pqData, i)
 		if err != nil {
 			return 0, err
 		}
-		res.PQData.Encoders = append(res.PQData.Encoders, encoder)
-
+		pqData.Encoders = append(pqData.Encoders, encoder)
 	}
 	res.Compressed = true
 
+	res.CompressionPQData = &pqData
+
 	return totalRead, nil
+}
+
+func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
+	a, err := readFloat32(r)
+	if err != nil {
+		return err
+	}
+	b, err := readFloat32(r)
+	if err != nil {
+		return err
+	}
+	dims, err := readUint16(r)
+	if err != nil {
+		return err
+	}
+	res.CompressionSQData = &compressionhelpers.SQData{
+		A:          a,
+		B:          b,
+		Dimensions: dims,
+	}
+	res.Compressed = true
+
+	return nil
 }
 
 func (d *Deserializer) readUint64(r io.Reader) (uint64, error) {
@@ -670,16 +676,4 @@ func (d *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error
 	}
 
 	return d.reusableConnectionsSlice, nil
-}
-
-// If the connections array is to small to contain the current target-levelit
-// will be grown. Otherwise, nothing happens.
-func maybeGrowConnectionsForLevel(connsPtr *[][]uint64, level uint16) {
-	conns := *connsPtr
-	if len(conns) <= int(level) {
-		// we need to grow the connections slice
-		newConns := make([][]uint64, level+1)
-		copy(newConns, conns)
-		*connsPtr = newConns
-	}
 }

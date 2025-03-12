@@ -85,10 +85,26 @@ var availableApiVersions = []string{
 	"2024-02-15-preview",
 	"2024-03-01-preview",
 	"2024-02-01",
+	"2024-06-01",
+}
+
+func GetMaxTokensForModel(model string) float64 {
+	return defaultMaxTokens[model]
+}
+
+func IsLegacy(model string) bool {
+	return contains(availableOpenAILegacyModels, model)
+}
+
+func IsThirdPartyProvider(baseURL string, isAzure bool, resourceName, deploymentID string) bool {
+	return !(strings.Contains(baseURL, "api.openai.com") || IsAzure(isAzure, resourceName, deploymentID))
+}
+
+func IsAzure(isAzure bool, resourceName, deploymentID string) bool {
+	return isAzure || (resourceName != "" && deploymentID != "")
 }
 
 type ClassSettings interface {
-	IsLegacy() bool
 	Model() string
 	MaxTokens() float64
 	Temperature() float64
@@ -98,11 +114,9 @@ type ClassSettings interface {
 	ResourceName() string
 	DeploymentID() string
 	IsAzure() bool
-	GetMaxTokensForModel(model string) float64
 	Validate(class *models.Class) error
 	BaseURL() string
 	ApiVersion() string
-	IsThirdPartyProvider() bool
 }
 
 type classSettings struct {
@@ -131,7 +145,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	maxTokens := ic.getFloatProperty(maxTokensProperty, &DefaultOpenAIMaxTokens)
-	if maxTokens == nil || (*maxTokens < 0 || *maxTokens > ic.GetMaxTokensForModel(DefaultOpenAIModel)) {
+	if maxTokens == nil || (*maxTokens < 0 || *maxTokens > GetMaxTokensForModel(DefaultOpenAIModel)) {
 		return errors.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used")
 	}
 
@@ -155,9 +169,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: %v", availableApiVersions)
 	}
 
-	err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
-	if err != nil {
-		return err
+	if ic.IsAzure() {
+		err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -168,13 +184,14 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 	return &asString
 }
 
+func (ic *classSettings) getBoolProperty(name string, defaultValue bool) *bool {
+	asBool := ic.propertyValuesHelper.GetPropertyAsBool(ic.cfg, name, false)
+	return &asBool
+}
+
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
 	var wrongVal float64 = -1.0
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
-}
-
-func (ic *classSettings) GetMaxTokensForModel(model string) float64 {
-	return defaultMaxTokens[model]
 }
 
 func (ic *classSettings) validateModel(model string) bool {
@@ -183,10 +200,6 @@ func (ic *classSettings) validateModel(model string) bool {
 
 func (ic *classSettings) validateApiVersion(apiVersion string) bool {
 	return contains(availableApiVersions, apiVersion)
-}
-
-func (ic *classSettings) IsLegacy() bool {
-	return contains(availableOpenAILegacyModels, ic.Model())
 }
 
 func (ic *classSettings) Model() string {
@@ -230,7 +243,7 @@ func (ic *classSettings) DeploymentID() string {
 }
 
 func (ic *classSettings) IsAzure() bool {
-	return ic.ResourceName() != "" && ic.DeploymentID() != ""
+	return IsAzure(*ic.getBoolProperty("isAzure", false), ic.ResourceName(), ic.DeploymentID())
 }
 
 func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
@@ -238,10 +251,6 @@ func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId s
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
 	}
 	return nil
-}
-
-func (cs *classSettings) IsThirdPartyProvider() bool {
-	return !(strings.Contains(cs.BaseURL(), "api.openai.com") || cs.IsAzure())
 }
 
 func contains[T comparable](s []T, e T) bool {

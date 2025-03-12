@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 var (
@@ -36,6 +38,8 @@ var (
 	errReplicas = errors.New("cannot reach enough replicas")
 	errRepair   = errors.New("read repair error")
 	errRead     = errors.New("read error")
+
+	ErrNoDiffFound = errors.New("no diff found")
 )
 
 type (
@@ -70,17 +74,17 @@ func NewFinder(className string,
 	l logrus.FieldLogger,
 	coordinatorPullBackoffInitialInterval time.Duration,
 	coordinatorPullBackoffMaxElapsedTime time.Duration,
-	deletionStrategy string,
+	getDeletionStrategy func() string,
 ) *Finder {
 	cl := finderClient{client}
 	return &Finder{
 		resolver: resolver,
 		finderStream: finderStream{
 			repairer: repairer{
-				class:            className,
-				deletionStrategy: deletionStrategy,
-				client:           cl,
-				logger:           l,
+				class:               className,
+				getDeletionStrategy: getDeletionStrategy,
+				client:              cl,
+				logger:              l,
 			},
 			log: l,
 		},
@@ -97,7 +101,7 @@ func (f *Finder) GetOne(ctx context.Context,
 	adds additional.Properties,
 ) (*storobj.Object, error) {
 	c := newReadCoordinator[findOneReply](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
 			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
@@ -140,7 +144,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 	className, shard string, filters *filters.LocalFilter, l ConsistencyLevel,
 ) (uuids []strfmt.UUID, err error) {
 	c := newReadCoordinator[[]strfmt.UUID](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 
 	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
@@ -226,7 +230,7 @@ func (f *Finder) Exists(ctx context.Context,
 	id strfmt.UUID,
 ) (bool, error) {
 	c := newReadCoordinator[existReply](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
 		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 		var x RepairResponse
@@ -274,7 +278,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 ) ([]*storobj.Object, error) {
 	var (
 		c = newReadCoordinator[batchReply](f, batch.Shard,
-			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
+			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 		shard     = batch.Shard
 		data, ids = batch.Extract() // extract from current content
 	)
@@ -293,4 +297,117 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	}
 	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
 	return result.Value, result.Err
+}
+
+type ShardDifferenceReader struct {
+	Host        string
+	RangeReader hashtree.AggregatedHashTreeRangeReader
+}
+
+func (f *Finder) NodeName() string {
+	return f.resolver.NodeName
+}
+
+func (f *Finder) CollectShardDifferences(ctx context.Context,
+	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
+) (diffReader *ShardDifferenceReader, err error) {
+	sourceHost, ok := f.resolver.NodeHostname(f.NodeName())
+	if !ok {
+		return nil, fmt.Errorf("getting host %s", f.NodeName())
+	}
+
+	state, err := f.resolver.State(shardName, One, "")
+	if err != nil {
+		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
+	}
+
+	aliveHostsMap := make(map[string]struct{}, len(state.Hosts))
+	for _, host := range f.resolver.AllHostnames() {
+		aliveHostsMap[host] = struct{}{}
+	}
+
+	collectDiffWith := func(host string) (*ShardDifferenceReader, error) {
+		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
+		defer cancel()
+
+		diff := hashtree.NewBitset(hashtree.NodesCount(ht.Height()))
+
+		digests := make([]hashtree.Digest, hashtree.LeavesCount(ht.Height()))
+
+		diff.Set(0) // init comparison at root level
+
+		for l := 0; l <= ht.Height(); l++ {
+			_, err := ht.Level(l, diff, digests)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", host, err)
+			}
+
+			levelDigests, err := f.client.HashTreeLevel(ctx, host, f.class, shardName, l, diff)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", host, err)
+			}
+			if len(levelDigests) == 0 {
+				// no differences were found
+				break
+			}
+
+			levelDiffCount := hashtree.LevelDiff(l, diff, digests, levelDigests)
+			if levelDiffCount == 0 {
+				// no differences were found
+				break
+			}
+		}
+
+		if diff.SetCount() == 0 {
+			return nil, ErrNoDiffFound
+		}
+
+		return &ShardDifferenceReader{
+			Host:        host,
+			RangeReader: ht.NewRangeReader(diff),
+		}, nil
+	}
+
+	ec := errorcompounder.New()
+
+	for _, host := range state.Hosts {
+		if host == sourceHost {
+			continue
+		}
+
+		if _, ok := aliveHostsMap[host]; !ok {
+			// skip host if not available
+			continue
+		}
+
+		diffReader, err := collectDiffWith(host)
+		if err != nil {
+			if !errors.Is(err, ErrNoDiffFound) {
+				ec.Add(err)
+			}
+			continue
+		}
+
+		return diffReader, nil
+	}
+
+	err = ec.ToError()
+	if err != nil {
+		return nil, err
+	}
+
+	return nil, ErrNoDiffFound
+}
+
+func (f *Finder) DigestObjectsInRange(ctx context.Context,
+	shardName string, host string, initialUUID, finalUUID strfmt.UUID, limit int,
+) (ds []RepairResponse, err error) {
+	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
+}
+
+// Overwrite specified object with most recent contents
+func (f *Finder) Overwrite(ctx context.Context,
+	host, index, shard string, xs []*objects.VObject,
+) ([]RepairResponse, error) {
+	return f.client.Overwrite(ctx, host, index, shard, xs)
 }

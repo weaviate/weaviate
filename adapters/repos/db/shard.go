@@ -21,6 +21,7 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"go.etcd.io/bbolt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -30,10 +31,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -47,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 const IdLockPoolSize = 128
@@ -74,28 +78,31 @@ type ShardLike interface {
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
-	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error)
-	ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error)
+	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, properties []string) ([]*storobj.Object, []float32, error)
+	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
+	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []replica.RepairResponse, err error)
 	ID() string // Get the shard id
 	drop() error
+	HaltForTransfer(ctx context.Context, offloading bool) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property)
-	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
-
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
+	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
-	Queue() *IndexQueue
-	Queues() map[string]*IndexQueue
-	PreloadQueue(targetVector string) error
+	Queue() *VectorIndexQueue
+	Queues() map[string]*VectorIndexQueue
+	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error)
+	ConvertQueue(targetVector string) error
+	FillQueue(targetVector string, from uint64) error
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
 
@@ -105,7 +112,10 @@ type ShardLike interface {
 	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) // Check if an object was deleted
 	VectorIndex() VectorIndex                                                // Get the vector index
 	VectorIndexes() map[string]VectorIndex                                   // Get the vector indexes
-	hasTargetVectors() bool
+	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
+	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
+	GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool)
+	GetVectorIndex(targetVector string) (VectorIndex, bool)
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
@@ -118,20 +128,23 @@ type ShardLike interface {
 	prepareDeleteObjects(context.Context, string, []strfmt.UUID, time.Time, bool) replica.SimpleResponse
 	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
 
-	commitReplication(context.Context, string, *backupMutex) interface{}
+	commitReplication(context.Context, string, *shardTransfer) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	// TODO tests only
-	Dimensions(ctx context.Context) int // dim(vector)*number vectors
-	// TODO tests only
-	QuantizedDimensions(ctx context.Context, segments int) int
-	extendDimensionTrackerLSM(dimLength int, docID uint64) error
-	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
+	Dimensions(ctx context.Context, targetVector string) int // dim(vector)*number vectors
+	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
+
+	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
 	publishDimensionMetrics(ctx context.Context)
+	resetDimensionsLSM() error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
+	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
+	addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
+	deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
 
 	setFallbackToSearchable(fallback bool)
@@ -139,13 +152,15 @@ type ShardLike interface {
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
+	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
-	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
 	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error
 	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
+	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
+	updateAsyncReplicationConfig(ctx context.Context, enabled bool) error
 
 	Metrics() *Metrics
 
@@ -163,8 +178,10 @@ type ShardLike interface {
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
 	index             *Index // a reference to the underlying index, which in turn contains schema information
-	queue             *IndexQueue
-	queues            map[string]*IndexQueue
+	class             *models.Class
+	queue             *VectorIndexQueue
+	queues            map[string]*VectorIndexQueue
+	scheduler         *queue.Scheduler
 	name              string
 	store             *lsmkv.Store
 	counter           *indexcounter.Counter
@@ -177,6 +194,17 @@ type Shard struct {
 	propertyIndices   propertyspecific.Indices
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
+
+	// async replication
+	asyncReplicationRWMux      sync.RWMutex
+	asyncReplicationConfig     asyncReplicationConfig
+	hashtree                   hashtree.AggregatedHashTree
+	hashtreeFullyInitialized   bool
+	asyncReplicationCancelFunc context.CancelFunc
+
+	lastComparedHosts    []string
+	lastComparedHostsMux sync.RWMutex
+	//
 
 	status              ShardStatus
 	statusLock          sync.Mutex
@@ -207,6 +235,10 @@ type Shard struct {
 
 	activityTracker atomic.Int32
 
+	// shared bolt database for dynamic vector indexes.
+	// nil if there is no configured dynamic vector index
+	dynamicVectorIndexDB *bbolt.DB
+
 	// indicates whether shard is shut down or dropped (or ongoing)
 	shut bool
 	// indicates whether shard in being used at the moment (e.g. write request)
@@ -227,18 +259,15 @@ func (s *Shard) pathLSM() string {
 	return path.Join(s.path(), "lsm")
 }
 
+func (s *Shard) pathHashTree() string {
+	return path.Join(s.path(), "hashtree_uuid")
+}
+
 func (s *Shard) vectorIndexID(targetVector string) string {
 	if targetVector != "" {
 		return fmt.Sprintf("vectors_%s", targetVector)
 	}
 	return "main"
-}
-
-func (s *Shard) getVectorIndex(targetVector string) VectorIndex {
-	if targetVector != "" {
-		return s.vectorIndexes[targetVector]
-	}
-	return s.vectorIndex
 }
 
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
@@ -326,6 +355,46 @@ func (s *Shard) ObjectCountAsync() int {
 	}
 
 	return b.CountAsync()
+}
+
+// ForEachVectorIndex iterates through each vector index initialized in the shard (named and legacy).
+// Iteration stops at the first return of non-nil error.
+func (s *Shard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
+	for targetVector, idx := range s.vectorIndexes {
+		if idx == nil {
+			continue
+		}
+
+		if err := f(targetVector, idx); err != nil {
+			return err
+		}
+	}
+	if s.vectorIndex != nil {
+		if err := f("", s.vectorIndex); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ForEachVectorQueue iterates through each vector index queue initialized in the shard (named and legacy).
+// Iteration stops at the first return of non-nil error.
+func (s *Shard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
+	for targetVector, q := range s.queues {
+		if q == nil {
+			continue
+		}
+
+		if err := f(targetVector, q); err != nil {
+			return err
+		}
+	}
+	if s.queue != nil {
+		if err := f("", s.queue); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Shard) isFallbackToSearchable() bool {

@@ -91,7 +91,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		argumentModuleParams := map[string]interface{}{}
 
 		_, err := rankProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams, nil)
-		require.EqualError(t, err, "error ranking with cohere: unavailable")
+		require.EqualError(t, err, "client rank: unavailable")
 	})
 
 	t.Run("should rank", func(t *testing.T) {

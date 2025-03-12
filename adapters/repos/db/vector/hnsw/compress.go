@@ -18,37 +18,37 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func (h *hnsw) compress(cfg ent.UserConfig) error {
-	if !cfg.PQ.Enabled && !cfg.BQ.Enabled {
+	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled {
 		return nil
 	}
-
+	if h.Multivector() {
+		return errors.New("compression is not supported in multivector mode")
+	}
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
 	data := h.cache.All()
-	if cfg.PQ.Enabled {
+	if cfg.PQ.Enabled || cfg.SQ.Enabled {
 		if h.isEmpty() {
 			return errors.New("compress command cannot be executed before inserting some data")
 		}
-		dims := int(h.dims)
-
-		if cfg.PQ.Segments <= 0 {
-			cfg.PQ.Segments = common.CalculateOptimalSegments(dims)
-			h.pqConfig.Segments = cfg.PQ.Segments
-		}
-
 		cleanData := make([][]float32, 0, len(data))
-		for i := range data {
+		sampler := common.NewSparseFisherYatesIterator(len(data))
+		for !sampler.IsDone() {
+			// Sparse Fisher Yates sampling algorithm to choose random element
+			sampledIndex := sampler.Next()
+			if sampledIndex == nil {
+				break
+			}
 			// Rather than just taking the cache dump at face value, let's explicitly
 			// request the vectors. Otherwise we would miss any vector that's currently
 			// not in the cache, for example because the cache is not hot yet after a
 			// restart.
-			p, err := h.cache.Get(context.Background(), uint64(i))
+			p, err := h.cache.Get(context.Background(), uint64(*sampledIndex))
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
@@ -65,17 +65,37 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			}
 
 			cleanData = append(cleanData, p)
+			if len(cleanData) >= cfg.PQ.TrainingLimit {
+				break
+			}
 		}
+		if cfg.PQ.Enabled {
+			dims := int(h.dims)
 
-		var err error
-		h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
-			cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-			h.allocChecker)
-		if err != nil {
-			h.pqConfig.Enabled = false
-			return fmt.Errorf("compressing vectors: %w", err)
+			if cfg.PQ.Segments <= 0 {
+				cfg.PQ.Segments = common.CalculateOptimalSegments(dims)
+				h.pqConfig.Segments = cfg.PQ.Segments
+			}
+
+			var err error
+			h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
+				cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
+				h.allocChecker)
+			if err != nil {
+				h.pqConfig.Enabled = false
+				return fmt.Errorf("compressing vectors: %w", err)
+			}
+		} else if cfg.SQ.Enabled {
+			var err error
+			h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
+				h.distancerProvider, 1e12, h.logger, cleanData, h.store,
+				h.allocChecker)
+			if err != nil {
+				h.sqConfig.Enabled = false
+				return fmt.Errorf("compressing vectors: %w", err)
+			}
 		}
-		h.commitLog.AddPQ(h.compressor.ExposeFields())
+		h.compressor.PersistCompression(h.commitLog)
 	} else {
 		var err error
 		h.compressor, err = compressionhelpers.NewBQCompressor(

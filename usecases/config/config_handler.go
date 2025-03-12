@@ -23,6 +23,8 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
+
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,22 +32,15 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"gopkg.in/yaml.v2"
 )
 
+// ServerVersion is deprecated. Use `build.Version`. It's there for backward compatiblility.
 // ServerVersion is set when the misc handlers are setup.
 // When misc handlers are setup, the entire swagger spec
 // is already being parsed for the server version. This is
 // a good time for us to set ServerVersion, so that the
 // spec only needs to be parsed once.
 var ServerVersion string
-
-var (
-	// GitHash keeps the current git hash commit information, value injected by the compiler using ldflags -X at build time.
-	GitHash = "unknown"
-	// ImageTag keeps the docker tag the weaviate binary was built in, value injected by the compiler using ldflags -X at build time.
-	ImageTag = "localhost"
-)
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
@@ -104,6 +99,7 @@ type Config struct {
 	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
+	EnableApiBasedModules               bool                     `json:"enable_api_based_modules" yaml:"enable_api_based_modules"`
 	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
 	ModuleHttpClientTimeout             time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
 	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
@@ -115,6 +111,7 @@ type Config struct {
 	ResourceUsage                       ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
 	MaxImportGoroutinesFactor           float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
 	MaximumConcurrentGetRequests        int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
+	MaximumConcurrentShardLoads         int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
 	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
@@ -128,20 +125,56 @@ type Config struct {
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
+	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
+	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
+	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
+	MaximumAllowedCollectionsCount      int                      `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
+
+	// map[className][]propertyName
+	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
 }
 
-type moduleProvider interface {
-	ValidateVectorizer(moduleName string) error
+// Validate the configuration
+func (c *Config) Validate() error {
+	if err := c.Authentication.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.Authorization.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if c.Authentication.AnonymousAccess.Enabled && c.Authorization.Rbac.Enabled {
+		return fmt.Errorf("cannot enable anonymous access and rbac authorization")
+	}
+
+	if err := c.Persistence.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.AutoSchema.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.ResourceUsage.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.Raft.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	return nil
 }
 
-// Validate the non-nested parameters. Nested objects must provide their own
+// ValidateModules validates the non-nested parameters. Nested objects must provide their own
 // validation methods
-func (c Config) Validate(modProv moduleProvider) error {
+func (c *Config) ValidateModules(modProv moduleProvider) error {
 	if err := c.validateDefaultVectorizerModule(modProv); err != nil {
 		return errors.Wrap(err, "default vectorizer module")
 	}
@@ -153,7 +186,7 @@ func (c Config) Validate(modProv moduleProvider) error {
 	return nil
 }
 
-func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
+func (c *Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 	if c.DefaultVectorizerModule == VectorizerModuleNone {
 		return nil
 	}
@@ -161,7 +194,11 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
 }
 
-func (c Config) validateDefaultVectorDistanceMetric() error {
+type moduleProvider interface {
+	ValidateVectorizer(moduleName string) error
+}
+
+func (c *Config) validateDefaultVectorDistanceMetric() error {
 	switch c.DefaultVectorDistanceMetric {
 	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
@@ -208,26 +245,31 @@ type Contextionary struct {
 
 // Support independent TLS credentials for gRPC
 type GRPC struct {
-	Port     int    `json:"port" yaml:"port"`
-	CertFile string `json:"certFile" yaml:"certFile"`
-	KeyFile  string `json:"keyFile" yaml:"keyFile"`
+	Port       int    `json:"port" yaml:"port"`
+	CertFile   string `json:"certFile" yaml:"certFile"`
+	KeyFile    string `json:"keyFile" yaml:"keyFile"`
+	MaxMsgSize int    `json:"maxMsgSize" yaml:"maxMsgSize"`
 }
 
 type Profiling struct {
-	BlockProfileRate     int `json:"blockProfileRate" yaml:"blockProfileRate"`
-	MutexProfileFraction int `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
-	Port                 int `json:"port" yaml:"port"`
+	BlockProfileRate     int  `json:"blockProfileRate" yaml:"blockProfileRate"`
+	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
+	Disabled             bool `json:"disabled" yaml:"disabled"`
+	Port                 int  `json:"port" yaml:"port"`
 }
 
 type Persistence struct {
-	DataPath                          string `json:"dataPath" yaml:"dataPath"`
-	MemtablesFlushDirtyAfter          int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
-	MemtablesMaxSizeMB                int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
-	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
-	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
-	LSMMaxSegmentSize                 int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
-	LSMSegmentsCleanupIntervalSeconds int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
-	HNSWMaxLogSize                    int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
+	DataPath                            string `json:"dataPath" yaml:"dataPath"`
+	MemtablesFlushDirtyAfter            int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
+	MemtablesMaxSizeMB                  int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
+	MemtablesMinActiveDurationSeconds   int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
+	MemtablesMaxActiveDurationSeconds   int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
+	LSMMaxSegmentSize                   int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
+	LSMSegmentsCleanupIntervalSeconds   int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
+	LSMSeparateObjectsCompactions       bool   `json:"lsmSeparateObjectsCompactions" yaml:"lsmSeparateObjectsCompactions"`
+	LSMEnableSegmentsChecksumValidation bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
+	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
+	HNSWMaxLogSize                      int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
@@ -242,9 +284,29 @@ const DefaultPersistenceLSMMaxSegmentSize = math.MaxInt64
 // value = 0 means cleanup is turned off.
 const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 
+// DefaultPersistenceLSMCycleManagerRoutinesFactor - determines how many goroutines
+// are started for cyclemanager (factor * NUMCPU)
+const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
+
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 
+// MetadataServer is experimental.
+type MetadataServer struct {
+	// When enabled startup will include a "metadata server"
+	// for separation of storage/compute Weaviate.
+	Enabled                   bool   `json:"enabled" yaml:"enabled"`
+	GrpcListenAddress         string `json:"grpc_listen_address" yaml:"grpc_listen_address"`
+	DataEventsChannelCapacity int    `json:"data_events_channel_capacity" yaml:"data_events_channel_capacity"`
+}
+
+const (
+	DefaultMetadataServerGrpcListenAddress         = ":9050"
+	DefaultMetadataServerDataEventsChannelCapacity = 100
+)
+
 const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibility
+
+const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
@@ -302,7 +364,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Azure-Concurrency, X-Azure-Block-Size"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -461,31 +523,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	// Load config from flags
 	f.fromFlags(flags.Options.(*Flags))
 
-	if err := f.Config.Authentication.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.Authorization.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.Persistence.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.AutoSchema.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.ResourceUsage.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.Raft.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	return nil
+	return f.Config.Validate()
 }
 
 func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, error) {
@@ -500,12 +538,12 @@ func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, erro
 	case "json":
 		err := json.Unmarshal(file, &config)
 		if err != nil {
-			return config, fmt.Errorf("error unmarshalling the json config file: %s", err)
+			return config, fmt.Errorf("error unmarshalling the json config file: %w", err)
 		}
 	case "yaml":
 		err := yaml.Unmarshal(file, &config)
 		if err != nil {
-			return config, fmt.Errorf("error unmarshalling the yaml config file: %s", err)
+			return config, fmt.Errorf("error unmarshalling the yaml config file: %w", err)
 		}
 	default:
 		return config, fmt.Errorf("unsupported config file extension '%s', use .yaml or .json", m[1])
@@ -546,5 +584,5 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 }
 
 func configErr(err error) error {
-	return fmt.Errorf("invalid config: %v", err)
+	return fmt.Errorf("invalid config: %w", err)
 }

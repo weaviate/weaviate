@@ -29,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/modules/multi2vec-clip/vectorizer"
 )
 
+const Name = "multi2vec-clip"
+
 func New() *ClipModule {
 	return &ClipModule{}
 }
@@ -36,10 +38,10 @@ func New() *ClipModule {
 type ClipModule struct {
 	imageVectorizer          imageVectorizer
 	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
-	nearImageSearcher        modulecapabilities.Searcher
+	nearImageSearcher        modulecapabilities.Searcher[[]float32]
 	textVectorizer           textVectorizer
 	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
-	nearTextSearcher         modulecapabilities.Searcher
+	nearTextSearcher         modulecapabilities.Searcher[[]float32]
 	nearTextTransformer      modulecapabilities.TextTransform
 	metaClient               metaClient
 	logger                   logrus.FieldLogger
@@ -60,7 +62,7 @@ type textVectorizer interface {
 }
 
 func (m *ClipModule) Name() string {
-	return "multi2vec-clip"
+	return Name
 }
 
 func (m *ClipModule) Type() modulecapabilities.ModuleType {
@@ -162,6 +164,6 @@ func (m *ClipModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, 
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
-	_ = modulecapabilities.InputVectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
+	_ = modulecapabilities.InputVectorizer[[]float32](New())
 )

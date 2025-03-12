@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 type RemoteIncomingRepo interface {
@@ -46,6 +47,10 @@ type RemoteIndexIncomingRepo interface {
 	FetchObject(ctx context.Context, shardName string, id strfmt.UUID) (objects.Replica, error)
 	FetchObjects(ctx context.Context, shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, shardName string, ids []strfmt.UUID) (result []RepairResponse, err error)
+	DigestObjectsInRange(ctx context.Context, shardName string,
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []RepairResponse, err error)
+	HashTreeLevel(ctx context.Context, shardName string,
+		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
 
 type RemoteReplicaIncoming struct {
@@ -199,4 +204,25 @@ func (rri *RemoteReplicaIncoming) indexForIncomingWrite(ctx context.Context, ind
 		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
 	}
 	return index, nil
+}
+
+func (rri *RemoteReplicaIncoming) DigestObjectsInRange(ctx context.Context,
+	indexName, shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
+) (result []RepairResponse, err error) {
+	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
+	if simpleResp != nil {
+		return []RepairResponse{}, simpleResp.Errors[0].Err
+	}
+	return index.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
+}
+
+func (rri *RemoteReplicaIncoming) HashTreeLevel(ctx context.Context,
+	indexName, shardName string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
+	if simpleResp != nil {
+		return []hashtree.Digest{}, simpleResp.Errors[0].Err
+	}
+
+	return index.HashTreeLevel(ctx, shardName, level, discriminant)
 }

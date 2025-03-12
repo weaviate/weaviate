@@ -14,6 +14,9 @@ package modulecapabilities
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -24,12 +27,12 @@ import (
 type GraphQLFieldFn = func(classname string) *graphql.Field
 
 // ExtractAdditionalFn extracts parameters from graphql queries
-type ExtractAdditionalFn = func(param []*ast.Argument) interface{}
+type ExtractAdditionalFn = func(param []*ast.Argument, class *models.Class) interface{}
 
 // AdditionalPropertyWithSearchVector defines additional property params
 // with the ability to pass search vector
-type AdditionalPropertyWithSearchVector interface {
-	SetSearchVector(vector []float32)
+type AdditionalPropertyWithSearchVector[T dto.Embedding] interface {
+	SetSearchVector(vector T)
 }
 
 // AdditionalPropertyFn defines interface for additional property

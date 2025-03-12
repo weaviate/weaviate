@@ -20,13 +20,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/cluster/utils"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -77,15 +79,17 @@ type DB struct {
 	// mark a given index in use, lock that index directly.
 	indexLock sync.RWMutex
 
-	jobQueueCh              chan job
-	asyncIndexRetryInterval time.Duration
-	shutDownWg              sync.WaitGroup
-	maxNumberGoroutines     int
-	ratePerSecond           atomic.Int64
+	jobQueueCh          chan job
+	scheduler           *queue.Scheduler
+	shutDownWg          sync.WaitGroup
+	maxNumberGoroutines int
+	ratePerSecond       atomic.Int64
 
 	// in the case of metrics grouping we need to observe some metrics
 	// node-centric, rather than shard-centric
 	metricsObserver *nodeWideMetricsObserver
+
+	shardLoadLimiter ShardLoadLimiter
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -106,6 +110,10 @@ func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	db.schemaGetter = sg
+}
+
+func (db *DB) GetScheduler() *queue.Scheduler {
+	return db.scheduler
 }
 
 func (db *DB) WaitForStartup(ctx context.Context) error {
@@ -130,20 +138,25 @@ func New(logger logrus.FieldLogger, config Config,
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
 	}
+	metricsRegisterer := monitoring.NoopRegisterer
+	if promMetrics != nil && promMetrics.Registerer != nil {
+		metricsRegisterer = promMetrics.Registerer
+	}
+
 	db := &DB{
-		logger:                  logger,
-		config:                  config,
-		indices:                 map[string]*Index{},
-		remoteIndex:             remoteIndex,
-		nodeResolver:            nodeResolver,
-		remoteNode:              sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:           replicaClient,
-		promMetrics:             promMetrics,
-		shutdown:                make(chan struct{}),
-		asyncIndexRetryInterval: 5 * time.Second,
-		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		resourceScanState:       newResourceScanState(),
-		memMonitor:              memMonitor,
+		logger:              logger,
+		config:              config,
+		indices:             map[string]*Index{},
+		remoteIndex:         remoteIndex,
+		nodeResolver:        nodeResolver,
+		remoteNode:          sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:       replicaClient,
+		promMetrics:         promMetrics,
+		shutdown:            make(chan struct{}),
+		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:   newResourceScanState(),
+		memMonitor:          memMonitor,
+		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -156,47 +169,56 @@ func New(logger logrus.FieldLogger, config Config,
 			i := i
 			enterrors.GoWrapper(func() { db.batchWorker(i == 0) }, db.logger)
 		}
+		// since queues are created regardless of the async setting, we need to
+		// create a scheduler anyway, but there is no need to start it
+		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
+			Logger: logger,
+		})
 	} else {
 		logger.Info("async indexing enabled")
-		w := runtime.GOMAXPROCS(0) - 1
-		db.shutDownWg.Add(w)
-		db.jobQueueCh = make(chan job)
-		for i := 0; i < w; i++ {
-			f := func() {
-				defer db.shutDownWg.Done()
-				NewAsyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval).Run()
-			}
-			enterrors.GoWrapper(f, db.logger)
-		}
+
+		db.shutDownWg.Add(1)
+		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
+			Logger:  logger,
+			OnClose: db.shutDownWg.Done,
+		})
+
+		db.scheduler.Start()
 	}
 
 	return db, nil
 }
 
 type Config struct {
-	RootPath                       string
-	QueryLimit                     int64
-	QueryMaximumResults            int64
-	QueryNestedRefLimit            int64
-	ResourceUsage                  config.ResourceUsage
-	MaxImportGoroutinesFactor      float64
-	MemtablesFlushDirtyAfter       int
-	MemtablesInitialSizeMB         int
-	MemtablesMaxSizeMB             int
-	MemtablesMinActiveSeconds      int
-	MemtablesMaxActiveSeconds      int
-	SegmentsCleanupIntervalSeconds int
-	MaxSegmentSize                 int64
-	HNSWMaxLogSize                 int64
-	HNSWWaitForCachePrefill        bool
-	VisitedListPoolMaxSize         int
-	TrackVectorDimensions          bool
-	ServerVersion                  string
-	GitHash                        string
-	AvoidMMap                      bool
-	DisableLazyLoadShards          bool
-	ForceFullReplicasSearch        bool
-	Replication                    replication.GlobalConfig
+	RootPath                            string
+	QueryLimit                          int64
+	QueryMaximumResults                 int64
+	QueryNestedRefLimit                 int64
+	ResourceUsage                       config.ResourceUsage
+	MaxImportGoroutinesFactor           float64
+	MemtablesFlushDirtyAfter            int
+	MemtablesInitialSizeMB              int
+	MemtablesMaxSizeMB                  int
+	MemtablesMinActiveSeconds           int
+	MemtablesMaxActiveSeconds           int
+	SegmentsCleanupIntervalSeconds      int
+	SeparateObjectsCompactions          bool
+	MaxSegmentSize                      int64
+	HNSWMaxLogSize                      int64
+	HNSWWaitForCachePrefill             bool
+	HNSWFlatSearchConcurrency           int
+	HNSWAcornFilterRatio                float64
+	VisitedListPoolMaxSize              int
+	TrackVectorDimensions               bool
+	ServerVersion                       string
+	GitHash                             string
+	AvoidMMap                           bool
+	DisableLazyLoadShards               bool
+	ForceFullReplicasSearch             bool
+	LSMEnableSegmentsChecksumValidation bool
+	Replication                         replication.GlobalConfig
+	MaximumConcurrentShardLoads         int
+	CycleManagerRoutinesFactor          int
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -292,6 +314,14 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	if asyncEnabled() {
+		// shut down the async workers
+		err := db.scheduler.Close()
+		if err != nil {
+			return errors.Wrap(err, "close scheduler")
+		}
+	}
+
 	if db.metricsObserver != nil {
 		db.metricsObserver.Shutdown()
 	}
@@ -304,11 +334,6 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if asyncEnabled() {
-		// shut down the async workers
-		close(db.jobQueueCh)
-	}
-
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
 
 	if asyncEnabled() {
@@ -316,6 +341,14 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+type job struct {
+	object  *storobj.Object
+	status  objectInsertStatus
+	index   int
+	ctx     context.Context
+	batcher *objectsBatcher
 }
 
 func (db *DB) batchWorker(first bool) {

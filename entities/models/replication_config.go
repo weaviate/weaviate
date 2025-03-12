@@ -31,11 +31,14 @@ import (
 // swagger:model ReplicationConfig
 type ReplicationConfig struct {
 
-	// Conflict resolution strategy for deleted objects
+	// Enable asynchronous replication (default: false).
+	AsyncEnabled bool `json:"asyncEnabled"`
+
+	// Conflict resolution strategy for deleted objects.
 	// Enum: [NoAutomatedResolution DeleteOnConflict TimeBasedResolution]
 	DeletionStrategy string `json:"deletionStrategy,omitempty"`
 
-	// Number of times a class is replicated
+	// Number of times a class is replicated (default: 1).
 	Factor int64 `json:"factor,omitempty"`
 }
 

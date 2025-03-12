@@ -57,7 +57,9 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	runId := uuid.New().String()
 
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return 0, 0, err
 	}
@@ -82,6 +84,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	}
 	index, err := New(Config{
 		ID:               runId,
+		RootPath:         dirName,
 		DistanceProvider: distancer,
 	}, flatent.UserConfig{
 		PQ: pq,
@@ -90,6 +93,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	if err != nil {
 		return 0, 0, err
 	}
+	defer index.Shutdown(context.Background())
 
 	if concurrentCacheReads != 0 {
 		index.concurrentCacheReads = concurrentCacheReads
@@ -257,6 +261,63 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	err := os.RemoveAll(dirName)
 	if err != nil {
 		fmt.Println(err)
+	}
+}
+
+func TestFlat_QueryVectorDistancer(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	cases := []struct {
+		pq    bool
+		cache bool
+		bq    bool
+	}{
+		{pq: false, cache: false, bq: false},
+		{pq: true, cache: false, bq: false},
+		{pq: true, cache: true, bq: false},
+		{pq: false, cache: false, bq: true},
+		{pq: false, cache: true, bq: true},
+	}
+	for _, tt := range cases {
+		t.Run("tt.name", func(t *testing.T) {
+			dirName := t.TempDir()
+
+			pq := flatent.CompressionUserConfig{
+				Enabled: tt.pq, Cache: tt.cache,
+			}
+			bq := flatent.CompressionUserConfig{
+				Enabled: tt.bq, Cache: tt.cache, RescoreLimit: 10,
+			}
+			store, err := lsmkv.New(dirName, dirName, logger, nil,
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop())
+			require.Nil(t, err)
+
+			distancr := distancer.NewCosineDistanceProvider()
+
+			index, err := New(Config{
+				ID:               "id",
+				RootPath:         t.TempDir(),
+				DistanceProvider: distancr,
+			}, flatent.UserConfig{
+				PQ: pq,
+				BQ: bq,
+			}, store)
+			require.Nil(t, err)
+
+			index.Add(context.TODO(), uint64(0), []float32{-2, 0})
+
+			dist := index.QueryVectorDistancer([]float32{0, 0})
+			require.NotNil(t, dist)
+			distance, err := dist.DistanceToNode(0)
+			require.Nil(t, err)
+			require.Equal(t, distance, float32(1.))
+
+			// get distance for non-existing node above default cache size
+			_, err = dist.DistanceToNode(1001)
+			require.NotNil(t, err)
+		})
 	}
 }
 

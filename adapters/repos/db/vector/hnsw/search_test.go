@@ -21,9 +21,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -58,8 +60,7 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		vectorIndex = index
 	})
@@ -67,23 +68,19 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 	t.Run("manually add the nodes", func(t *testing.T) {
 		vectorIndex.entryPointID = 0
 		vectorIndex.currentMaximumLayer = 1
-		vectorIndex.nodes = []*vertex{
-			{
+		vectorIndex.nodes = graph.NewNodesWith([]*graph.Vertex{
+			graph.NewVertexWithConnections(
+				0,
 				// must be on a non-zero layer for this bug to occur
-				level: 1,
-				connections: [][]uint64{
+				1,
+				[][]uint64{
 					{1, 2},
 					{1},
 				},
-			},
+			),
 			nil, // corrupt node
-			{
-				level: 0,
-				connections: [][]uint64{
-					{0, 1, 2},
-				},
-			},
-		}
+			graph.NewVertexWithConnections(0, 0, [][]uint64{{0, 1, 2}}),
+		})
 	})
 
 	t.Run("run a search that would typically find the new ep", func(t *testing.T) {
@@ -95,6 +92,136 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 	t.Run("the corrupt node is now marked deleted", func(t *testing.T) {
 		_, ok := vectorIndex.tombstones[1]
 		assert.True(t, ok)
+	})
+}
+
+func TestQueryVectorDistancer(t *testing.T) {
+	vectors := [][]float32{
+		{100, 100}, // first to import makes this the EP, it is far from any query which means it will be replaced.
+		{2, 2},     // a good potential entrypoint, but we will corrupt it later on
+		{1, 1},     // the perfect search result
+	}
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "bug-2155",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+	}, ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
+
+		// The actual size does not matter for this test, but if it defaults to
+		// zero it will constantly think it's full and needs to be deleted - even
+		// after just being deleted, so make sure to use a positive number here.
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+
+	index.Add(context.TODO(), uint64(0), []float32{-1, 0})
+
+	dist := index.QueryVectorDistancer([]float32{0, 0})
+	require.NotNil(t, dist)
+	distance, err := dist.DistanceToNode(0)
+	require.Nil(t, err)
+	require.Equal(t, distance, float32(1.))
+
+	// get distance for non-existing node above default cache size
+	_, err = dist.DistanceToNode(1001)
+	require.NotNil(t, err)
+}
+
+func TestQueryMultiVectorDistancer(t *testing.T) {
+	vectors := [][][]float32{
+		{{0.3, 0.1}, {1, 0}},
+	}
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "bug-2155",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewDotProductProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[0][int(id)], nil
+		},
+		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+			return vectors[int(id)], nil
+		},
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		VectorCacheMaxObjects: 100000,
+		Multivector: ent.MultivectorConfig{
+			Enabled: true,
+		},
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+
+	index.AddMulti(context.TODO(), uint64(0), vectors[0])
+
+	dist := index.QueryMultiVectorDistancer([][]float32{{0.2, 0}, {1, 0}})
+	require.NotNil(t, dist)
+	distance, err := dist.DistanceToNode(0)
+	require.Nil(t, err)
+	require.Equal(t, float32(-1.2), distance)
+
+	// get distance for non-existing node
+	_, err = dist.DistanceToNode(1032)
+	require.NotNil(t, err)
+}
+
+func TestAcornPercentage(t *testing.T) {
+	vectors, _ := testinghelpers.RandomVecs(10, 1, 3)
+	var vectorIndex *hnsw
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("import test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AcornFilterRatio:     0.4,
+		}, ent.UserConfig{
+			MaxConnections:        16,
+			EFConstruction:        16,
+			VectorCacheMaxObjects: 1000,
+		}, cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(context.TODO(), uint64(i), vec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("check acorn params on different filter percentags", func(t *testing.T) {
+		vectorIndex.acornSearch.Store(false)
+		allowList := helpers.NewAllowList(1, 2, 3)
+		useAcorn := vectorIndex.acornEnabled(allowList)
+		assert.False(t, useAcorn)
+
+		vectorIndex.acornSearch.Store(true)
+
+		useAcorn = vectorIndex.acornEnabled(allowList)
+		assert.True(t, useAcorn)
+
+		vectorIndex.acornSearch.Store(true)
+
+		largerAllowList := helpers.NewAllowList(1, 2, 3, 4, 5)
+		useAcorn = vectorIndex.acornEnabled(largerAllowList)
+		// should be false as allow list percentage is 50%
+		assert.False(t, useAcorn)
 	})
 }
 

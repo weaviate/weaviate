@@ -11,7 +11,9 @@ from weaviate.exceptions import WeaviateQueryError
 VEC_DIMS = 256
 OBJ_NUM = 1024
 
-
+@pytest.mark.skip(
+    reason="fix PQ to return error when searching with wrong vector dimensions. This is a regression that was introduced in 1.26"
+)
 def test_pq_dims_match(collection_factory: CollectionFactory):
     col = collection_factory(
         name='CompressedVector',

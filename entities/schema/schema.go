@@ -66,6 +66,14 @@ func UppercaseClassName(name string) string {
 	return strings.ToUpper(string(name[0])) + name[1:]
 }
 
+func UppercaseClassesNames(names ...string) []string {
+	for idx := range names {
+		names[idx] = UppercaseClassName(names[idx])
+	}
+
+	return names
+}
+
 func LowercaseAllPropertyNames(props []*models.Property) []*models.Property {
 	for i, prop := range props {
 		props[i].Name = LowercaseFirstLetter(prop.Name)

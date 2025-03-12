@@ -119,7 +119,7 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return fmt.Errorf("%v: %w", err, ctx.Err())
+			return fmt.Errorf("%w: %w", err, ctx.Err())
 		case <-timer.C:
 		}
 		timer.Stop()

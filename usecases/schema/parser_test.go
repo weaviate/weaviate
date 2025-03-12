@@ -147,3 +147,7 @@ func (m fakeModulesProvider) IsReranker(name string) bool {
 func (m fakeModulesProvider) IsGenerative(name string) bool {
 	return strings.Contains(name, "generative")
 }
+
+func (m fakeModulesProvider) IsMultiVector(name string) bool {
+	return strings.Contains(name, "colbert")
+}

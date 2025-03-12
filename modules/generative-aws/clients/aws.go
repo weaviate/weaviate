@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -28,13 +27,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	generativeconfig "github.com/weaviate/weaviate/modules/generative-aws/config"
+	awsparams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
+	generativecomponents "github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildBedrockUrl(service, region, model string) string {
 	urlTemplate := "https://%s.%s.amazonaws.com/model/%s/invoke"
@@ -70,25 +70,26 @@ func New(awsAccessKey, awsSecretKey, awsSessionToken string, timeout time.Durati
 	}
 }
 
-func (v *awsClient) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *awsClient) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generativecomponents.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt)
+	return v.Generate(ctx, cfg, forPrompt, generative.Blobs([]*modulecapabilities.GenerateProperties{properties}), options, debug)
 }
 
-func (v *awsClient) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *awsClient) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generativecomponents.MakeTaskPrompt(generativecomponents.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask)
+	return v.Generate(ctx, cfg, forTask, generativecomponents.Blobs(properties), options, debug)
 }
 
-func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
-	settings := generativeconfig.NewClassSettings(cfg)
-	service := settings.Service()
+func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	params := v.getParameters(cfg, options, imageProperties)
+	service := params.Service
+	debugInformation := v.getDebugInformation(debug, prompt)
 
 	accessKey, err := v.getAwsAccessKey(ctx)
 	if err != nil {
@@ -108,7 +109,9 @@ func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 		return v.sendBedrockRequest(ctx,
 			prompt,
 			accessKey, secretKey, awsSessionToken, maxRetries,
+			params,
 			cfg,
+			debugInformation,
 		)
 	} else if v.isSagemaker(service) {
 		var body []byte
@@ -117,10 +120,10 @@ func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 		var path string
 		var err error
 
-		region := settings.Region()
-		endpoint := settings.Endpoint()
-		targetModel := settings.TargetModel()
-		targetVariant := settings.TargetVariant()
+		region := params.Region
+		endpoint := params.Endpoint
+		targetModel := params.TargetModel
+		targetVariant := params.TargetVariant
 
 		endpointUrl = v.buildSagemakerUrlFn(service, region, endpoint)
 		host = "runtime." + service + "." + region + ".amazonaws.com"
@@ -170,10 +173,57 @@ func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 
 		return v.parseSagemakerResponse(bodyBytes, res)
 	} else {
-		return &generativemodels.GenerateResponse{
+		return &modulecapabilities.GenerateResponse{
 			Result: nil,
+			Debug:  debugInformation,
 		}, nil
 	}
+}
+
+func (v *awsClient) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{
+			Prompt: prompt,
+		}
+	}
+	return nil
+}
+
+func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) awsparams.Params {
+	settings := generativeconfig.NewClassSettings(cfg)
+
+	service := settings.Service()
+	var params awsparams.Params
+	if p, ok := options.(awsparams.Params); ok {
+		params = p
+	}
+
+	if params.Service == "" {
+		params.Service = settings.Service()
+	}
+	if params.Region == "" {
+		params.Region = settings.Region()
+	}
+	if params.Endpoint == "" {
+		params.Endpoint = settings.Endpoint()
+	}
+	if params.TargetModel == "" {
+		params.TargetModel = settings.TargetModel()
+	}
+	if params.TargetVariant == "" {
+		params.TargetVariant = settings.TargetVariant()
+	}
+	if params.Model == "" {
+		params.Model = settings.Model()
+	}
+	if params.Temperature == nil {
+		temperature := settings.Temperature(service, params.Model)
+		params.Temperature = temperature
+	}
+
+	params.Images = generativecomponents.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
+
+	return params
 }
 
 func (v *awsClient) sendBedrockRequest(
@@ -181,12 +231,13 @@ func (v *awsClient) sendBedrockRequest(
 	prompt string,
 	awsKey, awsSecret, awsSessionToken string,
 	maxRetries int,
+	params awsparams.Params,
 	cfg moduletools.ClassConfig,
-) (*generativemodels.GenerateResponse, error) {
-	settings := generativeconfig.NewClassSettings(cfg)
-	model := settings.Model()
-	region := settings.Region()
-	req, err := v.createRequestBody(prompt, cfg)
+	debugInformation *modulecapabilities.GenerateDebugInformation,
+) (*modulecapabilities.GenerateResponse, error) {
+	model := params.Model
+	region := params.Region
+	req, err := v.createRequestBody(prompt, params, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request for model %s: %w", model, err)
 	}
@@ -228,29 +279,71 @@ func (v *awsClient) sendBedrockRequest(
 		}
 	}
 
-	return v.parseBedrockResponse(result.Body, model)
+	return v.parseBedrockResponse(result.Body, model, debugInformation)
 }
 
-func (v *awsClient) createRequestBody(prompt string, cfg moduletools.ClassConfig) (interface{}, error) {
+func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cfg moduletools.ClassConfig) (interface{}, error) {
 	settings := generativeconfig.NewClassSettings(cfg)
-	model := settings.Model()
-	if v.isAmazonModel(model) {
+	model := params.Model
+	service := settings.Service()
+	if v.isAmazonTitanModel(model) {
 		return bedrockAmazonGenerateRequest{
 			InputText: prompt,
 		}, nil
+	} else if v.isAmazonNovaModel(model) {
+		var content []bedrockAmazonNovaContent
+		for i := range params.Images {
+			content = append(content, bedrockAmazonNovaContent{
+				Image: &bedrockAmazonNovaContentImage{
+					Format: "jpg",
+					Source: bedrockAmazonNovaContentImageSource{
+						Bytes: params.Images[i],
+					},
+				},
+			})
+		}
+		content = append(content, bedrockAmazonNovaContent{
+			Text: &prompt,
+		})
+		return bedrockAmazonNovaRequest{
+			Messages: []bedrockAmazonNovaMessage{
+				{
+					Role:    "user",
+					Content: content,
+				},
+			},
+			InferenceConfig: &bedrockAmazonNovaInferenceConfig{
+				Temperature: params.Temperature,
+			},
+		}, nil
 	} else if v.isAnthropicClaude3Model(model) {
+		var content []bedrockAnthropicClaude3Content
+		for i := range params.Images {
+			imageName := fmt.Sprintf("Image %d:", i+1)
+			content = append(content, bedrockAnthropicClaude3Content{
+				Type: "text",
+				Text: &imageName,
+			})
+			content = append(content, bedrockAnthropicClaude3Content{
+				Type: "image",
+				Source: &bedrockAnthropicClaudeV3Source{
+					ContentType: "base64",
+					MediaType:   "image/jpeg",
+					Data:        params.Images[i],
+				},
+			})
+		}
+		content = append(content, bedrockAnthropicClaude3Content{
+			Type: "text",
+			Text: &prompt,
+		})
 		return bedrockAnthropicClaude3Request{
 			AnthropicVersion: "bedrock-2023-05-31",
-			MaxTokens:        *settings.MaxTokenCount(),
+			MaxTokens:        settings.MaxTokenCount(service, model),
 			Messages: []bedrockAnthropicClaude3Message{
 				{
-					Role: "user",
-					Content: []bedrockAnthropicClaude3Content{
-						{
-							ContentType: "text",
-							Text:        &prompt,
-						},
-					},
+					Role:    "user",
+					Content: content,
 				},
 			},
 		}, nil
@@ -261,20 +354,20 @@ func (v *awsClient) createRequestBody(prompt string, cfg moduletools.ClassConfig
 		builder.WriteString("\n\nAssistant:")
 		return bedrockAnthropicGenerateRequest{
 			Prompt:            builder.String(),
-			MaxTokensToSample: *settings.MaxTokenCount(),
-			Temperature:       *settings.Temperature(),
-			StopSequences:     settings.StopSequences(),
-			TopK:              settings.TopK(),
-			TopP:              settings.TopP(),
+			Temperature:       params.Temperature,
+			MaxTokensToSample: settings.MaxTokenCount(service, model),
+			StopSequences:     settings.StopSequences(service, model),
+			TopK:              settings.TopK(service, model),
+			TopP:              settings.TopP(service, model),
 			AnthropicVersion:  "bedrock-2023-05-31",
 		}, nil
 	} else if v.isAI21Model(model) {
 		return bedrockAI21GenerateRequest{
 			Prompt:        prompt,
-			MaxTokens:     *settings.MaxTokenCount(),
-			Temperature:   *settings.Temperature(),
-			TopP:          settings.TopP(),
-			StopSequences: settings.StopSequences(),
+			Temperature:   params.Temperature,
+			MaxTokens:     settings.MaxTokenCount(service, model),
+			TopP:          settings.TopP(service, model),
+			StopSequences: settings.StopSequences(service, model),
 		}, nil
 	} else if v.isCohereCommandRModel(model) {
 		return bedrockCohereCommandRRequest{
@@ -283,40 +376,45 @@ func (v *awsClient) createRequestBody(prompt string, cfg moduletools.ClassConfig
 	} else if v.isCohereModel(model) {
 		return bedrockCohereRequest{
 			Prompt:      prompt,
-			Temperature: *settings.Temperature(),
-			MaxTokens:   *settings.MaxTokenCount(),
+			Temperature: params.Temperature,
+			MaxTokens:   settings.MaxTokenCount(service, model),
 			// ReturnLikeliHood: "GENERATION", // contray to docs, this is invalid
 		}, nil
 	} else if v.isMistralAIModel(model) {
 		return bedrockMistralAIRequest{
 			Prompt:      fmt.Sprintf("<s>[INST] %s [/INST]", prompt),
-			MaxTokens:   settings.MaxTokenCount(),
-			Temperature: settings.Temperature(),
+			Temperature: params.Temperature,
+			MaxTokens:   settings.MaxTokenCount(service, model),
 		}, nil
 	} else if v.isMetaModel(model) {
 		return bedrockMetaRequest{
 			Prompt:      prompt,
-			MaxGenLen:   settings.MaxTokenCount(),
-			Temperature: settings.Temperature(),
+			Temperature: params.Temperature,
+			MaxGenLen:   settings.MaxTokenCount(service, model),
 		}, nil
 	}
 	return nil, fmt.Errorf("unspported model: %s", model)
 }
 
-func (v *awsClient) parseBedrockResponse(bodyBytes []byte, model string) (*generativemodels.GenerateResponse, error) {
+func (v *awsClient) parseBedrockResponse(bodyBytes []byte,
+	model string,
+	debug *modulecapabilities.GenerateDebugInformation,
+) (*modulecapabilities.GenerateResponse, error) {
 	content, err := v.getBedrockResponseMessage(model, bodyBytes)
 	if err != nil {
 		return nil, err
 	}
 
 	if content != "" {
-		return &generativemodels.GenerateResponse{
+		return &modulecapabilities.GenerateResponse{
 			Result: &content,
+			Debug:  debug,
 		}, nil
 	}
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: nil,
+		Debug:  debug,
 	}, nil
 }
 
@@ -372,6 +470,15 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		return resBody.Generation, nil
+	} else if v.isAmazonNovaModel(model) {
+		var resBody bedrockNovaResponse
+		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		}
+		if len(resBody.Output.Message.Content) > 0 {
+			return resBody.Output.Message.Content[0].Text, nil
+		}
+		return "", nil
 	}
 
 	var resBody bedrockGenerateResponse
@@ -392,7 +499,7 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 	return content, nil
 }
 
-func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response) (*generativemodels.GenerateResponse, error) {
+func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response) (*modulecapabilities.GenerateResponse, error) {
 	var resBody sagemakerGenerateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
@@ -413,12 +520,12 @@ func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response)
 	if len(resBody.Generations) > 0 && len(resBody.Generations[0].Id) > 0 {
 		content := resBody.Generations[0].Text
 		if content != "" {
-			return &generativemodels.GenerateResponse{
+			return &modulecapabilities.GenerateResponse{
 				Result: &content,
 			}, nil
 		}
 	}
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: nil,
 	}, nil
 }
@@ -429,30 +536,6 @@ func (v *awsClient) isSagemaker(service string) bool {
 
 func (v *awsClient) isBedrock(service string) bool {
 	return service == "bedrock"
-}
-
-func (v *awsClient) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *awsClient) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
 }
 
 func (v *awsClient) getAwsAccessKey(ctx context.Context) (string, error) {
@@ -489,8 +572,12 @@ func (v *awsClient) getAwsSessionToken(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-func (v *awsClient) isAmazonModel(model string) bool {
-	return strings.HasPrefix(model, "amazon")
+func (v *awsClient) isAmazonTitanModel(model string) bool {
+	return strings.HasPrefix(model, "amazon.titan")
+}
+
+func (v *awsClient) isAmazonNovaModel(model string) bool {
+	return strings.HasPrefix(model, "amazon.nova")
 }
 
 func (v *awsClient) isAI21Model(model string) bool {
@@ -526,10 +613,41 @@ type bedrockAmazonGenerateRequest struct {
 	TextGenerationConfig *textGenerationConfig `json:"textGenerationConfig,omitempty"`
 }
 
+type bedrockAmazonNovaRequest struct {
+	Messages        []bedrockAmazonNovaMessage        `json:"messages,omitempty"`
+	InferenceConfig *bedrockAmazonNovaInferenceConfig `json:"inferenceConfig,omitempty"`
+}
+
+type bedrockAmazonNovaMessage struct {
+	Role    string                     `json:"role,omitempty"`
+	Content []bedrockAmazonNovaContent `json:"content,omitempty"`
+}
+
+type bedrockAmazonNovaContent struct {
+	Text  *string                        `json:"text,omitempty"`
+	Image *bedrockAmazonNovaContentImage `json:"image,omitempty"`
+}
+
+type bedrockAmazonNovaContentImage struct {
+	Format string                              `json:"format,omitempty"`
+	Source bedrockAmazonNovaContentImageSource `json:"source,omitempty"`
+}
+
+type bedrockAmazonNovaContentImageSource struct {
+	Bytes *string `json:"bytes,omitempty"`
+}
+
+type bedrockAmazonNovaInferenceConfig struct {
+	MaxNewTokens *int     `json:"max_new_tokens,omitempty"`
+	TopP         *float64 `json:"top_p,omitempty"`
+	TopK         *int     `json:"top_k,omitempty"`
+	Temperature  *float64 `json:"temperature,omitempty"`
+}
+
 type bedrockAnthropicGenerateRequest struct {
 	Prompt            string   `json:"prompt,omitempty"`
-	MaxTokensToSample int      `json:"max_tokens_to_sample,omitempty"`
-	Temperature       float64  `json:"temperature,omitempty"`
+	MaxTokensToSample *int     `json:"max_tokens_to_sample,omitempty"`
+	Temperature       *float64 `json:"temperature,omitempty"`
 	StopSequences     []string `json:"stop_sequences,omitempty"`
 	TopK              *int     `json:"top_k,omitempty"`
 	TopP              *float64 `json:"top_p,omitempty"`
@@ -542,7 +660,7 @@ type bedrockAnthropicClaudeResponse struct {
 
 type bedrockAnthropicClaude3Request struct {
 	AnthropicVersion string                           `json:"anthropic_version,omitempty"`
-	MaxTokens        int                              `json:"max_tokens,omitempty"`
+	MaxTokens        *int                             `json:"max_tokens,omitempty"`
 	Messages         []bedrockAnthropicClaude3Message `json:"messages,omitempty"`
 }
 
@@ -553,19 +671,19 @@ type bedrockAnthropicClaude3Message struct {
 
 type bedrockAnthropicClaude3Content struct {
 	// possible values are: image, text
-	ContentType string                          `json:"type,omitempty"`
-	Text        *string                         `json:"text,omitempty"`
-	Source      *bedrockAnthropicClaudeV3Source `json:"source,omitempty"`
+	Type   string                          `json:"type,omitempty"`
+	Text   *string                         `json:"text,omitempty"`
+	Source *bedrockAnthropicClaudeV3Source `json:"source,omitempty"`
 }
 
 type bedrockAnthropicClaude3Response struct {
-	ID          string                               `json:"id,omitempty"`
-	ContentType string                               `json:"type,omitempty"`
-	Role        string                               `json:"role,omitempty"`
-	Model       string                               `json:"model,omitempty"`
-	StopReason  string                               `json:"stop_reason,omitempty"`
-	Usage       bedrockAnthropicClaude3UsageResponse `json:"usage,omitempty"`
-	Content     []bedrockAnthropicClaude3Content     `json:"content,omitempty"`
+	ID         string                               `json:"id,omitempty"`
+	Type       string                               `json:"type,omitempty"`
+	Role       string                               `json:"role,omitempty"`
+	Model      string                               `json:"model,omitempty"`
+	StopReason string                               `json:"stop_reason,omitempty"`
+	Usage      bedrockAnthropicClaude3UsageResponse `json:"usage,omitempty"`
+	Content    []bedrockAnthropicClaude3Content     `json:"content,omitempty"`
 }
 
 type bedrockAnthropicClaude3UsageResponse struct {
@@ -579,13 +697,13 @@ type bedrockAnthropicClaudeV3Source struct {
 	// possible values are: image/jpeg
 	MediaType string `json:"media_type,omitempty"`
 	// base64 encoded image
-	Data string `json:"data,omitempty"`
+	Data *string `json:"data,omitempty"`
 }
 
 type bedrockAI21GenerateRequest struct {
 	Prompt           string   `json:"prompt,omitempty"`
-	MaxTokens        int      `json:"maxTokens,omitempty"`
-	Temperature      float64  `json:"temperature,omitempty"`
+	MaxTokens        *int     `json:"maxTokens,omitempty"`
+	Temperature      *float64 `json:"temperature,omitempty"`
 	TopP             *float64 `json:"top_p,omitempty"`
 	StopSequences    []string `json:"stop_sequences,omitempty"`
 	CountPenalty     penalty  `json:"countPenalty,omitempty"`
@@ -606,10 +724,10 @@ type bedrockAI21Data struct {
 }
 
 type bedrockCohereRequest struct {
-	Prompt           string  `json:"prompt,omitempty"`
-	MaxTokens        int     `json:"max_tokens,omitempty"`
-	Temperature      float64 `json:"temperature,omitempty"`
-	ReturnLikeliHood string  `json:"return_likelihood,omitempty"`
+	Prompt           string   `json:"prompt,omitempty"`
+	MaxTokens        *int     `json:"max_tokens,omitempty"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	ReturnLikeliHood string   `json:"return_likelihood,omitempty"`
 }
 
 type bedrockCohereCommandRRequest struct {
@@ -636,6 +754,22 @@ type bedrockGenerateResponse struct {
 	Results             []Result            `json:"results,omitempty"`
 	Generations         []BedrockGeneration `json:"generations,omitempty"`
 	Message             *string             `json:"message,omitempty"`
+}
+
+type bedrockNovaResponse struct {
+	Output bedrockNovaResponseOutput `json:"output,omitempty"`
+}
+
+type bedrockNovaResponseOutput struct {
+	Message bedrockNovaResponseMessage `json:"message,omitempty"`
+}
+
+type bedrockNovaResponseMessage struct {
+	Content []bedrockNovaResponseContent `json:"content,omitempty"`
+}
+
+type bedrockNovaResponseContent struct {
+	Text string `json:"text,omitempty"`
 }
 
 type bedrockCohereCommandRResponse struct {

@@ -25,23 +25,27 @@ type (
 )
 
 type Metrics struct {
-	CompactionReplace    *prometheus.GaugeVec
-	CompactionSet        *prometheus.GaugeVec
-	CompactionMap        *prometheus.GaugeVec
-	CompactionRoaringSet *prometheus.GaugeVec
-	ActiveSegments       *prometheus.GaugeVec
-	bloomFilters         prometheus.ObserverVec
-	SegmentObjects       *prometheus.GaugeVec
-	SegmentSize          *prometheus.GaugeVec
-	SegmentCount         *prometheus.GaugeVec
-	startupDurations     prometheus.ObserverVec
-	startupDiskIO        prometheus.ObserverVec
-	objectCount          prometheus.Gauge
-	memtableDurations    prometheus.ObserverVec
-	memtableSize         *prometheus.GaugeVec
-	DimensionSum         *prometheus.GaugeVec
+	CompactionReplace            *prometheus.GaugeVec
+	CompactionSet                *prometheus.GaugeVec
+	CompactionMap                *prometheus.GaugeVec
+	CompactionRoaringSet         *prometheus.GaugeVec
+	CompactionRoaringSetRange    *prometheus.GaugeVec
+	ActiveSegments               *prometheus.GaugeVec
+	ObjectsBucketSegments        *prometheus.GaugeVec
+	CompressedVecsBucketSegments *prometheus.GaugeVec
+	bloomFilters                 prometheus.ObserverVec
+	SegmentObjects               *prometheus.GaugeVec
+	SegmentSize                  *prometheus.GaugeVec
+	SegmentCount                 *prometheus.GaugeVec
+	startupDurations             prometheus.ObserverVec
+	startupDiskIO                prometheus.ObserverVec
+	objectCount                  prometheus.Gauge
+	memtableDurations            prometheus.ObserverVec
+	memtableSize                 *prometheus.GaugeVec
+	DimensionSum                 *prometheus.GaugeVec
 
-	groupClasses bool
+	groupClasses        bool
+	criticalBucketsOnly bool
 }
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
@@ -70,6 +74,12 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		"shard_name": shardName,
 	})
 
+	roaringSetRange := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
+		"operation":  "compact_lsm_segments_stratroaringsetrange",
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
 	stratMap := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
 		"operation":  "compact_lsm_segments_stratmap",
 		"class_name": className,
@@ -77,12 +87,22 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	})
 
 	return &Metrics{
-		groupClasses:         promMetrics.Group,
-		CompactionReplace:    replace,
-		CompactionSet:        set,
-		CompactionMap:        stratMap,
-		CompactionRoaringSet: roaringSet,
+		groupClasses:              promMetrics.Group,
+		criticalBucketsOnly:       promMetrics.LSMCriticalBucketsOnly,
+		CompactionReplace:         replace,
+		CompactionSet:             set,
+		CompactionMap:             stratMap,
+		CompactionRoaringSet:      roaringSet,
+		CompactionRoaringSetRange: roaringSetRange,
 		ActiveSegments: promMetrics.LSMSegmentCount.MustCurryWith(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		}),
+		ObjectsBucketSegments: promMetrics.LSMObjectsBucketSegmentCount.MustCurryWith(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		}),
+		CompressedVecsBucketSegments: promMetrics.LSMCompressedVecsBucketSegmentCount.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),

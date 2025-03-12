@@ -18,14 +18,18 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -36,9 +40,24 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+// provider is an interface has to be implemented by modules
+// to get the backend (s3, azure blob storage, google cloud storage) module
+type provider interface {
+	// OffloadBackend returns the backend module for (s3, azure blob storage, google cloud storage)
+	OffloadBackend(backend string) (modulecapabilities.OffloadCloud, bool)
+}
+
+type processor interface {
+	UpdateTenantsProcess(ctx context.Context,
+		class string, req *command.TenantProcessRequest) (uint64, error)
+}
+
 type Migrator struct {
-	db     *DB
-	logger logrus.FieldLogger
+	db      *DB
+	cloud   modulecapabilities.OffloadCloud
+	logger  logrus.FieldLogger
+	cluster processor
+	nodeId  string
 
 	classLocks *esync.KeyLocker
 }
@@ -49,6 +68,23 @@ func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 		logger:     logger,
 		classLocks: esync.NewKeyLocker(),
 	}
+}
+
+func (m *Migrator) SetNode(nodeID string) {
+	m.nodeId = nodeID
+}
+
+func (m *Migrator) SetCluster(c processor) {
+	m.cluster = c
+}
+
+func (m *Migrator) SetOffloadProvider(provider provider, moduleName string) {
+	cloud, enabled := provider.OffloadBackend(moduleName)
+	if !enabled {
+		m.logger.Debug(fmt.Sprintf("module %s is not enabled", moduleName))
+	}
+	m.cloud = cloud
+	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
@@ -70,27 +106,34 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 
 	idx, err := NewIndex(ctx,
 		IndexConfig{
-			ClassName:                      schema.ClassName(class.Class),
-			RootPath:                       m.db.config.RootPath,
-			ResourceUsage:                  m.db.config.ResourceUsage,
-			QueryMaximumResults:            m.db.config.QueryMaximumResults,
-			QueryNestedRefLimit:            m.db.config.QueryNestedRefLimit,
-			MemtablesFlushDirtyAfter:       m.db.config.MemtablesFlushDirtyAfter,
-			MemtablesInitialSizeMB:         m.db.config.MemtablesInitialSizeMB,
-			MemtablesMaxSizeMB:             m.db.config.MemtablesMaxSizeMB,
-			MemtablesMinActiveSeconds:      m.db.config.MemtablesMinActiveSeconds,
-			MemtablesMaxActiveSeconds:      m.db.config.MemtablesMaxActiveSeconds,
-			SegmentsCleanupIntervalSeconds: m.db.config.SegmentsCleanupIntervalSeconds,
-			MaxSegmentSize:                 m.db.config.MaxSegmentSize,
-			HNSWMaxLogSize:                 m.db.config.HNSWMaxLogSize,
-			HNSWWaitForCachePrefill:        m.db.config.HNSWWaitForCachePrefill,
-			VisitedListPoolMaxSize:         m.db.config.VisitedListPoolMaxSize,
-			TrackVectorDimensions:          m.db.config.TrackVectorDimensions,
-			AvoidMMap:                      m.db.config.AvoidMMap,
-			DisableLazyLoadShards:          m.db.config.DisableLazyLoadShards,
-			ForceFullReplicasSearch:        m.db.config.ForceFullReplicasSearch,
-			ReplicationFactor:              NewAtomicInt64(class.ReplicationConfig.Factor),
-			DeletionStrategy:               class.ReplicationConfig.DeletionStrategy,
+			ClassName:                           schema.ClassName(class.Class),
+			RootPath:                            m.db.config.RootPath,
+			ResourceUsage:                       m.db.config.ResourceUsage,
+			QueryMaximumResults:                 m.db.config.QueryMaximumResults,
+			QueryNestedRefLimit:                 m.db.config.QueryNestedRefLimit,
+			MemtablesFlushDirtyAfter:            m.db.config.MemtablesFlushDirtyAfter,
+			MemtablesInitialSizeMB:              m.db.config.MemtablesInitialSizeMB,
+			MemtablesMaxSizeMB:                  m.db.config.MemtablesMaxSizeMB,
+			MemtablesMinActiveSeconds:           m.db.config.MemtablesMinActiveSeconds,
+			MemtablesMaxActiveSeconds:           m.db.config.MemtablesMaxActiveSeconds,
+			SegmentsCleanupIntervalSeconds:      m.db.config.SegmentsCleanupIntervalSeconds,
+			SeparateObjectsCompactions:          m.db.config.SeparateObjectsCompactions,
+			CycleManagerRoutinesFactor:          m.db.config.CycleManagerRoutinesFactor,
+			MaxSegmentSize:                      m.db.config.MaxSegmentSize,
+			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
+			HNSWWaitForCachePrefill:             m.db.config.HNSWWaitForCachePrefill,
+			HNSWFlatSearchConcurrency:           m.db.config.HNSWFlatSearchConcurrency,
+			HNSWAcornFilterRatio:                m.db.config.HNSWAcornFilterRatio,
+			VisitedListPoolMaxSize:              m.db.config.VisitedListPoolMaxSize,
+			TrackVectorDimensions:               m.db.config.TrackVectorDimensions,
+			AvoidMMap:                           m.db.config.AvoidMMap,
+			DisableLazyLoadShards:               m.db.config.DisableLazyLoadShards,
+			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
+			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
+			ReplicationFactor:                   class.ReplicationConfig.Factor,
+			AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
+			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
+			ShardLoadLimiter:                    m.db.shardLoadLimiter,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -99,7 +142,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.indexCheckpoints,
+		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor)
 	if err != nil {
 		return errors.Wrap(err, "create index")
@@ -112,13 +155,21 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	return nil
 }
 
-func (m *Migrator) DropClass(ctx context.Context, className string) error {
+func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bool) error {
 	indexID := indexID(schema.ClassName(className))
 
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	return m.db.DeleteIndex(schema.ClassName(className))
+	if err := m.db.DeleteIndex(schema.ClassName(className)); err != nil {
+		return err
+	}
+
+	if m.cloud != nil && hasFrozen {
+		return m.cloud.Delete(ctx, className, "", "")
+	}
+
+	return nil
 }
 
 func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {
@@ -207,11 +258,22 @@ func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 		return nil
 	})
 
-	if len(toRemove) > 0 {
-		if err := idx.dropShards(toRemove); err != nil {
+	if len(toRemove) == 0 {
+		return nil
+	}
+
+	if err := idx.dropShards(toRemove); err != nil {
+		return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
+	}
+
+	if m.cloud != nil {
+		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
+		// better to filter the passed shards and get the frozen only
+		if err := idx.dropCloudShards(ctx, m.cloud, toRemove, m.nodeId); err != nil {
 			return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
 		}
 	}
+
 	return nil
 }
 
@@ -359,27 +421,38 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
 
-	updatesHot := make([]string, 0, len(updates))
-	updatesCold := make([]string, 0, len(updates))
-	for _, update := range updates {
-		switch update.Status {
+	hot := make([]string, 0, len(updates))
+	cold := make([]string, 0, len(updates))
+	freezing := make([]string, 0, len(updates))
+	frozen := make([]string, 0, len(updates))
+	unfreezing := make([]string, 0, len(updates))
+
+	for _, tenant := range updates {
+		switch tenant.Status {
 		case models.TenantActivityStatusHOT:
-			updatesHot = append(updatesHot, update.Name)
+			hot = append(hot, tenant.Name)
 		case models.TenantActivityStatusCOLD:
-			updatesCold = append(updatesCold, update.Name)
+			cold = append(cold, tenant.Name)
+		case models.TenantActivityStatusFROZEN:
+			frozen = append(frozen, tenant.Name)
+
+		case types.TenantActivityStatusFREEZING: // never arrives from user
+			freezing = append(freezing, tenant.Name)
+		case types.TenantActivityStatusUNFREEZING: // never arrives from user
+			unfreezing = append(unfreezing, tenant.Name)
 		}
 	}
 
-	ec := errorcompounder.New()
-
-	if len(updatesHot) > 0 {
-		idx.backupMutex.RLock()
-		defer idx.backupMutex.RUnlock()
+	ec := errorcompounder.NewSafe()
+	if len(hot) > 0 {
+		m.logger.WithField("action", "tenants_to_hot").Debug(hot)
+		idx.shardTransferMutex.RLock()
+		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 
-		for _, name := range updatesHot {
+		for _, name := range hot {
 			name := name // prevent loop variable capture
 			// enterrors.GoWrapper(func() {
 			// The timeout is rather arbitrary. It's meant to be so high that it can
@@ -404,14 +477,15 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		eg.Wait()
 	}
 
-	if len(updatesCold) > 0 {
-		idx.backupMutex.RLock()
-		defer idx.backupMutex.RUnlock()
+	if len(cold) > 0 {
+		m.logger.WithField("action", "tenants_to_cold").Debug(cold)
+		idx.shardTransferMutex.RLock()
+		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 
-		for _, name := range updatesCold {
+		for _, name := range cold {
 			name := name
 
 			eg.Go(func() error {
@@ -451,20 +525,59 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		eg.Wait()
 	}
 
+	if len(frozen) > 0 {
+		m.logger.WithField("action", "tenants_to_frozen").Debug(frozen)
+		m.frozen(ctx, idx, frozen, ec)
+	}
+
+	if len(freezing) > 0 {
+		m.logger.WithField("action", "tenants_to_freezing").Debug(freezing)
+		m.freeze(ctx, idx, class.Class, freezing, ec)
+	}
+
+	if len(unfreezing) > 0 {
+		m.logger.WithField("action", "tenants_to_unfreezing").Debug(unfreezing)
+		m.unfreeze(ctx, idx, class.Class, unfreezing, ec)
+	}
+
 	return ec.ToError()
 }
 
 // DeleteTenants deletes tenants
 // CAUTION: will not delete inactive tenants (shard files will not be removed)
-func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []string) error {
+func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
 	indexID := indexID(schema.ClassName(class))
 
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	if idx := m.db.GetIndex(schema.ClassName(class)); idx != nil {
-		return idx.dropShards(tenants)
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return nil
 	}
+
+	// Collect tenant names and frozen tenant names
+	allTenantNames := make([]string, 0, len(tenants))
+	frozenTenants := make([]string, 0, len(tenants))
+
+	for _, tenant := range tenants {
+		allTenantNames = append(allTenantNames, tenant.Name)
+		if tenant.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			tenant.ActivityStatus == models.TenantActivityStatusFREEZING {
+			frozenTenants = append(frozenTenants, tenant.Name)
+		}
+	}
+
+	if err := idx.dropShards(allTenantNames); err != nil {
+		return err
+	}
+
+	if m.cloud != nil && len(frozenTenants) > 0 {
+		if err := idx.dropCloudShards(ctx, m.cloud, frozenTenants, m.nodeId); err != nil {
+			return fmt.Errorf("drop tenant shards %v during update index: %w", frozenTenants, err)
+		}
+	}
+
 	return nil
 }
 
@@ -550,7 +663,11 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 	return idx.updateInvertedIndexConfig(ctx, conf)
 }
 
-func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string, factor int64) error {
+func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string, cfg *models.ReplicationConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
 	indexID := indexID(schema.ClassName(className))
 
 	m.classLocks.Lock(indexID)
@@ -561,7 +678,10 @@ func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string
 		return errors.Errorf("cannot update replication factor of non-existing index for %s", className)
 	}
 
-	idx.Config.ReplicationFactor.Store(factor)
+	if err := idx.updateReplicationConfig(ctx, cfg); err != nil {
+		return fmt.Errorf("update replication config for class %q: %w", className, err)
+	}
+
 	return nil
 }
 
@@ -576,22 +696,26 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
+		err := index.ForEachShard(func(name string, shard ShardLike) error {
+			return shard.resetDimensionsLSM()
+		})
+		if err != nil {
+			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
+			return err
+		}
+
 		// Iterate over all shards
-		if err := index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
+		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			if shard.hasTargetVectors() {
-				for vecName, vec := range object.Vectors {
-					if err := shard.extendDimensionTrackerForVecLSM(len(vec), object.DocID, vecName); err != nil {
-						return err
-					}
+			return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+				if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
+					return fmt.Errorf("failed to extend dimension tracker for vector %q: %w", targetVector, err)
 				}
-			} else {
-				if err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID); err != nil {
-					return err
-				}
-			}
-			return nil
-		}); err != nil {
+				return nil
+			})
+		})
+		if err != nil {
+			m.logger.WithField("action", "reindex").WithError(err).Warn("could not extend vector dimensions")
 			return err
 		}
 	}
@@ -672,24 +796,37 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 	return nil
 }
 
-func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
+func (m *Migrator) InvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {
 	var errs errorcompounder.ErrorCompounder
-	errs.Add(m.doInvertedReindex(ctx, taskNames...))
-	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNames...))
+	errs.Add(m.doInvertedReindex(ctx, taskNamesWithArgs))
+	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNamesWithArgs))
 	return errs.ToError()
 }
 
-func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) error {
-	tasksProviders := map[string]func() ShardInvertedReindexTask{
-		"ShardInvertedReindexTaskSetToRoaringSet": func() ShardInvertedReindexTask {
-			return &ShardInvertedReindexTaskSetToRoaringSet{}
-		},
-	}
-
+func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {
 	tasks := map[string]ShardInvertedReindexTask{}
-	for _, taskName := range taskNames {
-		if taskProvider, ok := tasksProviders[taskName]; ok {
-			tasks[taskName] = taskProvider()
+	for name, args := range taskNamesWithArgs {
+		switch name {
+		case "ShardInvertedReindexTaskSetToRoaringSet":
+			tasks[name] = &ShardInvertedReindexTaskSetToRoaringSet{}
+		case "ShardInvertedReindexTask_SpecifiedIndex":
+			if args == nil {
+				return fmt.Errorf("no args given for %q reindex task", name)
+			}
+			argsMap, ok := args.(map[string][]string)
+			if !ok {
+				return fmt.Errorf("invalid args given for %q reindex task", name)
+			}
+			classNamesWithPropertyNames := map[string]map[string]struct{}{}
+			for class, props := range argsMap {
+				classNamesWithPropertyNames[class] = map[string]struct{}{}
+				for _, prop := range props {
+					classNamesWithPropertyNames[class][prop] = struct{}{}
+				}
+			}
+			tasks[name] = &ShardInvertedReindexTask_SpecifiedIndex{
+				classNamesWithPropertyNames: classNamesWithPropertyNames,
+			}
 		}
 	}
 
@@ -725,16 +862,8 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 	return eg.Wait()
 }
 
-func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, taskNames ...string) error {
-	taskName := "ShardInvertedReindexTaskMissingTextFilterable"
-	taskFound := false
-	for _, name := range taskNames {
-		if name == taskName {
-			taskFound = true
-			break
-		}
-	}
-	if !taskFound {
+func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, taskNamesWithArgs map[string]any) error {
+	if _, ok := taskNamesWithArgs["ShardInvertedReindexTaskMissingTextFilterable"]; !ok {
 		return nil
 	}
 

@@ -15,10 +15,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -26,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -49,7 +52,7 @@ func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return true
 }
 
@@ -68,7 +71,7 @@ func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return true
 }
 
@@ -97,7 +100,7 @@ func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	if len(param) > 0 {
 		return &fakeProjectorParams{
 			Enabled:      true,
@@ -129,7 +132,7 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return &pathBuilderParams{}
 }
 
@@ -162,6 +165,10 @@ func (n nearCustomTextParams) SimilarityMetricProvided() bool {
 
 func (n nearCustomTextParams) GetTargetVectors() []string {
 	return n.TargetVectors
+}
+
+func (n nearCustomTextParams) GetTargetCombination() *dto.TargetCombination {
+	return nil
 }
 
 type nearExploreMove struct {
@@ -304,7 +311,7 @@ func (m *nearCustomTextModule) getNearCustomTextArgument(classname string) *grap
 	}
 }
 
-func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]interface{}) *nearCustomTextParams {
+func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]interface{}) (*nearCustomTextParams, *dto.TargetCombination, error) {
 	var args nearCustomTextParams
 
 	concepts := source["concepts"].([]interface{})
@@ -337,7 +344,7 @@ func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]i
 		args.MoveAwayFrom = m.parseMoveParam(moveAwayFromMap)
 	}
 
-	return &args
+	return &args, nil, nil
 }
 
 func (m *nearCustomTextModule) parseMoveParam(source map[string]interface{}) nearExploreMove {
@@ -378,7 +385,7 @@ func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQL
 		GetArgumentsFunction: func(classname string) *graphql.ArgumentConfig {
 			return m.getNearCustomTextArgument(classname)
 		},
-		ExtractFunction: func(source map[string]interface{}) interface{} {
+		ExtractFunction: func(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
 			return m.extractNearCustomTextArgument(source)
 		},
 		ValidateFunction: func(param interface{}) error {
@@ -541,12 +548,12 @@ func (fmp *fakeModulesProvider) GetArguments(class *models.Class) map[string]*gr
 	return args
 }
 
-func (fmp *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
+func (fmp *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) (map[string]interface{}, map[string]*dto.TargetCombination) {
 	exractedParams := map[string]interface{}{}
 	if param, ok := arguments["nearCustomText"]; ok {
 		exractedParams["nearCustomText"] = extractNearTextParam(param.(map[string]interface{}))
 	}
-	return exractedParams
+	return exractedParams, nil
 }
 
 func (fmp *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
@@ -563,7 +570,7 @@ func (fmp *fakeModulesProvider) ExtractAdditionalField(className, name string, p
 	if additionalProperties := fmp.nearCustomTextModule.AdditionalProperties(); len(additionalProperties) > 0 {
 		if additionalProperty, ok := additionalProperties[name]; ok {
 			if additionalProperty.GraphQLExtractFunction != nil {
-				return additionalProperty.GraphQLExtractFunction(params)
+				return additionalProperty.GraphQLExtractFunction(params, nil)
 			}
 		}
 	}
@@ -583,7 +590,8 @@ func (fmp *fakeModulesProvider) GraphQLAdditionalFieldNames() []string {
 func extractNearTextParam(param map[string]interface{}) interface{} {
 	nearCustomTextModule := newNearCustomTextModule()
 	argument := nearCustomTextModule.Arguments()["nearCustomText"]
-	return argument.ExtractFunction(param)
+	params, _, _ := argument.ExtractFunction(param)
+	return params
 }
 
 func createArg(name string, value string) *ast.Argument {
@@ -609,7 +617,7 @@ func extractAdditionalParam(name string, args []*ast.Argument) interface{} {
 	switch name {
 	case "semanticPath", "featureProjection":
 		if ap, ok := additionalProperties[name]; ok {
-			return ap.GraphQLExtractFunction(args)
+			return ap.GraphQLExtractFunction(args, nil)
 		}
 		return nil
 	default:
@@ -621,6 +629,24 @@ func getFakeModulesProvider() ModulesProvider {
 	return newFakeModulesProvider()
 }
 
+type fakeAuthorizer struct{}
+
+func (f *fakeAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
+
+func (f *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
+
+func (f *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, action string, resources ...string) ([]string, error) {
+	return resources, nil
+}
+
+func getFakeAuthorizer() authorization.Authorizer {
+	return &fakeAuthorizer{}
+}
+
 func newMockResolver() *mockResolver {
 	return newMockResolverWithVectorizer(config.VectorizerModuleText2VecContextionary)
 }
@@ -628,7 +654,7 @@ func newMockResolver() *mockResolver {
 func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 	logger, _ := test.NewNullLogger()
 	simpleSchema := test_helper.CreateSimpleSchema(vectorizer)
-	field, err := Build(&simpleSchema, logger, getFakeModulesProvider())
+	field, err := Build(&simpleSchema, logger, getFakeModulesProvider(), getFakeAuthorizer())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
@@ -642,7 +668,7 @@ func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 
 func newMockResolverWithNoModules() *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := Build(&test_helper.SimpleSchema, logger, nil)
+	field, err := Build(&test_helper.SimpleSchema, logger, nil, getFakeAuthorizer())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
@@ -657,6 +683,32 @@ func newMockResolverWithNoModules() *mockResolver {
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
 	params dto.GetParams,
 ) ([]interface{}, error) {
+	// order is random due to map access, sort to make tests deterministic
+	if params.NearVector != nil && params.NearVector.TargetVectors != nil && params.NearVector.Vectors != nil {
+		tv := targetsAndVectors{targets: params.NearVector.TargetVectors, vectors: params.NearVector.Vectors}
+		sort.Sort(tv)
+		params.NearVector.TargetVectors = tv.targets
+		params.NearVector.Vectors = tv.vectors
+	}
+
 	args := m.Called(params)
 	return args.Get(0).([]interface{}), args.Error(1)
+}
+
+type targetsAndVectors struct {
+	targets []string
+	vectors []models.Vector
+}
+
+func (t targetsAndVectors) Len() int {
+	return len(t.targets)
+}
+
+func (t targetsAndVectors) Swap(i, j int) {
+	t.targets[i], t.targets[j] = t.targets[j], t.targets[i]
+	t.vectors[i], t.vectors[j] = t.vectors[j], t.vectors[i]
+}
+
+func (t targetsAndVectors) Less(i, j int) bool {
+	return t.targets[i] < t.targets[j]
 }

@@ -11,7 +11,12 @@
 
 package modulecomponents
 
-import "time"
+import (
+	"time"
+
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+)
 
 type RateLimits struct {
 	LastOverwrite        time.Time
@@ -24,6 +29,7 @@ type RateLimits struct {
 	ReservedTokens       int
 	ResetRequests        time.Time
 	ResetTokens          time.Time
+	Label                string
 }
 
 func (rl *RateLimits) ResetAfterRequestFunction(tokensUsed int) {
@@ -38,9 +44,18 @@ func (rl *RateLimits) CheckForReset() {
 	}
 }
 
-func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int) bool {
+func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int, addMetrics bool, metricsLabel string) bool {
 	freeRequests := rl.RemainingRequests - rl.ReservedRequests
 	freeTokens := rl.RemainingTokens - rl.ReservedTokens
+
+	stats := monitoring.GetMetrics().T2VRepeatStats
+
+	if addMetrics {
+		stats.WithLabelValues(metricsLabel, "free_requests").Set(float64(freeRequests))
+		stats.WithLabelValues(metricsLabel, "free_tokens").Set(float64(freeTokens))
+		stats.WithLabelValues(metricsLabel, "expected_requests").Set(float64(numRequests))
+		stats.WithLabelValues(metricsLabel, "expected_tokens").Set(float64(batchTokens))
+	}
 
 	fitsCurrentBatch := freeRequests >= numRequests && freeTokens >= batchTokens
 	if !fitsCurrentBatch {
@@ -54,6 +69,11 @@ func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int) bool {
 	}
 	if rl.LimitTokens > 0 {
 		percentageOfTokens = batchTokens * 100 / rl.LimitTokens
+	}
+
+	if addMetrics {
+		stats.WithLabelValues(metricsLabel, "percentage_of_requests").Set(float64(percentageOfRequests))
+		stats.WithLabelValues(metricsLabel, "percentage_of_tokens").Set(float64(percentageOfTokens))
 	}
 
 	// the clients aim for 10s per batch, or 6 batches per minute in sequential-mode. 15% is somewhat below that to
@@ -74,11 +94,16 @@ func (rl *RateLimits) IsInitialized() bool {
 	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
 }
 
-type VectorizationResult struct {
+type VectorizationResult[T dto.Embedding] struct {
 	Text       []string
 	Dimensions int
-	Vector     [][]float32
+	Vector     []T
 	Errors     []error
+}
+
+type VectorizationCLIPResult[T dto.Embedding] struct {
+	TextVectors  []T
+	ImageVectors []T
 }
 
 type Usage struct {
@@ -92,9 +117,4 @@ func GetTotalTokens(usage *Usage) int {
 		return -1
 	}
 	return usage.TotalTokens
-}
-
-type VectorizationCLIPResult struct {
-	TextVectors  [][]float32
-	ImageVectors [][]float32
 }

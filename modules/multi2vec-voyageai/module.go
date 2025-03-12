@@ -38,9 +38,9 @@ func New() *Module {
 type Module struct {
 	vectorizer               *vectorizer.Vectorizer
 	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
-	nearImageSearcher        modulecapabilities.Searcher
+	nearImageSearcher        modulecapabilities.Searcher[[]float32]
 	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
-	nearTextSearcher         modulecapabilities.Searcher
+	nearTextSearcher         modulecapabilities.Searcher[[]float32]
 	nearTextTransformer      modulecapabilities.TextTransform
 	metaClient               metaClient
 	logger                   logrus.FieldLogger
@@ -138,6 +138,6 @@ func (m *Module) VectorizeInput(ctx context.Context,
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
-	_ = modulecapabilities.InputVectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
+	_ = modulecapabilities.InputVectorizer[[]float32](New())
 )

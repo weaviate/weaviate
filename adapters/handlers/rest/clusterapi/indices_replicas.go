@@ -24,10 +24,12 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
@@ -56,6 +58,10 @@ type replicator interface {
 		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, class, shardName string,
 		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
+	DigestObjectsInRange(ctx context.Context, class, shardName string,
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []replica.RepairResponse, err error)
+	HashTreeLevel(ctx context.Context, index, shard string,
+		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
 
 type localScaler interface {
@@ -69,7 +75,7 @@ type replicatedIndices struct {
 	auth   auth
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
-	maintenanceModeEnabled bool
+	maintenanceModeEnabled func() bool
 }
 
 var (
@@ -79,6 +85,10 @@ var (
 		`\/shards\/(` + sh + `)\/objects/_overwrite`)
 	regxObjectsDigest = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/_digest`)
+	regexObjectsDigestsInRange = regexp.MustCompile(`\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects/digestsInRange`)
+	regxHashTreeLevel = regexp.MustCompile(`\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects\/hashtree\/(` + l + `)`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
 	regxReferences = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
@@ -89,7 +99,7 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
-func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth, maintenanceModeEnabled bool) *replicatedIndices {
+func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth, maintenanceModeEnabled func() bool) *replicatedIndices {
 	return &replicatedIndices{
 		shards:                 shards,
 		scaler:                 scaler,
@@ -105,7 +115,7 @@ func (i *replicatedIndices) Indices() http.Handler {
 func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if i.maintenanceModeEnabled {
+		if i.maintenanceModeEnabled() {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
@@ -115,6 +125,22 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 		case regxObjectsDigest.MatchString(path):
 			if r.Method == http.MethodGet {
 				i.getObjectsDigest().ServeHTTP(w, r)
+				return
+			}
+
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+		case regexObjectsDigestsInRange.MatchString(path):
+			if r.Method == http.MethodPost {
+				i.getObjectsDigestsInRange().ServeHTTP(w, r)
+				return
+			}
+
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+		case regxHashTreeLevel.MatchString(path):
+			if r.Method == http.MethodPost {
+				i.getHashTreeLevel().ServeHTTP(w, r)
 				return
 			}
 
@@ -242,7 +268,6 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 func (i *replicatedIndices) increaseReplicationFactor() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := regxIncreaseRepFactor.FindStringSubmatch(r.URL.Path)
-		fmt.Printf("path: %v, args: %+v", r.URL.Path, args)
 		if len(args) != 2 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -395,6 +420,97 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 
 		if err != nil {
 			http.Error(w, "digest objects: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		resBytes, err := json.Marshal(results)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(resBytes)
+	})
+}
+
+func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regexObjectsDigestsInRange.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		reqPayload, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var rangeReq replica.DigestObjectsInRangeReq
+		if err := json.Unmarshal(reqPayload, &rangeReq); err != nil {
+			http.Error(w, "unmarshal digest objects in token range params from json: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
+
+		digests, err := i.shards.DigestObjectsInRange(r.Context(),
+			index, shard, rangeReq.InitialUUID, rangeReq.FinalUUID, rangeReq.Limit)
+		if err != nil {
+			http.Error(w, "digest objects in range: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{
+			Digests: digests,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(resBytes)
+	})
+}
+
+func (i *replicatedIndices) getHashTreeLevel() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxHashTreeLevel.FindStringSubmatch(r.URL.Path)
+		if len(args) != 4 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard, level := args[1], args[2], args[3]
+
+		l, err := strconv.Atoi(level)
+		if err != nil {
+			http.Error(w, "unmarshal hashtree level params: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		defer r.Body.Close()
+		reqPayload, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var discriminant hashtree.Bitset
+		if err := discriminant.Unmarshal(reqPayload); err != nil {
+			http.Error(w, "unmarshal hashtree level params from json: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
+
+		results, err := i.shards.HashTreeLevel(r.Context(), index, shard, l, &discriminant)
+		if err != nil {
+			http.Error(w, "hashtree level: "+err.Error(),
 				http.StatusInternalServerError)
 			return
 		}
@@ -760,8 +876,8 @@ func (i *replicatedIndices) postRefs() http.Handler {
 
 func localIndexNotReady(resp replica.SimpleResponse) bool {
 	if err := resp.FirstError(); err != nil {
-		re, ok := err.(*replica.Error)
-		if ok && re.IsStatusCode(replica.StatusNotReady) {
+		var replicaErr *replica.Error
+		if errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replica.StatusNotReady) {
 			return true
 		}
 	}

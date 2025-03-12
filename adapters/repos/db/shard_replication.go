@@ -58,7 +58,7 @@ func (p *pendingReplicaTasks) delete(requestID string) {
 	p.Unlock()
 }
 
-func (s *Shard) commitReplication(ctx context.Context, requestID string, backupReadLock *backupMutex) interface{} {
+func (s *Shard) commitReplication(ctx context.Context, requestID string, backupReadLock *shardTransfer) interface{} {
 	f, ok := s.replicationMap.get(requestID)
 	if !ok {
 		return nil
@@ -122,7 +122,7 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 }
 
 func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
-	bucket, obj, idBytes, docID, err := s.canDeleteOne(ctx, uuid)
+	bucket, obj, idBytes, docID, updateTime, err := s.canDeleteOne(ctx, uuid)
 	if err != nil {
 		return replica.SimpleResponse{
 			Errors: []replica.Error{
@@ -132,7 +132,7 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 	}
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
-		if err := s.deleteOne(ctx, bucket, obj, idBytes, docID, deletionTime); err != nil {
+		if err := s.deleteOne(ctx, bucket, obj, idBytes, docID, updateTime, deletionTime); err != nil {
 			resp.Errors = []replica.Error{
 				{Code: replica.StatusConflict, Msg: err.Error()},
 			}
@@ -200,5 +200,5 @@ func parseBytesUUID(id strfmt.UUID) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse uuid %q: %w", id, err)
 	}
-	return uuid[:], nil
+	return uuid.MarshalBinary()
 }

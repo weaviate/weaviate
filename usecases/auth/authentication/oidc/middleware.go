@@ -46,7 +46,7 @@ func New(cfg config.Config) (*Client, error) {
 	}
 
 	if err := client.init(); err != nil {
-		return nil, fmt.Errorf("oidc init: %v", err)
+		return nil, fmt.Errorf("oidc init: %w", err)
 	}
 
 	return client, nil
@@ -54,12 +54,12 @@ func New(cfg config.Config) (*Client, error) {
 
 func (c *Client) init() error {
 	if err := c.validateConfig(); err != nil {
-		return fmt.Errorf("invalid config: %v", err)
+		return fmt.Errorf("invalid config: %w", err)
 	}
 
 	provider, err := oidc.NewProvider(context.Background(), c.config.Issuer)
 	if err != nil {
-		return fmt.Errorf("could not setup provider: %v", err)
+		return fmt.Errorf("could not setup provider: %w", err)
 	}
 	c.provider = provider
 
@@ -129,7 +129,7 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 func (c *Client) extractClaims(token *oidc.IDToken) (map[string]interface{}, error) {
 	var claims map[string]interface{}
 	if err := token.Claims(&claims); err != nil {
-		return nil, fmt.Errorf("could not extract claims from token: %v", err)
+		return nil, fmt.Errorf("could not extract claims from token: %w", err)
 	}
 
 	return claims, nil

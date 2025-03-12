@@ -17,12 +17,15 @@ import (
 	"net/http"
 
 	"github.com/tailor-inc/graphql"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	testhelper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -36,6 +39,24 @@ type mockResolver struct {
 }
 
 type fakeModulesProvider struct{}
+
+type fakeAuthorizer struct{}
+
+func (a *fakeAuthorizer) Authorize(principal *models.Principal, verb string, resource ...string) error {
+	return nil
+}
+
+func (a *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resource ...string) error {
+	return nil
+}
+
+func (a *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	return resources, nil
+}
+
+func getFakeAuthorizer() authorization.Authorizer {
+	return &fakeAuthorizer{}
+}
 
 func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
 	panic("not implemented")
@@ -65,7 +86,8 @@ func (p *fakeModulesProvider) CrossClassExtractSearchParams(arguments map[string
 func extractNearCustomTextParam(param map[string]interface{}) interface{} {
 	nearCustomText := &nearCustomTextModule{}
 	argument := nearCustomText.Arguments()["nearCustomText"]
-	return argument.ExtractFunction(param)
+	params, _, _ := argument.ExtractFunction(param)
+	return params
 }
 
 func getFakeModulesProvider() ModulesProvider {
@@ -73,7 +95,7 @@ func getFakeModulesProvider() ModulesProvider {
 }
 
 func newMockResolver() *mockResolver {
-	field := Build(testhelper.SimpleSchema.Objects, getFakeModulesProvider())
+	field := Build(testhelper.SimpleSchema.Objects, getFakeModulesProvider(), getFakeAuthorizer())
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Explore"
@@ -86,7 +108,7 @@ func newMockResolver() *mockResolver {
 }
 
 func newMockResolverNoModules() *mockResolver {
-	field := Build(testhelper.SimpleSchema.Objects, nil)
+	field := Build(testhelper.SimpleSchema.Objects, nil, getFakeAuthorizer())
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Explore"
@@ -99,7 +121,7 @@ func newMockResolverNoModules() *mockResolver {
 }
 
 func newMockResolverEmptySchema() *mockResolver {
-	field := Build(&models.Schema{}, getFakeModulesProvider())
+	field := Build(&models.Schema{}, getFakeModulesProvider(), getFakeAuthorizer())
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Explore"
@@ -162,7 +184,7 @@ func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQL
 		ExploreArgumentsFunction: func() *graphql.ArgumentConfig {
 			return m.getNearCustomTextArgument("")
 		},
-		ExtractFunction: func(source map[string]interface{}) interface{} {
+		ExtractFunction: func(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
 			return m.extractNearCustomTextArgument(source)
 		},
 		ValidateFunction: func(param interface{}) error {
@@ -270,7 +292,7 @@ func (m *nearCustomTextModule) getNearCustomTextArgument(classname string) *grap
 	}
 }
 
-func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]interface{}) *nearCustomTextParams {
+func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]interface{}) (*nearCustomTextParams, *dto.TargetCombination, error) {
 	var args nearCustomTextParams
 
 	concepts := source["concepts"].([]interface{})
@@ -303,7 +325,7 @@ func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]i
 		args.MoveAwayFrom = m.parseMoveParam(moveAwayFromMap)
 	}
 
-	return &args
+	return &args, nil, nil
 }
 
 func (m *nearCustomTextModule) parseMoveParam(source map[string]interface{}) nearExploreMove {

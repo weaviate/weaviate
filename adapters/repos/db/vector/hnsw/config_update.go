@@ -56,6 +56,10 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 			name:     "distance",
 			accessor: func(c ent.UserConfig) interface{} { return c.Distance },
 		},
+		{
+			name:     "multivector enabled",
+			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.Enabled },
+		},
 	}
 
 	for _, u := range immutableFields {
@@ -100,12 +104,16 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
-	if !parsed.PQ.Enabled && !parsed.BQ.Enabled {
+	h.acornSearch.Store(parsed.FilterStrategy == ent.FilterStrategyAcorn)
+
+	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled {
 		callback()
 		return nil
 	}
 
 	h.pqConfig = parsed.PQ
+	h.sqConfig = parsed.SQ
+	h.bqConfig = parsed.BQ
 	if asyncEnabled() {
 		callback()
 		return nil
@@ -144,9 +152,8 @@ func (h *hnsw) compressThenCallback(callback func()) {
 
 	uc := ent.UserConfig{
 		PQ: h.pqConfig,
-		BQ: ent.BQConfig{
-			Enabled: !h.pqConfig.Enabled,
-		},
+		BQ: h.bqConfig,
+		SQ: h.sqConfig,
 	}
 	if err := h.compress(uc); err != nil {
 		h.logger.Error(err)

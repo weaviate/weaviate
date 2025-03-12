@@ -24,7 +24,7 @@ func TestNearTextGraphQLArgument(t *testing.T) {
 		prefix := "Prefix"
 		classname := "Class"
 		// when
-		nearText := New(nil).nearTextArgument(prefix, classname)
+		nearText := New(nil).nearTextArgument(prefix, classname, false)
 
 		// then
 		// the built graphQL field needs to support this structure:
@@ -117,7 +117,7 @@ func TestNearTextGraphQLArgumentWithAutocorrect(t *testing.T) {
 		prefix := "Prefix"
 		classname := "Class"
 		// when
-		nearText := New(&fakeTransformer{}).nearTextArgument(prefix, classname)
+		nearText := New(&fakeTransformer{}).nearTextArgument(prefix, classname, false)
 
 		// then
 		// the built graphQL field needs to support this structure:

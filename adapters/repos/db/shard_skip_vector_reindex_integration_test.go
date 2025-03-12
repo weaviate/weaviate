@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -22,6 +21,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -107,6 +107,10 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				DataType: schema.DataTypeGeoCoordinates.PropString(),
 			},
 		},
+	}
+	props := make([]string, len(class.Properties))
+	for i, prop := range class.Properties {
+		props[i] = prop.Name
 	}
 
 	createOrigObj := func() *storobj.Object {
@@ -291,7 +295,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 	search := func(t *testing.T, shard ShardLike, filter *filters.LocalFilter) []*storobj.Object {
 		searchLimit := 10
 		found, _, err := shard.ObjectSearch(ctx, searchLimit, filter,
-			nil, nil, nil, additional.Properties{})
+			nil, nil, nil, additional.Properties{}, props)
 		require.NoError(t, err)
 		return found
 	}
@@ -507,16 +511,22 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 		return func(t *testing.T) {
 			t.Run("to be found", func(t *testing.T) {
-				found, _, err := shard.ObjectVectorSearch(ctx, vectorToBeFound, targetVector,
-					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{})
-				require.NoError(t, err)
-				require.Len(t, found, 1)
-				require.Equal(t, uuid_, found[0].Object.ID)
+				require.EventuallyWithT(t, func(collect *assert.CollectT) {
+					found, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{vectorToBeFound}, []string{targetVector},
+						vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil)
+					if !assert.NoError(collect, err) {
+						return
+					}
+					if !assert.Len(collect, found, 1) {
+						return
+					}
+					assert.Equal(collect, uuid_, found[0].Object.ID)
+				}, 15*time.Second, 100*time.Millisecond)
 			})
 
 			t.Run("not to be found", func(t *testing.T) {
-				found, _, err := shard.ObjectVectorSearch(ctx, vectorNotToBeFound, targetVector,
-					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{})
+				found, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{vectorNotToBeFound}, []string{targetVector},
+					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil)
 				require.NoError(t, err)
 				require.Len(t, found, 0)
 			})
@@ -536,6 +546,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
 				require.NoError(t, err)
+			})
+
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().Schedule(context.Background())
+				time.Sleep(50 * time.Millisecond)
+				shard.Queue().Wait()
 			})
 
 			t.Run("verify initial docID and timestamps", func(t *testing.T) {
@@ -567,6 +583,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				require.NoError(t, err)
 			})
 
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().Schedule(context.Background())
+				time.Sleep(50 * time.Millisecond)
+				shard.Queue().Wait()
+			})
+
 			t.Run("verify same docID, changed create & update timestamps", func(t *testing.T) {
 				expectedNextDocID := uint64(1)
 				require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -596,6 +618,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				err := shard.PutObject(ctx, altUpdObj)
 				require.NoError(t, err)
+			})
+
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().Schedule(context.Background())
+				time.Sleep(50 * time.Millisecond)
+				shard.Queue().Wait()
 			})
 
 			t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -632,6 +660,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				require.NoError(t, err)
 			})
 
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().Schedule(context.Background())
+				time.Sleep(50 * time.Millisecond)
+				shard.Queue().Wait()
+			})
+
 			t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
 				expectedNextDocID := uint64(2)
 				require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -659,6 +693,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				err := shard.MergeObject(ctx, mergeDoc)
 				require.NoError(t, err)
+			})
+
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().Schedule(context.Background())
+				time.Sleep(50 * time.Millisecond)
+				shard.Queue().Wait()
 			})
 
 			t.Run("verify same docID, changed update timestamp", func(t *testing.T) {
@@ -690,6 +730,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				err := shard.MergeObject(ctx, altMergeDoc)
 				require.NoError(t, err)
+			})
+
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().Schedule(context.Background())
+				time.Sleep(50 * time.Millisecond)
+				shard.Queue().Wait()
 			})
 
 			t.Run("verify changed docID, changed update timestamp", func(t *testing.T) {
@@ -972,6 +1018,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					}
 				})
 
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().Schedule(context.Background())
+					time.Sleep(50 * time.Millisecond)
+					shard.Queue().Wait()
+				})
+
 				t.Run("verify initial docID and timestamps", func(t *testing.T) {
 					expectedNextDocID := uint64(1)
 					require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -994,6 +1046,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					for i := range errs {
 						require.NoError(t, errs[i])
 					}
+				})
+
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().Schedule(context.Background())
+					time.Sleep(50 * time.Millisecond)
+					shard.Queue().Wait()
 				})
 
 				t.Run("add 2nd batch", func(t *testing.T) {
@@ -1040,6 +1098,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					}
 				})
 
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().Schedule(context.Background())
+					time.Sleep(50 * time.Millisecond)
+					shard.Queue().Wait()
+				})
+
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
 					expectedNextDocID := uint64(2)
 					require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -1078,6 +1142,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					}
 				})
 
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().Schedule(context.Background())
+					time.Sleep(50 * time.Millisecond)
+					shard.Queue().Wait()
+				})
+
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
 					expectedNextDocID := uint64(2)
 					require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -1112,6 +1182,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					for i := range errs {
 						require.NoError(t, errs[i])
 					}
+				})
+
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().Schedule(context.Background())
+					time.Sleep(50 * time.Millisecond)
+					shard.Queue().Wait()
 				})
 
 				t.Run("verify same docID, same timestamps", func(t *testing.T) {
@@ -1149,6 +1225,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					for i := range errs {
 						require.NoError(t, errs[i])
 					}
+				})
+
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().Schedule(context.Background())
+					time.Sleep(50 * time.Millisecond)
+					shard.Queue().Wait()
 				})
 
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -1191,6 +1273,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					}
 				})
 
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().Schedule(context.Background())
+					time.Sleep(50 * time.Millisecond)
+					shard.Queue().Wait()
+				})
+
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
 					expectedNextDocID := uint64(2)
 					require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -1216,8 +1304,13 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 		t.Run("async", func(t *testing.T) {
 			currentIndexing := os.Getenv("ASYNC_INDEXING")
+			currentStaleTimeout := os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT")
+			currentSchedulerInterval := os.Getenv("QUEUE_SCHEDULER_INTERVAL")
 			t.Setenv("ASYNC_INDEXING", "true")
+			t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
 			defer t.Setenv("ASYNC_INDEXING", currentIndexing)
+			defer t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", currentStaleTimeout)
+			defer t.Setenv("QUEUE_SCHEDULER_INTERVAL", currentSchedulerInterval)
 
 			runBatch(t)
 		})

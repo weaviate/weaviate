@@ -23,6 +23,7 @@ type WeaviateClient interface {
 	BatchObjects(ctx context.Context, in *BatchObjectsRequest, opts ...grpc.CallOption) (*BatchObjectsReply, error)
 	BatchDelete(ctx context.Context, in *BatchDeleteRequest, opts ...grpc.CallOption) (*BatchDeleteReply, error)
 	TenantsGet(ctx context.Context, in *TenantsGetRequest, opts ...grpc.CallOption) (*TenantsGetReply, error)
+	Aggregate(ctx context.Context, in *AggregateRequest, opts ...grpc.CallOption) (*AggregateReply, error)
 }
 
 type weaviateClient struct {
@@ -69,6 +70,15 @@ func (c *weaviateClient) TenantsGet(ctx context.Context, in *TenantsGetRequest, 
 	return out, nil
 }
 
+func (c *weaviateClient) Aggregate(ctx context.Context, in *AggregateRequest, opts ...grpc.CallOption) (*AggregateReply, error) {
+	out := new(AggregateReply)
+	err := c.cc.Invoke(ctx, "/weaviate.v1.Weaviate/Aggregate", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WeaviateServer is the server API for Weaviate service.
 // All implementations must embed UnimplementedWeaviateServer
 // for forward compatibility
@@ -77,6 +87,7 @@ type WeaviateServer interface {
 	BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error)
 	BatchDelete(context.Context, *BatchDeleteRequest) (*BatchDeleteReply, error)
 	TenantsGet(context.Context, *TenantsGetRequest) (*TenantsGetReply, error)
+	Aggregate(context.Context, *AggregateRequest) (*AggregateReply, error)
 	mustEmbedUnimplementedWeaviateServer()
 }
 
@@ -95,6 +106,9 @@ func (UnimplementedWeaviateServer) BatchDelete(context.Context, *BatchDeleteRequ
 }
 func (UnimplementedWeaviateServer) TenantsGet(context.Context, *TenantsGetRequest) (*TenantsGetReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TenantsGet not implemented")
+}
+func (UnimplementedWeaviateServer) Aggregate(context.Context, *AggregateRequest) (*AggregateReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Aggregate not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
 
@@ -181,6 +195,24 @@ func _Weaviate_TenantsGet_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Weaviate_Aggregate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AggregateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeaviateServer).Aggregate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/weaviate.v1.Weaviate/Aggregate",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeaviateServer).Aggregate(ctx, req.(*AggregateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Weaviate_ServiceDesc is the grpc.ServiceDesc for Weaviate service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -203,6 +235,10 @@ var Weaviate_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TenantsGet",
 			Handler:    _Weaviate_TenantsGet_Handler,
+		},
+		{
+			MethodName: "Aggregate",
+			Handler:    _Weaviate_Aggregate_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

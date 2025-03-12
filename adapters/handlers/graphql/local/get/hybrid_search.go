@@ -55,6 +55,10 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Search weight",
 			Type:        graphql.Float,
 		},
+		"maxVectorDistance": &graphql.InputObjectFieldConfig{
+			Description: "Removes all results that have a vector distance larger than the given value",
+			Type:        graphql.Float,
+		},
 		"vector": &graphql.InputObjectFieldConfig{
 			Description: "Vector search",
 			Type:        graphql.NewList(graphql.Float),
@@ -98,7 +102,7 @@ func hybridOperands(classObject *graphql.Object,
 									graphql.InputObjectConfig{
 										Name:        fmt.Sprintf("%sNearVectorInpObj", prefixName),
 										Description: "Near vector search",
-										Fields:      common_filters.NearVectorFields(prefixName),
+										Fields:      common_filters.NearVectorFields(prefixName, true),
 									},
 								),
 							},
@@ -112,6 +116,7 @@ func hybridOperands(classObject *graphql.Object,
 			)),
 		},
 	}
+	fieldMap = common_filters.AddTargetArgument(fieldMap, prefixName+"hybrid", true)
 
 	if os.Getenv("ENABLE_EXPERIMENTAL_HYBRID_OPERANDS") != "" {
 		fieldMap["operands"] = &graphql.InputObjectFieldConfig{

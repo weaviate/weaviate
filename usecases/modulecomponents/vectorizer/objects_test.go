@@ -32,6 +32,7 @@ func TestVectorizingObjects(t *testing.T) {
 		openAIType          string
 		openAIModel         string
 		openAIModelVersion  string
+		lowerCase           bool
 	}
 
 	tests := []testCase{
@@ -45,6 +46,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedOpenAIType:  "text",
 			expectedOpenAIModel: "ada",
 			expectedClientCall:  "car",
+			lowerCase:           true,
 		},
 		{
 			name: "object with one string prop",
@@ -54,6 +56,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"brand": "Mercedes",
 				},
 			},
+			lowerCase:          true,
 			expectedClientCall: "car brand mercedes",
 		},
 		{
@@ -64,6 +67,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"power": 300,
 				},
 			},
+			lowerCase:          true,
 			expectedClientCall: "car",
 		},
 		{
@@ -76,6 +80,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"review": "a very great car",
 				},
 			},
+			lowerCase:          true,
 			expectedClientCall: "car brand best brand review a very great car",
 		},
 		{
@@ -89,6 +94,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"review": "a very great car",
 				},
 			},
+			lowerCase:          true,
 			expectedClientCall: "car brand best brand",
 		},
 		{
@@ -102,6 +108,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"review": "a very great car",
 				},
 			},
+			lowerCase:          true,
 			expectedClientCall: "brand best brand review a very great car",
 		},
 		{
@@ -115,6 +122,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"review": "a very great car",
 				},
 			},
+			lowerCase:          true,
 			expectedClientCall: "car brand best brand a very great car",
 		},
 		{
@@ -127,6 +135,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"review": "a very great car",
 				},
 			},
+			lowerCase:          true,
 			expectedClientCall: "a very great car",
 		},
 		{
@@ -142,6 +151,7 @@ func TestVectorizingObjects(t *testing.T) {
 					},
 				},
 			},
+			lowerCase:          true,
 			expectedClientCall: "a very great car you should consider buying one",
 		},
 		{
@@ -155,6 +165,7 @@ func TestVectorizingObjects(t *testing.T) {
 					},
 				},
 			},
+			lowerCase:          true,
 			expectedClientCall: "car reviews a very great car reviews you should consider buying one",
 		},
 		{
@@ -167,7 +178,21 @@ func TestVectorizingObjects(t *testing.T) {
 					"review":        "a very great car",
 				},
 			},
+			lowerCase:          true,
 			expectedClientCall: "super car brand of the car best brand review a very great car",
+		},
+		{
+			name: "with compound class and prop names",
+			input: &models.Object{
+				Class: "SuperCar",
+				Properties: map[string]interface{}{
+					"brandOfTheCar": "best brand",
+					"power":         300,
+					"review":        "a very great car",
+				},
+			},
+			lowerCase:          false,
+			expectedClientCall: "Super Car brand Of The Car best brand review a very great car",
 		},
 	}
 
@@ -185,6 +210,7 @@ func TestVectorizingObjects(t *testing.T) {
 				vectorizePropertyName: true,
 				skippedProperty:       test.noindex,
 				excludedProperty:      test.excludedProperty,
+				lowerCase:             test.lowerCase,
 			}
 			text := v.Texts(context.Background(), test.input, cfg)
 			assert.Equal(t, test.expectedClientCall, text)
@@ -197,6 +223,11 @@ type fakeClassConfig struct {
 	vectorizePropertyName bool
 	skippedProperty       string
 	excludedProperty      string
+	lowerCase             bool
+}
+
+func (f fakeClassConfig) LowerCaseInput() bool {
+	return f.lowerCase
 }
 
 func (f fakeClassConfig) Class() map[string]interface{} {

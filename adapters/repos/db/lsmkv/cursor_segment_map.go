@@ -15,6 +15,7 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -30,14 +31,36 @@ func (s *segment) newMapCursor() *segmentCursorMap {
 }
 
 func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
-	sg.maintenanceLock.RLock()
-	out := make([]innerCursorMap, len(sg.segments))
+	segments, release := sg.getAndLockSegments()
 
-	for i, segment := range sg.segments {
-		out[i] = segment.newMapCursor()
+	out := make([]innerCursorMap, len(segments))
+
+	for i, segment := range segments {
+		if segment.strategy == segmentindex.StrategyInverted {
+			out[i] = segment.newInvertedCursorReusable()
+		} else {
+			out[i] = segment.newMapCursor()
+		}
 	}
 
-	return out, sg.maintenanceLock.RUnlock
+	return out, release
+}
+
+func (s *segmentCursorMap) decode(parsed segmentCollectionNode) ([]MapPair, error) {
+	pairs := make([]MapPair, len(parsed.values))
+	for i := range pairs {
+		if s.segment.strategy == segmentindex.StrategyInverted {
+			if err := pairs[i].FromBytesInverted(parsed.values[i].value, false); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
+				return nil, err
+			}
+		}
+		pairs[i].Tombstone = parsed.values[i].tombstone
+	}
+	return pairs, nil
 }
 
 func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
@@ -46,7 +69,13 @@ func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 		return nil, nil, err
 	}
 
-	parsed, err := s.parseCollectionNode(nodeOffset{node.Start, node.End})
+	var parsed segmentCollectionNode
+
+	if s.segment.strategy == segmentindex.StrategyInverted {
+		parsed, err = s.parseInvertedNode(nodeOffset{node.Start, node.End})
+	} else {
+		parsed, err = s.parseCollectionNode(nodeOffset{node.Start, node.End})
+	}
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -55,15 +84,8 @@ func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 		return parsed.primaryKey, nil, err
 	}
 
-	pairs := make([]MapPair, len(parsed.values))
-	for i := range pairs {
-		if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
-			return nil, nil, err
-		}
-		pairs[i].Tombstone = parsed.values[i].tombstone
-	}
-
-	return parsed.primaryKey, pairs, nil
+	pairs, err := s.decode(parsed)
+	return parsed.primaryKey, pairs, err
 }
 
 func (s *segmentCursorMap) next() ([]byte, []MapPair, error) {
@@ -71,7 +93,14 @@ func (s *segmentCursorMap) next() ([]byte, []MapPair, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	parsed, err := s.parseCollectionNode(nodeOffset{start: s.nextOffset})
+	var parsed segmentCollectionNode
+	var err error
+
+	if s.segment.strategy == segmentindex.StrategyInverted {
+		parsed, err = s.parseInvertedNode(nodeOffset{start: s.nextOffset})
+	} else {
+		parsed, err = s.parseCollectionNode(nodeOffset{start: s.nextOffset})
+	}
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -80,21 +109,25 @@ func (s *segmentCursorMap) next() ([]byte, []MapPair, error) {
 		return parsed.primaryKey, nil, err
 	}
 
-	pairs := make([]MapPair, len(parsed.values))
-	for i := range pairs {
-		if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
-			return nil, nil, err
-		}
-		pairs[i].Tombstone = parsed.values[i].tombstone
-	}
-
-	return parsed.primaryKey, pairs, nil
+	pairs, err := s.decode(parsed)
+	return parsed.primaryKey, pairs, err
 }
 
 func (s *segmentCursorMap) first() ([]byte, []MapPair, error) {
+	if s.segment.dataStartPos == s.segment.dataEndPos {
+		return nil, nil, lsmkv.NotFound
+	}
+
 	s.nextOffset = s.segment.dataStartPos
 
-	parsed, err := s.parseCollectionNode(nodeOffset{start: s.nextOffset})
+	var parsed segmentCollectionNode
+	var err error
+
+	if s.segment.strategy == segmentindex.StrategyInverted {
+		parsed, err = s.parseInvertedNode(nodeOffset{start: s.nextOffset})
+	} else {
+		parsed, err = s.parseCollectionNode(nodeOffset{start: s.nextOffset})
+	}
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -108,15 +141,8 @@ func (s *segmentCursorMap) first() ([]byte, []MapPair, error) {
 		return parsed.primaryKey, nil, err
 	}
 
-	pairs := make([]MapPair, len(parsed.values))
-	for i := range pairs {
-		if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
-			return nil, nil, err
-		}
-		pairs[i].Tombstone = parsed.values[i].tombstone
-	}
-
-	return parsed.primaryKey, pairs, nil
+	pairs, err := s.decode(parsed)
+	return parsed.primaryKey, pairs, err
 }
 
 func (s *segmentCursorMap) parseCollectionNode(offset nodeOffset) (segmentCollectionNode, error) {
@@ -125,4 +151,12 @@ func (s *segmentCursorMap) parseCollectionNode(offset nodeOffset) (segmentCollec
 		return segmentCollectionNode{}, err
 	}
 	return ParseCollectionNode(r)
+}
+
+func (s *segmentCursorMap) parseInvertedNode(offset nodeOffset) (segmentCollectionNode, error) {
+	r, err := s.segment.newNodeReader(offset)
+	if err != nil {
+		return segmentCollectionNode{}, err
+	}
+	return ParseInvertedNode(r)
 }

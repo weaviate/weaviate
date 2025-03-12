@@ -21,9 +21,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
 
-func testText2VecAWS(host, region string) func(t *testing.T) {
+func testText2VecAWS(rest, grpc, region string) func(t *testing.T) {
 	return func(t *testing.T) {
-		helper.SetupClient(host)
+		helper.SetupClient(rest)
 		// Data
 		data := companies.Companies
 		className := "VectorizerTest"
@@ -71,7 +71,7 @@ func testText2VecAWS(host, region string) func(t *testing.T) {
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					companies.InsertObjects(t, host, class.Class)
+					companies.InsertObjects(t, rest, class.Class)
 				})
 				t.Run("check objects existence", func(t *testing.T) {
 					for _, company := range data {
@@ -80,13 +80,13 @@ func testText2VecAWS(host, region string) func(t *testing.T) {
 							require.NoError(t, err)
 							require.NotNil(t, obj)
 							require.Len(t, obj.Vectors, 1)
-							assert.True(t, len(obj.Vectors["description"]) > 0)
+							require.IsType(t, []float32{}, obj.Vectors["description"])
+							assert.True(t, len(obj.Vectors["description"].([]float32)) > 0)
 						})
 					}
 				})
-				// vector search
-				t.Run("perform vector search", func(t *testing.T) {
-					companies.PerformVectorSearchTest(t, host, class.Class)
+				t.Run("search tests", func(t *testing.T) {
+					companies.PerformAllSearchTests(t, rest, grpc, class.Class)
 				})
 			})
 		}

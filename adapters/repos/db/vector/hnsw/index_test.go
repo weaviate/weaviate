@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -101,37 +102,37 @@ func TestHnswIndexGrow(t *testing.T) {
 		err := index.Add(ctx, id, vector)
 		require.Nil(t, err)
 		// index should grow to 5001
-		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, index.nodes.Len())
 		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
 		// try to add a vector with id: 8001
 		id = uint64(6*cache.InitialSize + cache.MinimumIndexGrowthDelta + 1)
 		err = index.Add(ctx, id, vector)
 		require.Nil(t, err)
 		// index should grow to at least 8001
-		assert.GreaterOrEqual(t, len(index.nodes), 8001)
+		assert.GreaterOrEqual(t, index.nodes.Len(), 8001)
 		assert.GreaterOrEqual(t, index.cache.Len(), int32(8001))
 	})
 
 	t.Run("should grow index", func(t *testing.T) {
 		// should not increase the nodes size
-		sizeBefore := len(index.nodes)
+		sizeBefore := index.nodes.Len()
 		cacheBefore := index.cache.Len()
 		idDontGrowIndex := uint64(6*cache.InitialSize - 1)
 		err := index.Add(ctx, idDontGrowIndex, vector)
 		require.Nil(t, err)
-		assert.Equal(t, sizeBefore, len(index.nodes))
+		assert.Equal(t, sizeBefore, index.nodes.Len())
 		assert.Equal(t, cacheBefore, index.cache.Len())
 		// should increase nodes
 		id := uint64(8*cache.InitialSize + 1)
 		err = index.Add(ctx, id, vector)
 		require.Nil(t, err)
-		assert.GreaterOrEqual(t, len(index.nodes), int(id))
+		assert.GreaterOrEqual(t, index.nodes.Len(), int(id))
 		assert.GreaterOrEqual(t, index.cache.Len(), int32(id))
 		// should increase nodes when a much greater id is passed
 		id = uint64(20*cache.InitialSize + 22)
 		err = index.Add(ctx, id, vector)
 		require.Nil(t, err)
-		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, index.nodes.Len())
 		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
 	})
 }
@@ -146,7 +147,7 @@ func TestHnswIndexGrowSafely(t *testing.T) {
 	t.Run("concurrently add nodes to grow index", func(t *testing.T) {
 		growAttempts := 20
 		var wg sync.WaitGroup
-		offset := uint64(len(index.nodes))
+		offset := uint64(index.nodes.Len())
 		ctx := context.Background()
 
 		addVectorPair := func(ids []uint64) {
@@ -162,99 +163,129 @@ func TestHnswIndexGrowSafely(t *testing.T) {
 			go addVectorPair([]uint64{offset - 2, offset + 2})
 			go addVectorPair([]uint64{offset - 1, offset + 3})
 			wg.Wait()
-			offset = uint64(len(index.nodes))
+			offset = uint64(index.nodes.Len())
 		}
 
 		// Calculate non-nil nodes
 		nonNilNodes := 0
-		for _, node := range index.nodes {
+		index.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
 			if node != nil {
 				nonNilNodes++
 			}
-		}
+			return true
+		})
 
 		assert.Equal(t, growAttempts*8, nonNilNodes)
 	})
 }
 
 func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[float32]) *hnsw {
-	// mock out commit logger before adding data so we don't leave a disk
-	// footprint. Commit logging and deserializing from a (condensed) commit log
-	// is tested in a separate integration test that takes care of providing and
-	// cleaning up the correct place on disk to write test files
-	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "unittest",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk:      vecForIDFn,
-	}, ent.UserConfig{
+	cfg := createVectorHnswIndexTestConfig()
+	cfg.VectorForIDThunk = vecForIDFn
+
+	index, err := New(cfg, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 	return index
 }
 
-func TestHnswIndexContainsNode(t *testing.T) {
+func createEmptyMultiVectorHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[[]float32]) *hnsw {
+	cfg := createVectorHnswIndexTestConfig()
+	cfg.MultiVectorForIDThunk = vecForIDFn
+
+	index, err := New(cfg, ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
+		Multivector: ent.MultivectorConfig{
+			Enabled: true,
+		},
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+	return index
+}
+
+func createVectorHnswIndexTestConfig() Config {
+	// mock out commit logger before adding data so we don't leave a disk
+	// footprint. Commit logging and deserializing from a (condensed) commit log
+	// is tested in a separate integration test that takes care of providing and
+	// cleaning up the correct place on disk to write test files
+	return Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "unittest",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:      testVectorForID,
+	}
+}
+
+func TestHnswIndexContainsDoc(t *testing.T) {
+	testHnswIndexContainsDoc(t, genericVecTestHelperSingle())
+}
+
+func TestHnswIndexContainsDoc_MultiVector(t *testing.T) {
+	testHnswIndexContainsDoc(t, genericVecTestHelperMulti())
+}
+
+func testHnswIndexContainsDoc[T float32 | []float32](t *testing.T, h genericVecTestHelper[T]) {
 	ctx := context.Background()
+
 	t.Run("should return false if index is empty", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]T, error) {
 			t.Fatalf("vecForID should not be called on empty index")
 			return nil, nil
 		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
-		require.False(t, index.ContainsNode(1))
+		index := h.createIndex(t, vecForIDFn)
+		require.False(t, index.ContainsDoc(1))
 	})
 
 	t.Run("should return true if node is in the index", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
-			return testVectors[id], nil
+		index := h.createIndex(t, h.vecForIDFn)
+		for i, vec := range h.testVectors {
+			err := h.addDocToIndex(index, ctx, uint64(i), vec)
+			require.NoError(t, err)
 		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
-		for i, vec := range testVectors {
-			err := index.Add(ctx, uint64(i), vec)
-			require.Nil(t, err)
-		}
-		require.True(t, index.ContainsNode(5))
+		require.True(t, index.ContainsDoc(5))
 	})
 
 	t.Run("should return false if node is not in the index", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
-			return testVectors[id], nil
+		index := h.createIndex(t, h.vecForIDFn)
+		for i, vec := range h.testVectors {
+			err := h.addDocToIndex(index, ctx, uint64(i), vec)
+			require.NoError(t, err)
 		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
-		for i, vec := range testVectors {
-			err := index.Add(ctx, uint64(i), vec)
-			require.Nil(t, err)
-		}
-		require.False(t, index.ContainsNode(100))
+		require.False(t, index.ContainsDoc(100))
 	})
 
 	t.Run("should return false if node is deleted", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
-			return testVectors[id], nil
+		index := h.createIndex(t, h.vecForIDFn)
+		for i, vec := range h.testVectors {
+			err := h.addDocToIndex(index, ctx, uint64(i), vec)
+			require.NoError(t, err)
 		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
-		for i, vec := range testVectors {
-			err := index.Add(ctx, uint64(i), vec)
-			require.Nil(t, err)
-		}
-		err := index.Delete(5)
+		err := h.deleteDocFromIndex(index, ctx, uint64(5))
 		require.Nil(t, err)
-		require.False(t, index.ContainsNode(5))
+		require.False(t, index.ContainsDoc(5))
 	})
 }
 
 func TestHnswIndexIterate(t *testing.T) {
+	testHnswIndexIterate(t, genericVecTestHelperSingle())
+}
+
+func TestHnswIndexIterate_MultiVector(t *testing.T) {
+	testHnswIndexIterate(t, genericVecTestHelperMulti())
+}
+
+func testHnswIndexIterate[T float32 | []float32](t *testing.T, h genericVecTestHelper[T]) {
 	ctx := context.Background()
 	t.Run("should not run callback on empty index", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]T, error) {
 			t.Fatalf("vecForID should not be called on empty index")
 			return nil, nil
 		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		index := h.createIndex(t, vecForIDFn)
 		index.Iterate(func(id uint64) bool {
 			t.Fatalf("callback should not be called on empty index")
 			return true
@@ -262,16 +293,13 @@ func TestHnswIndexIterate(t *testing.T) {
 	})
 
 	t.Run("should iterate over all nodes", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
-			return testVectors[id], nil
-		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
-		for i, vec := range testVectors {
-			err := index.Add(ctx, uint64(i), vec)
-			require.Nil(t, err)
+		index := h.createIndex(t, h.vecForIDFn)
+		for i, vec := range h.testVectors {
+			err := h.addDocToIndex(index, ctx, uint64(i), vec)
+			require.NoError(t, err)
 		}
 
-		visited := make([]bool, len(testVectors))
+		visited := make([]bool, len(h.testVectors))
 		index.Iterate(func(id uint64) bool {
 			visited[id] = true
 			return true
@@ -282,98 +310,68 @@ func TestHnswIndexIterate(t *testing.T) {
 	})
 
 	t.Run("should stop iteration when callback returns false", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
-			return testVectors[id], nil
-		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
-		for i, vec := range testVectors {
-			err := index.Add(ctx, uint64(i), vec)
-			require.Nil(t, err)
+		index := h.createIndex(t, h.vecForIDFn)
+		for i, vec := range h.testVectors {
+			err := h.addDocToIndex(index, ctx, uint64(i), vec)
+			require.NoError(t, err)
 		}
 
-		visited := make([]bool, len(testVectors))
+		counter := 0
 		index.Iterate(func(id uint64) bool {
-			visited[id] = true
-			return id < 5
+			counter++
+			return counter < 5
 		})
-		for i, v := range visited {
-			if i <= 5 {
-				assert.True(t, v, "node %d was not visited", i)
-			} else {
-				assert.False(t, v, "node %d was visited", i)
-			}
-		}
+		require.Equal(t, 5, counter)
 	})
 
 	t.Run("should stop iteration when shutdownCtx is canceled", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
-			return testVectors[id], nil
-		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
-		for i, vec := range testVectors {
-			err := index.Add(ctx, uint64(i), vec)
-			require.Nil(t, err)
+		index := h.createIndex(t, h.vecForIDFn)
+		for i, vec := range h.testVectors {
+			err := h.addDocToIndex(index, ctx, uint64(i), vec)
+			require.NoError(t, err)
 		}
 
-		visited := make([]bool, len(testVectors))
+		counter := 0
 		index.Iterate(func(id uint64) bool {
-			visited[id] = true
-			if id == 5 {
+			counter++
+			if counter == 5 {
 				err := index.Shutdown(context.Background())
 				require.NoError(t, err)
 			}
 			return true
 		})
-		for i, v := range visited {
-			if i <= 5 {
-				assert.True(t, v, "node %d was not visited", i)
-			} else {
-				assert.False(t, v, "node %d was visited", i)
-			}
-		}
+		require.Equal(t, 5, counter)
 	})
 
 	t.Run("should stop iteration when resetCtx is canceled", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
-			return testVectors[id], nil
-		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
-		for i, vec := range testVectors {
-			err := index.Add(ctx, uint64(i), vec)
-			require.Nil(t, err)
+		index := h.createIndex(t, h.vecForIDFn)
+		for i, vec := range h.testVectors {
+			err := h.addDocToIndex(index, ctx, uint64(i), vec)
+			require.NoError(t, err)
 		}
 
-		visited := make([]bool, len(testVectors))
+		counter := 0
 		index.Iterate(func(id uint64) bool {
-			visited[id] = true
-			if id == 5 {
+			counter++
+			if counter == 5 {
 				index.resetCtxCancel()
 			}
 			return true
 		})
-		for i, v := range visited {
-			if i <= 5 {
-				assert.True(t, v, "node %d was not visited", i)
-			} else {
-				assert.False(t, v, "node %d was visited", i)
-			}
-		}
+		require.Equal(t, 5, counter)
 	})
 
 	t.Run("should skip deleted nodes", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
-			return testVectors[id], nil
-		}
-		index := createEmptyHnswIndexForTests(t, vecForIDFn)
-		for i, vec := range testVectors {
-			err := index.Add(ctx, uint64(i), vec)
-			require.Nil(t, err)
+		index := h.createIndex(t, h.vecForIDFn)
+		for i, vec := range h.testVectors {
+			err := h.addDocToIndex(index, ctx, uint64(i), vec)
+			require.NoError(t, err)
 		}
 
-		err := index.Delete(uint64(5))
-		require.Nil(t, err)
+		err := h.deleteDocFromIndex(index, ctx, uint64(5))
+		require.NoError(t, err)
 
-		visited := make([]bool, len(testVectors))
+		visited := make([]bool, len(h.testVectors))
 		index.Iterate(func(id uint64) bool {
 			visited[id] = true
 			return true
@@ -386,4 +384,40 @@ func TestHnswIndexIterate(t *testing.T) {
 			}
 		}
 	})
+}
+
+type genericVecTestHelper[T float32 | []float32] struct {
+	createIndex        func(t testing.TB, vecForIDFn common.VectorForID[T]) *hnsw
+	vecForIDFn         common.VectorForID[T]
+	testVectors        [][]T
+	addDocToIndex      func(i *hnsw, ctx context.Context, docID uint64, vec []T) error
+	deleteDocFromIndex func(i *hnsw, ctx context.Context, docIDs ...uint64) error
+}
+
+func genericVecTestHelperSingle() genericVecTestHelper[float32] {
+	return genericVecTestHelper[float32]{
+		createIndex: createEmptyHnswIndexForTests,
+		vecForIDFn:  testVectorForID,
+		testVectors: testVectors,
+		addDocToIndex: func(i *hnsw, ctx context.Context, docID uint64, vec []float32) error {
+			return i.Add(ctx, docID, vec)
+		},
+		deleteDocFromIndex: func(i *hnsw, ctx context.Context, docIDs ...uint64) error {
+			return i.Delete(docIDs...)
+		},
+	}
+}
+
+func genericVecTestHelperMulti() genericVecTestHelper[[]float32] {
+	return genericVecTestHelper[[]float32]{
+		createIndex: createEmptyMultiVectorHnswIndexForTests,
+		vecForIDFn:  testMultiVectorForID,
+		testVectors: testMultiVectors,
+		addDocToIndex: func(i *hnsw, ctx context.Context, docID uint64, vec [][]float32) error {
+			return i.AddMulti(ctx, docID, vec)
+		},
+		deleteDocFromIndex: func(i *hnsw, ctx context.Context, docIDs ...uint64) error {
+			return i.DeleteMulti(docIDs...)
+		},
+	}
 }

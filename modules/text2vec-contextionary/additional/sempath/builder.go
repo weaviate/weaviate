@@ -58,7 +58,7 @@ func (pb *PathBuilder) AdditionalPropertyFn(ctx context.Context,
 	return nil, errors.New("unknown params")
 }
 
-func (pb *PathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (pb *PathBuilder) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return &Params{}
 }
 
@@ -84,7 +84,7 @@ func (pb *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]sear
 	for i, obj := range in {
 		path, err := pb.calculatePathPerObject(obj, in, params, searchNeighbors)
 		if err != nil {
-			return nil, fmt.Errorf("object %d: %v", i, err)
+			return nil, fmt.Errorf("object %d: %w", i, err)
 		}
 
 		if in[i].AdditionalProperties == nil {

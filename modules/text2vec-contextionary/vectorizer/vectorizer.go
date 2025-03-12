@@ -17,10 +17,12 @@ package vectorizer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/fatih/camelcase"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
@@ -100,8 +102,8 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, override
 
 	vector, ie, err := v.client.VectorForCorpi(ctx, []string{corpi}, overrides)
 	if err != nil {
-		switch err.(type) {
-		case ErrNoUsableWords:
+		switch {
+		case errors.As(err, &ErrNoUsableWords{}):
 			return nil, nil, fmt.Errorf("The object is invalid, as weaviate could not extract "+
 				"any contextionary-valid words from it. This is the case when you have "+
 				"set the options 'vectorizeClassName: false' and 'vectorizePropertyName: false' in this class' schema definition "+
@@ -125,7 +127,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, override
 				"\n\nTo learn more about the contextionary and how it behaves, check out: https://www.semi.technology/documentation/weaviate/current/contextionary.html"+
 				"\n\nOriginal error: %v", corpi, err)
 		default:
-			return nil, nil, fmt.Errorf("vectorizing object with corpus '%+v': %v", corpi, err)
+			return nil, nil, fmt.Errorf("vectorizing object with corpus '%+v': %w", corpi, err)
 		}
 	}
 
@@ -135,13 +137,15 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, override
 // Corpi takes any list of strings and builds a common vector for all of them
 func (v *Vectorizer) Corpi(ctx context.Context, corpi []string,
 ) ([]float32, error) {
+	// can be written to concurrently if multiple named vectors are used
+	corpiTmp := make([]string, len(corpi))
 	for i, corpus := range corpi {
-		corpi[i] = camelCaseToLower(corpus)
+		corpiTmp[i] = camelCaseToLower(corpus)
 	}
 
-	vector, _, err := v.client.VectorForCorpi(ctx, corpi, nil)
+	vector, _, err := v.client.VectorForCorpi(ctx, corpiTmp, nil)
 	if err != nil {
-		return nil, fmt.Errorf("vectorizing corpus '%+v': %v", corpi, err)
+		return nil, fmt.Errorf("vectorizing corpus '%+v': %w", corpiTmp, err)
 	}
 
 	return vector, nil

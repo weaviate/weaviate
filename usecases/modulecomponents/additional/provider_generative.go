@@ -12,39 +12,36 @@
 package additional
 
 import (
-	"context"
-
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
 	generativegenerate "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
-type generativeClient interface {
-	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
-	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
-	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error)
-}
+const PropertyGenerate = "generate"
 
 type GraphQLAdditionalGenerativeProvider struct {
 	generative AdditionalProperty
 }
 
-func NewGenerativeProvider(client generativeClient, logger logrus.FieldLogger) *GraphQLAdditionalGenerativeProvider {
-	return &GraphQLAdditionalGenerativeProvider{generativegenerate.New(client, logger)}
+func NewGenericGenerativeProvider(
+	className string,
+	additionalGenerativeParameters map[string]modulecapabilities.GenerativeProperty,
+	defaultProviderName string,
+	logger logrus.FieldLogger,
+) *GraphQLAdditionalGenerativeProvider {
+	return &GraphQLAdditionalGenerativeProvider{generativegenerate.NewGeneric(additionalGenerativeParameters, defaultProviderName, logger)}
 }
 
 func (p *GraphQLAdditionalGenerativeProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	additionalProperties := map[string]modulecapabilities.AdditionalProperty{}
-	additionalProperties["generate"] = p.getGenerate()
+	additionalProperties[PropertyGenerate] = p.getGenerate()
 	return additionalProperties
 }
 
 func (p *GraphQLAdditionalGenerativeProvider) getGenerate() modulecapabilities.AdditionalProperty {
 	return modulecapabilities.AdditionalProperty{
-		GraphQLNames:           []string{"generate"},
+		GraphQLNames:           []string{PropertyGenerate},
 		GraphQLFieldFunction:   p.generative.AdditionalFieldFn,
 		GraphQLExtractFunction: p.generative.ExtractAdditionalFn,
 		SearchFunctions: modulecapabilities.AdditionalSearch{

@@ -24,7 +24,7 @@ func Test_ForbiddenError_NoGroups(t *testing.T) {
 	}
 
 	err := NewForbidden(principal, "delete", "schema/things")
-	expectedErrMsg := "forbidden: user 'john' has insufficient permissions to delete schema/things"
+	expectedErrMsg := "authorization, forbidden action: user 'john' has insufficient permissions to delete [schema/things]"
 	assert.Equal(t, expectedErrMsg, err.Error())
 }
 
@@ -35,7 +35,7 @@ func Test_ForbiddenError_SingleGroup(t *testing.T) {
 	}
 
 	err := NewForbidden(principal, "delete", "schema/things")
-	expectedErrMsg := "forbidden: user 'john' (of group 'worstusers') has insufficient permissions to delete schema/things"
+	expectedErrMsg := "authorization, forbidden action: user 'john' (of group 'worstusers') has insufficient permissions to delete [schema/things]"
 	assert.Equal(t, expectedErrMsg, err.Error())
 }
 
@@ -46,7 +46,7 @@ func Test_ForbiddenError_MultipleGroups(t *testing.T) {
 	}
 
 	err := NewForbidden(principal, "delete", "schema/things")
-	expectedErrMsg := "forbidden: user 'john' (of groups 'worstusers', 'fraudsters', 'evilpeople') " +
-		"has insufficient permissions to delete schema/things"
+	expectedErrMsg := "authorization, forbidden action: user 'john' (of groups 'worstusers', 'fraudsters', 'evilpeople') " +
+		"has insufficient permissions to delete [schema/things]"
 	assert.Equal(t, expectedErrMsg, err.Error())
 }

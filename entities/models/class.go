@@ -31,22 +31,22 @@ import (
 // swagger:model Class
 type Class struct {
 
-	// Name of the class as URI relative to the schema URL.
+	// Name of the class (a.k.a. 'collection') (required). Multiple words should be concatenated in CamelCase, e.g. `ArticleAuthor`.
 	Class string `json:"class,omitempty"`
 
-	// Description of the class.
+	// Description of the collection for metadata purposes.
 	Description string `json:"description,omitempty"`
 
 	// inverted index config
 	InvertedIndexConfig *InvertedIndexConfig `json:"invertedIndexConfig,omitempty"`
 
-	// Configuration specific to modules this Weaviate instance has installed
+	// Configuration specific to modules in a collection context.
 	ModuleConfig interface{} `json:"moduleConfig,omitempty"`
 
 	// multi tenancy config
 	MultiTenancyConfig *MultiTenancyConfig `json:"multiTenancyConfig,omitempty"`
 
-	// The properties of the class.
+	// Define properties of the collection.
 	Properties []*Property `json:"properties"`
 
 	// replication config
@@ -55,7 +55,7 @@ type Class struct {
 	// Manage how the index should be sharded and distributed in the cluster
 	ShardingConfig interface{} `json:"shardingConfig,omitempty"`
 
-	// vector config
+	// Configure named vectors. Either use this field or `vectorizer`, `vectorIndexType`, and `vectorIndexConfig` fields. Available from `v1.24.0`.
 	VectorConfig map[string]VectorConfig `json:"vectorConfig,omitempty"`
 
 	// Vector-index config, that is specific to the type of index selected in vectorIndexType

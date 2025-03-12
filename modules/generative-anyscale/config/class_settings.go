@@ -35,9 +35,9 @@ var availableAnyscaleModels = []string{
 
 // note we might want to separate the baseURL and completions URL in the future. Fine-tuned models also use this URL. 12/3/23
 var (
-	DefaultBaseURL             = "https://api.endpoints.anyscale.com"
-	DefaultAnyscaleModel       = "meta-llama/Llama-2-70b-chat-hf"
-	DefaultAnyscaleTemperature = 0
+	DefaultBaseURL                     = "https://api.endpoints.anyscale.com"
+	DefaultAnyscaleModel               = "meta-llama/Llama-2-70b-chat-hf"
+	DefaultAnyscaleTemperature float64 = 0
 )
 
 type classSettings struct {
@@ -67,13 +67,13 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 	return &asString
 }
 
-func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
-	var wrongVal int = -1
-	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
+func (ic *classSettings) getFloat64Property(name string, defaultValue *float64) *float64 {
+	var wrongVal float64 = -1
+	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
 func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableAnyscaleModels, model)
+	return basesettings.ValidateSetting(model, availableAnyscaleModels)
 }
 
 func (ic *classSettings) BaseURL() string {
@@ -84,15 +84,6 @@ func (ic *classSettings) Model() string {
 	return *ic.getStringProperty(modelProperty, DefaultAnyscaleModel)
 }
 
-func (ic *classSettings) Temperature() int {
-	return *ic.getIntProperty(temperatureProperty, &DefaultAnyscaleTemperature)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
+func (ic *classSettings) Temperature() float64 {
+	return *ic.getFloat64Property(temperatureProperty, &DefaultAnyscaleTemperature)
 }

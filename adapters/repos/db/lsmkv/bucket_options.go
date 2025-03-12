@@ -22,11 +22,8 @@ type BucketOption func(b *Bucket) error
 
 func WithStrategy(strategy string) BucketOption {
 	return func(b *Bucket) error {
-		switch strategy {
-		case StrategyReplace, StrategyMapCollection, StrategySetCollection,
-			StrategyRoaringSet:
-		default:
-			return errors.Errorf("unrecognized strategy %q", strategy)
+		if err := CheckExpectedStrategy(strategy); err != nil {
+			return err
 		}
 
 		b.strategy = strategy
@@ -162,6 +159,13 @@ func WithSegmentsCleanupInterval(interval time.Duration) BucketOption {
 	}
 }
 
+func WithSegmentsChecksumValidationEnabled(enable bool) BucketOption {
+	return func(b *Bucket) error {
+		b.enableChecksumValidation = enable
+		return nil
+	}
+}
+
 /*
 Background for this option:
 
@@ -175,7 +179,7 @@ Existing uses of the LSM store
 For existing uses, e.g. the object store, we don’t want to force-compact. This is because they can grow massive. For example, you could have a 100GB segment, then a new write leads to a new segment that is just a few bytes. If we would force-compact those two we would write 100GB every time the user sends a few bytes to Weaviate. In this case, the existing tiered compaction strategy makes more sense.
 Configurability of buckets
 */
-func WithForceCompation(opt bool) BucketOption {
+func WithForceCompaction(opt bool) BucketOption {
 	return func(b *Bucket) error {
 		b.forceCompaction = opt
 		return nil

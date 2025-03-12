@@ -19,12 +19,16 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -36,7 +40,7 @@ type Manager struct {
 	validator    validator
 	repo         SchemaStore
 	logger       logrus.FieldLogger
-	Authorizer   authorizer
+	Authorizer   authorization.Authorizer
 	config       config.Config
 	clusterState clusterState
 
@@ -49,7 +53,7 @@ type Manager struct {
 	SchemaReader
 }
 
-type VectorConfigParser func(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error)
+type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error)
 
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
@@ -78,6 +82,10 @@ type ModuleConfig interface {
 	SetClassDefaults(class *models.Class)
 	SetSinglePropertyDefaults(class *models.Class, props ...*models.Property)
 	ValidateClass(ctx context.Context, class *models.Class) error
+	GetByName(name string) modulecapabilities.Module
+	IsGenerative(string) bool
+	IsReranker(string) bool
+	IsMultiVector(string) bool
 }
 
 // State is a cached copy of the schema that can also be saved into a remote
@@ -141,32 +149,15 @@ func (s State) EqualEnough(other *State) bool {
 
 // SchemaStore is responsible for persisting the schema
 // by providing support for both partial and complete schema updates
+// Deprecated: instead schema now is persistent via RAFT
+// see : usecase/schema/handler.go & cluster/store/store.go
+// Load and save are left to support backward compatibility
 type SchemaStore interface {
 	// Save saves the complete schema to the persistent storage
 	Save(ctx context.Context, schema State) error
 
 	// Load loads the complete schema from the persistent storage
 	Load(context.Context) (State, error)
-
-	// NewClass creates a new class if it doesn't exists, otherwise return an error
-	NewClass(context.Context, ClassPayload) error
-
-	// UpdateClass if it exists, otherwise return an error
-	UpdateClass(context.Context, ClassPayload) error
-
-	// DeleteClass deletes class
-	DeleteClass(ctx context.Context, class string) error
-
-	// NewShards creates new shards of an existing class
-	NewShards(ctx context.Context, class string, shards []KeyValuePair) error
-
-	// UpdateShards updates (replaces) shards of on existing class
-	// Error is returned if class or shard does not exist
-	UpdateShards(ctx context.Context, class string, shards []KeyValuePair) error
-
-	// DeleteShards deletes shards from a class
-	// If the class or a shard does not exist then nothing is done and a nil error is returned
-	DeleteShards(ctx context.Context, class string, shards []string) error
 }
 
 // KeyValuePair is used to serialize shards updates
@@ -212,24 +203,28 @@ func NewManager(validator validator,
 	schemaManager SchemaManager,
 	schemaReader SchemaReader,
 	repo SchemaStore,
-	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, managerConfig config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
+	cloud modulecapabilities.OffloadCloud,
+	parser Parser,
+	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
 		schemaManager,
 		validator,
 		logger, authorizer,
-		config, configParser, vectorizerValidator, invertedConfigValidator,
-		moduleConfig, clusterState, scaleoutManager)
+		managerConfig, configParser, vectorizerValidator, invertedConfigValidator,
+		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
 	m := &Manager{
-		config:       config,
+		config:       managerConfig,
 		validator:    validator,
 		repo:         repo,
 		logger:       logger,
@@ -240,10 +235,6 @@ func NewManager(validator validator,
 	}
 
 	return m, nil
-}
-
-type authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
 }
 
 // func (m *Manager) migrateSchemaIfNecessary(ctx context.Context, localSchema *State) error {
@@ -414,13 +405,16 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	status map[string]string,
 ) (map[string]string, error) {
 	req := &api.UpdateTenantsRequest{
-		Tenants: make([]*api.Tenant, 0, len(status)),
+		Tenants:      make([]*api.Tenant, 0, len(status)),
+		ClusterNodes: m.schemaManager.StorageCandidates(),
 	}
 
+	inactiveTenants := make([]string, 0, len(status))
 	for tenant, s := range status {
 		if s != models.TenantActivityStatusHOT {
 			req.Tenants = append(req.Tenants,
 				&api.Tenant{Name: tenant, Status: models.TenantActivityStatusHOT})
+			inactiveTenants = append(inactiveTenants, tenant)
 		}
 	}
 
@@ -429,7 +423,14 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		return status, nil
 	}
 
-	_, err := m.schemaManager.UpdateTenants(ctx, class, req)
+	principal := restCtx.GetPrincipalFromContext(ctx)
+	resources := authorization.ShardsMetadata(class, inactiveTenants...)
+	err := m.Authorizer.Authorize(principal, authorization.UPDATE, resources...)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = m.schemaManager.UpdateTenants(ctx, class, req)
 	if err != nil {
 		names := make([]string, len(req.Tenants))
 		for i, t := range req.Tenants {

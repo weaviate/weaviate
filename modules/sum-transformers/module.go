@@ -28,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/modules/sum-transformers/ent"
 )
 
+const Name = "sum-transformers"
+
 func New() *SUMModule {
 	return &SUMModule{}
 }
@@ -43,7 +45,7 @@ type sumClient interface {
 }
 
 func (m *SUMModule) Name() string {
-	return "sum-transformers"
+	return Name
 }
 
 func (m *SUMModule) Type() modulecapabilities.ModuleType {

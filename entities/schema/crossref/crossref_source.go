@@ -53,7 +53,7 @@ func NewSource(className schema.ClassName,
 func ParseSource(uriString string) (*RefSource, error) {
 	uri, err := url.Parse(uriString)
 	if err != nil {
-		return nil, fmt.Errorf("invalid cref URI: %s", err)
+		return nil, fmt.Errorf("invalid cref URI: %w", err)
 	}
 
 	pathSegments := strings.Split(uri.Path, "/")

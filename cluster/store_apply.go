@@ -12,22 +12,21 @@
 package cluster
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"
+
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	st.log.WithFields(logrus.Fields{
-		"type":  req.Type,
+		"type":  api.ApplyRequest_Type_name[int32(req.Type)],
 		"class": req.Class,
 	}).Debug("server.execute")
 
@@ -48,11 +47,6 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 
 	// Always call Error first otherwise the response can't  be read from the future
 	if err := fut.Error(); err != nil {
-		// If the current node is not the leader (it might have changed recently) return ErrNotLeader to ensure that we
-		// will retry the apply to the leader
-		if errors.Is(err, raft.ErrNotLeader) {
-			return 0, types.ErrNotLeader
-		}
 		return 0, err
 	}
 
@@ -121,7 +115,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	cmd.Version = l.Index
 	// Report only when not ready the progress made on applying log entries. This help users with big schema and long
 	// startup time to keep track of progress.
-	if !st.Ready() {
+	// We check for ready state and index <= lastAppliedIndexToDB because just checking ready state would mean this log line
+	// would keep printing if the node has caught up but there's no leader in the cluster.
+	// This can happen for example if quorum is lost briefly.
+	// By checking lastAppliedIndexToDB we ensure that we never print past that index
+	if !st.Ready() && l.Index <= st.lastAppliedIndexToDB.Load() {
 		st.log.Infof("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
 	}
 	st.log.WithFields(logrus.Fields{
@@ -134,7 +132,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		"cmd_schema_only": schemaOnly,
 	}).Debug("server.apply")
 
-	var f func()
+	f := func() {}
 
 	switch cmd.Type {
 
@@ -183,9 +181,35 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			ret.Error = st.schemaManager.DeleteTenants(&cmd, schemaOnly)
 		}
 
+	case api.ApplyRequest_TYPE_TENANT_PROCESS:
+		f = func() {
+			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
+		}
+
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
 		f = func() {
 			ret.Error = st.StoreSchemaV1()
+		}
+
+	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
+		f = func() {
+			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_ROLES:
+		f = func() {
+			ret.Error = st.authZManager.DeleteRoles(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REMOVE_PERMISSIONS:
+		f = func() {
+			ret.Error = st.authZManager.RemovePermissions(&cmd)
+		}
+	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
+		f = func() {
+			ret.Error = st.authZManager.AddRolesForUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:
+		f = func() {
+			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
 		}
 
 	default:
