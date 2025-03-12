@@ -116,8 +116,7 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 }
 
 func uniquifyAndCountDuplicates(tokens []string) ([]string, []int) {
-	var tally map[string]int
-	tally = make(map[string]int)
+	tally := make(map[string]int)
 	for _, token := range tokens {
 		tally[token]++
 	}
