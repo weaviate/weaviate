@@ -445,3 +445,16 @@ func (m *Memtable) GetTombstones() (*sroar.Bitmap, error) {
 
 	return nil, lsmkv.NotFound
 }
+
+func (m *Memtable) SetTombstone(docId uint64) error {
+	if m.strategy != StrategyInverted {
+		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	m.tombstones.Set(docId)
+
+	return nil
+}
