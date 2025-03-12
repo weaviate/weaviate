@@ -4227,7 +4227,45 @@ func init() {
         }
       }
     },
-    "/users//db{user_id}": {
+    "/users/db": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "list all users",
+        "operationId": "listAllUsers",
+        "responses": {
+          "200": {
+            "description": "Info about the user",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/UserInfo"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.list_all"
+        ]
+      }
+    },
+    "/users/db/{user_id}": {
       "get": {
         "tags": [
           "users"
@@ -4388,103 +4426,6 @@ func init() {
         ]
       }
     },
-    "/users//db{user_id}/rotate-key": {
-      "post": {
-        "tags": [
-          "users"
-        ],
-        "summary": "rotate user api key",
-        "operationId": "rotateUserApiKey",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "user id",
-            "name": "user_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "ApiKey successfully changed",
-            "schema": {
-              "$ref": "#/definitions/UserApiKey"
-            }
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "user not found"
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.users.db.rotateApiKey"
-        ]
-      }
-    },
-    "/users/db": {
-      "get": {
-        "tags": [
-          "users"
-        ],
-        "summary": "list all users",
-        "operationId": "listAllUsers",
-        "responses": {
-          "200": {
-            "description": "Info about the user",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/UserInfo"
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.users.db.list_all"
-        ]
-      }
-    },
     "/users/db/{user_id}/activate": {
       "post": {
         "tags": [
@@ -4608,6 +4549,65 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/rotate-key": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "rotate user api key",
+        "operationId": "rotateUserApiKey",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "user id",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApiKey successfully changed",
+            "schema": {
+              "$ref": "#/definitions/UserApiKey"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.rotateApiKey"
         ]
       }
     },
@@ -11577,7 +11577,45 @@ func init() {
         }
       }
     },
-    "/users//db{user_id}": {
+    "/users/db": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "list all users",
+        "operationId": "listAllUsers",
+        "responses": {
+          "200": {
+            "description": "Info about the user",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/UserInfo"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.list_all"
+        ]
+      }
+    },
+    "/users/db/{user_id}": {
       "get": {
         "tags": [
           "users"
@@ -11738,103 +11776,6 @@ func init() {
         ]
       }
     },
-    "/users//db{user_id}/rotate-key": {
-      "post": {
-        "tags": [
-          "users"
-        ],
-        "summary": "rotate user api key",
-        "operationId": "rotateUserApiKey",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "user id",
-            "name": "user_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "ApiKey successfully changed",
-            "schema": {
-              "$ref": "#/definitions/UserApiKey"
-            }
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "user not found"
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.users.db.rotateApiKey"
-        ]
-      }
-    },
-    "/users/db": {
-      "get": {
-        "tags": [
-          "users"
-        ],
-        "summary": "list all users",
-        "operationId": "listAllUsers",
-        "responses": {
-          "200": {
-            "description": "Info about the user",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/UserInfo"
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.users.db.list_all"
-        ]
-      }
-    },
     "/users/db/{user_id}/activate": {
       "post": {
         "tags": [
@@ -11958,6 +11899,65 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/rotate-key": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "rotate user api key",
+        "operationId": "rotateUserApiKey",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "user id",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApiKey successfully changed",
+            "schema": {
+              "$ref": "#/definitions/UserApiKey"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.rotateApiKey"
         ]
       }
     },

@@ -43,7 +43,7 @@ func NewCreateUser(ctx *middleware.Context, handler CreateUserHandler) *CreateUs
 }
 
 /*
-	CreateUser swagger:route POST /users//db{user_id} users createUser
+	CreateUser swagger:route POST /users/db/{user_id} users createUser
 
 create new user
 */

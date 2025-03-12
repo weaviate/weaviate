@@ -51,7 +51,7 @@ func (o *GetUserInfoURL) SetBasePath(bp string) {
 func (o *GetUserInfoURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/users//db{user_id}"
+	var _path = "/users/db/{user_id}"
 
 	userID := o.UserID
 	if userID != "" {
