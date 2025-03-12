@@ -525,9 +525,11 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 		modConfigs[name] = modConfig
 	}
 
-	if hasLegacyVectorIndex(class) {
+	if hasLegacyVectorIndex(class) && class.Vectorizer != config.VectorizerModuleNone {
 		if modConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
 			modConfigs[""] = modConfig
+		} else {
+			return nil, fmt.Errorf("no moduleconfig for class %v present", class.Class)
 		}
 	}
 

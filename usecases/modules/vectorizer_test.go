@@ -182,6 +182,41 @@ func TestProvider_UpdateVector(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
+	t.Run("with missing vectorizer modconfig", func(t *testing.T) {
+		ctx := context.Background()
+		class := &models.Class{
+			Class:             "SomeClass",
+			VectorIndexConfig: hnsw.UserConfig{},
+			Vectorizer:        "text2vec-contextionary",
+		}
+		mod := newDummyModule("", "")
+		logger, _ := test.NewNullLogger()
+
+		p := NewProvider(logger)
+		p.Register(mod)
+		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
+
+		obj := &models.Object{Class: class.Class, ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, class, (&fakeObjectsRepo{}).Object, logger)
+		expectedErr := fmt.Sprintf("no moduleconfig for class %v present", class.Class)
+		assert.EqualError(t, err, expectedErr)
+	})
+
+	t.Run("with no vectors configuration", func(t *testing.T) {
+		ctx := context.Background()
+		class := &models.Class{
+			Class:      "SomeClass",
+			Vectorizer: "none",
+		}
+
+		logger, _ := test.NewNullLogger()
+		p := NewProvider(logger)
+
+		obj := &models.Object{Class: class.Class, ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, class, (&fakeObjectsRepo{}).Object, logger)
+		require.NoError(t, err)
+	})
+
 	t.Run("with ReferenceVectorizer", func(t *testing.T) {
 		ctx := context.Background()
 		modName := "some-vzr"
