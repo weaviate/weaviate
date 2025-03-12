@@ -271,7 +271,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, fmt.Errorf("validate sharding config: %w", err)
 	}
 
-	if !reflect.DeepEqual(class.Properties, update.Properties) {
+	if hasProperties(update) && !reflect.DeepEqual(class.Properties, update.Properties) {
 		return nil, errors.Errorf(
 			"properties cannot be updated through updating the class. Use the add " +
 				"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
@@ -285,6 +285,10 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	}
 
 	return update, nil
+}
+
+func hasProperties(class *models.Class) bool {
+	return len(class.Properties) > 0
 }
 
 func hasTargetVectors(class *models.Class) bool {
