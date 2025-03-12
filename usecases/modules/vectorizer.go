@@ -101,7 +101,7 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 			return nil, nil
 		}
 
-		return nil, fmt.Errorf("no vectorizer configs for class %q", class.Class)
+		return nil, fmt.Errorf("no vectorizer configs for class %s", class.Class)
 	}
 
 	var (
@@ -339,11 +339,11 @@ func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, clas
 ) error {
 	vectorize, err := p.shouldVectorize(object, class, targetVector, logger)
 	if err != nil {
-		return fmt.Errorf("vectorize check for target vector %q: %w", targetVector, err)
+		return fmt.Errorf("vectorize check for target vector %s: %w", targetVector, err)
 	}
 	if vectorize {
 		if err := p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig); err != nil {
-			return fmt.Errorf("vectorize target vector %q: %w", targetVector, err)
+			return fmt.Errorf("vectorize target vector %s: %w", targetVector, err)
 		}
 	}
 	return nil
