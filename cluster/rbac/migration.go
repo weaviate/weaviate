@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
@@ -53,6 +55,8 @@ UPDATE_LOOP:
 			}
 		case cmd.RBACCommandPolicyVersionV2:
 			req.Roles = migrateUpsertRolesPermissionsV2(req.Roles)
+		case cmd.RBACCommandPolicyVersionV3:
+			req.Roles = migrateUpsertRolesPermissionsV3(req.Roles)
 		case cmd.RBACLatestCommandPolicyVersion:
 			break UPDATE_LOOP
 		default:
@@ -110,6 +114,24 @@ func migrateUpsertRolesPermissionsV2(roles map[string][]authorization.Policy) ma
 	return roles
 }
 
+func migrateUpsertRolesPermissionsV3(roles map[string][]authorization.Policy) map[string][]authorization.Policy {
+	for roleName, policies := range roles {
+		for idx := range policies {
+			if roles[roleName][idx].Domain != authorization.UsersDomain {
+				continue
+			}
+
+			if roles[roleName][idx].Verb != authorization.UPDATE {
+				continue
+			}
+
+			roles[roleName][idx].Verb = authorization.USER_ASSIGN_AND_REVOKE
+
+		}
+	}
+	return roles
+}
+
 func migrateRemovePermissions(req *cmd.RemovePermissionsRequest) (*cmd.RemovePermissionsRequest, error) {
 	// loop through updates until current version is reached
 UPDATE_LOOP:
@@ -131,6 +153,8 @@ UPDATE_LOOP:
 			req.Permissions = migrateRemoveRolesPermissionsV1(req.Permissions)
 		case cmd.RBACCommandPolicyVersionV2:
 			req.Permissions = migrateRemoveRolesPermissionsV2(req.Permissions)
+		case cmd.RBACCommandPolicyVersionV3:
+			req.Permissions = migrateRemoveRolesPermissionsV3(req.Permissions)
 		case cmd.RBACLatestCommandPolicyVersion:
 			break UPDATE_LOOP
 		default:
@@ -192,4 +216,68 @@ func migrateRemoveRolesPermissionsV2(permissions []*authorization.Policy) []*aut
 		}
 	}
 	return permissions
+}
+
+func migrateRemoveRolesPermissionsV3(permissions []*authorization.Policy) []*authorization.Policy {
+	initialPerms := len(permissions)
+	for idx := 0; idx < initialPerms; idx++ {
+		if permissions[idx].Domain != authorization.UsersDomain {
+			continue
+		}
+
+		if permissions[idx].Verb != authorization.UPDATE {
+			continue
+		}
+
+		permissions[idx].Verb = authorization.USER_ASSIGN_AND_REVOKE
+	}
+	return permissions
+}
+
+func migrateRevokeRoles(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRolesForUserRequest {
+	if req.Version == cmd.RBACAssignRevokeCommandPolicyVersionV0 {
+		return migrateRevokeRolesV0(req)
+	}
+	return []*cmd.RevokeRolesForUserRequest{req}
+}
+
+func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRolesForUserRequest {
+	user, _ := conv.GetUserAndPrefix(req.User)
+
+	req1 := &cmd.RevokeRolesForUserRequest{
+		Version: req.Version + 1,
+		Roles:   req.Roles,
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeDb),
+	}
+	req2 := &cmd.RevokeRolesForUserRequest{
+		Version: req.Version + 1,
+		Roles:   req.Roles,
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeOidc),
+	}
+
+	return []*cmd.RevokeRolesForUserRequest{req1, req2}
+}
+
+func migrateAssignRoles(req *cmd.AddRolesForUsersRequest) []*cmd.AddRolesForUsersRequest {
+	if req.Version == cmd.RBACAssignRevokeCommandPolicyVersionV0 {
+		return migrateAssignRolesV0(req)
+	}
+	return []*cmd.AddRolesForUsersRequest{req}
+}
+
+func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest) []*cmd.AddRolesForUsersRequest {
+	user, _ := conv.GetUserAndPrefix(req.User)
+
+	req1 := &cmd.AddRolesForUsersRequest{
+		Version: req.Version + 1,
+		Roles:   req.Roles,
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeDb),
+	}
+	req2 := &cmd.AddRolesForUsersRequest{
+		Version: req.Version + 1,
+		Roles:   req.Roles,
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeOidc),
+	}
+
+	return []*cmd.AddRolesForUsersRequest{req1, req2}
 }
