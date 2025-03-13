@@ -44,7 +44,7 @@ func TestSuccessDeactivate(t *testing.T) {
 
 			h := dynUserHandler{
 				dynamicUser: dynUser,
-				authorizer:  authorizer,
+				authorizer:  authorizer, dynUserEnabled: true,
 			}
 
 			res := h.deactivateUser(users.DeactivateUserParams{UserID: "user", Body: users.DeactivateUserBody{RevokeKey: &test.revokeKey}}, principal)
@@ -63,7 +63,7 @@ func TestDeactivateNotFound(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.deactivateUser(users.DeactivateUserParams{UserID: "user"}, principal)
@@ -96,7 +96,7 @@ func TestDeactivateBadParameters(t *testing.T) {
 				dynamicUser:          dynUser,
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static-user"}},
-				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}},
+				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}}, dynUserEnabled: true,
 			}
 
 			res := h.deactivateUser(users.DeactivateUserParams{UserID: test.user}, principal)

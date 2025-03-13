@@ -28,7 +28,7 @@ type StaticApiKey struct {
 
 func NewStatic(cfg config.Config) (*StaticApiKey, error) {
 	c := &StaticApiKey{
-		config: cfg.Authentication.DB.StaticApiKeys,
+		config: cfg.Authentication.APIKey,
 	}
 
 	if err := c.validateConfig(); err != nil {

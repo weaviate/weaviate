@@ -169,9 +169,7 @@ func Test_APIKeyClient(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			c, err := NewStatic(config.Config{
-				Authentication: config.Authentication{
-					DB: config.DB{StaticApiKeys: test.config},
-				},
+				Authentication: config.Authentication{APIKey: test.config},
 			})
 
 			if test.expectConfigErr {

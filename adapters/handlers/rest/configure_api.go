@@ -719,14 +719,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	authz.SetupHandlers(api,
 		appState.ClusterService.Raft,
 		appState.SchemaManager,
-		appState.ServerConfig.Config.Authentication.DB.StaticApiKeys,
+		appState.ServerConfig.Config.Authentication.APIKey,
 		appState.ServerConfig.Config.Authentication.OIDC,
 		appState.ServerConfig.Config.Authorization.Rbac,
 		appState.Metrics,
 		appState.Authorizer,
 		appState.Logger)
 
-	dynamic_user.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication.DB, appState.ServerConfig.Config.Authorization.Rbac, appState.Logger)
+	dynamic_user.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization.Rbac, appState.Logger)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,

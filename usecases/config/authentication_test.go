@@ -90,10 +90,10 @@ func TestDbUserAuth(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			auth := Authentication{
-				DB: DB{StaticApiKeys: StaticAPIKey{Enabled: test.staticEnabled}, DynamicApiKeys: DynamicAPIKey{Enabled: test.dynamicEnabled}},
+				APIKey: StaticAPIKey{Enabled: test.staticEnabled}, DynamicUsers: DynamicUsers{Enabled: test.dynamicEnabled},
 			}
 
-			require.Equal(t, auth.DB.AnyEnabled(), test.expected)
+			require.Equal(t, auth.AnyApiKeyAvailable(), test.expected)
 		})
 	}
 }

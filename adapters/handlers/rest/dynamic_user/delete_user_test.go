@@ -41,7 +41,7 @@ func TestDeleteSuccess(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
@@ -59,7 +59,7 @@ func TestDeleteForbidden(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
@@ -75,8 +75,9 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 
 	h := dynUserHandler{
-		dynamicUser:          dynUser,
-		authorizer:           authorizer,
+		dynamicUser: dynUser,
+		authorizer:  authorizer, dynUserEnabled: true,
+
 		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
 	}
 
@@ -95,7 +96,7 @@ func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
 	h := dynUserHandler{
 		dynamicUser: dynUser,
 		authorizer:  authorizer,
-		rbacConfig:  rbacconf.Config{RootUsers: []string{"user-root"}},
+		rbacConfig:  rbacconf.Config{RootUsers: []string{"user-root"}}, dynUserEnabled: true,
 	}
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user-root"}, principal)

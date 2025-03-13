@@ -39,9 +39,9 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: false,
 				},
-				DB: config.DB{StaticApiKeys: config.StaticAPIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: false,
-				}},
+				},
 			},
 			token: "does not matter",
 			apiKey: func(t string, s []string) (*models.Principal, error) {
@@ -58,9 +58,9 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: false,
 				},
-				DB: config.DB{StaticApiKeys: config.StaticAPIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: false,
-				}},
+				},
 			},
 			token: "does not matter",
 			apiKey: func(t string, s []string) (*models.Principal, error) {
@@ -78,9 +78,9 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: true,
 				},
-				DB: config.DB{StaticApiKeys: config.StaticAPIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: false,
-				}},
+				},
 			},
 			token: "does not matter",
 			apiKey: func(t string, s []string) (*models.Principal, error) {
@@ -97,9 +97,9 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: true,
 				},
-				DB: config.DB{StaticApiKeys: config.StaticAPIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: false,
-				}},
+				},
 			},
 			token: "does not matter",
 			apiKey: func(t string, s []string) (*models.Principal, error) {
@@ -117,9 +117,9 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: false,
 				},
-				DB: config.DB{StaticApiKeys: config.StaticAPIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: true,
-				}},
+				},
 			},
 			token: "does not matter",
 			apiKey: func(t string, s []string) (*models.Principal, error) {
@@ -136,9 +136,9 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: false,
 				},
-				DB: config.DB{StaticApiKeys: config.StaticAPIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: true,
-				}},
+				},
 			},
 			token: "does not matter",
 			apiKey: func(t string, s []string) (*models.Principal, error) {
@@ -156,9 +156,9 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: true,
 				},
-				DB: config.DB{StaticApiKeys: config.StaticAPIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: true,
-				}},
+				},
 			},
 			token: "does not matter",
 			apiKey: func(t string, s []string) (*models.Principal, error) {
@@ -176,9 +176,9 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: true,
 				},
-				DB: config.DB{StaticApiKeys: config.StaticAPIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: true,
-				}},
+				},
 			},
 			token: "",
 			apiKey: func(t string, s []string) (*models.Principal, error) {
@@ -196,9 +196,9 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: true,
 				},
-				DB: config.DB{StaticApiKeys: config.StaticAPIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: true,
-				}},
+				},
 			},
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
 			apiKey: func(t string, s []string) (*models.Principal, error) {

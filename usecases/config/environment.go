@@ -163,22 +163,22 @@ func FromEnv(config *Config) error {
 	}
 
 	if entcfg.Enabled(os.Getenv("DYNAMIC_USERS_ENABLED")) {
-		config.Authentication.DB.DynamicApiKeys.Enabled = true
+		config.Authentication.DynamicUsers.Enabled = true
 	} else {
-		config.Authentication.DB.DynamicApiKeys.Enabled = false
+		config.Authentication.DynamicUsers.Enabled = false
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
-		config.Authentication.DB.StaticApiKeys.Enabled = true
+		config.Authentication.APIKey.Enabled = true
 
 		if rawKeys, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
 			keys := strings.Split(rawKeys, ",")
-			config.Authentication.DB.StaticApiKeys.AllowedKeys = keys
+			config.Authentication.APIKey.AllowedKeys = keys
 		}
 
 		if rawUsers, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
 			users := strings.Split(rawUsers, ",")
-			config.Authentication.DB.StaticApiKeys.Users = users
+			config.Authentication.APIKey.Users = users
 		}
 
 	}

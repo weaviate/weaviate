@@ -112,9 +112,9 @@ func TestConfigModules(t *testing.T) {
 		config, err := weaviateConfig.parseConfigFile(file, configFileName)
 		require.Nil(t, err)
 
-		assert.True(t, config.Authentication.DB.StaticApiKeys.Enabled)
-		assert.ElementsMatch(t, []string{"api-key-1"}, config.Authentication.DB.StaticApiKeys.AllowedKeys)
-		assert.ElementsMatch(t, []string{"readonly@weaviate.io"}, config.Authentication.DB.StaticApiKeys.Users)
+		assert.True(t, config.Authentication.APIKey.Enabled)
+		assert.ElementsMatch(t, []string{"api-key-1"}, config.Authentication.APIKey.AllowedKeys)
+		assert.ElementsMatch(t, []string{"readonly@weaviate.io"}, config.Authentication.APIKey.Users)
 	})
 }
 
@@ -174,9 +174,9 @@ func TestConfigParsing(t *testing.T) {
 		config, err := weaviateConfig.parseConfigFile(file, configFileName)
 		require.Nil(t, err)
 
-		assert.True(t, config.Authentication.DB.StaticApiKeys.Enabled)
-		assert.ElementsMatch(t, []string{"api-key-1", "api-key-2", "api-key-3"}, config.Authentication.DB.StaticApiKeys.AllowedKeys)
-		assert.ElementsMatch(t, []string{"user1@weaviate.io", "user2@weaviate.io"}, config.Authentication.DB.StaticApiKeys.Users)
+		assert.True(t, config.Authentication.APIKey.Enabled)
+		assert.ElementsMatch(t, []string{"api-key-1", "api-key-2", "api-key-3"}, config.Authentication.APIKey.AllowedKeys)
+		assert.ElementsMatch(t, []string{"user1@weaviate.io", "user2@weaviate.io"}, config.Authentication.APIKey.Users)
 	})
 }
 

@@ -17,7 +17,8 @@ import "fmt"
 type Authentication struct {
 	OIDC            OIDC            `json:"oidc" yaml:"oidc"`
 	AnonymousAccess AnonymousAccess `json:"anonymous_access" yaml:"anonymous_access"`
-	DB              DB              `json:"db" yaml:"db"`
+	APIKey          StaticAPIKey    // don't change name to not break yaml files
+	DynamicUsers    DynamicUsers    `json:"dynamic_users" yaml:"dynamic_users"`
 }
 
 // DefaultAuthentication is the default authentication scheme when no authentication is provided
@@ -39,7 +40,11 @@ func (a Authentication) Validate() error {
 }
 
 func (a Authentication) AnyAuthMethodSelected() bool {
-	return a.AnonymousAccess.Enabled || a.OIDC.Enabled || a.DB.StaticApiKeys.Enabled || a.DB.DynamicApiKeys.Enabled
+	return a.AnonymousAccess.Enabled || a.OIDC.Enabled || a.APIKey.Enabled || a.DynamicUsers.Enabled
+}
+
+func (a Authentication) AnyApiKeyAvailable() bool {
+	return a.APIKey.Enabled || a.DynamicUsers.Enabled
 }
 
 // AnonymousAccess considers users without any auth information as
@@ -61,21 +66,12 @@ type OIDC struct {
 	Scopes            []string `yaml:"scopes" json:"scopes"`
 }
 
-type DB struct {
-	StaticApiKeys  StaticAPIKey  `json:"static_api_keys" yaml:"static_api_keys"`
-	DynamicApiKeys DynamicAPIKey `json:"dynamic_api_keys" yaml:"dynamic_api_keys"`
-}
-
-func (d DB) AnyEnabled() bool {
-	return d.StaticApiKeys.Enabled || d.DynamicApiKeys.Enabled
-}
-
 type StaticAPIKey struct {
 	Enabled     bool     `json:"enabled" yaml:"enabled"`
 	Users       []string `json:"users" yaml:"users"`
 	AllowedKeys []string `json:"allowed_keys" yaml:"allowed_keys"`
 }
 
-type DynamicAPIKey struct {
+type DynamicUsers struct {
 	Enabled bool `json:"enabled" yaml:"enabled"`
 }

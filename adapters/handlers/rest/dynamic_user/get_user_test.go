@@ -54,7 +54,7 @@ func TestSuccessList(t *testing.T) {
 				dynamicUser:          dynUser,
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
-				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
+				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}, dynUserEnabled: true,
 			}
 
 			res := h.getUser(users.GetUserInfoParams{UserID: test.userId}, principal)
@@ -77,8 +77,9 @@ func TestNotFound(t *testing.T) {
 	dynUser.On("GetUsers", "static").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
-		dynamicUser:          dynUser,
-		authorizer:           authorizer,
+		dynamicUser: dynUser,
+		authorizer:  authorizer, dynUserEnabled: true,
+
 		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
 	}
 
@@ -96,7 +97,7 @@ func TestNotFoundStatic(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)
@@ -127,7 +128,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 			}
 
 			h := dynUserHandler{
-				dynamicUser: dynUser, authorizer: authorizer,
+				dynamicUser: dynUser, authorizer: authorizer, dynUserEnabled: true,
 			}
 
 			res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)
@@ -147,7 +148,7 @@ func TestListForbidden(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)

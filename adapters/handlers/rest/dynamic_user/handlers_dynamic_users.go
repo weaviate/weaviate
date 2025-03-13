@@ -60,13 +60,13 @@ const (
 
 var validateUserNameRegex = regexp.MustCompile(`^` + userNameRegexCore + `$`)
 
-func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, DbAuthConfig config.DB, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
+func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, authConfig config.Authentication, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:           authorizer,
 		dynamicUser:          dynamicUser,
-		staticApiKeysConfigs: DbAuthConfig.StaticApiKeys,
-		dynUserEnabled:       DbAuthConfig.DynamicApiKeys.Enabled,
+		staticApiKeysConfigs: authConfig.APIKey,
+		dynUserEnabled:       authConfig.DynamicUsers.Enabled,
 		rbacConfig:           rbacConfig,
 		logger:               logger,
 	}

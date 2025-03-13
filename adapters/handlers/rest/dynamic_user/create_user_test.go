@@ -49,7 +49,7 @@ func TestCreateUnprocessableEntity(t *testing.T) {
 
 			h := dynUserHandler{
 				dynamicUser: dynUser,
-				authorizer:  authorizer,
+				authorizer:  authorizer, dynUserEnabled: true,
 			}
 
 			res := h.createUser(users.CreateUserParams{UserID: tt.userId}, principal)
@@ -91,7 +91,7 @@ func TestCreateInternalServerError(t *testing.T) {
 
 			h := dynUserHandler{
 				dynamicUser: dynUser,
-				authorizer:  authorizer,
+				authorizer:  authorizer, dynUserEnabled: true,
 			}
 
 			res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
@@ -125,7 +125,7 @@ func TestCreateConflict(t *testing.T) {
 			h := dynUserHandler{
 				dynamicUser:          dynUser,
 				authorizer:           authorizer,
-				staticApiKeysConfigs: tt.rbacConf,
+				staticApiKeysConfigs: tt.rbacConf, dynUserEnabled: true,
 			}
 
 			res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
@@ -148,7 +148,7 @@ func TestCreateSuccess(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
@@ -166,7 +166,7 @@ func TestCreateForbidden(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
@@ -184,7 +184,7 @@ func TestCreateUnprocessableEntityCreatingRootUser(t *testing.T) {
 	h := dynUserHandler{
 		dynamicUser: dynUser,
 		authorizer:  authorizer,
-		rbacConfig:  rbacconf.Config{RootUsers: []string{"user-root"}},
+		rbacConfig:  rbacconf.Config{RootUsers: []string{"user-root"}}, dynUserEnabled: true,
 	}
 
 	res := h.createUser(users.CreateUserParams{UserID: "user-root"}, principal)
