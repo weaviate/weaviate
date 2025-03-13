@@ -13,6 +13,7 @@ package authz
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,93 +42,83 @@ func TestAuthZBatchObjREST(t *testing.T) {
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
-	// add classes with object
-	className1 := "AuthZBatchObjREST1"
-	className2 := "AuthZBatchObjREST2"
-	deleteObjectClass(t, className1, adminAuth)
-	deleteObjectClass(t, className2, adminAuth)
-	defer deleteObjectClass(t, className1, adminAuth)
-	defer deleteObjectClass(t, className2, adminAuth)
-
-	c1 := &models.Class{
-		Class: className1,
-		Properties: []*models.Property{
-			{
-				Name:     "prop1",
-				DataType: schema.DataTypeText.PropString(),
-			},
+	tests := []struct {
+		name             string
+		mtEnabled        bool
+		tenantName       string
+		tenantPermission *string
+	}{
+		{
+			name:             "with multi-tenancy",
+			mtEnabled:        true,
+			tenantName:       "tenant1",
+			tenantPermission: String("tenant1"),
+		},
+		{
+			name:             "without multi-tenancy",
+			mtEnabled:        false,
+			tenantName:       "",
+			tenantPermission: nil,
 		},
 	}
-	c2 := &models.Class{
-		Class: className2,
-		Properties: []*models.Property{
-			{
-				Name:     "prop2",
-				DataType: schema.DataTypeText.PropString(),
-			},
-		},
-	}
-	require.Nil(t, createClass(t, c1, adminAuth))
-	require.Nil(t, createClass(t, c2, adminAuth))
 
-	allPermissions := []*models.Permission{
-		{
-			Action: &createDataAction,
-			Data:   &models.PermissionData{Collection: &className1},
-		},
-		{
-			Action: &updateDataAction,
-			Data:   &models.PermissionData{Collection: &className1},
-		},
-		{
-			Action: &createDataAction,
-			Data:   &models.PermissionData{Collection: &className2},
-		},
-		{
-			Action: &updateDataAction,
-			Data:   &models.PermissionData{Collection: &className2},
-		},
-	}
-	t.Run("all rights for both classes", func(t *testing.T) {
-		deleteRole := &models.Role{
-			Name:        &testRoleName,
-			Permissions: allPermissions,
-		}
-		helper.DeleteRole(t, adminKey, *deleteRole.Name)
-		helper.CreateRole(t, adminKey, deleteRole)
-		_, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
-			adminAuth,
-		)
-		require.Nil(t, err)
-
-		params := batch.NewBatchObjectsCreateParams().WithBody(
-			batch.BatchObjectsCreateBody{
-				Objects: []*models.Object{
-					{Class: className1, Properties: map[string]interface{}{"prop1": "test"}},
-					{Class: className2, Properties: map[string]interface{}{"prop2": "test"}},
+	for _, tt := range tests {
+		// add classes with object
+		className1 := "AuthZBatchObjREST1"
+		className2 := "AuthZBatchObjREST2"
+		deleteObjectClass(t, className1, adminAuth)
+		deleteObjectClass(t, className2, adminAuth)
+		defer deleteObjectClass(t, className1, adminAuth)
+		defer deleteObjectClass(t, className2, adminAuth)
+		c1 := &models.Class{
+			Class: className1,
+			Properties: []*models.Property{
+				{
+					Name:     "prop1",
+					DataType: schema.DataTypeText.PropString(),
 				},
 			},
-		)
-		res, err := helper.Client(t).Batch.BatchObjectsCreate(params, customAuth)
-		require.Nil(t, err)
-		for _, elem := range res.Payload {
-			assert.Nil(t, elem.Result.Errors)
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: tt.mtEnabled},
+		}
+		c2 := &models.Class{
+			Class: className2,
+			Properties: []*models.Property{
+				{
+					Name:     "prop2",
+					DataType: schema.DataTypeText.PropString(),
+				},
+			},
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: tt.mtEnabled},
+		}
+		require.Nil(t, createClass(t, c1, adminAuth))
+		require.Nil(t, createClass(t, c2, adminAuth))
+		if tt.mtEnabled {
+			require.Nil(t, createTenant(t, c1.Class, []*models.Tenant{{Name: tt.tenantName}}, adminKey))
+			require.Nil(t, createTenant(t, c2.Class, []*models.Tenant{{Name: tt.tenantName}}, adminKey))
 		}
 
-		_, err = helper.Client(t).Authz.RevokeRoleFromUser(
-			authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{testRoleName}}),
-			adminAuth,
-		)
-		require.Nil(t, err)
-		helper.DeleteRole(t, adminKey, testRoleName)
-	})
-
-	for _, permissions := range generateMissingLists(allPermissions) {
-		t.Run("single permission missing", func(t *testing.T) {
+		allPermissions := []*models.Permission{
+			{
+				Action: &createDataAction,
+				Data:   &models.PermissionData{Collection: &className1, Tenant: tt.tenantPermission},
+			},
+			{
+				Action: &updateDataAction,
+				Data:   &models.PermissionData{Collection: &className1, Tenant: tt.tenantPermission},
+			},
+			{
+				Action: &createDataAction,
+				Data:   &models.PermissionData{Collection: &className2, Tenant: tt.tenantPermission},
+			},
+			{
+				Action: &updateDataAction,
+				Data:   &models.PermissionData{Collection: &className2, Tenant: tt.tenantPermission},
+			},
+		}
+		t.Run(fmt.Sprintf("all rights for both classes %s", tt.name), func(t *testing.T) {
 			deleteRole := &models.Role{
 				Name:        &testRoleName,
-				Permissions: permissions,
+				Permissions: allPermissions,
 			}
 			helper.DeleteRole(t, adminKey, *deleteRole.Name)
 			helper.CreateRole(t, adminKey, deleteRole)
@@ -140,14 +131,16 @@ func TestAuthZBatchObjREST(t *testing.T) {
 			params := batch.NewBatchObjectsCreateParams().WithBody(
 				batch.BatchObjectsCreateBody{
 					Objects: []*models.Object{
-						{Class: className1, Properties: map[string]interface{}{"prop1": "test"}},
-						{Class: className2, Properties: map[string]interface{}{"prop2": "test"}},
+						{Class: className1, Properties: map[string]interface{}{"prop1": "test"}, Tenant: tt.tenantName},
+						{Class: className2, Properties: map[string]interface{}{"prop2": "test"}, Tenant: tt.tenantName},
 					},
 				},
 			)
-			_, err = helper.Client(t).Batch.BatchObjectsCreate(params, customAuth)
-			var batchObjectsCreateForbidden *batch.BatchObjectsCreateForbidden
-			require.True(t, errors.As(err, &batchObjectsCreateForbidden))
+			res, err := helper.Client(t).Batch.BatchObjectsCreate(params, customAuth)
+			require.Nil(t, err)
+			for _, elem := range res.Payload {
+				assert.Nil(t, elem.Result.Errors)
+			}
 
 			_, err = helper.Client(t).Authz.RevokeRoleFromUser(
 				authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{testRoleName}}),
@@ -156,5 +149,40 @@ func TestAuthZBatchObjREST(t *testing.T) {
 			require.Nil(t, err)
 			helper.DeleteRole(t, adminKey, testRoleName)
 		})
+
+		for _, permissions := range generateMissingLists(allPermissions) {
+			t.Run(fmt.Sprintf("single permission missing %s", tt.name), func(t *testing.T) {
+				deleteRole := &models.Role{
+					Name:        &testRoleName,
+					Permissions: permissions,
+				}
+				helper.DeleteRole(t, adminKey, *deleteRole.Name)
+				helper.CreateRole(t, adminKey, deleteRole)
+				_, err := helper.Client(t).Authz.AssignRoleToUser(
+					authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
+					adminAuth,
+				)
+				require.Nil(t, err)
+
+				params := batch.NewBatchObjectsCreateParams().WithBody(
+					batch.BatchObjectsCreateBody{
+						Objects: []*models.Object{
+							{Class: className1, Properties: map[string]interface{}{"prop1": "test"}, Tenant: tt.tenantName},
+							{Class: className2, Properties: map[string]interface{}{"prop2": "test"}, Tenant: tt.tenantName},
+						},
+					},
+				)
+				_, err = helper.Client(t).Batch.BatchObjectsCreate(params, customAuth)
+				var batchObjectsCreateForbidden *batch.BatchObjectsCreateForbidden
+				require.True(t, errors.As(err, &batchObjectsCreateForbidden))
+
+				_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+					authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{testRoleName}}),
+					adminAuth,
+				)
+				require.Nil(t, err)
+				helper.DeleteRole(t, adminKey, testRoleName)
+			})
+		}
 	}
 }
