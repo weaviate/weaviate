@@ -566,17 +566,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if v := os.Getenv("RUNTIME_OVERRIDES_ENABLED"); v != "" {
-
-		if strings.ToLower(v) == "true" {
-			config.RuntimeOverrides.Enabled = true
-		}
-
-		// set to false if explicitly set to "false" string.
-		if strings.ToLower(v) == "false" {
-			config.RuntimeOverrides.Enabled = false
-		}
-	}
+	config.RuntimeOverrides.Enabled = entcfg.Enabled(os.Getenv("RUNTIME_OVERRIDES_ENABLED"))
 
 	if v := os.Getenv("RUNTIME_OVERRIDES_PATH"); v != "" {
 		config.RuntimeOverrides.Path = v
