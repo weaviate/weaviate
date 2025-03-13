@@ -90,7 +90,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	}
 
 	parser := NewAggregateParser(
-		s.classGetterWithAuthzFunc(principal),
+		s.classGetterWithAuthzFunc(principal, &req.Tenant),
 	)
 
 	params, err := parser.Aggregate(req)
@@ -104,7 +104,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	}
 
 	replier := NewAggregateReplier(
-		s.classGetterWithAuthzFunc(principal),
+		s.classGetterWithAuthzFunc(principal, &req.Tenant),
 		params,
 	)
 	reply, err := replier.Aggregate(res, params.GroupBy != nil)
@@ -166,7 +166,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, err
 	}
 
-	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(principal))
+	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(principal, req.Tenant))
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -297,7 +297,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 
 	parser := NewParser(
 		req.Uses_127Api,
-		s.classGetterWithAuthzFunc(principal),
+		s.classGetterWithAuthzFunc(principal, &req.Tenant),
 	)
 	replier := NewReplier(
 		req.Uses_125Api || req.Uses_127Api,
@@ -340,14 +340,19 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 	return nil
 }
 
-func (s *Service) classGetterWithAuthzFunc(principal *models.Principal) func(string) (*models.Class, error) {
+func (s *Service) classGetterWithAuthzFunc(principal *models.Principal, tenant *string) func(string) (*models.Class, error) {
 	authorizedCollections := map[string]*models.Class{}
+
+	shard := "*"
+	if tenant != nil && *tenant != "" {
+		shard = *tenant
+	}
 
 	return func(name string) (*models.Class, error) {
 		class, ok := authorizedCollections[name]
 		if !ok {
 			// having data access is enough for querying as we dont leak any info from the collection config that you cannot get via data access anyways
-			if err := s.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(name)...); err != nil {
+			if err := s.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(name, shard)...); err != nil {
 				return nil, err
 			}
 			class = s.schemaManager.ReadOnlyClass(name)

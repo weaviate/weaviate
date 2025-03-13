@@ -39,37 +39,82 @@ func TestAuthzSearchWithGRPC(t *testing.T) {
 
 	grpcClient := helper.ClientGRPC(t)
 
-	t.Run("setup", func(t *testing.T) {
-		helper.CreateClassAuth(t, articles.ParagraphsClass(), adminKey)
-		helper.CreateClassAuth(t, articles.ArticlesClass(), adminKey)
-		helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewArticle().WithTitle("How to git gud").Object()}, adminKey)
-	})
+	tests := []struct {
+		name             string
+		mtEnabled        bool
+		tenantName       string
+		tenantPermission string
+	}{
+		{
+			name:             "with multi-tenancy",
+			mtEnabled:        true,
+			tenantName:       "tenant1",
+			tenantPermission: "tenant1",
+		},
+		{
+			name:             "without multi-tenancy",
+			mtEnabled:        false,
+			tenantName:       "",
+			tenantPermission: "*",
+		},
+	}
 
-	t.Run("correctly fail to perform a gRPC Search call without permissions", func(t *testing.T) {
-		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
-		_, err := grpcClient.Search(ctx, &protocol.SearchRequest{
-			Collection: articles.ArticlesClass().Class,
+	helper.CreateClassAuth(t, articles.ParagraphsClass(), adminKey)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer helper.DeleteClassAuth(t, articles.ArticlesClass().Class, adminKey)
+			defer helper.DeleteClassAuth(t, articles.ArticlesClass().Class, adminKey)
+			t.Run("setup", func(t *testing.T) {
+				cls := articles.ArticlesClass()
+				if tt.mtEnabled {
+					cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+				}
+				helper.CreateClassAuth(t, cls, adminKey)
+				if tt.mtEnabled {
+					helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: tt.tenantName}}, adminKey)
+				}
+				helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewArticle().WithTitle("How to git gud").WithTenant(tt.tenantName).Object()}, adminKey)
+			})
+
+			t.Run("correctly fail to perform a gRPC Search call without permissions", func(t *testing.T) {
+				ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
+				_, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+					Collection: articles.ArticlesClass().Class,
+					Tenant:     tt.tenantName,
+				})
+				require.NotNil(t, err)
+				require.Equal(t, status.Code(err), codes.PermissionDenied)
+			})
+
+			t.Run("create role with necessary permissions on articles and assign to custom user", func(t *testing.T) {
+				roleName := fmt.Sprintf("role-%v", tt.mtEnabled)
+				helper.CreateRole(t, adminKey, &models.Role{Name: &roleName, Permissions: []*models.Permission{
+					helper.NewDataPermission().
+						WithAction(authorization.ReadData).
+						WithCollection(articles.ArticlesClass().Class).
+						WithTenant(tt.tenantPermission).
+						Permission(),
+					helper.NewCollectionsPermission().
+						WithAction(authorization.ReadCollections).
+						WithCollection(articles.ArticlesClass().Class).
+						Permission(),
+				}})
+				helper.AssignRoleToUser(t, adminKey, roleName, customUser)
+			})
+
+			t.Run("correctly succeed to perform a gRPC Search call with permissions", func(t *testing.T) {
+				ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
+				resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+					Collection: articles.ArticlesClass().Class,
+					Tenant:     tt.tenantName,
+				})
+				if err != nil {
+					t.Logf("Error: %+v", err)
+				}
+				require.Nil(t, err)
+				require.NotNil(t, resp)
+				require.Len(t, resp.Results, 1)
+			})
 		})
-		require.NotNil(t, err)
-		require.Equal(t, status.Code(err), codes.PermissionDenied)
-	})
-
-	t.Run("create role with necessary permissions on articles and assign to custom user", func(t *testing.T) {
-		roleName := "role"
-		helper.CreateRole(t, adminKey, &models.Role{Name: &roleName, Permissions: []*models.Permission{
-			helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(articles.ArticlesClass().Class).Permission(),
-			helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(articles.ArticlesClass().Class).Permission(),
-		}})
-		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
-	})
-
-	t.Run("correctly succeed to perform a gRPC Search call with permissions", func(t *testing.T) {
-		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
-		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
-			Collection: articles.ArticlesClass().Class,
-		})
-		require.Nil(t, err)
-		require.NotNil(t, resp)
-		require.Len(t, resp.Results, 1)
-	})
+	}
 }
