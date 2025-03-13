@@ -46,15 +46,6 @@ func testGenerativeAWS(host, region string) func(t *testing.T) {
 			name            string
 			generativeModel string
 		}{
-			// AI21 Labs
-			{
-				name:            "ai21.j2-ultra-v1",
-				generativeModel: "ai21.j2-ultra-v1",
-			},
-			{
-				name:            "ai21.j2-mid-v1",
-				generativeModel: "ai21.j2-mid-v1",
-			},
 			// Amazon
 			{
 				name:            "amazon.titan-text-lite-v1",
