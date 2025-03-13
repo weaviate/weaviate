@@ -30,10 +30,8 @@ func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, cl
 	if len(targetVectors) == 0 {
 		class := sch.FindClassByName(schema.ClassName(className))
 
-		// If no target vectors provided, check whether we have legacy index configured.
-		// Additionally, we have to return empty target vector if no named vectors are configured on
-		// the class for backwards compatibility reasons.
-		if hasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {
+		// If no target vectors provided, check whether we have legacy index configured first.
+		if hasLegacyVectorIndex(class) {
 			return []string{""}, nil
 		}
 
