@@ -116,6 +116,7 @@ type Compose struct {
 	weaviateApiKeyUsers            []ApiKeyUser
 	weaviateAdminlistAdminUsers    []string
 	weaviateAdminlistReadOnlyUsers []string
+	withWeaviateDynamicUsers       bool
 	withWeaviateRbac               bool
 	weaviateRbacAdmins             []string
 	weaviateRbacRootGroups         []string
@@ -510,6 +511,11 @@ func (d *Compose) WithUserApiKey(username, key string) *Compose {
 
 func (d *Compose) WithRBAC() *Compose {
 	d.withWeaviateRbac = true
+	return d
+}
+
+func (d *Compose) WithDynamicUsers() *Compose {
+	d.withWeaviateDynamicUsers = true
 	return d
 }
 
