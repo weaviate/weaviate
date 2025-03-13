@@ -9,8 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build integrationTest
-
 package db
 
 import (
@@ -297,7 +295,6 @@ func testObject(className string) *storobj.Object {
 			ID:    strfmt.UUID(uuid.NewString()),
 			Class: className,
 		},
-		Vector: []float32{1, 2, 3},
 	}
 }
 
@@ -319,4 +316,15 @@ func createRandomObjects(r *rand.Rand, className string, numObj int, vectorDim i
 		}
 	}
 	return obj
+}
+
+func invertedConfig() *models.InvertedIndexConfig {
+	return &models.InvertedIndexConfig{
+		CleanupIntervalSeconds: 60,
+		Stopwords: &models.StopwordConfig{
+			Preset: "none",
+		},
+		IndexNullState:      true,
+		IndexPropertyLength: true,
+	}
 }

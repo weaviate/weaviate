@@ -191,21 +191,16 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 
 		// FIXME stats of target vectors
 		var queueLen int64
+		_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+			queueLen += queue.Size()
+			return nil
+		})
+
 		var compressed bool
-		if shard.hasTargetVectors() {
-			for _, queue := range shard.Queues() {
-				queueLen += queue.Size()
-			}
-			for _, vectorIndex := range shard.VectorIndexes() {
-				if vectorIndex.Compressed() {
-					compressed = true
-					break
-				}
-			}
-		} else {
-			queueLen = shard.Queue().Size()
-			compressed = shard.VectorIndex().Compressed()
-		}
+		_ = shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+			compressed = compressed || index.Compressed()
+			return nil
+		})
 
 		shardStatus := &models.NodeShardStatus{
 			Name:                 name,

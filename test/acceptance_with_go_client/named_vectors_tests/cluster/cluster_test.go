@@ -15,7 +15,7 @@ import (
 	"context"
 	"testing"
 
-	test_suits "acceptance_tests_with_client/named_vectors_tests/test_suits"
+	"acceptance_tests_with_client/named_vectors_tests/test_suits"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
@@ -31,6 +31,7 @@ func TestNamedVectors_Cluster(t *testing.T) {
 	endpoint := compose.GetWeaviate().URI()
 	t.Run("tests", test_suits.AllTests(endpoint))
 	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
+	t.Run("mixed vector tests", test_suits.AllMixedVectorsTests(endpoint))
 }
 
 func TestNamedVectors_Cluster_AsyncIndexing(t *testing.T) {
@@ -43,6 +44,7 @@ func TestNamedVectors_Cluster_AsyncIndexing(t *testing.T) {
 	endpoint := compose.GetWeaviate().URI()
 	t.Run("tests", test_suits.AllTests(endpoint))
 	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
+	t.Run("mixed vector tests", test_suits.AllMixedVectorsTests(endpoint))
 }
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {

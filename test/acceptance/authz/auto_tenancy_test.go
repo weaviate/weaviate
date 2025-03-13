@@ -82,8 +82,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(), // all needed for gql search
 			},
 		})
-		_, err := helper.Client(t).Authz.AssignRoleToUser(authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}), adminAuth)
-		require.Nil(t, err)
+		helper.AssignRoleToUser(t, existingKey, testRoleName, customUser)
 	})
 
 	t.Run("fail with 403 when trying to create an object in an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
@@ -254,8 +253,7 @@ func TestAuthzAutoTenantCreation(t *testing.T) {
 				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(cls.Class).Permission(),
 			},
 		})
-		_, err := helper.Client(t).Authz.AssignRoleToUser(authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}), adminAuth)
-		require.Nil(t, err)
+		helper.AssignRoleToUser(t, existingKey, testRoleName, customUser)
 	})
 
 	t.Run("fail with 403 when trying to create an object in a non-existent tenant due to lacking authorization.CreateCollections for autoTenantCreation", func(t *testing.T) {

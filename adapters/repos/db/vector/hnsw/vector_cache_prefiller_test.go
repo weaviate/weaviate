@@ -17,7 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 )
 
 func TestVectorCachePrefilling(t *testing.T) {
@@ -25,7 +25,6 @@ func TestVectorCachePrefilling(t *testing.T) {
 	index := &hnsw{
 		nodes:               generateDummyVertices(100),
 		currentMaximumLayer: 3,
-		shardedNodeLocks:    common.NewDefaultShardedRWLocks(),
 	}
 
 	logger, _ := test.NewNullLogger()
@@ -176,16 +175,13 @@ func (f *fakeCache) AllMulti() [][][]float32 {
 	panic("not implemented")
 }
 
-func generateDummyVertices(amount int) []*vertex {
-	out := make([]*vertex, amount)
+func generateDummyVertices(amount int) *graph.Nodes {
+	out := make([]*graph.Vertex, amount)
 	for i := range out {
-		out[i] = &vertex{
-			id:    uint64(i),
-			level: levelForDummyVertex(i),
-		}
+		out[i] = graph.NewVertex(uint64(i), levelForDummyVertex(i))
 	}
 
-	return out
+	return graph.NewNodesWith(out)
 }
 
 // maximum of 3 layers

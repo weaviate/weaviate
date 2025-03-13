@@ -35,7 +35,8 @@ func TestMigrationsUpsert(t *testing.T) {
 		{
 			name: "Migrate roles from V0 to latest",
 			input: &cmd.CreateRolesRequest{Version: 0, Roles: map[string][]authorization.Policy{
-				"manage": {{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD}},
+				"manage":       {{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD}},
+				"assign_users": {{Resource: "roles/something", Domain: authorization.UsersDomain, Verb: authorization.UPDATE}},
 			}},
 			output: &cmd.CreateRolesRequest{
 				Version: cmd.RBACLatestCommandPolicyVersion, Roles: map[string][]authorization.Policy{
@@ -44,6 +45,7 @@ func TestMigrationsUpsert(t *testing.T) {
 						{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH)},
 						{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH)},
 					},
+					"assign_users": {{Resource: "roles/something", Domain: authorization.UsersDomain, Verb: authorization.USER_ASSIGN_AND_REVOKE}},
 				},
 			},
 		},
@@ -111,6 +113,43 @@ func TestMigrationUpsertV2(t *testing.T) {
 	}
 }
 
+func TestMigrationUpsertV3(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  map[string][]authorization.Policy
+		output map[string][]authorization.Policy
+	}{
+		{
+			name: "empty policy list",
+		},
+		{
+			name: "single policy - read users: not affected",
+			input: map[string][]authorization.Policy{
+				"read": {{Resource: "users/something", Domain: authorization.UsersDomain, Verb: authorization.READ}},
+			},
+			output: map[string][]authorization.Policy{
+				"read": {{Resource: "users/something", Domain: authorization.UsersDomain, Verb: authorization.READ}},
+			},
+		},
+		{
+			name: "single policy - update users => change to assign and revoke",
+			input: map[string][]authorization.Policy{
+				"assign": {{Resource: "users/something", Domain: authorization.UsersDomain, Verb: authorization.UPDATE}},
+			},
+			output: map[string][]authorization.Policy{
+				"assign": {{Resource: "users/something", Domain: authorization.UsersDomain, Verb: authorization.USER_ASSIGN_AND_REVOKE}},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := migrateUpsertRolesPermissionsV3(test.input)
+			require.Equal(t, test.output, output)
+		})
+	}
+}
+
 func TestMigrationsRemove(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -126,12 +165,14 @@ func TestMigrationsRemove(t *testing.T) {
 			name: "Migrate roles from V0 to latest",
 			input: &cmd.RemovePermissionsRequest{Version: 0, Permissions: []*authorization.Policy{
 				{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: conv.CRUD},
+				{Resource: "roles/testUserAssign", Domain: authorization.UsersDomain, Verb: authorization.UPDATE},
 			}},
 			output: &cmd.RemovePermissionsRequest{
 				Version: cmd.RBACLatestCommandPolicyVersion, Permissions: []*authorization.Policy{
 					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH)},
 					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH)},
 					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH)},
+					{Resource: "roles/testUserAssign", Domain: authorization.UsersDomain, Verb: authorization.USER_ASSIGN_AND_REVOKE},
 				},
 			},
 		},
@@ -140,7 +181,10 @@ func TestMigrationsRemove(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			output, err := migrateRemovePermissions(test.input)
 			require.NoError(t, err)
-			require.Equal(t, test.output, output)
+
+			require.Equal(t, test.output.Version, output.Version)
+			require.Equal(t, test.output.Role, output.Role)
+			require.ElementsMatch(t, test.output.Permissions, output.Permissions)
 		})
 	}
 }
@@ -195,6 +239,34 @@ func TestMigrationRemoveV2(t *testing.T) {
 	}
 }
 
+func TestMigrationRemoveV32(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  []*authorization.Policy
+		output []*authorization.Policy
+	}{
+		{
+			name: "empty policy list",
+		},
+		{
+			name: "single policy - assign user as update",
+			input: []*authorization.Policy{
+				{Resource: "roles/something", Domain: authorization.UsersDomain, Verb: authorization.UPDATE},
+			},
+			output: []*authorization.Policy{
+				{Resource: "roles/something", Domain: authorization.UsersDomain, Verb: authorization.USER_ASSIGN_AND_REVOKE},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := migrateRemoveRolesPermissionsV3(test.input)
+			require.Equal(t, test.output, output)
+		})
+	}
+}
+
 func TestMigrationRemoveV1(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -219,6 +291,88 @@ func TestMigrationRemoveV1(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			output := migrateRemoveRolesPermissionsV1(test.input)
 			require.Equal(t, test.output, output)
+		})
+	}
+}
+
+func TestMigrateRevokeRoles(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          *cmd.RevokeRolesForUserRequest
+		expectedOutput []*cmd.RevokeRolesForUserRequest
+	}{
+		{
+			name:           "current request",
+			input:          &cmd.RevokeRolesForUserRequest{Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1},
+			expectedOutput: []*cmd.RevokeRolesForUserRequest{{Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1}},
+		},
+		{
+			name: "Request to update",
+			input: &cmd.RevokeRolesForUserRequest{
+				Version: cmd.RBACAssignRevokeCommandPolicyVersionV0,
+				Roles:   []string{"something"},
+				User:    "user:some-user",
+			},
+			expectedOutput: []*cmd.RevokeRolesForUserRequest{
+				{
+					Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1,
+					Roles:   []string{"something"},
+					User:    "db:some-user",
+				},
+				{
+					Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1,
+					Roles:   []string{"something"},
+					User:    "oidc:some-user",
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := migrateRevokeRoles(test.input)
+			require.Equal(t, test.expectedOutput, output)
+		})
+	}
+}
+
+func TestMigrateAssignRoles(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          *cmd.AddRolesForUsersRequest
+		expectedOutput []*cmd.AddRolesForUsersRequest
+	}{
+		{
+			name:           "current request",
+			input:          &cmd.AddRolesForUsersRequest{Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1},
+			expectedOutput: []*cmd.AddRolesForUsersRequest{{Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1}},
+		},
+		{
+			name: "Request to update",
+			input: &cmd.AddRolesForUsersRequest{
+				Version: cmd.RBACAssignRevokeCommandPolicyVersionV0,
+				Roles:   []string{"something"},
+				User:    "user:some-user",
+			},
+			expectedOutput: []*cmd.AddRolesForUsersRequest{
+				{
+					Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1,
+					Roles:   []string{"something"},
+					User:    "db:some-user",
+				},
+				{
+					Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1,
+					Roles:   []string{"something"},
+					User:    "oidc:some-user",
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := migrateAssignRoles(test.input)
+			require.Equal(t, test.expectedOutput, output)
 		})
 	}
 }

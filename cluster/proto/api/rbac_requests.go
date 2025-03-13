@@ -12,6 +12,7 @@
 package api
 
 import (
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -31,12 +32,20 @@ const (
 
 	// this version was needed because we did flatten manage_roles to C+U+D_roles
 	RBACCommandPolicyVersionV2
+	// this version was needed because assign_and_revoke_users was saved with verb UPDATE. However with dynamic user
+	// management we need a special permission to update users
+	RBACCommandPolicyVersionV3
 
 	// RBACLatestCommandPolicyVersion represents the latest version of RBAC commands policies
 	// It's used to migrate policy changes. if we end up with a cluster having different version
 	// that won't be a problem because the version here is not about the message change but more about
 	// the content of the body which will dumbed anyway in RBAC storage.
 	RBACLatestCommandPolicyVersion
+)
+
+const (
+	RBACAssignRevokeCommandPolicyVersionV0 = iota
+	RBACAssignRevokeLatestCommandPolicyVersion
 )
 
 type CreateRolesRequest struct {
@@ -56,13 +65,15 @@ type RemovePermissionsRequest struct {
 }
 
 type AddRolesForUsersRequest struct {
-	User  string
-	Roles []string
+	User    string
+	Roles   []string
+	Version int
 }
 
 type RevokeRolesForUserRequest struct {
-	User  string
-	Roles []string
+	User    string
+	Roles   []string
+	Version int
 }
 
 type QueryHasPermissionRequest struct {
@@ -83,7 +94,8 @@ type QueryGetRolesResponse struct {
 }
 
 type QueryGetRolesForUserRequest struct {
-	User string
+	User     string
+	UserType models.UserType
 }
 
 type QueryGetRolesForUserResponse struct {
@@ -91,7 +103,8 @@ type QueryGetRolesForUserResponse struct {
 }
 
 type QueryGetUsersForRoleRequest struct {
-	Role string
+	Role     string
+	UserType models.UserType
 }
 
 type QueryGetUsersForRoleResponse struct {

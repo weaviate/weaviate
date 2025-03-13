@@ -42,7 +42,7 @@ func Test_AddClass(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-		class := models.Class{
+		class := &models.Class{
 			Class: "NewClass",
 			Properties: []*models.Property{
 				{DataType: []string{"text"}, Name: "textProp"},
@@ -51,9 +51,64 @@ func Test_AddClass(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 
-		_, _, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, class)
 		assert.Nil(t, err)
+
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("happy path, named vectors", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		class := &models.Class{
+			Class: "NewClass",
+			Properties: []*models.Property{
+				{DataType: []string{"text"}, Name: "textProp"},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: hnswT,
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{},
+					},
+				},
+			},
+		}
+		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+
+		_, _, err := handler.AddClass(ctx, nil, class)
+		require.NoError(t, err)
+
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("happy path, mixed vectors", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		class := &models.Class{
+			Class: "NewClass",
+			Properties: []*models.Property{
+				{DataType: []string{"text"}, Name: "textProp"},
+			},
+			Vectorizer:      "text2vec-contextionary",
+			VectorIndexType: hnswT,
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: hnswT,
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{},
+					},
+				},
+			},
+		}
+		fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+
+		_, _, err := handler.AddClass(ctx, nil, class)
+		require.NoError(t, err)
 
 		fakeSchemaManager.AssertExpectations(t)
 	})
@@ -109,7 +164,7 @@ func Test_AddClass(t *testing.T) {
 			Stopwords:              expectedStopwordConfig,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
-
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -141,6 +196,7 @@ func Test_AddClass(t *testing.T) {
 			Stopwords:              expectedStopwordConfig,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -200,6 +256,7 @@ func Test_AddClass(t *testing.T) {
 					// fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(&models.Class{Class: classes[tc.dataType[0]].Class, Vectorizer: classes[tc.dataType[0]].Vectorizer})
 					if tc.expectedErrMsg == "" {
 						fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 
 					_, _, err := handler.AddClass(context.Background(), nil, class)
@@ -334,51 +391,107 @@ func Test_AddClass(t *testing.T) {
 	t.Run("with invalid settings", func(t *testing.T) {
 		handler, _ := newTestHandler(t, &fakeDB{})
 
-		// Vectorizer while VectorConfig exists
 		_, _, err := handler.AddClass(ctx, nil, &models.Class{
-			Class:      "NewClass",
-			Vectorizer: "some",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "hnsw",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
-			}},
-		})
-		assert.EqualError(t, err, "class.vectorizer \"some\" can not be set if class.vectorConfig is configured")
-
-		// VectorIndexType while VectorConfig exists
-		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class:           "NewClass",
-			VectorIndexType: "some",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "hnsw",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
-			}},
+			VectorIndexType: "invalid",
 		})
-		assert.EqualError(t, err, "class.vectorIndexType \"some\" can not be set if class.vectorConfig is configured")
+		assert.EqualError(t, err, `unrecognized or unsupported vectorIndexType "invalid"`)
 
 		// VectorConfig is invalid VectorIndexType
 		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class: "NewClass",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "invalid",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
-			}},
+			VectorConfig: map[string]models.VectorConfig{
+				"custom": {
+					VectorIndexType:   "invalid",
+					VectorIndexConfig: hnsw.UserConfig{},
+					Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+				},
+			},
 		})
-		assert.EqualError(t, err, "target vector \"custom\": unrecognized or unsupported vectorIndexType \"invalid\"")
+		assert.EqualError(t, err, `target vector "custom": unrecognized or unsupported vectorIndexType "invalid"`)
 
 		// VectorConfig is invalid Vectorizer
 		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class: "NewClass",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "flat",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"invalid": nil},
-			}},
+			VectorConfig: map[string]models.VectorConfig{
+				"custom": {
+					VectorIndexType:   "flat",
+					VectorIndexConfig: hnsw.UserConfig{},
+					Vectorizer:        map[string]interface{}{"invalid": nil},
+				},
+			},
 		})
-		assert.EqualError(t, err, "target vector \"custom\": vectorizer: invalid vectorizer \"invalid\"")
+		assert.EqualError(t, err, `target vector "custom": vectorizer: invalid vectorizer "invalid"`)
+	})
+}
+
+func Test_AddClassWithLimits(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("with max collections limit", func(t *testing.T) {
+		tests := []struct {
+			name          string
+			existingCount int
+			maxAllowed    int
+			expectedError error
+		}{
+			{
+				name:          "under the limit",
+				existingCount: 5,
+				maxAllowed:    10,
+				expectedError: nil,
+			},
+			{
+				name:          "at the limit",
+				existingCount: 10,
+				maxAllowed:    10,
+				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
+			},
+			{
+				name:          "over the limit",
+				existingCount: 11,
+				maxAllowed:    10,
+				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
+			},
+			{
+				name:          "no limit set",
+				existingCount: 100,
+				maxAllowed:    -1,
+				expectedError: nil,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+				// Mock the schema count
+				fakeSchemaManager.On("QueryCollectionsCount").Return(tt.existingCount, nil)
+
+				// Set the max collections limit in config
+				handler.config.MaximumAllowedCollectionsCount = tt.maxAllowed
+
+				class := &models.Class{
+					Class:      "NewClass",
+					Vectorizer: "none",
+				}
+
+				if tt.expectedError == nil {
+					fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+				}
+
+				_, _, err := handler.AddClass(ctx, nil, class)
+				if tt.expectedError != nil {
+					require.NotNil(t, err)
+					assert.Contains(t, err.Error(), tt.expectedError.Error())
+				} else {
+					require.Nil(t, err)
+				}
+				fakeSchemaManager.AssertExpectations(t)
+			})
+		}
 	})
 }
 
@@ -475,7 +588,8 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
-
+			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+			handler.config.MaximumAllowedCollectionsCount = -1
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 		})
@@ -641,6 +755,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 			fakeSchemaManager.AssertExpectations(t)
@@ -805,6 +920,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -825,6 +941,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -921,9 +1038,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
+					handler.config.MaximumAllowedCollectionsCount = -1
 					_, _, err := handler.AddClass(context.Background(), nil, class)
-					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeSchemaManager.AssertExpectations(t)
 				})
@@ -945,6 +1063,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -972,6 +1091,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
@@ -1005,6 +1125,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(ctx, nil, class)
 					t.Log(err)
@@ -1320,6 +1441,28 @@ func Test_UpdateClass(t *testing.T) {
 				},
 				expectedError: nil,
 			},
+			{
+				name: "add named vector on a class with legacy index",
+				initial: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+				},
+				update: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+					VectorConfig: map[string]models.VectorConfig{
+						"vec1": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				expectedError: fmt.Errorf("vector config is immutable"),
+			},
 		}
 
 		for _, test := range tests {
@@ -1329,11 +1472,13 @@ func Test_UpdateClass(t *testing.T) {
 				ctx := context.Background()
 
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				if len(test.initial.Properties) > 0 {
 					fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				}
+				handler.config.MaximumAllowedCollectionsCount = -1
 				_, _, err := handler.AddClass(ctx, nil, test.initial)
 				assert.Nil(t, err)
 				store.AddClass(test.initial)
@@ -1620,6 +1765,8 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		handler.config.MaximumAllowedCollectionsCount = -1
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.False(t, schema.AutoTenantCreationEnabled(c))
@@ -1639,6 +1786,8 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		handler.config.MaximumAllowedCollectionsCount = -1
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.True(t, schema.AutoTenantCreationEnabled(c))
@@ -1654,6 +1803,8 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		handler.config.MaximumAllowedCollectionsCount = -1
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})
@@ -1667,6 +1818,8 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		handler.config.MaximumAllowedCollectionsCount = -1
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})

@@ -291,6 +291,76 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
+func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		setConfigs    func(idx *Index)
+		expectIndexes []string
+	}{
+		{
+			name: "only legacy vector",
+			setConfigs: func(idx *Index) {
+				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+			},
+			expectIndexes: []string{""},
+		},
+		{
+			name: "only named vector",
+			setConfigs: func(idx *Index) {
+				idx.vectorIndexUserConfig = nil
+				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+					"vector1": hnsw.NewDefaultUserConfig(),
+					"vector2": flat.NewDefaultUserConfig(),
+				}
+			},
+			expectIndexes: []string{"vector1", "vector2"},
+		},
+		{
+			name: "mixed vectors",
+			setConfigs: func(idx *Index) {
+				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+					"vector1": hnsw.NewDefaultUserConfig(),
+					"vector2": flat.NewDefaultUserConfig(),
+				}
+			},
+			expectIndexes: []string{"", "vector1", "vector2"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(), false, true, tt.setConfigs)
+
+			capturedIndexes := make(map[string]any)
+			err := shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+				require.NotNil(t, index)
+				capturedIndexes[targetVector] = index
+				return nil
+			})
+			require.NoError(t, err)
+
+			capturedQueues := make(map[string]any)
+			err = shard.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+				require.NotNil(t, queue)
+				capturedQueues[targetVector] = queue
+				return nil
+			})
+			require.NoError(t, err)
+
+			require.Len(t, capturedIndexes, len(tt.expectIndexes))
+			for _, name := range tt.expectIndexes {
+				_, ok := capturedIndexes[name]
+				require.True(t, ok)
+			}
+
+			require.Len(t, capturedQueues, len(tt.expectIndexes))
+			for _, name := range tt.expectIndexes {
+				_, ok := capturedQueues[name]
+				require.True(t, ok)
+			}
+		})
+	}
+}
+
 func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
@@ -469,6 +539,8 @@ func TestShard_RepairIndex(t *testing.T) {
 							test.targetVector: {1, 2, 3},
 						}
 					}
+				} else {
+					obj.Vector = randVector(3)
 				}
 				objs = append(objs, obj)
 			}
@@ -651,6 +723,8 @@ func TestShard_FillQueue(t *testing.T) {
 							test.targetVector: {1, 2, 3},
 						}
 					}
+				} else {
+					obj.Vector = randVector(3)
 				}
 				objs = append(objs, obj)
 			}
@@ -721,13 +795,14 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	shd.resetDimensionsLSM()
 
 	t.Run("count dimensions before insert", func(t *testing.T) {
-		dims := shd.Dimensions(ctx)
+		dims := shd.Dimensions(ctx, "")
 		require.Equal(t, 0, dims)
 	})
 
 	t.Run("insert data into shard", func(t *testing.T) {
 		for i := 0; i < amount; i++ {
 			obj := testObject(className)
+			obj.Vector = randVector(3)
 
 			err := shd.PutObject(ctx, obj)
 			require.Nil(t, err)
@@ -739,7 +814,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("count dimensions", func(t *testing.T) {
-		dims := shd.Dimensions(ctx)
+		dims := shd.Dimensions(ctx, "")
 		require.Equal(t, 3*amount, dims)
 	})
 
@@ -749,13 +824,14 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("count dimensions after reset", func(t *testing.T) {
-		dims := shd.Dimensions(ctx)
+		dims := shd.Dimensions(ctx, "")
 		require.Equal(t, 0, dims)
 	})
 
 	t.Run("insert data into shard after reset", func(t *testing.T) {
 		for i := 0; i < amount; i++ {
 			obj := testObject(className)
+			obj.Vector = randVector(3)
 
 			err := shd.PutObject(ctx, obj)
 			require.Nil(t, err)
@@ -767,7 +843,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("count dimensions after reset and insert", func(t *testing.T) {
-		dims := shd.Dimensions(ctx)
+		dims := shd.Dimensions(ctx, "")
 		require.Equal(t, 3*amount, dims)
 	})
 

@@ -30,7 +30,7 @@ type Client struct {
 // New anonymous access client. Client.Middleware can be used as a regular
 // golang http-middleware
 func New(cfg config.Config) *Client {
-	return &Client{config: cfg.Authentication.AnonymousAccess, apiKeyEnabled: cfg.Authentication.APIKey.Enabled, oidcEnabled: cfg.Authentication.OIDC.Enabled}
+	return &Client{config: cfg.Authentication.AnonymousAccess, apiKeyEnabled: cfg.Authentication.AnyApiKeyAvailable(), oidcEnabled: cfg.Authentication.OIDC.Enabled}
 }
 
 // Middleware will fail unauthenticated requests if anonymous access is

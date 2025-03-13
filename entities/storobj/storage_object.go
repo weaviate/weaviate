@@ -596,6 +596,33 @@ func (ko *Object) Valid() bool {
 		ko.Class().String() != ""
 }
 
+// IterateThroughVectorDimensions iterates through all vectors present on the Object and invokes
+// the callback with target name and dimensions of the vector.
+func (ko *Object) IterateThroughVectorDimensions(f func(targetVector string, dims int) error) error {
+	if len(ko.Vector) > 0 {
+		if err := f("", len(ko.Vector)); err != nil {
+			return err
+		}
+	}
+
+	for targetVector, vector := range ko.Vectors {
+		if err := f(targetVector, len(vector)); err != nil {
+			return err
+		}
+	}
+
+	for targetVector, vectors := range ko.MultiVectors {
+		var dims int
+		for _, vector := range vectors {
+			dims += len(vector)
+		}
+		if err := f(targetVector, dims); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func SearchResults(in []*Object, additional additional.Properties, tenant string) search.Results {
 	out := make(search.Results, len(in))
 

@@ -27,6 +27,7 @@ type quantizer[T byte | uint64] interface {
 	CompressedBytes(compressed []T) []byte
 	FromCompressedBytes(compressed []byte) []T
 	PersistCompression(logger CommitLogger)
+	Stats() CompressionStats
 
 	// FromCompressedBytesWithSubsliceBuffer is like FromCompressedBytes, but
 	// instead of allocating a new slice you can pass in a buffer to use. It will

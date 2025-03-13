@@ -333,8 +333,7 @@ func (l *LazyLoadShard) drop() error {
 
 		// cleanup dimensions
 		if idx.Config.TrackVectorDimensions {
-			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName,
-				idx.vectorIndexUserConfig, idx.vectorIndexUserConfigs)
+			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName)
 		}
 
 		// cleanup index checkpoints
@@ -398,14 +397,14 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) Dimensions(ctx context.Context) int {
+func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) int {
 	l.mustLoad()
-	return l.shard.Dimensions(ctx)
+	return l.shard.Dimensions(ctx, targetVector)
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, segments int) int {
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
 	l.mustLoad()
-	return l.shard.QuantizedDimensions(ctx, segments)
+	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
 
 func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
@@ -440,6 +439,26 @@ func (l *LazyLoadShard) Queue() *VectorIndexQueue {
 func (l *LazyLoadShard) Queues() map[string]*VectorIndexQueue {
 	l.mustLoad()
 	return l.shard.Queues()
+}
+
+func (l *LazyLoadShard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
+	l.mustLoad()
+	return l.shard.GetVectorIndexQueue(targetVector)
+}
+
+func (l *LazyLoadShard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
+	l.mustLoad()
+	return l.shard.GetVectorIndex(targetVector)
+}
+
+func (l *LazyLoadShard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
+	l.mustLoad()
+	return l.shard.ForEachVectorIndex(f)
+}
+
+func (l *LazyLoadShard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
+	l.mustLoad()
+	return l.shard.ForEachVectorQueue(f)
 }
 
 func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error) {
@@ -513,11 +532,6 @@ func (l *LazyLoadShard) VectorIndexes() map[string]VectorIndex {
 	return l.shard.VectorIndexes()
 }
 
-func (l *LazyLoadShard) hasTargetVectors() bool {
-	l.mustLoad()
-	return l.shard.hasTargetVectors()
-}
-
 func (l *LazyLoadShard) Versioner() *shardVersioner {
 	l.mustLoad()
 	return l.shard.Versioner()
@@ -577,18 +591,11 @@ func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.Writ
 	return l.shard.filePutter(ctx, shardID)
 }
 
-func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64) error {
+func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
 	if err := l.Load(context.Background()); err != nil {
 		return err
 	}
-	return l.shard.extendDimensionTrackerLSM(dimLength, docID)
-}
-
-func (l *LazyLoadShard) extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error {
-	if err := l.Load(context.Background()); err != nil {
-		return err
-	}
-	return l.shard.extendDimensionTrackerForVecLSM(dimLength, docID, vecName)
+	return l.shard.extendDimensionTrackerLSM(dimLength, docID, targetVector)
 }
 
 func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {

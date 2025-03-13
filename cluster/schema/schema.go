@@ -197,6 +197,13 @@ func (s *schema) ReadOnlySchema() models.Schema {
 	return cp
 }
 
+func (s *schema) CollectionsCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.classes)
+}
+
 // ShardOwner returns the node owner of the specified shard
 func (s *schema) ShardOwner(class, shard string) (string, uint64, error) {
 	meta := s.metaClass(class)

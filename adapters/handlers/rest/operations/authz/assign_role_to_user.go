@@ -20,6 +20,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -91,15 +92,67 @@ type AssignRoleToUserBody struct {
 
 	// the roles that assigned to user
 	Roles []string `json:"roles" yaml:"roles"`
+
+	// user type
+	UserType models.UserType `json:"userType,omitempty" yaml:"userType,omitempty"`
 }
 
 // Validate validates this assign role to user body
 func (o *AssignRoleToUserBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateUserType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this assign role to user body based on context it is used
+func (o *AssignRoleToUserBody) validateUserType(formats strfmt.Registry) error {
+	if swag.IsZero(o.UserType) { // not required
+		return nil
+	}
+
+	if err := o.UserType.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "userType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "userType")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this assign role to user body based on the context it is used
 func (o *AssignRoleToUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateUserType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *AssignRoleToUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := o.UserType.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "userType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "userType")
+		}
+		return err
+	}
+
 	return nil
 }
 

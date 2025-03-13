@@ -64,15 +64,13 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 				TrackVectorDimensions: true,
 			},
 		}
-		locks := &fakeLocks{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
-		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
-			schemaManager, config, logger, authorizer, nil)
+		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil)
 	}
 
 	reset := func() {
@@ -318,15 +316,13 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 	reset := func() {
 		vectorRepo = &fakeVectorRepo{}
 		config := &config.WeaviateConfig{}
-		locks := &fakeLocks{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
-		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
-			schemaManager, config, logger, authorizer, nil)
+		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil)
 	}
 
 	ctx := context.Background()
@@ -463,15 +459,13 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 		vectorRepo = &fakeVectorRepo{}
 		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		config := &config.WeaviateConfig{}
-		locks := &fakeLocks{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
-		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
-			schemaManager, config, logger, authorizer, nil)
+		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil)
 	}
 	reset()
 	objects := []*models.Object{

@@ -80,11 +80,7 @@ func TestAuthZObjectValidate(t *testing.T) {
 		}
 		helper.DeleteRole(t, adminKey, *deleteRole.Name)
 		helper.CreateRole(t, adminKey, deleteRole)
-		_, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}}),
-			adminAuth,
-		)
-		require.Nil(t, err)
+		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 
 		paramsObj := objects.NewObjectsValidateParams().WithBody(
 			&models.Object{
@@ -94,7 +90,7 @@ func TestAuthZObjectValidate(t *testing.T) {
 					"prop": "test",
 				},
 			})
-		_, err = helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
+		_, err := helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
 		require.Nil(t, err)
 
 		_, err = helper.Client(t).Authz.RevokeRoleFromUser(

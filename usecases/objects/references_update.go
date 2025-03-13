@@ -86,12 +86,6 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		return typedErr
 	}
 
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return &Error{"cannot lock", StatusInternalServerError, err}
-	}
-	defer unlock()
-
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
 	parsedTargetRefs, err := input.validate(validator, class)
 	if err != nil {

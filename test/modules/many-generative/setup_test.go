@@ -81,7 +81,6 @@ func createSingleNodeEnvironment(ctx context.Context,
 		openAIApiKey, openAIOrganization, googleApiKey, cohereApiKey,
 	).
 		WithWeaviate().
-		WithWeaviateEnv("ENABLE_EXPERIMENTAL_RUNTIME_RAG_CONFIG", "true").
 		Start(ctx)
 	return
 }

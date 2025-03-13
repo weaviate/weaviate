@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -23,7 +22,6 @@ import (
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
@@ -36,7 +34,6 @@ type GenerateProvider struct {
 	defaultProviderName            string
 	maximumNumberOfGoroutines      int
 	logger                         logrus.FieldLogger
-	isDynamicRAGSyntaxEnabled      bool
 }
 
 func NewGeneric(
@@ -49,7 +46,6 @@ func NewGeneric(
 		defaultProviderName:            defaultProviderName,
 		maximumNumberOfGoroutines:      maximumNumberOfGoroutines,
 		logger:                         logger,
-		isDynamicRAGSyntaxEnabled:      isDynamicRAGSyntaxEnabled(),
 	}
 }
 
@@ -80,11 +76,4 @@ func (p *GenerateProvider) AdditionalPropertyFn(ctx context.Context,
 		return p.generateResult(ctx, in, parameters, limit, argumentModuleParams, cfg)
 	}
 	return nil, errors.New("wrong parameters")
-}
-
-func isDynamicRAGSyntaxEnabled() bool {
-	if entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_RUNTIME_RAG_CONFIG")) {
-		return true
-	}
-	return entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX"))
 }
