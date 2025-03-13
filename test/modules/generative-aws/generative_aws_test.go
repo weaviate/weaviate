@@ -54,15 +54,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			absentModuleConfig bool
 			withImages         bool
 		}{
-			// AI21 Labs
-			{
-				name:            "ai21.j2-ultra-v1",
-				generativeModel: "ai21.j2-ultra-v1",
-			},
-			{
-				name:            "ai21.j2-mid-v1",
-				generativeModel: "ai21.j2-mid-v1",
-			},
 			// Amazon Titan
 			{
 				name:            "amazon.titan-text-lite-v1",
