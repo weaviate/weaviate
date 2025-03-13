@@ -45,6 +45,14 @@ func testMixedVectorsCreateObject(host string) func(t *testing.T) {
 				},
 			},
 			VectorConfig: map[string]models.VectorConfig{
+				"contextionary": {
+					Vectorizer: map[string]interface{}{
+						text2vecContextionary: map[string]interface{}{
+							"vectorizeClassName": true,
+						},
+					},
+					VectorIndexType: "hnsw",
+				},
 				"contextionary_without_class_name": {
 					Vectorizer: map[string]interface{}{
 						text2vecContextionary: map[string]interface{}{
@@ -77,7 +85,8 @@ func testMixedVectorsCreateObject(host string) func(t *testing.T) {
 
 		assert.Len(t, obj.Vector, 300)
 
-		require.Len(t, obj.Vectors, 2)
+		require.Len(t, obj.Vectors, 3)
+		assert.Equal(t, []float32(obj.Vector), obj.Vectors["contextionary"].([]float32))
 		assert.Len(t, obj.Vectors["contextionary_without_class_name"], 300)
 		assert.Len(t, obj.Vectors["transformers"], 384)
 

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -25,31 +26,35 @@ var (
 )
 
 func GetIds(t *testing.T, resp *models.GraphQLResponse, className string) []string {
+	return ExtractGraphQLField[string](t, resp, "Get", className, "_additional", "id")
+}
+
+func ExtractGraphQLField[T any](t *testing.T, resp *models.GraphQLResponse, path ...string) []T {
 	require.NotNil(t, resp)
-	require.NotNil(t, resp.Data)
 	for _, err := range resp.Errors {
-		t.Logf("GetIds error: %v", err)
+		t.Logf("ExtractGraphQLField error: %v", err)
 	}
 	require.Empty(t, resp.Errors)
 
-	classMap, ok := resp.Data["Get"].(map[string]interface{})
+	require.NotNil(t, resp.Data)
+	classMap, ok := resp.Data[path[0]].(map[string]interface{})
 	require.True(t, ok)
 
-	class, ok := classMap[className].([]interface{})
+	objects, ok := classMap[path[1]].([]interface{})
 	require.True(t, ok)
 
-	ids := make([]string, len(class))
-	for i := range class {
-		resultMap, ok := class[i].(map[string]interface{})
-		require.True(t, ok)
+	results := make([]T, len(objects))
+	for i := range objects {
+		resultMap, ok := objects[i].(map[string]interface{})
+		for j := 2; j < len(path)-1; j++ {
+			resultMap, ok = resultMap[path[j]].(map[string]interface{})
+			require.True(t, ok)
+		}
 
-		additional, ok := resultMap["_additional"].(map[string]interface{})
-		require.True(t, ok)
-
-		ids[i] = additional["id"].(string)
+		results[i], ok = resultMap[path[len(path)-1]].(T)
+		require.True(t, ok, fmt.Sprintf("failed to extract %s from response: %s", path[len(path)-1], spew.Sdump(resp)))
 	}
-
-	return ids
+	return results
 }
 
 func GetVectors(t *testing.T,
