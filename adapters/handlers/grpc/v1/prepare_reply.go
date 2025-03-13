@@ -48,7 +48,6 @@ type generativeReplier interface {
 type Replier struct {
 	generative generativeReplier
 	mapper     mapper
-	uses123    bool
 	logger     logrus.FieldLogger
 }
 
@@ -59,7 +58,7 @@ type generativeQueryParams interface {
 	Debug() bool
 }
 
-func NewReplier(uses123 bool,
+func NewReplier(
 	uses125 bool,
 	uses127 bool,
 	generativeQueryParams generativeQueryParams,
@@ -68,7 +67,6 @@ func NewReplier(uses123 bool,
 	return &Replier{
 		generative: generative.NewReplier(logger, generativeQueryParams, uses127),
 		mapper:     &Mapper{uses125: uses125},
-		uses123:    uses123,
 		logger:     logger,
 	}
 }
@@ -118,11 +116,7 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		var props *pb.PropertiesResult
 		var err error
 
-		if r.uses123 {
-			props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
-		} else {
-			props, err = r.extractPropertiesAnswerDeprecated(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
-		}
+		props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -465,124 +459,6 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 	ret.Objects = objects
 
 	return ret, groupedGenerativeResults, nil
-}
-
-func (r *Replier) extractPropertiesAnswerDeprecated(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
-	nonRefProps := make(map[string]interface{}, 0)
-	refProps := make([]*pb.RefPropertiesResult, 0)
-	objProps := make([]*pb.ObjectProperties, 0)
-	objArrayProps := make([]*pb.ObjectArrayProperties, 0)
-	for _, prop := range properties {
-		propRaw, ok := results[prop.Name]
-		if !ok {
-			continue
-		}
-		if prop.IsPrimitive {
-			nonRefProps[prop.Name] = propRaw
-			continue
-		}
-		if prop.IsObject {
-			class := scheme.GetClass(className)
-			if class == nil {
-				return nil, fmt.Errorf("could not find class %s in schema", className)
-			}
-			nested, err := schema.GetPropertyByName(class, prop.Name)
-			if err != nil {
-				return nil, errors.Wrap(err, "getting property")
-			}
-			singleObj, ok := propRaw.(map[string]interface{})
-			if ok {
-				extractedNestedProp, err := extractPropertiesNested(scheme.GetClass, singleObj, prop, className, &Property{Property: nested})
-				if err != nil {
-					return nil, errors.Wrap(err, "extracting nested properties")
-				}
-				objProps = append(objProps, &pb.ObjectProperties{
-					PropName: prop.Name,
-					Value:    extractedNestedProp,
-				})
-				continue
-			}
-			arrayObjs, ok := propRaw.([]interface{})
-			if ok {
-				extractedNestedProps := make([]*pb.ObjectPropertiesValue, 0, len(arrayObjs))
-				for _, obj := range arrayObjs {
-					singleObj, ok := obj.(map[string]interface{})
-					if !ok {
-						continue
-					}
-					extractedNestedProp, err := extractPropertiesNested(scheme.GetClass, singleObj, prop, className, &Property{Property: nested})
-					if err != nil {
-						return nil, err
-					}
-					extractedNestedProps = append(extractedNestedProps, extractedNestedProp)
-				}
-				objArrayProps = append(objArrayProps,
-					&pb.ObjectArrayProperties{
-						PropName: prop.Name,
-						Values:   extractedNestedProps,
-					},
-				)
-				continue
-			}
-		}
-		refs, ok := propRaw.([]interface{})
-		if !ok {
-			continue
-		}
-		extractedRefProps := make([]*pb.PropertiesResult, 0, len(refs))
-		for _, ref := range refs {
-			refLocal, ok := ref.(search.LocalRef)
-			if !ok {
-				continue
-			}
-			extractedRefProp, err := r.extractPropertiesAnswerDeprecated(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
-			if err != nil {
-				continue
-			}
-			additionalProps, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
-			if err != nil {
-				return nil, err
-			}
-			if additionalProps == nil {
-				return nil, fmt.Errorf("additional props are nil somehow")
-			}
-			extractedRefProp.Metadata = additionalProps.Metadata
-			extractedRefProps = append(extractedRefProps, extractedRefProp)
-		}
-
-		refProp := pb.RefPropertiesResult{PropName: prop.Name, Properties: extractedRefProps}
-		refProps = append(refProps, &refProp)
-	}
-	props := pb.PropertiesResult{}
-	if len(nonRefProps) > 0 {
-		outProps := pb.ObjectPropertiesValue{}
-		if err := extractArrayTypesRoot(scheme.GetClass, className, nonRefProps, &outProps); err != nil {
-			return nil, errors.Wrap(err, "extracting non-primitive types")
-		}
-		newStruct, err := structpb.NewStruct(nonRefProps)
-		if err != nil {
-			return nil, errors.Wrap(err, "creating non-ref-prop struct")
-		}
-		props.NonRefProperties = newStruct
-		props.IntArrayProperties = outProps.IntArrayProperties
-		props.NumberArrayProperties = outProps.NumberArrayProperties
-		props.TextArrayProperties = outProps.TextArrayProperties
-		props.BooleanArrayProperties = outProps.BooleanArrayProperties
-		props.ObjectProperties = outProps.ObjectProperties
-		props.ObjectArrayProperties = outProps.ObjectArrayProperties
-	}
-	if len(refProps) > 0 {
-		props.RefProps = refProps
-	}
-	if len(objProps) > 0 {
-		props.ObjectProperties = objProps
-	}
-	if len(objArrayProps) > 0 {
-		props.ObjectArrayProperties = objArrayProps
-	}
-
-	props.TargetCollection = className
-	return &props, nil
 }
 
 func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
