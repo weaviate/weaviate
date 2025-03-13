@@ -76,9 +76,9 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger, swapBuc
 			swapBuckets:                   swapBuckets,
 			tidyBuckets:                   tidyBuckets,
 			concurrency:                   concurrency.NUMCPU_2,
-			processingInterval:            3 * time.Minute,
-			pauseInterval:                 1 * time.Minute,
-			checkProcessingEveryNoObjects: 100,
+			processingInterval:            15 * time.Minute,
+			pauseInterval:                 1 * time.Second,
+			checkProcessingEveryNoObjects: 1000,
 
 			// processingInterval:            100 * time.Millisecond,
 			// pauseInterval:                 2 * time.Second,
