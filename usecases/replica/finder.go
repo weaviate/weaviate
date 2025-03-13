@@ -188,7 +188,7 @@ type ShardDesc struct {
 // For each x in xs the fields BelongsToNode and BelongsToShard must be set non empty
 func (f *Finder) CheckConsistency(ctx context.Context,
 	l ConsistencyLevel, xs []*storobj.Object,
-) (retErr error) {
+) error {
 	if len(xs) == 0 {
 		return nil
 	}
