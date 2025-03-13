@@ -22,25 +22,19 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/dynusers"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-
-	"github.com/prometheus/client_golang/prometheus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
