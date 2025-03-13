@@ -92,10 +92,6 @@ func TestAuthzSearchWithGRPC(t *testing.T) {
 						WithCollection(articles.ArticlesClass().Class).
 						WithTenant(tt.tenantPermission).
 						Permission(),
-					helper.NewCollectionsPermission().
-						WithAction(authorization.ReadCollections).
-						WithCollection(articles.ArticlesClass().Class).
-						Permission(),
 				}})
 				helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 			})
