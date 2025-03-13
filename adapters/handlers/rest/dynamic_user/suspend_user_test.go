@@ -44,7 +44,7 @@ func TestSuccessDeactivate(t *testing.T) {
 
 			h := dynUserHandler{
 				dynamicUser: dynUser,
-				authorizer:  authorizer,
+				authorizer:  authorizer, dynUserEnabled: true,
 			}
 
 			res := h.deactivateUser(users.DeactivateUserParams{UserID: "user", Body: users.DeactivateUserBody{RevokeKey: &test.revokeKey}}, principal)
@@ -63,7 +63,7 @@ func TestDeactivateNotFound(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.deactivateUser(users.DeactivateUserParams{UserID: "user"}, principal)
@@ -95,8 +95,8 @@ func TestDeactivateBadParameters(t *testing.T) {
 			h := dynUserHandler{
 				dynamicUser:          dynUser,
 				authorizer:           authorizer,
-				staticApiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"static-user"}},
-				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}},
+				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static-user"}},
+				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}}, dynUserEnabled: true,
 			}
 
 			res := h.deactivateUser(users.DeactivateUserParams{UserID: test.user}, principal)
@@ -104,4 +104,20 @@ func TestDeactivateBadParameters(t *testing.T) {
 			assert.True(t, ok)
 		})
 	}
+}
+
+func TestSuspendNoDynamic(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
+
+	h := dynUserHandler{
+		dynamicUser:    mocks.NewDynamicUserAndRolesGetter(t),
+		authorizer:     authorizer,
+		dynUserEnabled: false,
+	}
+
+	res := h.deactivateUser(users.DeactivateUserParams{UserID: "user"}, principal)
+	_, ok := res.(*users.DeactivateUserUnprocessableEntity)
+	assert.True(t, ok)
 }

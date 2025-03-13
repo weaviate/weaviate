@@ -22,7 +22,7 @@ import (
 func Test_APIKeyClient(t *testing.T) {
 	type test struct {
 		name               string
-		config             config.APIKey
+		config             config.StaticAPIKey
 		expectConfigErr    bool
 		expectConfigErrMsg string
 		validate           func(t *testing.T, c *StaticApiKey)
@@ -31,14 +31,14 @@ func Test_APIKeyClient(t *testing.T) {
 	tests := []test{
 		{
 			name: "not enabled",
-			config: config.APIKey{
+			config: config.StaticAPIKey{
 				Enabled: false,
 			},
 			expectConfigErr: false,
 		},
 		{
 			name: "key, but no user",
-			config: config.APIKey{
+			config: config.StaticAPIKey{
 				Enabled:     true,
 				AllowedKeys: []string{"secret-key"},
 				Users:       []string{},
@@ -48,7 +48,7 @@ func Test_APIKeyClient(t *testing.T) {
 		},
 		{
 			name: "zero length key",
-			config: config.APIKey{
+			config: config.StaticAPIKey{
 				Enabled:     true,
 				AllowedKeys: []string{""},
 				Users:       []string{"gooduser"},
@@ -58,7 +58,7 @@ func Test_APIKeyClient(t *testing.T) {
 		},
 		{
 			name: "user, but no key",
-			config: config.APIKey{
+			config: config.StaticAPIKey{
 				Enabled:     true,
 				AllowedKeys: []string{},
 				Users:       []string{"johnnyBeAllowed"},
@@ -68,7 +68,7 @@ func Test_APIKeyClient(t *testing.T) {
 		},
 		{
 			name: "zero length user",
-			config: config.APIKey{
+			config: config.StaticAPIKey{
 				Enabled:     true,
 				AllowedKeys: []string{"secret-key"},
 				Users:       []string{""},
@@ -78,7 +78,7 @@ func Test_APIKeyClient(t *testing.T) {
 		},
 		{
 			name: "one user, one key",
-			config: config.APIKey{
+			config: config.StaticAPIKey{
 				Enabled:     true,
 				AllowedKeys: []string{"secret-key"},
 				Users:       []string{"mrRoboto"},
@@ -99,7 +99,7 @@ func Test_APIKeyClient(t *testing.T) {
 			// this is allowed, this means that all keys point to the same user for
 			// authZ purposes
 			name: "one user, multiple keys",
-			config: config.APIKey{
+			config: config.StaticAPIKey{
 				Enabled:     true,
 				AllowedKeys: []string{"secret-key", "another-secret-key", "third-key"},
 				Users:       []string{"jane"},
@@ -128,7 +128,7 @@ func Test_APIKeyClient(t *testing.T) {
 			// this is allowed, this means that each key at pos i points to user at
 			// pos i for authZ purposes
 			name: "multiple user, multiple keys",
-			config: config.APIKey{
+			config: config.StaticAPIKey{
 				Enabled:     true,
 				AllowedKeys: []string{"secret-key", "another-secret-key", "third-key"},
 				Users:       []string{"jane", "jessica", "jennifer"},
@@ -156,7 +156,7 @@ func Test_APIKeyClient(t *testing.T) {
 		{
 			// this is invalid, the keys cannot be mapped to the users
 			name: "2 users, 3 keys",
-			config: config.APIKey{
+			config: config.StaticAPIKey{
 				Enabled:     true,
 				AllowedKeys: []string{"secret-key", "another-secret-key", "third-key"},
 				Users:       []string{"jane", "jessica"},
@@ -169,9 +169,7 @@ func Test_APIKeyClient(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			c, err := NewStatic(config.Config{
-				Authentication: config.Authentication{
-					APIKey: test.config,
-				},
+				Authentication: config.Authentication{APIKey: test.config},
 			})
 
 			if test.expectConfigErr {

@@ -38,8 +38,9 @@ func TestSuccessRotate(t *testing.T) {
 	dynUser.On("RotateKey", "user", mock.Anything).Return(nil)
 
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		dynamicUser:    dynUser,
+		authorizer:     authorizer,
+		dynUserEnabled: true,
 	}
 
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
@@ -73,7 +74,7 @@ func TestRotateInternalServerError(t *testing.T) {
 			}
 
 			h := dynUserHandler{
-				dynamicUser: dynUser, authorizer: authorizer,
+				dynamicUser: dynUser, authorizer: authorizer, dynUserEnabled: true,
 			}
 
 			res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
@@ -93,7 +94,7 @@ func TestRotateNotFound(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
@@ -110,7 +111,7 @@ func TestRotateForbidden(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
@@ -126,9 +127,26 @@ func TestRotateUnprocessableEntity(t *testing.T) {
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 
 	h := dynUserHandler{
-		dynamicUser:          dynUser,
-		authorizer:           authorizer,
-		staticApiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
+		dynamicUser: dynUser,
+		authorizer:  authorizer, dynUserEnabled: true,
+
+		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
+	}
+
+	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
+	_, ok := res.(*users.RotateUserAPIKeyUnprocessableEntity)
+	assert.True(t, ok)
+}
+
+func TestRotateNoDynamic(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
+
+	h := dynUserHandler{
+		dynamicUser:    mocks.NewDynamicUserAndRolesGetter(t),
+		authorizer:     authorizer,
+		dynUserEnabled: false,
 	}
 
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)

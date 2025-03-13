@@ -12,11 +12,15 @@
 package authz
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/weaviate/weaviate/test/docker"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/users"
@@ -308,8 +312,17 @@ func TestUserEndpoint(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
-	defer down()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDynamicUsers().
+		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	testUser := "test-user"
 	helper.DeleteUser(t, testUser, adminKey)
@@ -489,8 +502,19 @@ func TestListAllUsers(t *testing.T) {
 	// match what is defined in the docker-compose file to allow switching between them
 	staticUsers := map[string]string{customUser: customKey, viewerUser: viewerKey, "editor-user": "editor-key"}
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, staticUsers, nil)
-	defer down()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).WithUserApiKey(viewerUser, viewerKey).WithUserApiKey("editor-user", "editor-key").
+		WithRBAC().WithRbacAdmins(adminUser).
+		WithDynamicUsers().Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	helper.AssignRoleToUser(t, adminKey, "viewer", viewerUser)
 	t.Run("List all users", func(t *testing.T) {

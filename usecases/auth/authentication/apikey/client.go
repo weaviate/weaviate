@@ -22,7 +22,7 @@ import (
 )
 
 type StaticApiKey struct {
-	config         config.APIKey
+	config         config.StaticAPIKey
 	weakKeyStorage [][sha256.Size]byte
 }
 

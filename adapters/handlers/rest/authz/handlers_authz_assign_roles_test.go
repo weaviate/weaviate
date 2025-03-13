@@ -53,7 +53,7 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 	h := &authZHandlers{
 		authorizer:     authorizer,
 		controller:     controller,
-		apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
+		apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user1"}},
 		logger:         logger,
 	}
 	res := h.assignRoleToUser(params, principal)
@@ -82,7 +82,7 @@ func TestAssignRoleToGroupSuccess(t *testing.T) {
 	h := &authZHandlers{
 		authorizer:     authorizer,
 		controller:     controller,
-		apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
+		apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user1"}},
 		logger:         logger,
 		rbacconfig: rbacconf.Config{
 			RootUsers: []string{"root-user"},
@@ -149,7 +149,7 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 			h := &authZHandlers{
 				authorizer:     authorizer,
 				controller:     controller,
-				apiKeysConfigs: config.APIKey{Enabled: true, Users: tt.existedUsers},
+				apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: tt.existedUsers},
 				logger:         logger,
 			}
 			res := h.assignRoleToUser(tt.params, tt.principal)

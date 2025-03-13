@@ -41,7 +41,7 @@ func TestDeleteSuccess(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
@@ -59,7 +59,7 @@ func TestDeleteForbidden(t *testing.T) {
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
-		authorizer:  authorizer,
+		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
@@ -75,9 +75,10 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 
 	h := dynUserHandler{
-		dynamicUser:          dynUser,
-		authorizer:           authorizer,
-		staticApiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
+		dynamicUser: dynUser,
+		authorizer:  authorizer, dynUserEnabled: true,
+
+		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
 	}
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
@@ -95,10 +96,26 @@ func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
 	h := dynUserHandler{
 		dynamicUser: dynUser,
 		authorizer:  authorizer,
-		rbacConfig:  rbacconf.Config{RootUsers: []string{"user-root"}},
+		rbacConfig:  rbacconf.Config{RootUsers: []string{"user-root"}}, dynUserEnabled: true,
 	}
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user-root"}, principal)
+	_, ok := res.(*users.DeleteUserUnprocessableEntity)
+	assert.True(t, ok)
+}
+
+func TestDeleteNoDynamic(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
+
+	h := dynUserHandler{
+		dynamicUser:    mocks.NewDynamicUserAndRolesGetter(t),
+		authorizer:     authorizer,
+		dynUserEnabled: false,
+	}
+
+	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
 	_, ok := res.(*users.DeleteUserUnprocessableEntity)
 	assert.True(t, ok)
 }

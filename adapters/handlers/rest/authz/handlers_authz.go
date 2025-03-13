@@ -50,7 +50,7 @@ type authZHandlers struct {
 	schemaReader   schemaUC.SchemaGetter
 	logger         logrus.FieldLogger
 	metrics        *monitoring.PrometheusMetrics
-	apiKeysConfigs config.APIKey
+	apiKeysConfigs config.StaticAPIKey
 	oidcConfigs    config.OIDC
 	rbacconfig     rbacconf.Config
 }
@@ -61,7 +61,7 @@ type ControllerAndGetUsers interface {
 }
 
 func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers, schemaReader schemaUC.SchemaGetter,
-	apiKeysConfigs config.APIKey, oidcConfigs config.OIDC, rconfig rbacconf.Config, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+	apiKeysConfigs config.StaticAPIKey, oidcConfigs config.OIDC, rconfig rbacconf.Config, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
 	h := &authZHandlers{
 		controller:     controller,

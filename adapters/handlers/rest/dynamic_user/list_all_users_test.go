@@ -66,7 +66,7 @@ func TestSuccessListAll(t *testing.T) {
 			h := dynUserHandler{
 				dynamicUser:          dynUser,
 				authorizer:           authorizer,
-				staticApiKeysConfigs: config.APIKey{Enabled: true, Users: []string{staticUser}, AllowedKeys: []string{"static"}},
+				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{staticUser}, AllowedKeys: []string{"static"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
 			}
 
