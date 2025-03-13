@@ -52,7 +52,7 @@ func ExtractGraphQLField[T any](t *testing.T, resp *models.GraphQLResponse, path
 		}
 
 		results[i], ok = resultMap[path[len(path)-1]].(T)
-		require.True(t, ok, fmt.Sprintf("failed to extract %s from response: %s", path[len(path)-1]), spew.Sdump(resp))
+		require.True(t, ok, fmt.Sprintf("failed to extract %s from response: %s", path[len(path)-1], spew.Sdump(resp)))
 	}
 	return results
 }
