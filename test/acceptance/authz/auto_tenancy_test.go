@@ -132,13 +132,16 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 		require.NotNil(t, resp)
 	})
 
-	t.Run("successfully search (Aggregate) with gql in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
+	t.Run("successfully search (Aggregate) with grpc in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
 		defer deactivateTenant(t)
-		res, err := queryGQL(t, fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, cls.Class, obj.Tenant), customKey)
+		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
+		resp, err := helper.ClientGRPC(t).Aggregate(ctx, &protocol.AggregateRequest{
+			Collection:   cls.Class,
+			Tenant:       tenant,
+			ObjectsCount: true,
+		})
 		require.Nil(t, err)
-		require.NotNil(t, res)
-		require.NotEmpty(t, res.GetPayload().Data)
-		require.Empty(t, res.GetPayload().Errors)
+		require.NotNil(t, resp)
 	})
 
 	t.Run("successfully delete object in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
