@@ -13,7 +13,6 @@ package cyclemanager
 
 import (
 	"context"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -273,7 +272,6 @@ func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.Can
 			"callback_id":  callbackCustomId,
 			"callbacks_id": c.customId,
 		}).Errorf("callback panic: %v", r)
-		debug.PrintStack()
 	}
 	cancel()
 }
