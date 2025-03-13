@@ -157,9 +157,10 @@ func TestUpdatePropertyDescription(t *testing.T) {
 			})
 		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
 		assert.NotNil(t, err)
-		var targetErr *clschema.SchemaObjectsUpdateUnprocessableEntity
-		if errors.As(err, &targetErr) {
-			require.Contains(t, targetErr.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
+		var parsed *clschema.SchemaObjectsUpdateUnprocessableEntity
+		require.ErrorAs(t, err, &parsed)
+		if errors.As(err, &parsed) {
+			require.Contains(t, parsed.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
 		}
 	})
 
@@ -180,9 +181,10 @@ func TestUpdatePropertyDescription(t *testing.T) {
 			})
 		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
 		assert.NotNil(t, err)
-		var targetErr *clschema.SchemaObjectsUpdateUnprocessableEntity
-		if errors.As(err, &targetErr) {
-			require.Contains(t, targetErr.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
+		var parsed *clschema.SchemaObjectsUpdateUnprocessableEntity
+		require.ErrorAs(t, err, &parsed)
+		if errors.As(err, &parsed) {
+			require.Contains(t, parsed.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
 		}
 	})
 }
