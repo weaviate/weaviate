@@ -706,19 +706,19 @@ func runReindexerV2(reindexCtx context.Context, waitForMetaStore func() error,
 		logger.WithField("took", time.Since(start)).Debug("finished waiting for meta store")
 
 		start = time.Now()
-		logger.Debug("starting on before")
+		logger.Info("starting on before")
 		if err := reindexer.OnBefore(reindexCtx); err != nil {
 			err = fmt.Errorf("on before: %w", err)
 			logger.WithField("took", time.Since(start)).WithError(err).Error("finished on before")
 		} else {
-			logger.WithField("took", time.Since(start)).Debug("finished on before")
+			logger.WithField("took", time.Since(start)).Info("finished on before")
 		}
 
 		// continue even in onBefore failed on some tasks.
 		// remaining tasks will proceed with reindexing.
 		enterrors.GoWrapper(func() {
 			start = time.Now()
-			logger.Debug("starting reindexing")
+			logger.Info("starting reindexing")
 			if err := reindexer.Reindex(reindexCtx); err != nil {
 				err = fmt.Errorf("reindex: %w", err)
 				logger.WithField("took", time.Since(start)).WithError(err).Error("finished reindexing")
@@ -726,7 +726,7 @@ func runReindexerV2(reindexCtx context.Context, waitForMetaStore func() error,
 				reindexFinishedV2 <- err
 				return
 			}
-			logger.WithField("took", time.Since(start)).Debug("finished reindexing")
+			logger.WithField("took", time.Since(start)).Info("finished reindexing")
 			reindexFinishedV2 <- nil
 		}, logger)
 
@@ -746,7 +746,7 @@ func runReindexerV2(reindexCtx context.Context, waitForMetaStore func() error,
 		logger.WithField("took", time.Since(start)).Debug("finished waiting for meta store")
 
 		start = time.Now()
-		logger.Debug("starting reindexing")
+		logger.Info("starting reindexing")
 		if err := reindexer.Reindex(reindexCtx); err != nil {
 			err = fmt.Errorf("reindex: %w", err)
 			logger.WithField("took", time.Since(start)).WithError(err).Error("finished reindexing")
@@ -754,7 +754,7 @@ func runReindexerV2(reindexCtx context.Context, waitForMetaStore func() error,
 			reindexFinishedV2 <- err
 			return
 		}
-		logger.WithField("took", time.Since(start)).Debug("finished reindexing")
+		logger.WithField("took", time.Since(start)).Info("finished reindexing")
 	}, logger)
 
 	return nil
