@@ -14,7 +14,6 @@ package db
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1136,24 +1135,24 @@ func (b uuidBytes) Clone() indexKey {
 	return uuidBytes(buf)
 }
 
-type uint64Bytes []byte
+// type uint64Bytes []byte
 
-func (b uint64Bytes) String() string {
-	if b == nil {
-		return "nil"
-	}
-	return fmt.Sprint(binary.LittleEndian.Uint64(b))
-}
+// func (b uint64Bytes) String() string {
+// 	if b == nil {
+// 		return "nil"
+// 	}
+// 	return fmt.Sprint(binary.LittleEndian.Uint64(b))
+// }
 
-func (b uint64Bytes) Bytes() []byte {
-	return b
-}
+// func (b uint64Bytes) Bytes() []byte {
+// 	return b
+// }
 
-func (b uint64Bytes) Clone() indexKey {
-	buf := make([]byte, len(b))
-	copy(buf, b)
-	return uint64Bytes(buf)
-}
+// func (b uint64Bytes) Clone() indexKey {
+// 	buf := make([]byte, len(b))
+// 	copy(buf, b)
+// 	return uint64Bytes(buf)
+// }
 
 type indexKeyParser interface {
 	FromString(key string) (indexKey, error)
@@ -1178,18 +1177,18 @@ func (p *uuidKeyParser) FromBytes(key []byte) indexKey {
 	return uuidBytes(key)
 }
 
-type uint64KeyParser struct{}
+// type uint64KeyParser struct{}
 
-func (p *uint64KeyParser) FromString(key string) (indexKey, error) {
-	u, err := strconv.ParseUint(key, 10, 64)
-	if err != nil {
-		return nil, err
-	}
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, u)
-	return uint64Bytes(buf), nil
-}
+// func (p *uint64KeyParser) FromString(key string) (indexKey, error) {
+// 	u, err := strconv.ParseUint(key, 10, 64)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	buf := make([]byte, 8)
+// 	binary.LittleEndian.PutUint64(buf, u)
+// 	return uint64Bytes(buf), nil
+// }
 
-func (p *uint64KeyParser) FromBytes(key []byte) indexKey {
-	return uint64Bytes(key)
-}
+// func (p *uint64KeyParser) FromBytes(key []byte) indexKey {
+// 	return uint64Bytes(key)
+// }
