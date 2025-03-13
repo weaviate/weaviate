@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/dynusers"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -143,6 +145,8 @@ type Config struct {
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
 	AuthzController authorization.Controller
+
+	DynamicUserController apikey.DynamicUser
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -189,6 +193,9 @@ type Store struct {
 	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
 	authZManager *rbacRaft.Manager
 
+	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
+	dynUserManager *dynusers.Manager
+
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
@@ -209,8 +216,9 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 			IsLocalHost:       cfg.IsLocalHost,
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
 		}),
-		schemaManager: schemaManager,
-		authZManager:  rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
+		schemaManager:  schemaManager,
+		authZManager:   rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
+		dynUserManager: dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
 	}
 }
 

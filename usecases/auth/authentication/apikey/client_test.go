@@ -25,7 +25,7 @@ func Test_APIKeyClient(t *testing.T) {
 		config             config.APIKey
 		expectConfigErr    bool
 		expectConfigErrMsg string
-		validate           func(t *testing.T, c *Client)
+		validate           func(t *testing.T, c *StaticApiKey)
 	}
 
 	tests := []test{
@@ -84,7 +84,7 @@ func Test_APIKeyClient(t *testing.T) {
 				Users:       []string{"mrRoboto"},
 			},
 			expectConfigErr: false,
-			validate: func(t *testing.T, c *Client) {
+			validate: func(t *testing.T, c *StaticApiKey) {
 				p, err := c.ValidateAndExtract("secret-key", nil)
 				require.Nil(t, err)
 				assert.Equal(t, "mrRoboto", p.Username)
@@ -105,7 +105,7 @@ func Test_APIKeyClient(t *testing.T) {
 				Users:       []string{"jane"},
 			},
 			expectConfigErr: false,
-			validate: func(t *testing.T, c *Client) {
+			validate: func(t *testing.T, c *StaticApiKey) {
 				p, err := c.ValidateAndExtract("secret-key", nil)
 				require.Nil(t, err)
 				assert.Equal(t, "jane", p.Username)
@@ -134,7 +134,7 @@ func Test_APIKeyClient(t *testing.T) {
 				Users:       []string{"jane", "jessica", "jennifer"},
 			},
 			expectConfigErr: false,
-			validate: func(t *testing.T, c *Client) {
+			validate: func(t *testing.T, c *StaticApiKey) {
 				p, err := c.ValidateAndExtract("secret-key", nil)
 				require.Nil(t, err)
 				assert.Equal(t, "jane", p.Username)
@@ -168,7 +168,7 @@ func Test_APIKeyClient(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			c, err := New(config.Config{
+			c, err := NewStatic(config.Config{
 				Authentication: config.Authentication{
 					APIKey: test.config,
 				},

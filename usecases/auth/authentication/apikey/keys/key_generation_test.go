@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic
+package keys
 
 import (
 	"encoding/base64"
@@ -21,8 +21,24 @@ import (
 )
 
 func TestKeyGeneration(t *testing.T) {
-	fullApiKey, hash, userIdentifier, err := CreateApiKeyAndHash()
+	fullApiKey, hash, userIdentifier, err := CreateApiKeyAndHash("")
 	require.NoError(t, err)
+
+	randomKey, userIdentifierDecoded, err := DecodeApiKey(fullApiKey)
+	require.NoError(t, err)
+	require.Equal(t, userIdentifier, userIdentifierDecoded)
+
+	match, err := argon2id.ComparePasswordAndHash(randomKey, hash)
+	require.NoError(t, err)
+	require.True(t, match)
+}
+
+func TestKeyGenerationWithExistingIdentifier(t *testing.T) {
+	randomIdentifierDummy := strings.Repeat("A", UserIdentifierBytesBase64Length)
+
+	fullApiKey, hash, userIdentifier, err := CreateApiKeyAndHash(randomIdentifierDummy)
+	require.NoError(t, err)
+	require.Equal(t, userIdentifier, randomIdentifierDummy)
 
 	randomKey, userIdentifierDecoded, err := DecodeApiKey(fullApiKey)
 	require.NoError(t, err)
