@@ -12,22 +12,26 @@
 package authz
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func TestAuthZBatchObjREST(t *testing.T) {
+func TestAuthZBatchObjs(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
@@ -64,8 +68,8 @@ func TestAuthZBatchObjREST(t *testing.T) {
 
 	for _, tt := range tests {
 		// add classes with object
-		className1 := "AuthZBatchObjREST1"
-		className2 := "AuthZBatchObjREST2"
+		className1 := "AuthZBatchObjs1"
+		className2 := "AuthZBatchObjs2"
 		deleteObjectClass(t, className1, adminAuth)
 		deleteObjectClass(t, className2, adminAuth)
 		defer deleteObjectClass(t, className1, adminAuth)
@@ -115,6 +119,32 @@ func TestAuthZBatchObjREST(t *testing.T) {
 				Data:   &models.PermissionData{Collection: &className2, Tenant: tt.tenantPermission},
 			},
 		}
+		restObjs := []*models.Object{
+			{Class: className1, Properties: map[string]interface{}{"prop1": "test"}, Tenant: tt.tenantName},
+			{Class: className2, Properties: map[string]interface{}{"prop2": "test"}, Tenant: tt.tenantName},
+		}
+		grpcObjs := []*pb.BatchObject{
+			{
+				Collection: className1,
+				Properties: &pb.BatchObject_Properties{
+					NonRefProperties: &structpb.Struct{
+						Fields: map[string]*structpb.Value{"prop1": {Kind: &structpb.Value_StringValue{StringValue: "test"}}},
+					},
+				},
+				Tenant: tt.tenantName,
+				Uuid:   string(UUID1),
+			},
+			{
+				Collection: className2,
+				Properties: &pb.BatchObject_Properties{
+					NonRefProperties: &structpb.Struct{
+						Fields: map[string]*structpb.Value{"prop2": {Kind: &structpb.Value_StringValue{StringValue: "test"}}},
+					},
+				},
+				Tenant: tt.tenantName,
+				Uuid:   string(UUID2),
+			},
+		}
 		t.Run(fmt.Sprintf("all rights for both classes %s", tt.name), func(t *testing.T) {
 			deleteRole := &models.Role{
 				Name:        &testRoleName,
@@ -128,19 +158,19 @@ func TestAuthZBatchObjREST(t *testing.T) {
 			)
 			require.Nil(t, err)
 
-			params := batch.NewBatchObjectsCreateParams().WithBody(
-				batch.BatchObjectsCreateBody{
-					Objects: []*models.Object{
-						{Class: className1, Properties: map[string]interface{}{"prop1": "test"}, Tenant: tt.tenantName},
-						{Class: className2, Properties: map[string]interface{}{"prop2": "test"}, Tenant: tt.tenantName},
-					},
-				},
-			)
-			res, err := helper.Client(t).Batch.BatchObjectsCreate(params, customAuth)
+			params := batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{Objects: restObjs})
+			rest, err := helper.Client(t).Batch.BatchObjectsCreate(params, customAuth)
 			require.Nil(t, err)
-			for _, elem := range res.Payload {
+			for _, elem := range rest.Payload {
 				assert.Nil(t, elem.Result.Errors)
 			}
+
+			grpc, err := helper.ClientGRPC(t).BatchObjects(
+				metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey)),
+				&pb.BatchObjectsRequest{Objects: grpcObjs},
+			)
+			require.Nil(t, err)
+			require.Len(t, grpc.Errors, 0)
 
 			_, err = helper.Client(t).Authz.RevokeRoleFromUser(
 				authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{testRoleName}}),
@@ -164,17 +194,20 @@ func TestAuthZBatchObjREST(t *testing.T) {
 				)
 				require.Nil(t, err)
 
-				params := batch.NewBatchObjectsCreateParams().WithBody(
-					batch.BatchObjectsCreateBody{
-						Objects: []*models.Object{
-							{Class: className1, Properties: map[string]interface{}{"prop1": "test"}, Tenant: tt.tenantName},
-							{Class: className2, Properties: map[string]interface{}{"prop2": "test"}, Tenant: tt.tenantName},
-						},
-					},
-				)
+				params := batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{Objects: restObjs})
 				_, err = helper.Client(t).Batch.BatchObjectsCreate(params, customAuth)
 				var batchObjectsCreateForbidden *batch.BatchObjectsCreateForbidden
 				require.True(t, errors.As(err, &batchObjectsCreateForbidden))
+
+				res, err := helper.ClientGRPC(t).BatchObjects(
+					metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey)),
+					&pb.BatchObjectsRequest{Objects: grpcObjs},
+				)
+				require.Nil(t, err)
+				require.Len(t, res.Errors, 1) // the other object is in another class so is covered by one of the permissions
+				for _, err := range res.Errors {
+					require.Contains(t, err.Error, "rbac: authorization, forbidden action: user 'custom-user' has insufficient permissions")
+				}
 
 				_, err = helper.Client(t).Authz.RevokeRoleFromUser(
 					authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{testRoleName}}),
