@@ -138,6 +138,33 @@ func TestParser(t *testing.T) {
 	}
 }
 
+func Test_asMap(t *testing.T) {
+	t.Run("not nil", func(t *testing.T) {
+		m, err := propertyAsMap(&models.Property{
+			Name:        "name",
+			Description: "description",
+			DataType:    []string{"object"},
+			NestedProperties: []*models.NestedProperty{{
+				Name:        "nested",
+				Description: "nested description",
+				DataType:    []string{"text"},
+			}},
+		})
+		require.NotNil(t, m)
+		require.Nil(t, err)
+
+		_, ok := m["description"]
+		require.False(t, ok)
+
+		nps, ok := m["nestedProperties"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, nps, 1)
+
+		_, ok = nps[0]["description"]
+		require.False(t, ok)
+	})
+}
+
 type fakeModulesProvider struct{}
 
 func (m fakeModulesProvider) IsReranker(name string) bool {
