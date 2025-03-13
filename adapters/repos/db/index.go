@@ -265,7 +265,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		backupMutex:            backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		indexCheckpoints:       indexCheckpoints,
 		allocChecker:           allocChecker,
-		shardCreateLocks:       esync.NewKeyLocker(),
+		shardCreateLocks:       esync.NewKeyLocker(logger),
 		shardLoadLimiter:       cfg.ShardLoadLimiter,
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
@@ -2128,6 +2128,8 @@ func (i *Index) Shutdown(ctx context.Context) error {
 
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
+
+	i.shardCreateLocks.Cleanup()
 
 	if i.closed {
 		return errAlreadyShutdown
