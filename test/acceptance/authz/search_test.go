@@ -63,18 +63,16 @@ func TestAuthzSearchWithGRPC(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			defer helper.DeleteClassAuth(t, articles.ArticlesClass().Class, adminKey)
-			defer helper.DeleteClassAuth(t, articles.ArticlesClass().Class, adminKey)
-			t.Run("setup", func(t *testing.T) {
-				cls := articles.ArticlesClass()
-				if tt.mtEnabled {
-					cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
-				}
-				helper.CreateClassAuth(t, cls, adminKey)
-				if tt.mtEnabled {
-					helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: tt.tenantName}}, adminKey)
-				}
-				helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewArticle().WithTitle("How to git gud").WithTenant(tt.tenantName).Object()}, adminKey)
-			})
+
+			cls := articles.ArticlesClass()
+			if tt.mtEnabled {
+				cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+			}
+			helper.CreateClassAuth(t, cls, adminKey)
+			if tt.mtEnabled {
+				helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: tt.tenantName}}, adminKey)
+			}
+			helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewArticle().WithTitle("How to git gud").WithTenant(tt.tenantName).Object()}, adminKey)
 
 			t.Run("correctly fail to perform a gRPC Search call without permissions", func(t *testing.T) {
 				ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
