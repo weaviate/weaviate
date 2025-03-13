@@ -43,7 +43,7 @@ func NewGetUsersForRole(ctx *middleware.Context, handler GetUsersForRoleHandler)
 }
 
 /*
-	GetUsersForRole swagger:route GET /authz/roles/{id}/users authz getUsersForRole
+	GetUsersForRole swagger:route GET /authz/roles/{id}/users/{userType} authz getUsersForRole
 
 get users or a keys assigned to role
 */

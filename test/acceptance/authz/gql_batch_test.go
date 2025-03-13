@@ -69,15 +69,11 @@ func TestAuthZGQLBatchValidate(t *testing.T) {
 		}
 		helper.DeleteRole(t, adminKey, *role.Name)
 		helper.CreateRole(t, adminKey, role)
-		_, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}}),
-			adminAuth,
-		)
-		require.Nil(t, err)
+		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 
 		paramsObj := graphql.NewGraphqlBatchParams().WithBody(
 			models.GraphQLQueries{{Query: "mutation assign role $role: AssignRoleToUserInput!", OperationName: "POST"}})
-		_, err = helper.Client(t).Graphql.GraphqlBatch(paramsObj, customAuth)
+		_, err := helper.Client(t).Graphql.GraphqlBatch(paramsObj, customAuth)
 		require.Nil(t, err)
 
 		_, err = helper.Client(t).Authz.RevokeRoleFromUser(
@@ -100,22 +96,15 @@ func TestAuthZGQLBatchValidate(t *testing.T) {
 			}
 			helper.DeleteRole(t, adminKey, roleName)
 			helper.CreateRole(t, adminKey, role)
-			_, err := helper.Client(t).Authz.AssignRoleToUser(
-				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}}),
-				adminAuth,
-			)
-			require.Nil(t, err)
+			helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 
 			paramsObj := graphql.NewGraphqlBatchParams().WithBody(
 				models.GraphQLQueries{{Query: "mutation assign role $role: AssignRoleToUserInput!", OperationName: "POST"}})
 			resp, err := helper.Client(t).Graphql.GraphqlBatch(paramsObj, customAuth)
 			require.NotNil(t, err)
 			require.Nil(t, resp)
-			_, err = helper.Client(t).Authz.RevokeRoleFromUser(
-				authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}}),
-				adminAuth,
-			)
-			require.Nil(t, err)
+			helper.AssignRoleToUser(t, adminKey, roleName, customUser)
+
 			helper.DeleteRole(t, adminKey, roleName)
 		})
 	}

@@ -2054,6 +2054,9 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 
 		className := i.Config.ClassName.String()
 		class := i.getSchema.ReadOnlyClass(className)
+		if class == nil {
+			return nil, func() {}, fmt.Errorf("class %s not found in schema", className)
+		}
 
 		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true)
 		if err != nil {
@@ -2454,6 +2457,10 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 
 	// TODO-RAFT should be strongly consistent?
 	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
+	if shardState == nil {
+		return nil, fmt.Errorf("class %s not found in schema", i.Config.ClassName)
+	}
+
 	shardNames := shardState.AllPhysicalShards()
 
 	for _, shardName := range shardNames {

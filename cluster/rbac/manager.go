@@ -66,7 +66,7 @@ func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	roles, err := m.authZ.GetRolesForUser(subCommand.User)
+	roles, err := m.authZ.GetRolesForUser(subCommand.User, subCommand.UserType)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
@@ -89,7 +89,7 @@ func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	users, err := m.authZ.GetUsersForRole(subCommand.Role)
+	users, err := m.authZ.GetUsersForRole(subCommand.Role, subCommand.UserType)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
@@ -191,7 +191,13 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.authZ.AddRolesForUser(req.User, req.Roles)
+	reqs := migrateAssignRoles(req)
+	for _, req := range reqs {
+		if err := m.authZ.AddRolesForUser(req.User, req.Roles); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
@@ -226,5 +232,11 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.authZ.RevokeRolesForUser(req.User, req.Roles...)
+	reqs := migrateRevokeRoles(req)
+	for _, req := range reqs {
+		if err := m.authZ.RevokeRolesForUser(req.User, req.Roles...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
