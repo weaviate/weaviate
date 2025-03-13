@@ -26,7 +26,7 @@ type AggregateReplier struct {
 func NewAggregateReplier(authorizedGetClass classGetterWithAuthzFunc, params *aggregation.Params) *AggregateReplier {
 	return &AggregateReplier{
 		authorizedGetDataTypeOfProp: func(propName string) (string, error) {
-			class, err := authorizedGetClass(string(params.ClassName), params.Tenant)
+			class, err := authorizedGetClass(string(params.ClassName))
 			if err != nil {
 				return "", fmt.Errorf("get class: %w", err)
 			}

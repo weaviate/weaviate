@@ -25,8 +25,8 @@ type fakeFinder struct {
 	mock.Mock
 }
 
-func (f *fakeFinder) ReadOnlyClass(name, tenant string) (*models.Class, error) {
-	args := f.Called(name, tenant)
+func (f *fakeFinder) ReadOnlyClass(name string) (*models.Class, error) {
+	args := f.Called(name)
 	model := args.Get(0)
 	if model == nil {
 		return nil, nil

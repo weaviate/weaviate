@@ -30,7 +30,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 		tenant = *req.Tenant
 	}
 	// make sure collection exists
-	class, err := authorizedGetClass(req.Collection, tenant)
+	class, err := authorizedGetClass(req.Collection)
 	if err != nil {
 		return params, err
 	}

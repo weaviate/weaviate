@@ -2256,7 +2256,7 @@ func TestGRPCRequest(t *testing.T) {
 		},
 	}
 
-	getClass := func(name, tenant string) (*models.Class, error) {
+	getClass := func(name string) (*models.Class, error) {
 		class := scheme.GetClass(name)
 		if class == nil {
 			return nil, fmt.Errorf("class %s not found", name)

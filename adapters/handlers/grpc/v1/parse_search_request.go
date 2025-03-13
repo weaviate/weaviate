@@ -70,7 +70,7 @@ func NewParser(uses127Api bool,
 
 func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetParams, error) {
 	out := dto.GetParams{}
-	class, err := p.authorizedGetClass(req.Collection, req.Tenant)
+	class, err := p.authorizedGetClass(req.Collection)
 	if err != nil {
 		return out, err
 	}
@@ -94,7 +94,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, p.authorizedGetClass, req.Collection, req.Tenant, targetVectors, vectorSearch)
+	out.Properties, err = extractPropertiesRequest(req.Properties, p.authorizedGetClass, req.Collection, targetVectors, vectorSearch)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -667,13 +667,13 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass classGetterWithAuthzFunc, className, tenant string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass classGetterWithAuthzFunc, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
 		// No properties selected at all, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		nonRefProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className, tenant)
+		nonRefProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
@@ -683,7 +683,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 	if reqProps.ReturnAllNonrefProperties {
 		// No non-ref return properties selected, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		returnProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className, tenant)
+		returnProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
@@ -702,7 +702,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 	}
 
 	if len(reqProps.RefProperties) > 0 {
-		class, err := authorizedGetClass(className, tenant)
+		class, err := authorizedGetClass(className)
 		if err != nil {
 			return nil, err
 		}
@@ -727,14 +727,14 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
 			}
-			linkedClass, err := authorizedGetClass(linkedClassName, "")
+			linkedClass, err := authorizedGetClass(linkedClassName)
 			if err != nil {
 				return nil, err
 			}
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, authorizedGetClass, linkedClassName, "", targetVectors, vectorSearch)
+				refProperties, err = extractPropertiesRequest(prop.Properties, authorizedGetClass, linkedClassName, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
@@ -747,7 +747,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 			}
 
 			if prop.Properties == nil {
-				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName, "")
+				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
@@ -849,9 +849,9 @@ func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
 		!metadata.IsConsistent)
 }
 
-func getAllNonRefNonBlobProperties(authorizedGetClass classGetterWithAuthzFunc, className, tenant string) ([]search.SelectProperty, error) {
+func getAllNonRefNonBlobProperties(authorizedGetClass classGetterWithAuthzFunc, className string) ([]search.SelectProperty, error) {
 	var props []search.SelectProperty
-	class, err := authorizedGetClass(className, tenant)
+	class, err := authorizedGetClass(className)
 	if err != nil {
 		return nil, err
 	}
@@ -1262,7 +1262,7 @@ func (p *Parser) extractPropertiesForModules(params *dto.GetParams) error {
 			additionalProps = append(additionalProps, extractor.GetPropertiesToExtract()...)
 		}
 	}
-	class, err := p.authorizedGetClass(params.ClassName, params.Tenant)
+	class, err := p.authorizedGetClass(params.ClassName)
 	if err != nil {
 		return err
 	}

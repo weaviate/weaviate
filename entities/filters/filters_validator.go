@@ -28,7 +28,7 @@ var deprecatedDataTypeAliases map[schema.DataType]schema.DataType = map[schema.D
 	schema.DataTypeStringArray: schema.DataTypeTextArray,
 }
 
-func ValidateFilters(authorizedGetClass func(string, string) (*models.Class, error), filters *LocalFilter) error {
+func ValidateFilters(authorizedGetClass func(string) (*models.Class, error), filters *LocalFilter) error {
 	if filters == nil {
 		return errors.New("empty where")
 	}
@@ -40,7 +40,7 @@ func ValidateFilters(authorizedGetClass func(string, string) (*models.Class, err
 	return nil
 }
 
-func validateClause(authorizedGetClass func(string, string) (*models.Class, error), cw *clauseWrapper) error {
+func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *clauseWrapper) error {
 	// check if nested
 	if cw.getOperands() != nil {
 		var errs []error
@@ -66,7 +66,7 @@ func validateClause(authorizedGetClass func(string, string) (*models.Class, erro
 		return validateInternalPropertyClause(propName, cw)
 	}
 
-	class, err := authorizedGetClass(className.String(), "")
+	class, err := authorizedGetClass(className.String())
 	if err != nil {
 		return err
 	}

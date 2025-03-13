@@ -37,7 +37,7 @@ func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc) *AggregateP
 
 func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Params, error) {
 	params := &aggregation.Params{}
-	class, err := p.authorizedGetClass(req.Collection, req.Tenant)
+	class, err := p.authorizedGetClass(req.Collection)
 	if err != nil {
 		return nil, err
 	}

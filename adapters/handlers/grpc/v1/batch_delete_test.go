@@ -39,7 +39,7 @@ func TestBatchDeleteRequest(t *testing.T) {
 		},
 	}
 
-	getClass := func(name, tenant string) (*models.Class, error) {
+	getClass := func(name string) (*models.Class, error) {
 		return scheme.GetClass(name), nil
 	}
 

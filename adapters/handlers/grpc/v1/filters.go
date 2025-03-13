@@ -194,7 +194,7 @@ func extractDataTypeProperty(authorizedGetClass classGetterWithAuthzFunc, operat
 		}
 
 		classOfProp := on[len(on)-2]
-		class, err := authorizedGetClass(classOfProp, "")
+		class, err := authorizedGetClass(classOfProp)
 		if err != nil {
 			return dataType, err
 		}
@@ -210,7 +210,7 @@ func extractDataTypeProperty(authorizedGetClass classGetterWithAuthzFunc, operat
 			return schema.DataTypeInt, nil
 		}
 
-		class, err := authorizedGetClass(className, tenant)
+		class, err := authorizedGetClass(className)
 		if err != nil {
 			return dataType, err
 		}
@@ -261,7 +261,7 @@ func extractPath(className string, on []string) (*filters.Path, error) {
 }
 
 func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tenant string, target *pb.FilterTarget, operator filters.Operator) (*filters.Path, schema.DataType, error) {
-	class, err := authorizedGetClass(className, tenant)
+	class, err := authorizedGetClass(className)
 	if err != nil {
 		return nil, "", err
 	}
@@ -282,14 +282,14 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 		if len(refProp.DataType) != 1 {
 			return nil, "", fmt.Errorf("expected reference property with a single target, got %v for %v ", refProp.DataType, refProp.Name)
 		}
-		child, property, err := extractPathNew(authorizedGetClass, refProp.DataType[0], "", singleTarget.Target, operator)
+		child, property, err := extractPathNew(authorizedGetClass, refProp.DataType[0], tenant, singleTarget.Target, operator)
 		if err != nil {
 			return nil, "", err
 		}
 		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(normalizedRefPropName), Child: child}, property, nil
 	case *pb.FilterTarget_MultiTarget:
 		multiTarget := target.GetMultiTarget()
-		child, property, err := extractPathNew(authorizedGetClass, multiTarget.TargetCollection, "", multiTarget.Target, operator)
+		child, property, err := extractPathNew(authorizedGetClass, multiTarget.TargetCollection, tenant, multiTarget.Target, operator)
 		if err != nil {
 			return nil, "", err
 		}
