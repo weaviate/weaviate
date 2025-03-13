@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -218,4 +219,88 @@ func TestAuthZBatchObjs(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestAuthZBatchObjsTenantFiltering(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	adminAuth := helper.CreateAuth(adminKey)
+	customUser := "custom-user"
+	customKey := "custom-key"
+	// customAuth := helper.CreateAuth(customKey)
+	testRoleName := "test-role"
+
+	updateDataAction := authorization.UpdateData
+	createDataAction := authorization.CreateData
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
+
+	cls := articles.ParagraphsClass()
+	cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+	helper.DeleteClassWithAuthz(t, cls.Class, adminAuth)
+	helper.CreateClassAuth(t, cls, adminKey)
+	defer helper.DeleteClassWithAuthz(t, cls.Class, adminAuth)
+
+	helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: "tenant1"}, {Name: "tenant2"}}, adminKey)
+
+	objs := []*pb.BatchObject{
+		{
+			Collection: cls.Class,
+			Properties: &pb.BatchObject_Properties{
+				NonRefProperties: &structpb.Struct{
+					Fields: map[string]*structpb.Value{"contents": {Kind: &structpb.Value_StringValue{StringValue: "test"}}},
+				},
+			},
+			Tenant: "tenant1",
+			Uuid:   string(UUID1),
+		},
+		{
+			Collection: cls.Class,
+			Properties: &pb.BatchObject_Properties{
+				NonRefProperties: &structpb.Struct{
+					Fields: map[string]*structpb.Value{"contents": {Kind: &structpb.Value_StringValue{StringValue: "test"}}},
+				},
+			},
+			Tenant: "tenant2",
+			Uuid:   string(UUID2),
+		},
+	}
+
+	t.Run("cannot insert into either tenant without permissions", func(t *testing.T) {
+		res, err := helper.ClientGRPC(t).BatchObjects(
+			metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey)),
+			&pb.BatchObjectsRequest{Objects: objs},
+		)
+		require.Nil(t, err)
+		require.Len(t, res.Errors, 2)
+		for _, err := range res.Errors {
+			require.Contains(t, err.Error, "rbac: authorization, forbidden action: user 'custom-user' has insufficient permissions")
+		}
+	})
+
+	t.Run("assign permissions to insert data into tenant1", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: &testRoleName,
+			Permissions: []*models.Permission{{
+				Action: &createDataAction,
+				Data:   &models.PermissionData{Collection: &cls.Class, Tenant: String("tenant1")},
+			}, {
+				Action: &updateDataAction,
+				Data:   &models.PermissionData{Collection: &cls.Class, Tenant: String("tenant1")},
+			}},
+		})
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+	})
+
+	t.Run("can insert into tenant1 but not into tenant2", func(t *testing.T) {
+		res, err := helper.ClientGRPC(t).BatchObjects(
+			metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey)),
+			&pb.BatchObjectsRequest{Objects: objs},
+		)
+		require.Nil(t, err)
+		require.Len(t, res.Errors, 1)
+		require.Contains(t, res.Errors[0].Error, "rbac: authorization, forbidden action: user 'custom-user' has insufficient permissions")
+		require.Equal(t, res.Errors[0].Index, int32(1))
+	})
 }

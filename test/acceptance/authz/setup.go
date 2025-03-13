@@ -24,7 +24,7 @@ import (
 func composeUp(t *testing.T, admins map[string]string, users map[string]string, viewers map[string]string) (*docker.DockerCompose, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
-	builder := docker.New().WithWeaviateWithGRPC().WithRBAC().WithApiKey()
+	builder := docker.New().WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").WithWeaviateWithGRPC().WithRBAC().WithApiKey()
 	adminUserNames := make([]string, 0, len(admins))
 	viewerUserNames := make([]string, 0, len(viewers))
 	for userName, key := range admins {
