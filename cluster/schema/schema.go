@@ -515,11 +515,24 @@ func (s *schema) States() map[string]types.ClassState {
 	return cs
 }
 
+// MetaClasses is thread-safe and returns a deep copy of the meta classes and sharding states
 func (s *schema) MetaClasses() map[string]*metaClass {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.classes
+	classesCopy := make(map[string]*metaClass, len(s.classes))
+	for k, v := range s.classes {
+		v.RLock()
+		classesCopy[k] = &metaClass{
+			Class:        v.Class,
+			ClassVersion: v.ClassVersion,
+			Sharding:     v.Sharding.DeepCopy(),
+			ShardVersion: v.ShardVersion,
+		}
+		v.RUnlock()
+	}
+
+	return classesCopy
 }
 
 func (s *schema) Restore(r io.Reader, parser Parser) error {
@@ -541,14 +554,12 @@ func (s *schema) Restore(r io.Reader, parser Parser) error {
 // Persist should dump all necessary state to the WriteCloser 'sink',
 // and call sink.Close() when finished or call sink.Cancel() on error.
 func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+	// we don't need to lock here because, we call MetaClasses() which is thread-safe
 	defer sink.Close()
 	snap := snapshot{
 		NodeID:     s.nodeID,
 		SnapshotID: sink.ID(),
-		Classes:    s.classes,
+		Classes:    s.MetaClasses(),
 	}
 	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
 		return fmt.Errorf("encode: %w", err)
