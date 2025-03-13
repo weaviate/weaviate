@@ -135,7 +135,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 
 		if actualStrategy := s.store.Bucket(bucketName).Strategy(); actualStrategy == lsmkv.StrategyInverted {
-			s.markInvertedSearchableProperties(prop.Name)
+			s.markSearchableBlockmaxProperties(prop.Name)
 		}
 	}
 
@@ -294,15 +294,15 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	)
 }
 
-func (s *Shard) markInvertedSearchableProperties(propNames ...string) {
-	s.searchableInvertedPropNamesLock.Lock()
-	s.searchableInvertedPropNames = append(s.searchableInvertedPropNames, propNames...)
-	s.searchableInvertedPropNamesLock.Unlock()
+func (s *Shard) markSearchableBlockmaxProperties(propNames ...string) {
+	s.searchableBlockmaxPropNamesLock.Lock()
+	s.searchableBlockmaxPropNames = append(s.searchableBlockmaxPropNames, propNames...)
+	s.searchableBlockmaxPropNamesLock.Unlock()
 }
 
-func (s *Shard) getInvertedSearchableProperties() []string {
+func (s *Shard) getSearchableBlockmaxProperties() []string {
 	// since slice is only appended, it should be safe to return it that way
-	s.searchableInvertedPropNamesLock.Lock()
-	defer s.searchableInvertedPropNamesLock.Unlock()
-	return s.searchableInvertedPropNames
+	s.searchableBlockmaxPropNamesLock.Lock()
+	defer s.searchableBlockmaxPropNamesLock.Unlock()
+	return s.searchableBlockmaxPropNames
 }

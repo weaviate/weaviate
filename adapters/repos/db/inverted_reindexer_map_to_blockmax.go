@@ -165,6 +165,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 		if err = t.swapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("swapping ingest and map buckets:%w", err)
 		}
+		shard.markSearchableBlockmaxProperties(props...)
 	}
 
 	if err = ctx.Err(); err != nil {
@@ -198,6 +199,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 		if err = t.startIngestBuckets(ctx, logger, shard, props, disableIngestBucketsCompaction); err != nil {
 			return fmt.Errorf("starting ingest buckets:%w", err)
 		}
+		shard.markSearchableBlockmaxProperties(props...)
 		if err = t.duplicateToIngestBuckets(ctx, logger, shard, props); err != nil {
 			return fmt.Errorf("duplicating ingest buckets:%w", err)
 		}
@@ -460,13 +462,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) startIngestBuckets(ctx context.
 	// tombstones need to be kept
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, disableCompaction)
 	bucketOpts = append(bucketOpts, lsmkv.WithKeepTombstones(true))
-	if err := t.startBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts); err != nil {
-		return err
-	}
-	for i := range props {
-		shard.markInvertedSearchableProperties(props[i])
-	}
-	return nil
+	return t.startBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) startMapBuckets(ctx context.Context,

@@ -132,7 +132,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 	shard.callbacksAddToPropertyValueIndex = l.shardOpts.callbacksAddToPropertyValueIndex
 	shard.callbacksRemoveFromPropertyValueIndex = l.shardOpts.callbacksRemoveFromPropertyValueIndex
-	shard.markInvertedSearchableProperties(l.shardOpts.searchableInvertedPropNames...)
+	shard.markSearchableBlockmaxProperties(l.shardOpts.searchableInvertedPropNames...)
 
 	l.shard = shard
 	l.loaded = true
@@ -749,7 +749,7 @@ func (l *LazyLoadShard) RegisterDeleteFromPropertyValueIndex(callback onDeleteFr
 	l.shard.RegisterDeleteFromPropertyValueIndex(callback)
 }
 
-func (l *LazyLoadShard) markInvertedSearchableProperties(propNames ...string) {
+func (l *LazyLoadShard) markSearchableBlockmaxProperties(propNames ...string) {
 	l.mutex.Lock()
 	if !l.loaded {
 		l.shardOpts.searchableInvertedPropNames = append(l.shardOpts.searchableInvertedPropNames, propNames...)
@@ -757,5 +757,5 @@ func (l *LazyLoadShard) markInvertedSearchableProperties(propNames ...string) {
 		return
 	}
 	l.mutex.Unlock()
-	l.shard.markInvertedSearchableProperties(propNames...)
+	l.shard.markSearchableBlockmaxProperties(propNames...)
 }

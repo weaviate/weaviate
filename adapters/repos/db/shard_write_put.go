@@ -505,7 +505,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	// determine only changed properties to avoid unnecessary updates of inverted indexes
 	if status.docIDPreserved {
-		delta := inverted.DeltaSkipSearchable(prevProps, props, s.getInvertedSearchableProperties())
+		delta := inverted.DeltaSkipSearchable(prevProps, props, s.getSearchableBlockmaxProperties())
 
 		propsToAdd = delta.ToAdd
 		propsToDel = delta.ToDelete
