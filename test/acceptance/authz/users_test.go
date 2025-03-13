@@ -504,7 +504,7 @@ func TestListAllUsers(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	compose, err := docker.New().WithWeaviate().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).WithUserApiKey("editor-user", "editor-key").
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).WithUserApiKey(viewerUser, viewerKey).WithUserApiKey("editor-user", "editor-key").
 		WithRBAC().WithRbacAdmins(adminUser).
 		WithDynamicUsers().Start(ctx)
 	require.Nil(t, err)
