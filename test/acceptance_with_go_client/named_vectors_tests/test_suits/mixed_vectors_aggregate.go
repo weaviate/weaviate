@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
 
@@ -91,6 +90,7 @@ func testMixedVectorsAggregate(host string) func(t *testing.T) {
 			Do(ctx)
 		require.NoError(t, err)
 
+		testAllObjectsIndexed(t, client, classAggregate)
 		for _, targetVector := range []string{"", "first"} {
 			t.Run(fmt.Sprintf("vector=%q", targetVector), func(t *testing.T) {
 				no := &graphql.NearObjectArgumentBuilder{}
@@ -99,18 +99,16 @@ func testMixedVectorsAggregate(host string) func(t *testing.T) {
 					no = no.WithTargetVectors(targetVector)
 				}
 
-				assert.EventuallyWithT(t, func(tc *assert.CollectT) {
-					agg, err := client.GraphQL().
-						Aggregate().
-						WithClassName(classAggregate).
-						WithNearObject(no).
-						WithFields(graphql.Field{Name: "number", Fields: []graphql.Field{{Name: "maximum"}}}).
-						Do(ctx)
-					require.NoError(tc, err)
+				agg, err := client.GraphQL().
+					Aggregate().
+					WithClassName(classAggregate).
+					WithNearObject(no).
+					WithFields(graphql.Field{Name: "number", Fields: []graphql.Field{{Name: "maximum"}}}).
+					Do(ctx)
+				require.NoError(t, err)
 
-					maximums := acceptance_with_go_client.ExtractGraphQLField[float64](t, agg, "Aggregate", classAggregate, "number", "maximum")
-					assert.Equal(tc, []float64{1}, maximums)
-				}, 15*time.Second, 500*time.Millisecond)
+				maximums := acceptance_with_go_client.ExtractGraphQLField[float64](t, agg, "Aggregate", classAggregate, "number", "maximum")
+				assert.Equal(t, []float64{1}, maximums)
 			})
 		}
 	}

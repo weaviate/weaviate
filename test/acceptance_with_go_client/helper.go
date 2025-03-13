@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -50,7 +51,8 @@ func ExtractGraphQLField[T any](t *testing.T, resp *models.GraphQLResponse, path
 			require.True(t, ok)
 		}
 
-		results[i] = resultMap[path[len(path)-1]].(T)
+		results[i], ok = resultMap[path[len(path)-1]].(T)
+		require.True(t, ok, fmt.Sprintf("failed to extract %s from response: %s", path[len(path)-1]), spew.Sdump(resp))
 	}
 	return results
 }
