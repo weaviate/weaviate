@@ -35,10 +35,10 @@ import (
 )
 
 type mapToBlockmaxConfig struct {
-	swapBuckets          bool
-	tidyBuckets          bool
-	concurrency          int
-	memtabBlockmaxFactor int
+	swapBuckets               bool
+	tidyBuckets               bool
+	concurrency               int
+	memtableOptBlockmaxFactor int
 
 	processingInterval            time.Duration
 	pauseInterval                 time.Duration
@@ -76,7 +76,7 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger, swapBuc
 			swapBuckets:                   swapBuckets,
 			tidyBuckets:                   tidyBuckets,
 			concurrency:                   concurrency.NUMCPU_2,
-			memtabBlockmaxFactor:          4,
+			memtableOptBlockmaxFactor:     4,
 			processingInterval:            15 * time.Minute,
 			pauseInterval:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
@@ -250,7 +250,6 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ct
 			}
 		})
 	}
-
 	if err := eg.Wait(); err != nil {
 		return err
 	}
@@ -258,15 +257,28 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ct
 	logger.WithField("segments_to_move", segmentPathsToMove).WithField("buckets_to_remove", bucketPathsToRemove).
 		Debug("merging reindex and ingest buckets")
 
+	eg, gctx = enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	eg.SetLimit(t.config.concurrency)
 	for i := range segmentPathsToMove {
-		if err := os.Rename(segmentPathsToMove[i][0], segmentPathsToMove[i][1]); err != nil {
-			return err
-		}
+		i := i
+		eg.Go(func() error {
+			return os.Rename(segmentPathsToMove[i][0], segmentPathsToMove[i][1])
+		})
 	}
+	if err := eg.Wait(); err != nil {
+		return fmt.Errorf("moving segment: %w", err)
+	}
+
+	eg, gctx = enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	eg.SetLimit(t.config.concurrency)
 	for i := range bucketPathsToRemove {
-		if err := os.RemoveAll(bucketPathsToRemove[i]); err != nil {
-			return err
-		}
+		i := i
+		eg.Go(func() error {
+			return os.RemoveAll(bucketPathsToRemove[i])
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return fmt.Errorf("removing bucket: %w", err)
 	}
 
 	if err := rt.markMerged(); err != nil {
@@ -429,7 +441,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) tidyMapBuckets(ctx context.Cont
 func (t *ShardInvertedReindexTask_MapToBlockmax) loadReindexSearchBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
-	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, false, false, t.config.memtabBlockmaxFactor)
+	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, false, false, t.config.memtableOptBlockmaxFactor)
 	return t.loadBuckets(ctx, logger, shard, props, t.reindexBucketName, bucketOpts)
 }
 
@@ -437,7 +449,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) loadIngestSearchBuckets(ctx con
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 	disableCompaction, keepTombstones bool,
 ) error {
-	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, disableCompaction, keepTombstones, t.config.memtabBlockmaxFactor)
+	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, disableCompaction, keepTombstones, t.config.memtableOptBlockmaxFactor)
 	return t.loadBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
 }
 
@@ -487,7 +499,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) recoverReindexBucket(ctx contex
 	logger logrus.FieldLogger, shard ShardLike, bucketName string,
 ) error {
 	store := shard.Store()
-	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, true, false, t.config.memtabBlockmaxFactor)
+	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, true, false, t.config.memtableOptBlockmaxFactor)
 
 	logger.WithField("bucket", bucketName).Debug("loading bucket")
 	if err := store.CreateOrLoadBucket(ctx, bucketName, bucketOpts...); err != nil {
@@ -588,17 +600,17 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) calcPropLenInverted(items []inv
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, strategy string,
-	disableCompaction, keepTombstones bool, memtabFactor int,
+	disableCompaction, keepTombstones bool, memtableOptFactor int,
 ) []lsmkv.BucketOption {
 	index := shard.Index()
 
 	opts := []lsmkv.BucketOption{
 		lsmkv.WithDirtyThreshold(time.Duration(index.Config.MemtablesFlushDirtyAfter) * time.Second),
 		lsmkv.WithDynamicMemtableSizing(
-			index.Config.MemtablesInitialSizeMB*memtabFactor,
-			index.Config.MemtablesMaxSizeMB*memtabFactor,
-			index.Config.MemtablesMinActiveSeconds*memtabFactor,
-			index.Config.MemtablesMaxActiveSeconds*memtabFactor,
+			index.Config.MemtablesInitialSizeMB*memtableOptFactor,
+			index.Config.MemtablesMaxSizeMB*memtableOptFactor,
+			index.Config.MemtablesMinActiveSeconds*memtableOptFactor,
+			index.Config.MemtablesMaxActiveSeconds*memtableOptFactor,
 		),
 		lsmkv.WithPread(index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(index.allocChecker),
