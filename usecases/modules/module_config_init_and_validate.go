@@ -24,7 +24,7 @@ import (
 // SetClassDefaults sets the module-specific defaults for the class itself, but
 // also for each prop
 func (p *Provider) SetClassDefaults(class *models.Class) {
-	if p.hasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {
+	if hasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {
 		p.setClassDefaults(class, class.Vectorizer, "", func(vectorizerConfig map[string]interface{}) {
 			if class.ModuleConfig == nil {
 				class.ModuleConfig = map[string]interface{}{}
@@ -93,7 +93,7 @@ func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
 	props ...*models.Property,
 ) {
 	for _, prop := range props {
-		if p.hasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {
+		if hasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {
 			p.setSinglePropertyDefaults(prop, class.Vectorizer)
 		}
 
@@ -296,6 +296,6 @@ func (p *Provider) validateVectorConfig(class *models.Class, moduleName string, 
 	}
 }
 
-func (p *Provider) hasLegacyVectorIndex(class *models.Class) bool {
+func hasLegacyVectorIndex(class *models.Class) bool {
 	return class.Vectorizer != ""
 }

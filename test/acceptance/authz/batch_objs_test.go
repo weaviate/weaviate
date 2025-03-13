@@ -95,11 +95,7 @@ func TestAuthZBatchObjREST(t *testing.T) {
 		}
 		helper.DeleteRole(t, adminKey, *deleteRole.Name)
 		helper.CreateRole(t, adminKey, deleteRole)
-		_, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
-			adminAuth,
-		)
-		require.Nil(t, err)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
 		params := batch.NewBatchObjectsCreateParams().WithBody(
 			batch.BatchObjectsCreateBody{
@@ -131,11 +127,7 @@ func TestAuthZBatchObjREST(t *testing.T) {
 			}
 			helper.DeleteRole(t, adminKey, *deleteRole.Name)
 			helper.CreateRole(t, adminKey, deleteRole)
-			_, err := helper.Client(t).Authz.AssignRoleToUser(
-				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{testRoleName}}),
-				adminAuth,
-			)
-			require.Nil(t, err)
+			helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
 			params := batch.NewBatchObjectsCreateParams().WithBody(
 				batch.BatchObjectsCreateBody{
@@ -145,7 +137,7 @@ func TestAuthZBatchObjREST(t *testing.T) {
 					},
 				},
 			)
-			_, err = helper.Client(t).Batch.BatchObjectsCreate(params, customAuth)
+			_, err := helper.Client(t).Batch.BatchObjectsCreate(params, customAuth)
 			var batchObjectsCreateForbidden *batch.BatchObjectsCreateForbidden
 			require.True(t, errors.As(err, &batchObjectsCreateForbidden))
 

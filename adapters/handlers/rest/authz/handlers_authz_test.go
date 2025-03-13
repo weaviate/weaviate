@@ -20,7 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	authZmocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 func TestAuthorizeRoleScopes(t *testing.T) {
@@ -30,7 +30,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 		originalVerb   string
 		policies       []authorization.Policy
 		roleName       string
-		authorizeSetup func(*mocks.Authorizer)
+		authorizeSetup func(*authZmocks.Authorizer)
 		expectedError  string
 	}
 	tests := []testCase{
@@ -42,7 +42,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "newRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call succeeds - has full permissions
 				a.On("Authorize", &models.Principal{Username: "admin"}, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).
 					Return(nil).Once()
@@ -57,7 +57,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "newRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call fails - no full permissions
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).
 					Return(errors.New("no full permissions")).Once()
@@ -79,7 +79,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				{Resource: "collections/XYZ", Verb: authorization.UPDATE},
 			},
 			roleName: "newRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call fails - no full permissions
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).
 					Return(errors.New("no full permissions")).Once()
@@ -103,7 +103,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "newRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call fails - no full permissions
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).
 					Return(errors.New("no full permissions")).Once()
@@ -121,7 +121,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "existingRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call succeeds - has full permissions
 				a.On("Authorize", &models.Principal{Username: "admin"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(nil).Once()
@@ -136,7 +136,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "existingRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call fails - no full permissions
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
@@ -158,7 +158,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				{Resource: "collections/XYZ", Verb: authorization.DELETE},
 			},
 			roleName: "existingRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call fails - no full permissions
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
@@ -182,7 +182,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				{Resource: "collections/ABC", Verb: authorization.READ},
 			},
 			roleName: "existingRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call fails - no full permissions
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
@@ -198,7 +198,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			originalVerb: authorization.DELETE,
 			policies:     []authorization.Policy{},
 			roleName:     "existingRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call succeeds - has full permissions
 				a.On("Authorize", &models.Principal{Username: "admin"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(nil).Once()
@@ -211,7 +211,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			originalVerb: authorization.DELETE,
 			policies:     []authorization.Policy{},
 			roleName:     "existingRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call fails - no full permissions
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
@@ -230,7 +230,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 				{Resource: "collections/XYZ", Verb: authorization.DELETE},
 			},
 			roleName: "existingRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call fails - no full permissions
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
@@ -252,7 +252,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 			originalVerb: authorization.DELETE,
 			policies:     nil,
 			roleName:     "existingRole",
-			authorizeSetup: func(a *mocks.Authorizer) {
+			authorizeSetup: func(a *authZmocks.Authorizer) {
 				// First call fails - no full permissions
 				a.On("Authorize", &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
 					Return(errors.New("no full permissions")).Once()
@@ -266,7 +266,7 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
+			authorizer := authZmocks.NewAuthorizer(t)
 			logger, _ := test.NewNullLogger()
 
 			if tt.authorizeSetup != nil {

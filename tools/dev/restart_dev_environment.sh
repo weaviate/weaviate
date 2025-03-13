@@ -64,6 +64,9 @@ fi
 if [[ "$*" == *--voyagemulti* ]]; then
   ADDITIONAL_SERVICES+=('multi2vec-voyageai')
 fi
+if [[ "$*" == *--ollama ]]; then
+  ADDITIONAL_SERVICES+=('ollama')
+fi
 
 docker compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 

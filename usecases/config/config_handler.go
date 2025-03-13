@@ -393,9 +393,6 @@ type Raft struct {
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
-
-	EnableFQDNResolver bool
-	FQDNResolverTLD    string
 }
 
 func (r *Raft) Validate() error {
