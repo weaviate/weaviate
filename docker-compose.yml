@@ -124,9 +124,9 @@ services:
   ollama:
     image: ollama/ollama:latest
     ports:
-      - "11434:11434"
+      - "11435:11434"
     volumes:
-      - ./_local/.ollama:/root/.ollama
+      - ./_local/ollama:/root/.ollama
       - ./tools/dev/ollama_startup.sh:/ollama_startup.sh
     environment:
       - MODELS_TO_PULL=nomic-embed-text
