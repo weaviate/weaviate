@@ -17,17 +17,20 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass func(string) (*models.Class, error)) (objects.BatchDeleteParams, error) {
+func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc) (objects.BatchDeleteParams, error) {
 	params := objects.BatchDeleteParams{}
 
+	tenant := ""
+	if req.Tenant != nil {
+		tenant = *req.Tenant
+	}
 	// make sure collection exists
-	class, err := authorizedGetClass(req.Collection)
+	class, err := authorizedGetClass(req.Collection, tenant)
 	if err != nil {
 		return params, err
 	}
@@ -49,7 +52,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass f
 		return objects.BatchDeleteParams{}, fmt.Errorf("no filters in batch delete request")
 	}
 
-	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection)
+	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant)
 	if err != nil {
 		return objects.BatchDeleteParams{}, err
 	}

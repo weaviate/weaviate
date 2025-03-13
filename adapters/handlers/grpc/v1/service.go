@@ -340,11 +340,14 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 	return nil
 }
 
-func (s *Service) classGetterWithAuthzFunc(principal *models.Principal, tenant string) func(string) (*models.Class, error) {
+type classGetterWithAuthzFunc func(string, string) (*models.Class, error)
+
+func (s *Service) classGetterWithAuthzFunc(principal *models.Principal, tenant string) classGetterWithAuthzFunc {
 	authorizedCollections := map[string]*models.Class{}
 
-	return func(name string) (*models.Class, error) {
-		class, ok := authorizedCollections[name]
+	return func(name, tenant string) (*models.Class, error) {
+		classTenantName := name + "#" + tenant
+		class, ok := authorizedCollections[classTenantName]
 		if !ok {
 			resources := authorization.CollectionsData(name)
 			if tenant != "" {
