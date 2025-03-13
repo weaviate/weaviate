@@ -492,8 +492,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
 		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
-		EnableFQDNResolver:     appState.ServerConfig.Config.Raft.EnableFQDNResolver,
-		FQDNResolverTLD:        appState.ServerConfig.Config.Raft.FQDNResolverTLD,
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
 		AuthzController:        appState.AuthzController,
 		DynamicUserController:  appState.APIKey.Dynamic,

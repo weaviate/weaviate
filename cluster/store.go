@@ -143,9 +143,6 @@ type Config struct {
 	// WARNING: This should be run on *actual* one node cluster only.
 	ForceOneNodeRecovery bool
 
-	EnableFQDNResolver bool
-	FQDNResolverTLD    string
-
 	// 	AuthzController to manage RBAC commands and apply it to casbin
 	AuthzController authorization.Controller
 
@@ -206,32 +203,19 @@ type Store struct {
 }
 
 func NewFSM(cfg Config, reg prometheus.Registerer) Store {
-	// We have different resolver in raft so that depending on the environment we can resolve a node-id to an IP using
-	// different methods.
-	var raftResolver types.RaftResolver
-	raftResolver = resolver.NewRaft(resolver.RaftConfig{
-		NodeToAddress:     cfg.NodeToAddressResolver,
-		RaftPort:          cfg.RaftPort,
-		IsLocalHost:       cfg.IsLocalHost,
-		NodeNameToPortMap: cfg.NodeNameToPortMap,
-	})
-	if cfg.EnableFQDNResolver {
-		raftResolver = resolver.NewFQDN(resolver.FQDNConfig{
-			TLD:               cfg.FQDNResolverTLD,
-			RaftPort:          cfg.RaftPort,
-			IsLocalHost:       cfg.IsLocalHost,
-			NodeNameToPortMap: cfg.NodeNameToPortMap,
-		})
-	}
-
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 
 	return Store{
-		cfg:            cfg,
-		log:            cfg.Logger,
-		candidates:     make(map[string]string, cfg.BootstrapExpect),
-		applyTimeout:   time.Second * 20,
-		raftResolver:   raftResolver,
+		cfg:          cfg,
+		log:          cfg.Logger,
+		candidates:   make(map[string]string, cfg.BootstrapExpect),
+		applyTimeout: time.Second * 20,
+		raftResolver: resolver.NewRaft(resolver.RaftConfig{
+			NodeToAddress:     cfg.NodeToAddressResolver,
+			RaftPort:          cfg.RaftPort,
+			IsLocalHost:       cfg.IsLocalHost,
+			NodeNameToPortMap: cfg.NodeNameToPortMap,
+		}),
 		schemaManager:  schemaManager,
 		authZManager:   rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
 		dynUserManager: dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
