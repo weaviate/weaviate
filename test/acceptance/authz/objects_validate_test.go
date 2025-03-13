@@ -13,6 +13,7 @@ package authz
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -40,68 +41,96 @@ func TestAuthZObjectValidate(t *testing.T) {
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
+	tests := []struct {
+		name             string
+		mtEnabled        bool
+		tenantName       string
+		tenantPermission *string
+	}{
+		{
+			name:             "with multi-tenancy",
+			mtEnabled:        true,
+			tenantName:       "tenant-1",
+			tenantPermission: nil,
+		},
+		{
+			name:             "without multi-tenancy",
+			mtEnabled:        false,
+			tenantName:       "",
+			tenantPermission: nil,
+		},
+	}
+
 	roleName := "AuthZObjectValidateTestRole"
 	className := "AuthZObjectValidateTest"
-	deleteObjectClass(t, className, adminAuth)
-	require.NoError(t, createClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{
-				Name:     "prop",
-				DataType: schema.DataTypeText.PropString(),
-			},
-		},
-	}, adminAuth))
-
-	t.Run("No rights ", func(t *testing.T) {
-		paramsObj := objects.NewObjectsValidateParams().WithBody(
-			&models.Object{
-				ID:    strfmt.UUID(uuid.New().String()),
-				Class: className,
-				Properties: map[string]interface{}{
-					"prop": "test",
-				},
-			})
-		_, err := helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
-		require.NotNil(t, err)
-		var errNoAuth *objects.ObjectsValidateForbidden
-		require.True(t, errors.As(err, &errNoAuth))
-	})
-
-	t.Run("All rights", func(t *testing.T) {
-		deleteRole := &models.Role{
-			Name: &roleName,
-			Permissions: []*models.Permission{
+	for _, tt := range tests {
+		deleteObjectClass(t, className, adminAuth)
+		require.NoError(t, createClass(t, &models.Class{
+			Class: className,
+			Properties: []*models.Property{
 				{
-					Action: &readDataAction,
-					Data:   &models.PermissionData{Collection: &className},
+					Name:     "prop",
+					DataType: schema.DataTypeText.PropString(),
 				},
 			},
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: tt.mtEnabled},
+		}, adminAuth))
+		if tt.mtEnabled {
+			helper.CreateTenantsAuth(t, className, []*models.Tenant{{Name: "tenant1"}}, adminKey)
 		}
-		helper.DeleteRole(t, adminKey, *deleteRole.Name)
-		helper.CreateRole(t, adminKey, deleteRole)
-		_, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}}),
-			adminAuth,
-		)
-		require.Nil(t, err)
 
-		paramsObj := objects.NewObjectsValidateParams().WithBody(
-			&models.Object{
-				ID:    strfmt.UUID(uuid.New().String()),
-				Class: className,
-				Properties: map[string]interface{}{
-					"prop": "test",
+		t.Run(fmt.Sprintf("No rights %s", tt.name), func(t *testing.T) {
+			paramsObj := objects.NewObjectsValidateParams().WithBody(
+				&models.Object{
+					ID:    strfmt.UUID(uuid.New().String()),
+					Class: className,
+					Properties: map[string]interface{}{
+						"prop": "test",
+					},
+					Tenant: tt.tenantName,
+				})
+			_, err := helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
+			require.NotNil(t, err)
+			var errNoAuth *objects.ObjectsValidateForbidden
+			require.True(t, errors.As(err, &errNoAuth))
+		})
+
+		t.Run(fmt.Sprintf("All rights %s", tt.name), func(t *testing.T) {
+			deleteRole := &models.Role{
+				Name: &roleName,
+				Permissions: []*models.Permission{
+					{
+						Action: &readDataAction,
+						Data:   &models.PermissionData{Collection: &className, Tenant: tt.tenantPermission},
+					},
 				},
-			})
-		_, err = helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
-		require.Nil(t, err)
+			}
+			helper.DeleteRole(t, adminKey, *deleteRole.Name)
+			helper.CreateRole(t, adminKey, deleteRole)
+			_, err := helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}}),
+				adminAuth,
+			)
+			require.Nil(t, err)
 
-		_, err = helper.Client(t).Authz.RevokeRoleFromUser(
-			authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}}),
-			adminAuth,
-		)
-		require.Nil(t, err)
-		helper.DeleteRole(t, adminKey, roleName)
-	})
+			paramsObj := objects.NewObjectsValidateParams().WithBody(
+				&models.Object{
+					ID:    strfmt.UUID(uuid.New().String()),
+					Class: className,
+					Properties: map[string]interface{}{
+						"prop": "test",
+					},
+					Tenant: tt.tenantName,
+				})
+			_, err = helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
+			require.Nil(t, err)
+
+			_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+				authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}}),
+				adminAuth,
+			)
+			require.Nil(t, err)
+			helper.DeleteRole(t, adminKey, roleName)
+		})
+	}
 }
