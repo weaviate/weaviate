@@ -38,6 +38,8 @@ const (
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
 	DefaultHNSWAcornFilterRatio = 0.4
+
+	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -541,7 +543,7 @@ func FromEnv(config *Config) error {
 
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
-		func(val int) { config.MaximumAllowedCollectionsCount = val },
+		func(val int) { config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = val },
 		DefaultMaximumAllowedCollectionsCount,
 	); err != nil {
 		return err
@@ -568,6 +570,20 @@ func FromEnv(config *Config) error {
 		DefaultMetadataServerDataEventsChannelCapacity,
 	); err != nil {
 		return err
+	}
+
+	config.RuntimeOverrides.Enabled = entcfg.Enabled(os.Getenv("RUNTIME_OVERRIDES_ENABLED"))
+
+	if v := os.Getenv("RUNTIME_OVERRIDES_PATH"); v != "" {
+		config.RuntimeOverrides.Path = v
+	}
+
+	if v := os.Getenv("RUNTIME_OVERRIDES_LOAD_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse RUNTIME_OVERRIDES_LOAD_INTERVAL as time.Duration: %w", err)
+		}
+		config.RuntimeOverrides.LoadInterval = interval
 	}
 
 	return nil

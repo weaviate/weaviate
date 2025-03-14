@@ -41,7 +41,6 @@ type Manager struct {
 	repo         SchemaStore
 	logger       logrus.FieldLogger
 	Authorizer   authorization.Authorizer
-	config       config.Config
 	clusterState clusterState
 
 	sync.RWMutex
@@ -203,7 +202,9 @@ func NewManager(validator validator,
 	schemaManager SchemaManager,
 	schemaReader SchemaReader,
 	repo SchemaStore,
-	logger logrus.FieldLogger, authorizer authorization.Authorizer, managerConfig config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer,
+	schemaConfig *config.SchemaHandlerConfig,
+	config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
@@ -217,14 +218,14 @@ func NewManager(validator validator,
 		schemaManager,
 		validator,
 		logger, authorizer,
-		managerConfig, configParser, vectorizerValidator, invertedConfigValidator,
+		schemaConfig,
+		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
 	m := &Manager{
-		config:       managerConfig,
 		validator:    validator,
 		repo:         repo,
 		logger:       logger,

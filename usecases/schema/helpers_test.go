@@ -51,11 +51,11 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{})
 	handler, err := NewHandler(
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
-		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
+		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 
 	require.Nil(t, err)
-	handler.config.MaximumAllowedCollectionsCount = -1
+	handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 	return &handler, schemaManager
 }
 
@@ -73,7 +73,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
 	handler, err := NewHandler(
 		metaHandler, metaHandler, fakeValidator, logger, authorizer,
-		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
+		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
