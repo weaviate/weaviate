@@ -13,84 +13,229 @@ package test_suits
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	acceptance_with_go_client "acceptance_tests_with_client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func testMixedVectorsCreateObject(host string) func(t *testing.T) {
+func testMixedVectorsObject(host string) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx := context.Background()
+		var (
+			ctx     = context.Background()
+			idField = graphql.Field{
+				Name: "_additional",
+				Fields: []graphql.Field{
+					{Name: "id"},
+				},
+			}
+		)
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
 		require.NoError(t, err)
 
 		require.NoError(t, client.Schema().AllDeleter().Do(context.Background()))
+		class := createMixedVectorsSchema(t, client)
 
-		class := &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{
-					Name:     "text",
-					DataType: schema.DataTypeText.PropString(),
-				},
-			},
-			Vectorizer: text2vecContextionary,
-			ModuleConfig: map[string]interface{}{
-				text2vecContextionary: map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
-			VectorConfig: map[string]models.VectorConfig{
-				"contextionary": {
-					Vectorizer: map[string]interface{}{
-						text2vecContextionary: map[string]interface{}{
-							"vectorizeClassName": true,
-						},
-					},
-					VectorIndexType: "hnsw",
-				},
-				"contextionary_without_class_name": {
-					Vectorizer: map[string]interface{}{
-						text2vecContextionary: map[string]interface{}{
-							"vectorizeClassName": false,
-						},
-					},
-					VectorIndexType: "hnsw",
-				},
-				"transformers": {
-					Vectorizer: map[string]interface{}{
-						text2vecTransformers: map[string]interface{}{},
-					},
-					VectorIndexType: "flat",
-				},
-			},
+		// create objects
+		for i, data := range []struct{ id, text string }{
+			{id: id1, text: "I like reading books"},
+			{id: id2, text: "I like programming"},
+		} {
+			_, err := client.Data().Creator().
+				WithClassName(class.Class).
+				WithID(data.id).
+				WithProperties(map[string]interface{}{
+					"text":   data.text,
+					"number": i,
+				}).
+				Do(context.Background())
+			require.NoError(t, err)
 		}
-		require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
 
-		objWrapper, err := client.Data().Creator().
-			WithClassName(className).
-			WithID(id1).
-			WithProperties(map[string]interface{}{
-				"text": "Lorem ipsum dolor sit amet",
-			}).
-			Do(ctx)
-		require.NoError(t, err)
+		vectors := getVectors(t, client, class.Class, id1, contextionary)
+		require.Len(t, vectors, 1)
+		require.Len(t, vectors[contextionary], 300)
+		obj1C11YVector := vectors[contextionary].([]float32)
 
-		obj := objWrapper.Object
-		require.NotNil(t, obj)
+		t.Run("get object", func(t *testing.T) {
+			objWrappers, err := client.Data().ObjectsGetter().
+				WithClassName(class.Class).
+				WithID(id1).
+				WithVector().
+				Do(ctx)
+			require.NoError(t, err)
 
-		assert.Len(t, obj.Vector, 300)
+			require.Len(t, objWrappers, 1)
+			obj := objWrappers[0]
+			require.NotNil(t, obj)
 
-		require.Len(t, obj.Vectors, 3)
-		assert.Equal(t, []float32(obj.Vector), obj.Vectors["contextionary"].([]float32))
-		assert.Len(t, obj.Vectors["contextionary_without_class_name"], 300)
-		assert.Len(t, obj.Vectors["transformers"], 384)
+			assert.Len(t, obj.Vector, 300)
 
-		// as these vectors were made using different module parameters, they should be different
-		assert.NotEqual(t, obj.Vector, obj.Vectors["contextionary_without_class_name"])
+			require.Len(t, obj.Vectors, 3)
+			assert.Equal(t, []float32(obj.Vector), obj.Vectors["contextionary"].([]float32))
+			assert.Len(t, obj.Vectors["contextionary_with_class_name"], 300)
+			assert.Len(t, obj.Vectors["transformers"], 384)
+
+			// as these vectors were made using different module parameters, they should be different
+			assert.NotEqual(t, obj.Vector, obj.Vectors["contextionary_with_class_name"], 300)
+		})
+
+		t.Run("GraphQL get vectors", func(t *testing.T) {
+			resultVectors := getVectors(t, client, class.Class, id1, "", transformers)
+			require.Len(t, resultVectors, 2)
+			require.Len(t, resultVectors[""], 300)
+			require.Len(t, resultVectors[transformers], 384)
+		})
+		for _, targetVector := range []string{"", contextionary} {
+			t.Run(fmt.Sprintf("targetVector=%q", targetVector), func(t *testing.T) {
+				t.Run("nearText search", func(t *testing.T) {
+					nearText := client.GraphQL().NearTextArgBuilder().
+						WithConcepts([]string{"book"}).
+						WithCertainty(0.9).
+						WithTargetVectors()
+
+					if targetVector != "" {
+						nearText = nearText.WithTargetVectors(targetVector)
+					}
+
+					res, err := client.GraphQL().Get().WithClassName(class.Class).
+						WithNearText(nearText).
+						WithFields(idField).Do(ctx)
+					require.NoError(t, err)
+
+					require.Equal(t, []string{id1}, acceptance_with_go_client.GetIds(t, res, class.Class))
+				})
+
+				t.Run("nearObject search", func(t *testing.T) {
+					nearObject := client.GraphQL().NearObjectArgBuilder().
+						WithID(id1).
+						WithCertainty(0.9)
+
+					if targetVector != "" {
+						nearObject = nearObject.WithTargetVectors(targetVector)
+					}
+
+					res, err := client.GraphQL().Get().WithClassName(class.Class).
+						WithNearObject(nearObject).
+						WithFields(idField).Do(ctx)
+					require.NoError(t, err)
+
+					require.Equal(t, []string{id1}, acceptance_with_go_client.GetIds(t, res, class.Class))
+				})
+
+				t.Run("nearVector search", func(t *testing.T) {
+					nearVector := client.GraphQL().NearVectorArgBuilder().
+						WithVector(obj1C11YVector).
+						WithCertainty(0.9)
+
+					if targetVector != "" {
+						nearVector = nearVector.WithTargetVectors(targetVector)
+					}
+
+					res, err := client.GraphQL().Get().WithClassName(class.Class).
+						WithNearVector(nearVector).
+						WithFields(idField).Do(ctx)
+					require.NoError(t, err)
+
+					require.Equal(t, []string{id1}, acceptance_with_go_client.GetIds(t, res, class.Class))
+				})
+			})
+		}
+
+		t.Run("update object", func(t *testing.T) {
+			vectorsToCheck := []string{"", contextionary}
+
+			beforeUpdate := getVectors(t, client, class.Class, id1, vectorsToCheck...)
+			require.NoError(t, client.Data().Updater().
+				WithClassName(className).
+				WithID(id1).
+				WithProperties(map[string]interface{}{
+					"text": "I like reading science-fiction books",
+				}).
+				Do(ctx))
+			afterUpdate := getVectors(t, client, class.Class, id1, vectorsToCheck...)
+
+			// expect the vectors to change
+			require.Equal(t, len(beforeUpdate), len(afterUpdate))
+			for _, targetVector := range vectorsToCheck {
+				require.NotEqual(t, beforeUpdate[targetVector], afterUpdate[targetVector])
+			}
+		})
+
+		t.Run("update object", func(t *testing.T) {
+			vectorsToCheck := []string{"", contextionary}
+			beforeUpdate := getVectors(t, client, class.Class, id1, vectorsToCheck...)
+			require.NoError(t, client.Data().Updater().
+				WithClassName(className).
+				WithMerge().
+				WithID(id1).
+				WithProperties(map[string]interface{}{
+					"text": "I like reading books about dinosaurs",
+				}).
+				Do(ctx))
+			afterUpdate := getVectors(t, client, class.Class, id1, vectorsToCheck...)
+
+			// expect the vectors to change
+			require.Equal(t, len(beforeUpdate), len(afterUpdate))
+			for _, targetVector := range vectorsToCheck {
+				require.NotEqual(t, beforeUpdate[targetVector], afterUpdate[targetVector])
+			}
+		})
 	}
+}
+
+func createMixedVectorsSchema(t *testing.T, client *wvt.Client) *models.Class {
+	contextionaryConfig := map[string]interface{}{
+		text2vecContextionary: map[string]interface{}{
+			"vectorizeClassName": false,
+		},
+	}
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "text",
+				DataType: schema.DataTypeText.PropString(),
+			},
+			{
+				Name:     "number",
+				DataType: schema.DataTypeInt.PropString(),
+			},
+		},
+		Vectorizer:   text2vecContextionary,
+		ModuleConfig: contextionaryConfig,
+		VectorConfig: map[string]models.VectorConfig{
+			contextionary: {
+				Vectorizer:      contextionaryConfig,
+				VectorIndexType: "hnsw",
+			},
+			"contextionary_with_class_name": {
+				Vectorizer: map[string]interface{}{
+					text2vecContextionary: map[string]interface{}{
+						"vectorizeClassName": true,
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+			transformers: {
+				Vectorizer: map[string]interface{}{
+					text2vecTransformers: map[string]interface{}{},
+				},
+				VectorIndexType: "flat",
+			},
+		},
+	}
+	require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(context.Background()))
+
+	fetchedSchema, err := client.Schema().ClassGetter().WithClassName(class.Class).Do(context.Background())
+	require.NoError(t, err)
+
+	return fetchedSchema
 }

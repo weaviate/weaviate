@@ -91,32 +91,41 @@ func GetVectors(t *testing.T,
 		require.True(t, ok)
 
 		for _, targetVector := range targetVectors {
-			switch vector := vectors[targetVector].(type) {
-			case []interface{}:
-				var multiVector [][]float32
-				var vec []float32
-				for i := range vector {
-					switch v := vector[i].(type) {
-					case float64:
-						vec = append(vec, float32(v))
-					case []interface{}:
-						multiVectorVector := make([]float32, len(v))
-						for j := range v {
-							multiVectorVector[j] = float32(v[j].(float64))
-						}
-						multiVector = append(multiVector, multiVectorVector)
-					}
-				}
-				if len(multiVector) > 0 {
-					targetVectorsMap[targetVector] = multiVector
-				} else {
-					targetVectorsMap[targetVector] = vec
-				}
-			default:
-				panic(fmt.Sprintf("unexpected vector types in GraphQL response: %T", vectors[targetVector]))
+			if targetVector == "" {
+				targetVectorsMap[""] = parseVector(additional["vector"])
+				continue
 			}
+
+			targetVectorsMap[targetVector] = parseVector(vectors[targetVector])
 		}
 	}
 
 	return targetVectorsMap
+}
+
+func parseVector(data interface{}) models.Vector {
+	vector, ok := data.([]interface{})
+	if !ok {
+		panic(fmt.Sprintf("unexpected vector types in GraphQL response: %T", data))
+	}
+
+	var multiVector [][]float32
+	var vec []float32
+	for i := range vector {
+		switch v := vector[i].(type) {
+		case float64:
+			vec = append(vec, float32(v))
+		case []interface{}:
+			multiVectorVector := make([]float32, len(v))
+			for j := range v {
+				multiVectorVector[j] = float32(v[j].(float64))
+			}
+			multiVector = append(multiVector, multiVectorVector)
+		}
+	}
+
+	if len(multiVector) > 0 {
+		return multiVector
+	}
+	return vec
 }
