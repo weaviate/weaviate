@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
