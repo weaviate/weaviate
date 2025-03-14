@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -926,6 +927,10 @@ func (p *Provider) getTargetVector(class *models.Class, params interface{}) ([]s
 		return nearParam.GetTargetVectors(), nil
 	}
 	if class != nil {
+		if schemachecks.HasLegacyVectorIndex(class) {
+			return []string{""}, nil
+		}
+
 		if len(class.VectorConfig) > 1 {
 			return nil, fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
 		}

@@ -262,9 +262,30 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 		Name: "_additional",
 		Fields: []graphql.Field{
 			{Name: "id"},
-			{Name: fmt.Sprintf("vectors{%s}", strings.Join(targetVectors, " "))},
 		},
 	}
+
+	var (
+		requireLegacyVector   bool
+		filteredTargetVectors []string
+	)
+	for _, targetVector := range targetVectors {
+		if targetVector == "" {
+			requireLegacyVector = true
+		} else {
+			filteredTargetVectors = append(filteredTargetVectors, targetVector)
+		}
+	}
+
+	if requireLegacyVector {
+		field.Fields = append(field.Fields, graphql.Field{Name: "vector"})
+	}
+
+	if len(filteredTargetVectors) > 0 {
+		vectors := fmt.Sprintf("vectors{%s}", strings.Join(filteredTargetVectors, " "))
+		field.Fields = append(field.Fields, graphql.Field{Name: vectors})
+	}
+
 	if withCertainty {
 		field.Fields = append(field.Fields, graphql.Field{Name: "certainty"})
 	}
