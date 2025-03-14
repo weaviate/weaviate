@@ -80,8 +80,8 @@ func (s *SchemaManager) Snapshot() raft.FSMSnapshot {
 	return s.schema
 }
 
-func (s *SchemaManager) Restore(rc io.ReadCloser, parser Parser) error {
-	return s.schema.Restore(rc, parser)
+func (s *SchemaManager) Restore(rc io.ReadCloser) error {
+	return s.schema.Restore(rc, s.parser)
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
