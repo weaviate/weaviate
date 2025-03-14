@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TestIndex_DropIndex(t *testing.T) {
@@ -119,6 +120,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
+		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -177,6 +179,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
+		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema:     fakeSchema,
@@ -290,6 +293,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
+		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -445,6 +449,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
+		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -503,6 +508,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 		ClassName:             schema.ClassName(class.Class),
 		DisableLazyLoadShards: true,
 		ReplicationFactor:     1,
+		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			shardState: shardState,

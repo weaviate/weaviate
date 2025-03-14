@@ -642,7 +642,7 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 		copy(newCacheLine, s.cache[docID])
 		s.cache[docID] = newCacheLine
 	}
-	copy(s.cache[docID][relativeID], vec)
+	s.cache[docID][relativeID] = vec
 	s.shardedLocks.Unlock(docID)
 
 	return vec, nil

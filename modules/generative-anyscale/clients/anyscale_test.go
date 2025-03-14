@@ -24,6 +24,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -32,7 +34,7 @@ func nullLogger() logrus.FieldLogger {
 }
 
 func TestGetAnswer(t *testing.T) {
-	textProperties := []map[string]string{{"prop": "My name is john"}}
+	textProperties := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
 
 	tests := []struct {
 		name           string
@@ -153,4 +155,8 @@ func (cfg *fakeClassConfig) Property(propName string) map[string]interface{} {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
 }

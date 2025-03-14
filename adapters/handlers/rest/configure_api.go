@@ -20,6 +20,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
+	"regexp"
 	goruntime "runtime"
 	"runtime/debug"
 	"strconv"
@@ -36,6 +37,7 @@ import (
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -211,6 +213,18 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 		appState.TenantActivity = tenantactivity.NewHandler()
 
+		// Since we are scraping prometheus.DefaultRegisterer, it already has
+		// a go collector configured by default in internal module init().
+		// However, the go collector configured by default is missing some interesting metrics,
+		// therefore, we have to first unregister it so there are no duplicate metric declarations
+		// and then register extended collector once again.
+		prometheus.Unregister(collectors.NewGoCollector())
+		prometheus.MustRegister(collectors.NewGoCollector(
+			collectors.WithGoCollectorRuntimeMetrics(collectors.GoRuntimeMetricsRule{
+				Matcher: regexp.MustCompile(`/sched/latencies:seconds`),
+			}),
+		))
+
 		// export build tags to prometheus metric
 		build.SetPrometheusBuildInfo()
 		prometheus.MustRegister(version.NewCollector(build.AppName))
@@ -358,6 +372,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SegmentsCleanupIntervalSeconds:      appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
 		SeparateObjectsCompactions:          appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
 		MaxSegmentSize:                      appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
+		CycleManagerRoutinesFactor:          appState.ServerConfig.Config.Persistence.LSMCycleManagerRoutinesFactor,
 		HNSWMaxLogSize:                      appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
 		HNSWWaitForCachePrefill:             appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		HNSWFlatSearchConcurrency:           appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
@@ -380,7 +395,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// longer start up if the required minimum is now higher than 1. We want
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
-		Replication: replication.GlobalConfig{MinimumFactor: 1},
+		Replication:                 replication.GlobalConfig{MinimumFactor: 1},
+		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -884,7 +900,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		defer cancel()
 
 		if err := appState.ClusterService.Close(ctx); err != nil {
-			panic(err)
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown").
+				Errorf("failed to gracefully shutdown")
 		}
 	}
 

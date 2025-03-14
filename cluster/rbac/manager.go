@@ -134,6 +134,21 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	// don't allow to create roles if there is already a role present
+	if req.RoleCreation {
+		names := make([]string, 0, len(req.Roles))
+		for name := range req.Roles {
+			names = append(names, name)
+		}
+		roles, err := m.authZ.GetRoles(names...)
+		if err != nil {
+			return err
+		}
+		if len(roles) > 0 {
+			return fmt.Errorf("%w: roles already exist", ErrBadRequest)
+		}
+	}
+
 	if req.Version < cmd.RBACLatestCommandPolicyVersion {
 		for roleName, policies := range req.Roles {
 			permissions := []*authorization.Policy{}
@@ -152,7 +167,7 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 		return err
 	}
 
-	return m.authZ.UpsertRolesPermissions(reqMigrated.Roles)
+	return m.authZ.UpdateRolesPermissions(reqMigrated.Roles) // update is upsert, naming is to satisfy interface
 }
 
 func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {

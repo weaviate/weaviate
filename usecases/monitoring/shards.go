@@ -11,128 +11,51 @@
 
 package monitoring
 
-import (
-	"github.com/prometheus/client_golang/prometheus"
-)
-
 // Move the shard from unloaded to in progress
-func (pm *PrometheusMetrics) StartLoadingShard(className string) error {
+func (pm *PrometheusMetrics) StartLoadingShard() {
 	if pm == nil {
-		return nil
+		return
 	}
 
-	labels := prometheus.Labels{
-		"class_name": className,
-	}
-	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
-	if err != nil {
-		return err
-	}
-	suld.Dec()
-
-	slding, err := pm.ShardsLoading.GetMetricWith(labels)
-	if err != nil {
-		return err
-	}
-
-	slding.Inc()
-	return nil
+	pm.ShardsUnloaded.Dec()
+	pm.ShardsLoading.Inc()
 }
 
 // Move the shard from in progress to loaded
-func (pm *PrometheusMetrics) FinishLoadingShard(className string) error {
+func (pm *PrometheusMetrics) FinishLoadingShard() {
 	if pm == nil {
-		return nil
+		return
 	}
 
-	labels := prometheus.Labels{
-		"class_name": className,
-	}
-
-	slding, err := pm.ShardsLoading.GetMetricWith(labels)
-	if err != nil {
-		return err
-	}
-
-	slding.Dec()
-
-	sldd, err := pm.ShardsLoaded.GetMetricWith(labels)
-	if err != nil {
-		return err
-	}
-
-	sldd.Inc()
-	return nil
+	pm.ShardsLoading.Dec()
+	pm.ShardsLoaded.Inc()
 }
 
 // Move the shard from loaded to in progress
-func (pm *PrometheusMetrics) StartUnloadingShard(className string) error {
+func (pm *PrometheusMetrics) StartUnloadingShard() {
 	if pm == nil {
-		return nil
+		return
 	}
 
-	labels := prometheus.Labels{
-		"class_name": className,
-	}
-
-	sldd, err := pm.ShardsLoaded.GetMetricWith(labels)
-	if err != nil {
-		return err
-	}
-
-	sldd.Dec()
-
-	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
-	if err != nil {
-		return err
-	}
-
-	suld.Inc()
-	return nil
+	pm.ShardsLoaded.Dec()
+	pm.ShardsUnloaded.Inc()
 }
 
 // Move the shard from in progress to unloaded
-func (pm *PrometheusMetrics) FinishUnloadingShard(className string) error {
+func (pm *PrometheusMetrics) FinishUnloadingShard() {
 	if pm == nil {
-		return nil
+		return
 	}
 
-	labels := prometheus.Labels{
-		"class_name": className,
-	}
-
-	sulding, err := pm.ShardsUnloading.GetMetricWith(labels)
-	if err != nil {
-		return err
-	}
-
-	sulding.Dec()
-
-	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
-	if err != nil {
-		return err
-	}
-
-	suld.Inc()
-
-	return nil
+	pm.ShardsUnloading.Dec()
+	pm.ShardsUnloaded.Inc()
 }
 
 // Register a new, unloaded shard
-func (pm *PrometheusMetrics) NewUnloadedshard(className string) error {
+func (pm *PrometheusMetrics) NewUnloadedshard() {
 	if pm == nil {
-		return nil
+		return
 	}
 
-	labels := prometheus.Labels{
-		"class_name": className,
-	}
-
-	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
-	if err != nil {
-		return err
-	}
-
-	suld.Inc()
-	return nil
+	pm.ShardsUnloaded.Inc()
 }

@@ -33,7 +33,11 @@ type Config struct {
 	MetricsNamespace string `json:"metrics_namespace" yaml:"metrics_namespace" long:"metrics_namespace" default:""`
 }
 
+// NOTE: Do not add any new metrics to this global `PrometheusMetrics` struct.
+// Instead add your metrics close the corresponding component.
 type PrometheusMetrics struct {
+	Registerer prometheus.Registerer
+
 	BatchTime                           *prometheus.HistogramVec
 	BatchSizeBytes                      *prometheus.SummaryVec
 	BatchSizeObjects                    prometheus.Summary
@@ -99,10 +103,10 @@ type PrometheusMetrics struct {
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
-	ShardsLoaded    *prometheus.GaugeVec
-	ShardsUnloaded  *prometheus.GaugeVec
-	ShardsLoading   *prometheus.GaugeVec
-	ShardsUnloading *prometheus.GaugeVec
+	ShardsLoaded    prometheus.Gauge
+	ShardsUnloaded  prometheus.Gauge
+	ShardsLoading   prometheus.Gauge
+	ShardsUnloading prometheus.Gauge
 
 	// RAFT-based schema metrics
 	SchemaWrites         *prometheus.SummaryVec
@@ -134,6 +138,7 @@ type PrometheusMetrics struct {
 	T2VTokensInBatch      *prometheus.HistogramVec
 	T2VTokensInRequest    *prometheus.HistogramVec
 	T2VRateLimitStats     *prometheus.GaugeVec
+	T2VRepeatStats        *prometheus.GaugeVec
 	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
@@ -616,22 +621,22 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}, []string{"backend_name", "class_name"}),
 
 		// Shard metrics
-		ShardsLoaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_loaded",
 			Help: "Number of shards loaded",
-		}, []string{"class_name"}),
-		ShardsUnloaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		}),
+		ShardsUnloaded: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_unloaded",
 			Help: "Number of shards on not loaded",
-		}, []string{"class_name"}),
-		ShardsLoading: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		}),
+		ShardsLoading: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_loading",
 			Help: "Number of shards in process of loading",
-		}, []string{"class_name"}),
-		ShardsUnloading: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		}),
+		ShardsUnloading: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_unloading",
 			Help: "Number of shards in process of unloading",
-		}, []string{"class_name"}),
+		}),
 
 		// Schema TX-metrics. Can be removed when RAFT is ready
 		SchemaTxOpened: promauto.NewCounterVec(prometheus.CounterOpts{
@@ -709,6 +714,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		T2VRateLimitStats: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "t2v_rate_limit_stats",
 			Help: "Rate limit stats for the vectorizer",
+		}, []string{"vectorizer", "stat"}),
+		T2VRepeatStats: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "t2v_repeat_stats",
+			Help: "Why batch scheduling is repeated",
 		}, []string{"vectorizer", "stat"}),
 		T2VRequestsPerBatch: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "t2v_requests_per_batch",

@@ -44,7 +44,7 @@ func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
 	return resp.Payload
 }
 
-func GetInfoForOwnUser(t *testing.T, key string) *models.UserInfo {
+func GetInfoForOwnUser(t *testing.T, key string) *models.UserOwnInfo {
 	resp, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
@@ -52,6 +52,7 @@ func GetInfoForOwnUser(t *testing.T, key string) *models.UserInfo {
 }
 
 func DeleteRole(t *testing.T, key, role string) {
+	t.Helper()
 	resp, err := Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID(role), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)

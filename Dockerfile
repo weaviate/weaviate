@@ -41,16 +41,9 @@ COPY . .
 ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 
 ###############################################################################
-# This image gets grpc health check probe
-FROM golang:1.23-alpine AS grpc_health_probe_builder
-RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.37
-RUN GOBIN=/go/bin && chmod +x ${GOBIN}/grpc-health-probe && mv ${GOBIN}/grpc-health-probe /bin/grpc_health_probe
-
-###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
 FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
-COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
 COPY --from=server_builder /weaviate-server /bin/weaviate
 RUN mkdir -p /go/pkg/mod/github.com/go-ego
 COPY --from=server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego

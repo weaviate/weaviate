@@ -212,6 +212,8 @@ type Index struct {
 
 	replicationConfigLock sync.RWMutex
 
+	shardLoadLimiter ShardLoadLimiter
+
 	closeLock sync.RWMutex
 	closed    bool
 }
@@ -271,6 +273,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		indexCheckpoints:       indexCheckpoints,
 		allocChecker:           allocChecker,
 		shardCreateLocks:       esync.NewKeyLocker(),
+		shardLoadLimiter:       cfg.ShardLoadLimiter,
 	}
 
 	getDeletionStrategy := func() string {
@@ -321,6 +324,11 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 			shardName := shardName // prevent loop variable capture
 			eg.Go(func() error {
+				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
+					return fmt.Errorf("acquiring permit to load shard: %w", err)
+				}
+				defer i.shardLoadLimiter.Release()
+
 				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
@@ -339,14 +347,18 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return nil
 	}
 
-	for _, shardName := range shardState.AllLocalPhysicalShards() {
+	// shards to lazily initialize are fetch once and in the same goroutine the index is initialized
+	// so to avoid races if shards are deleted before being initialized
+	shards := shardState.AllLocalPhysicalShards()
+
+	for _, shardName := range shards {
 		physical := shardState.Physical[shardName]
 		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 			// do not instantiate inactive shard
 			continue
 		}
 
-		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker)
+		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter)
 		i.shards.Store(shardName, shard)
 	}
 
@@ -358,7 +370,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 		now := time.Now()
 
-		for _, shardName := range shardState.AllLocalPhysicalShards() {
+		for _, shardName := range shards {
 			// prioritize closingCtx over ticker:
 			// check closing again in case of ticker was selected when both
 			// cases where available
@@ -429,6 +441,11 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
 		}
 
+		if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
+			return nil, fmt.Errorf("acquiring permit to load shard: %w", err)
+		}
+		defer i.shardLoadLimiter.Release()
+
 		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
@@ -437,7 +454,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		return shard, nil
 	}
 
-	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker)
+	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter)
 	return shard, nil
 }
 
@@ -619,6 +636,7 @@ type IndexConfig struct {
 	MemtablesMaxActiveSeconds           int
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
+	CycleManagerRoutinesFactor          int
 	MaxSegmentSize                      int64
 	HNSWMaxLogSize                      int64
 	HNSWWaitForCachePrefill             bool
@@ -633,6 +651,7 @@ type IndexConfig struct {
 	ForceFullReplicasSearch             bool
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
+	ShardLoadLimiter                    ShardLoadLimiter
 }
 
 func indexID(class schema.ClassName) string {
@@ -2034,6 +2053,9 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 
 		className := i.Config.ClassName.String()
 		class := i.getSchema.ReadOnlyClass(className)
+		if class == nil {
+			return nil, func() {}, fmt.Errorf("class %s not found in schema", className)
+		}
 
 		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true)
 		if err != nil {
@@ -2439,6 +2461,10 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 
 	// TODO-RAFT should be strongly consistent?
 	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
+	if shardState == nil {
+		return nil, fmt.Errorf("class %s not found in schema", i.Config.ClassName)
+	}
+
 	shardNames := shardState.AllPhysicalShards()
 
 	for _, shardName := range shardNames {

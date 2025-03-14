@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
@@ -73,6 +74,10 @@ func (f fakeClassConfig) Tenant() string {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
 }
 
 type fakeClient struct{}
