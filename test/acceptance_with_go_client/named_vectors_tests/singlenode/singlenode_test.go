@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"acceptance_tests_with_client/named_vectors_tests/test_suits"
+
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 
