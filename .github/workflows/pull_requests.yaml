@@ -13,6 +13,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  GO_VERSION: '1.24'
+
 jobs:
   Buf-Checks:
     name: buf-checks
@@ -38,7 +41,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: $GO_VERSION
           cache: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
@@ -103,7 +106,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: $GO_VERSION
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
@@ -120,7 +123,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: $GO_VERSION
           cache: true
       - name: Integration test
         run: ./test/run.sh --integration-only
@@ -156,7 +159,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: $GO_VERSION
           cache: true
       - name: Login to Docker Hub
         if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
@@ -214,7 +217,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: $GO_VERSION
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -258,7 +261,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: $GO_VERSION
           cache: true
       - name: check
         env:
@@ -330,7 +333,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: $GO_VERSION
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -355,7 +358,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: $GO_VERSION
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -409,7 +412,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: $GO_VERSION
           cache: true
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -466,7 +469,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: $GO_VERSION
           cache: true
       - name: start weaviate
         shell: bash
