@@ -37,6 +37,7 @@ func Test_BackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendFilesystem().
 			WithText2VecContextionary().
+			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -83,6 +84,7 @@ func Test_BackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendFilesystem().
 			WithText2VecContextionary().
+			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)
@@ -104,6 +106,7 @@ func Test_BackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendFilesystem().
 			WithText2VecContextionary().
+			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)
