@@ -53,7 +53,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{})
 	handler, err := NewHandler(
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
-		cfg.SchemaHandlerConfig, cfg.Replication, cfg.Authorization.Rbac, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
+		&cfg.SchemaHandlerConfig, &cfg.Replication, &cfg.Authorization.Rbac, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 
 	require.Nil(t, err)
@@ -75,7 +75,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
 	handler, err := NewHandler(
 		metaHandler, metaHandler, fakeValidator, logger, authorizer,
-		cfg.SchemaHandlerConfig, cfg.Replication, cfg.Authorization.Rbac, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
+		&cfg.SchemaHandlerConfig, &cfg.Replication, &cfg.Authorization.Rbac, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
