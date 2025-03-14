@@ -103,6 +103,10 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
+	if err = h.maybeAllowSchemasWithMixedVectors(cls); err != nil {
+		return nil, 0, err
+	}
+
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
@@ -902,4 +906,17 @@ func validateVectorIndexConfigImmutableFields(initial, updated *models.Class) er
 			accessor: func(c *models.Class) string { return c.VectorIndexType },
 		},
 	}...)
+}
+
+// maybeAllowSchemasWithMixedVectors is a method to disable experimental functionality to create
+// collections that have both legacy and named vectors until development is not finished.
+func (h *Handler) maybeAllowSchemasWithMixedVectors(cls *models.Class) error {
+	featureDisabled := !entcfg.Enabled(os.Getenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS"))
+	isMixedSchema := len(cls.VectorConfig) > 0 && (cls.Vectorizer != "" || cls.VectorIndexConfig != nil || cls.VectorIndexType != "")
+
+	if isMixedSchema && featureDisabled {
+		return errors.Errorf("class %s has configuration for both class level and named vectors which is currently not supported.", cls.Class)
+	}
+
+	return nil
 }
