@@ -118,7 +118,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, nil, additional.Properties{}, "")
+				}, nil, additional.Properties{}, "", emptyUserTokens)
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -139,7 +139,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, nil, additional.Properties{}, "")
+				}, nil, additional.Properties{}, "", emptyUserTokens)
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -201,7 +201,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, nil, additional.Properties{}, "")
+				}, nil, additional.Properties{}, "", emptyUserTokens)
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -222,7 +222,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, nil, additional.Properties{}, "")
+				}, nil, additional.Properties{}, "", emptyUserTokens)
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",

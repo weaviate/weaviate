@@ -1017,7 +1017,8 @@
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"
+            "kagome_ja",
+            "user"
           ]
         },
         "nestedProperties": {
@@ -1951,6 +1952,13 @@
         },
         "additional": {
           "$ref": "#/definitions/AdditionalProperties"
+        },
+        "tokens": {
+          "description": "Tokens extracted from the text properties of the object.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "type": "object"
@@ -2416,6 +2424,18 @@
             "type": "string"
           },
           "example": "TODO",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "valueTerms": {
+          "description": "tokens as text list",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "my", "search", "term"
+          ],
           "x-nullable": true,
           "x-omitempty": true
         },
@@ -4050,6 +4070,18 @@
           "weaviate.local.query"
         ],
         "parameters": [
+          {
+            "name" : "tokens",
+            "in" : "body",
+            "description" : "The tokens to be used for the query",
+            "required" : false,
+            "schema" : {
+              "type" : "array",
+              "items" : {
+                "type" : "string"
+              }
+            }
+          },
           {
             "$ref": "#/parameters/CommonAfterParameterQuery"
           },

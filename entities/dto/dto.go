@@ -65,7 +65,8 @@ type GetParams struct {
 	AdditionalProperties    additional.Properties
 	ReplicationProperties   *additional.ReplicationProperties
 	Tenant                  string
-	IsRefOrigin             bool // is created by ref filter
+	IsRefOrigin             bool     // is created by ref filter
+	Tokens                  []string //TODO make sure this is used, especially assigned to
 }
 
 type Embedding interface {

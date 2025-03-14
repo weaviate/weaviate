@@ -48,6 +48,7 @@ message BatchObject {
   string collection = 4;
   string tenant = 5;
   bytes vector_bytes = 6;
+  repeated string tokens = 7;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated Vectors vectors = 23;
 }

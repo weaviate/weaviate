@@ -174,8 +174,8 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		return nil, errors.Errorf("conflict: both near<Media> and keyword-based (bm25) arguments present, choose one")
 	}
 
-	if len(params.KeywordRanking.Query) == 0 {
-		return nil, errors.Errorf("keyword search (bm25) must have query set")
+	if len(params.KeywordRanking.Query) == 0 && len(params.KeywordRanking.Tokens) == 0 {
+		return nil, errors.Errorf("keyword search (bm25) must have query or tokens set")
 	}
 
 	if len(params.AdditionalProperties.ModuleParams) > 0 {

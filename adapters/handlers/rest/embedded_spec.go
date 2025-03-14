@@ -2133,6 +2133,17 @@ func init() {
         "operationId": "objects.list",
         "parameters": [
           {
+            "description": "The tokens to be used for the query",
+            "name": "tokens",
+            "in": "body",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
             "$ref": "#/parameters/CommonAfterParameterQuery"
           },
           {
@@ -5957,6 +5968,13 @@ func init() {
           "description": "Name of the Objects tenant.",
           "type": "string"
         },
+        "tokens": {
+          "description": "Tokens extracted from the text properties of the object.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "vector": {
           "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
@@ -6397,7 +6415,8 @@ func init() {
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"
+            "kagome_ja",
+            "user"
           ]
         }
       }
@@ -7098,6 +7117,20 @@ func init() {
           "x-omitempty": true,
           "example": [
             "my search term"
+          ]
+        },
+        "valueTerms": {
+          "description": "tokens as text list",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my",
+            "search",
+            "term"
           ]
         },
         "valueText": {
@@ -9380,6 +9413,17 @@ func init() {
         "summary": "Get a list of Objects.",
         "operationId": "objects.list",
         "parameters": [
+          {
+            "description": "The tokens to be used for the query",
+            "name": "tokens",
+            "in": "body",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
           {
             "type": "string",
             "description": "A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. \u003cbr/\u003e\u003cbr/\u003eMust be used with ` + "`" + `class` + "`" + `, typically in conjunction with ` + "`" + `limit` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eNote ` + "`" + `after` + "`" + ` cannot be used with ` + "`" + `offset` + "`" + ` or ` + "`" + `sort` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eFor a null value similar to offset=0, set an empty string in the request, i.e. ` + "`" + `after=` + "`" + ` or ` + "`" + `after` + "`" + `.",
@@ -13468,6 +13512,13 @@ func init() {
           "description": "Name of the Objects tenant.",
           "type": "string"
         },
+        "tokens": {
+          "description": "Tokens extracted from the text properties of the object.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "vector": {
           "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
@@ -14035,7 +14086,8 @@ func init() {
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"
+            "kagome_ja",
+            "user"
           ]
         }
       }
@@ -14736,6 +14788,20 @@ func init() {
           "x-omitempty": true,
           "example": [
             "my search term"
+          ]
+        },
+        "valueTerms": {
+          "description": "tokens as text list",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my",
+            "search",
+            "term"
           ]
         },
         "valueText": {
