@@ -764,16 +764,6 @@ func parseFloat64(envName string, defaultValue float64, verify func(val float64)
 	return nil
 }
 
-func enabledForHost(envName string, localHostname string) bool {
-	if v := os.Getenv(envName); v != "" {
-		if entcfg.Enabled(v) {
-			return true
-		}
-		return slices.Contains(strings.Split(v, ","), localHostname)
-	}
-	return false
-}
-
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
 	return parseInt(envName, defaultValue, func(val int) error {
 		if val <= 0 {
@@ -1044,4 +1034,14 @@ func parseClusterConfig() (cluster.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func enabledForHost(envName string, localHostname string) bool {
+	if v := os.Getenv(envName); v != "" {
+		if entcfg.Enabled(v) {
+			return true
+		}
+		return slices.Contains(strings.Split(v, ","), localHostname)
+	}
+	return false
 }
