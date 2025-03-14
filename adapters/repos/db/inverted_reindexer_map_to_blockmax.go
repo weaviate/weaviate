@@ -36,7 +36,9 @@ import (
 
 type mapToBlockmaxConfig struct {
 	swapBuckets               bool
+	unswapBuckets             bool
 	tidyBuckets               bool
+	rollback                  bool
 	concurrency               int
 	memtableOptBlockmaxFactor int
 
@@ -53,7 +55,8 @@ type ShardInvertedReindexTask_MapToBlockmax struct {
 	config            mapToBlockmaxConfig
 }
 
-func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger, swapBuckets bool, tidyBuckets bool,
+func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger, swapBuckets, unswapBuckets,
+	tidyBuckets, rollback bool,
 ) *ShardInvertedReindexTask_MapToBlockmax {
 	keyParser := &uuidKeyParser{}
 	objectsIterator := uuidObjectsIterator
@@ -74,16 +77,14 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger, swapBuc
 		objectsIterator:   objectsIterator,
 		config: mapToBlockmaxConfig{
 			swapBuckets:                   swapBuckets,
+			unswapBuckets:                 unswapBuckets,
 			tidyBuckets:                   tidyBuckets,
+			rollback:                      rollback,
 			concurrency:                   concurrency.NUMCPU_2,
 			memtableOptBlockmaxFactor:     4,
 			processingInterval:            15 * time.Minute,
 			pauseInterval:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
-
-			// processingInterval:            100 * time.Millisecond,
-			// pauseInterval:                 2 * time.Second,
-			// checkProcessingEveryNoObjects: 100,
 		},
 	}
 }
@@ -126,20 +127,54 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
-		return fmt.Errorf("creating reindex tracker: %w", err)
+		err = fmt.Errorf("creating reindex tracker: %w", err)
+		return
 	}
 
 	props, err := t.getPropsToReindex(shard, rt)
 	if err != nil {
-		return fmt.Errorf("getting reindexable props: %w", err)
+		err = fmt.Errorf("getting reindexable props: %w", err)
+		return
 	}
 	logger.WithField("props", props).Debug("props found")
+
+	if t.config.rollback {
+		logger.Debug("rollback started")
+
+		if rt.isTidied() {
+			err = fmt.Errorf("rollback: searchable map buckets are deleted, can not restore")
+			return
+		}
+		if rt.isSwapped() {
+			if err = t.unswapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
+				err = fmt.Errorf("rollback: unswapping buckets: %w", err)
+				return
+			}
+		}
+		if err = t.removeReindexBucketsDirs(ctx, logger, shard, props); err != nil {
+			err = fmt.Errorf("rollback: removing reindex buckets: %w", err)
+			return
+		}
+		if err = t.removeIngestBucketsDirs(ctx, logger, shard, props); err != nil {
+			err = fmt.Errorf("rollback: removing ingest buckets: %w", err)
+			return
+		}
+		if err = rt.reset(); err != nil {
+			err = fmt.Errorf("rollback: removing migration files: %w", err)
+			return
+		}
+
+		logger.Debug("rollback completed")
+		return nil
+	}
+
 	if len(props) == 0 {
 		return nil
 	}
 
 	if err = ctx.Err(); err != nil {
-		return fmt.Errorf("context check (1): %w", err)
+		err = fmt.Errorf("context check (1): %w", err)
+		return
 	}
 
 	isMerged := rt.isMerged()
@@ -148,14 +183,16 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 			logger.Debug("reindexed, not merged. merging buckets")
 
 			if err = t.mergeReindexAndIngestBuckets(ctx, logger, shard, rt, props); err != nil {
-				return fmt.Errorf("merging reindex and ingest buckets:%w", err)
+				err = fmt.Errorf("merging reindex and ingest buckets:%w", err)
+				return
 			}
 			isMerged = true
 		}
 	}
 
 	if err = ctx.Err(); err != nil {
-		return fmt.Errorf("context check (2): %w", err)
+		err = fmt.Errorf("context check (2): %w", err)
+		return
 	}
 
 	isSwapped := rt.isSwapped()
@@ -163,14 +200,16 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 		logger.Debug("merged, not swapped. swapping buckets")
 
 		if err = t.swapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
-			return fmt.Errorf("swapping ingest and map buckets:%w", err)
+			err = fmt.Errorf("swapping ingest and map buckets:%w", err)
+			return
 		}
 		isSwapped = true
 		shard.markSearchableBlockmaxProperties(props...)
 	}
 
 	if err = ctx.Err(); err != nil {
-		return fmt.Errorf("context check (3): %w", err)
+		err = fmt.Errorf("context check (3): %w", err)
+		return
 	}
 
 	if isSwapped {
@@ -179,16 +218,19 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 				logger.Debug("swapped, not tidied. tidying buckets")
 
 				if err = t.tidyMapBuckets(ctx, logger, shard, rt, props); err != nil {
-					return fmt.Errorf("tidying map buckets:%w", err)
+					err = fmt.Errorf("tidying map buckets:%w", err)
+					return
 				}
 			} else {
 				logger.Debug("swapped, not tidied. starting map buckets")
 
 				if err = t.loadMapSearchBuckets(ctx, logger, shard, props); err != nil {
-					return fmt.Errorf("starting map buckets:%w", err)
+					err = fmt.Errorf("starting map buckets:%w", err)
+					return
 				}
 				if err = t.duplicateToMapBuckets(ctx, logger, shard, props); err != nil {
-					return fmt.Errorf("duplicating map buckets:%w", err)
+					err = fmt.Errorf("duplicating map buckets:%w", err)
+					return
 				}
 			}
 		} else {
@@ -200,11 +242,13 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 		// since reindex bucket will be merged into ingest bucket with reindex segments being before ingest,
 		// ingest segments should not be compacted and tombstones kept
 		if err = t.loadIngestSearchBuckets(ctx, logger, shard, props, !isMerged, !isMerged); err != nil {
-			return fmt.Errorf("starting ingest buckets:%w", err)
+			err = fmt.Errorf("starting ingest buckets:%w", err)
+			return
 		}
 		shard.markSearchableBlockmaxProperties(props...)
 		if err = t.duplicateToIngestBuckets(ctx, logger, shard, props); err != nil {
-			return fmt.Errorf("duplicating ingest buckets:%w", err)
+			err = fmt.Errorf("duplicating ingest buckets:%w", err)
+			return
 		}
 	}
 
@@ -409,6 +453,87 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) swapIngestAndMapBuckets(ctx con
 	return nil
 }
 
+func (t *ShardInvertedReindexTask_MapToBlockmax) unswapIngestAndMapBuckets(ctx context.Context,
+	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
+) error {
+	lsmPath := shard.pathLSM()
+	store := shard.Store()
+	propsToUnswap := make([]string, 0, len(props))
+
+	eg, gctx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	eg.SetLimit(t.config.concurrency)
+	for i := range props {
+		propName := props[i]
+
+		if rt.isSwappedProp(props[i]) {
+			propsToUnswap = append(propsToUnswap, propName)
+
+			eg.Go(func() error {
+				bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+
+				logger.WithField("bucket", bucketName).Debug("shutting down bucket")
+				if err := store.ShutdownBucket(gctx, bucketName); err != nil {
+					return err
+				}
+				return nil
+			})
+		}
+	}
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+
+	logger.Debug("shut down searchable buckets for unswap")
+
+	eg, gctx = enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	eg.SetLimit(t.config.concurrency)
+	for i := range propsToUnswap {
+		propName := propsToUnswap[i]
+
+		eg.Go(func() error {
+			bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+			bucketPath := filepath.Join(lsmPath, bucketName)
+			ingestBucketName := t.ingestBucketName(propName)
+			ingestBucketPath := filepath.Join(lsmPath, ingestBucketName)
+			mapBucketName := t.mapBucketName(propName)
+			mapBucketPath := filepath.Join(lsmPath, mapBucketName)
+
+			logger.WithFields(map[string]any{
+				"bucket":        bucketName,
+				"ingest_bucket": ingestBucketName,
+				"map_bucket":    mapBucketName,
+			}).Debug("unswapping buckets")
+
+			if err := os.Rename(bucketPath, ingestBucketPath); err != nil {
+				return err
+			}
+			if err := os.Rename(mapBucketPath, bucketPath); err != nil {
+				return err
+			}
+			if err := rt.unmarkSwappedProp(propName); err != nil {
+				return fmt.Errorf("unmarking reindex swapped for %q: %w", propName, err)
+			}
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+	if err := rt.unmarkSwapped(); err != nil {
+		return fmt.Errorf("unmarking reindex swapped: %w", err)
+	}
+
+	logger.Debug("unswapped searchable buckets")
+
+	if err := t.loadSwappedSearchBuckets(ctx, logger, shard, props); err != nil {
+		return err
+	}
+	logger.Debug("loaded searchable buckets after unswap")
+
+	return nil
+}
+
 func (t *ShardInvertedReindexTask_MapToBlockmax) tidyMapBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
 ) error {
@@ -512,6 +637,39 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) recoverReindexBucket(ctx contex
 	logger.WithField("bucket", bucketName).Debug("shut down bucket")
 
 	return nil
+}
+
+func (t *ShardInvertedReindexTask_MapToBlockmax) removeReindexBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
+	shard ShardLike, props []string,
+) error {
+	return t.removeBucketsDirs(ctx, logger, shard, props, t.reindexBucketName)
+}
+
+func (t *ShardInvertedReindexTask_MapToBlockmax) removeIngestBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
+	shard ShardLike, props []string,
+) error {
+	return t.removeBucketsDirs(ctx, logger, shard, props, t.ingestBucketName)
+}
+
+func (t *ShardInvertedReindexTask_MapToBlockmax) removeBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
+	shard ShardLike, props []string, bucketNamer func(string) string,
+) error {
+	lsmPath := shard.pathLSM()
+	eg, _ := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	eg.SetLimit(t.config.concurrency)
+	for i := range props {
+		propName := props[i]
+
+		eg.Go(func() error {
+			bucketName := bucketNamer(propName)
+			bucketPath := filepath.Join(lsmPath, bucketName)
+
+			logger.WithField("bucket", bucketName).Debug("removing bucket")
+
+			return os.RemoveAll(bucketPath)
+		})
+	}
+	return eg.Wait()
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) duplicateToIngestBuckets(ctx context.Context,
@@ -647,6 +805,11 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 	}(time.Now())
 
 	zerotime := time.Time{}
+
+	if t.config.rollback {
+		return zerotime, nil
+	}
+
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
 		return zerotime, fmt.Errorf("creating reindex tracker: %w", err)
@@ -882,8 +1045,10 @@ type reindexTracker interface {
 
 	isSwapped() bool
 	markSwapped() error
+	unmarkSwapped() error
 	isSwappedProp(propName string) bool
 	markSwappedProp(propName string) error
+	unmarkSwappedProp(propName string) error
 
 	isTidied() bool
 	markTidied() error
@@ -891,6 +1056,8 @@ type reindexTracker interface {
 	hasProps() bool
 	getProps() ([]string, error)
 	saveProps([]string) error
+
+	reset() error
 }
 
 func newFileReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReindexTracker {
@@ -1042,12 +1209,20 @@ func (t *fileReindexTracker) markSwappedProp(propName string) error {
 	return t.createFile(t.config.filenameSwapped+"."+propName, []byte(t.encodeTimeNow()))
 }
 
+func (t *fileReindexTracker) unmarkSwappedProp(propName string) error {
+	return t.removeFile(t.config.filenameSwapped + "." + propName)
+}
+
 func (t *fileReindexTracker) isSwapped() bool {
 	return t.fileExists(t.config.filenameSwapped)
 }
 
 func (t *fileReindexTracker) markSwapped() error {
 	return t.createFile(t.config.filenameSwapped, []byte(t.encodeTimeNow()))
+}
+
+func (t *fileReindexTracker) unmarkSwapped() error {
+	return t.removeFile(t.config.filenameSwapped)
 }
 
 func (t *fileReindexTracker) isTidied() bool {
@@ -1086,6 +1261,10 @@ func (t *fileReindexTracker) createFile(filename string, content []byte) error {
 	return nil
 }
 
+func (t *fileReindexTracker) removeFile(filename string) error {
+	return os.Remove(t.filepath(filename))
+}
+
 func (t *fileReindexTracker) encodeTimeNow() string {
 	return t.encodeTime(time.Now())
 }
@@ -1116,6 +1295,10 @@ func (t *fileReindexTracker) getProps() ([]string, error) {
 		return []string{}, nil
 	}
 	return strings.Split(string(content), ","), nil
+}
+
+func (t *fileReindexTracker) reset() error {
+	return os.RemoveAll(t.config.migrationPath)
 }
 
 type indexKey interface {

@@ -75,8 +75,11 @@ func (r *ReindexerV2) RegisterTask(name string, args any) error {
 	switch name {
 	case "ShardInvertedReindexTask_MapToBlockmax":
 		swap := args.(map[string]bool)["ReindexMapToBlockmaxSwapBuckets"]
+		unswap := args.(map[string]bool)["ReindexMapToBlockmaxUnswapBuckets"]
 		tidy := args.(map[string]bool)["ReindexMapToBlockmaxTidyBuckets"]
-		r.tasks[name] = NewShardInvertedReindexTaskMapToBlockmax(r.logger, swap, tidy)
+		rollback := args.(map[string]bool)["ReindexMapToBlockmaxRollback"]
+
+		r.tasks[name] = NewShardInvertedReindexTaskMapToBlockmax(r.logger, swap, unswap, tidy, rollback)
 		r.taskNames = append(r.taskNames, name)
 	default:
 		return fmt.Errorf("unknown/undefined task %q", name)

@@ -628,8 +628,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if appState.ServerConfig.Config.ReindexMapToBlockmaxAtStartup {
 		reindexTasksV2Names = append(reindexTasksV2Names, "ShardInvertedReindexTask_MapToBlockmax")
 		reindexTasksV2Args["ShardInvertedReindexTask_MapToBlockmax"] = map[string]bool{
-			"ReindexMapToBlockmaxSwapBuckets": appState.ServerConfig.Config.ReindexMapToBlockmaxSwapBuckets,
-			"ReindexMapToBlockmaxTidyBuckets": appState.ServerConfig.Config.ReindexMapToBlockmaxTidyBuckets,
+			"ReindexMapToBlockmaxSwapBuckets":   appState.ServerConfig.Config.ReindexMapToBlockmaxSwapBuckets,
+			"ReindexMapToBlockmaxUnswapBuckets": appState.ServerConfig.Config.ReindexMapToBlockmaxUnswapBuckets,
+			"ReindexMapToBlockmaxTidyBuckets":   appState.ServerConfig.Config.ReindexMapToBlockmaxTidyBuckets,
+			"ReindexMapToBlockmaxRollback":      appState.ServerConfig.Config.ReindexMapToBlockmaxRollback,
 		}
 	}
 

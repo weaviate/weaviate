@@ -120,6 +120,8 @@ type Config struct {
 	ReindexMapToBlockmaxAtStartup       bool                     `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
 	ReindexMapToBlockmaxSwapBuckets     bool                     `json:"reindex_map_to_blockmax_swap_buckets" yaml:"reindex_map_to_blockmax_swap_buckets"`
 	ReindexMapToBlockmaxTidyBuckets     bool                     `json:"reindex_map_to_blockmax_remove_buckets" yaml:"reindex_map_to_blockmax_remove_buckets"`
+	ReindexMapToBlockmaxUnswapBuckets   bool                     `json:"reindex_map_to_blockmax_unswap_buckets" yaml:"reindex_map_to_blockmax_unswap_buckets"`
+	ReindexMapToBlockmaxRollback        bool                     `json:"reindex_map_to_blockmax_rollback" yaml:"reindex_map_to_blockmax_rollback"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`

@@ -325,8 +325,14 @@ func FromEnv(config *Config) error {
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_SWAP_BUCKETS", clusterCfg.Hostname) {
 			config.ReindexMapToBlockmaxSwapBuckets = true
 		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_UNSWAP_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxUnswapBuckets = true
+		}
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS", clusterCfg.Hostname) {
 			config.ReindexMapToBlockmaxTidyBuckets = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxRollback = true
 		}
 	}
 
