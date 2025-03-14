@@ -534,7 +534,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 
 		enterrors.GoWrapper(func() {
-			ctx, cancel := context.WithCancel(ctx)
+			// NOTE: Not using parent `ctx` because that is getting cancelled in the caller even during startup.
+			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
 			if err := cm.Run(ctx); err != nil {
