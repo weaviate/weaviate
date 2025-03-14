@@ -227,13 +227,13 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	// update the index vectorIndexUserConfig
-	beforeVectorConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
+	beforeVectorConfig, ok := index.GetVectorIndexConfig("").(hnsw.UserConfig)
 	require.Equal(t, -1, beforeVectorConfig.EF)
 	require.True(t, ok)
 	beforeVectorConfig.EF = 99
 	err = index.updateVectorIndexConfig(context.TODO(), beforeVectorConfig)
 	require.Nil(t, err)
-	afterVectorConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
+	afterVectorConfig, ok := index.GetVectorIndexConfig("").(hnsw.UserConfig)
 	require.True(t, ok)
 	require.Equal(t, 99, afterVectorConfig.EF)
 
@@ -623,7 +623,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 		t,
 		ctx,
 		&models.Class{Class: class.Class},
-		hnsw.UserConfig{},
+		nil,
 		false,
 		true,
 		func(i *Index) {

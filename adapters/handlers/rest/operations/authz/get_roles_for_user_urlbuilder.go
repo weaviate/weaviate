@@ -25,7 +25,8 @@ import (
 
 // GetRolesForUserURL generates an URL for the get roles for user operation
 type GetRolesForUserURL struct {
-	ID string
+	ID       string
+	UserType string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -51,13 +52,20 @@ func (o *GetRolesForUserURL) SetBasePath(bp string) {
 func (o *GetRolesForUserURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/users/{id}/roles"
+	var _path = "/authz/users/{id}/roles/{userType}"
 
 	id := o.ID
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
 		return nil, errors.New("id is required on GetRolesForUserURL")
+	}
+
+	userType := o.UserType
+	if userType != "" {
+		_path = strings.Replace(_path, "{userType}", userType, -1)
+	} else {
+		return nil, errors.New("userType is required on GetRolesForUserURL")
 	}
 
 	_basePath := o._basePath

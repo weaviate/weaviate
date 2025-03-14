@@ -162,6 +162,12 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if entcfg.Enabled(os.Getenv("DYNAMIC_USERS_ENABLED")) {
+		config.Authentication.DynamicUsers.Enabled = true
+	} else {
+		config.Authentication.DynamicUsers.Enabled = false
+	}
+
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
@@ -533,6 +539,14 @@ func FromEnv(config *Config) error {
 		config.HNSWStartupWaitForVectorCache = true
 	}
 
+	if err := parseInt(
+		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
+		func(val int) { config.MaximumAllowedCollectionsCount = val },
+		DefaultMaximumAllowedCollectionsCount,
+	); err != nil {
+		return err
+	}
+
 	// explicitly reset sentry config
 	sentry.Config = nil
 	config.Sentry, err = sentry.InitSentryConfig()
@@ -654,14 +668,6 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 
 	cfg.EnableOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_ENABLE_ONE_NODE_RECOVERY"))
 	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
-
-	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside
-	// docker without a TLD available. However is running in k8s for example you have a TLD available.
-	if entcfg.Enabled(os.Getenv("RAFT_ENABLE_FQDN_RESOLVER")) {
-		cfg.EnableFQDNResolver = true
-	}
-
-	cfg.FQDNResolverTLD = os.Getenv("RAFT_FQDN_RESOLVER_TLD")
 
 	return cfg, nil
 }
@@ -881,6 +887,7 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultMinimumReplicationFactor            = 1
+	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
 )
 
 const VectorizerModuleNone = "none"

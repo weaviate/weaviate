@@ -96,8 +96,6 @@ type PrometheusMetrics struct {
 	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
 	VectorDimensionsSum                *prometheus.GaugeVec
 	VectorSegmentsSum                  *prometheus.GaugeVec
-	VectorDimensionsSumByVector        *prometheus.GaugeVec
-	VectorSegmentsSumByVector          *prometheus.GaugeVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -138,6 +136,7 @@ type PrometheusMetrics struct {
 	T2VTokensInBatch      *prometheus.HistogramVec
 	T2VTokensInRequest    *prometheus.HistogramVec
 	T2VRateLimitStats     *prometheus.GaugeVec
+	T2VRepeatStats        *prometheus.GaugeVec
 	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
@@ -554,14 +553,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_segments_sum",
 			Help: "Total segments in a shard if quantization enabled",
 		}, []string{"class_name", "shard_name"}),
-		VectorDimensionsSumByVector: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "vector_dimensions_sum_by_vector",
-			Help: "Total dimensions in a shard for target vector",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		VectorSegmentsSumByVector: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "vector_segments_sum_by_vector",
-			Help: "Total segments in a shard for target vector if quantization enabled",
-		}, []string{"class_name", "shard_name", "target_vector"}),
 
 		// Startup metrics
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
@@ -713,6 +704,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		T2VRateLimitStats: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "t2v_rate_limit_stats",
 			Help: "Rate limit stats for the vectorizer",
+		}, []string{"vectorizer", "stat"}),
+		T2VRepeatStats: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "t2v_repeat_stats",
+			Help: "Why batch scheduling is repeated",
 		}, []string{"vectorizer", "stat"}),
 		T2VRequestsPerBatch: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "t2v_requests_per_batch",

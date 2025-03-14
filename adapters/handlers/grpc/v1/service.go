@@ -300,7 +300,6 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		s.classGetterWithAuthzFunc(principal),
 	)
 	replier := NewReplier(
-		req.Uses_123Api || req.Uses_125Api || req.Uses_127Api,
 		req.Uses_125Api || req.Uses_127Api,
 		req.Uses_127Api,
 		parser.generative,

@@ -34,6 +34,8 @@ const (
 
 	ROLE_SCOPE_ALL   = "ALL"
 	ROLE_SCOPE_MATCH = "MATCH"
+
+	USER_ASSIGN_AND_REVOKE = "A"
 )
 
 const (
@@ -92,7 +94,10 @@ var (
 	ReadNodes   = "read_nodes"
 
 	AssignAndRevokeUsers = "assign_and_revoke_users"
+	CreateUsers          = "create_users"
 	ReadUsers            = "read_users"
+	UpdateUsers          = "update_users"
+	DeleteUsers          = "delete_users"
 
 	ManageBackups = "manage_backups"
 
@@ -123,7 +128,10 @@ var (
 
 		// Users domain
 		AssignAndRevokeUsers,
+		CreateUsers,
 		ReadUsers,
+		UpdateUsers,
+		DeleteUsers,
 
 		// Cluster domain
 		ReadCluster,
@@ -458,6 +466,7 @@ func adminPermissions() []*models.Permission {
 			Roles:       AllRoles,
 			Collections: AllCollections,
 			Tenants:     AllTenants,
+			Users:       AllUsers,
 		})
 	}
 

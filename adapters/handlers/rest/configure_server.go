@@ -96,7 +96,7 @@ func configureOIDC(appState *state.State) *oidc.Client {
 	return c
 }
 
-func configureAPIKey(appState *state.State) *apikey.Client {
+func configureAPIKey(appState *state.State) *apikey.ApiKey {
 	c, err := apikey.New(appState.ServerConfig.Config)
 	if err != nil {
 		appState.Logger.WithField("action", "api_keys_init").WithError(err).Fatal("apikey client could not start up")

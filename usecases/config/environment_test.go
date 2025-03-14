@@ -702,7 +702,7 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			name:         "Valid API Key",
 			auth_env_var: []string{"AUTHENTICATION_APIKEY_ENABLED"},
 			expected: Authentication{
-				APIKey: APIKey{
+				APIKey: StaticAPIKey{
 					Enabled: true,
 				},
 			},
@@ -723,6 +723,13 @@ func TestEnvironmentAuthentication(t *testing.T) {
 				OIDC: OIDC{
 					Enabled: true,
 				},
+			},
+		},
+		{
+			name:         "Enabled dynamic user",
+			auth_env_var: []string{"DYNAMIC_USERS_ENABLED"},
+			expected: Authentication{
+				DynamicUsers: DynamicUsers{Enabled: true},
 			},
 		},
 		{

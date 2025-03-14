@@ -144,9 +144,8 @@ func (p *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 	return parsedMC, nil
 }
 
-func (p *Parser) parseVectorIndexConfig(class *models.Class,
-) error {
-	if !hasTargetVectors(class) {
+func (p *Parser) parseVectorIndexConfig(class *models.Class) error {
+	if !hasTargetVectors(class) || class.VectorIndexType != "" {
 		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer))
 		if err != nil {
 			return err
@@ -155,14 +154,9 @@ func (p *Parser) parseVectorIndexConfig(class *models.Class,
 			return fmt.Errorf("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 		}
 		class.VectorIndexConfig = parsed
-		return nil
 	}
 
-	if class.VectorIndexConfig != nil {
-		return fmt.Errorf("class.vectorIndexConfig can not be set if class.vectorConfig is configured")
-	}
-
-	if err := p.parseTargetVectorsVectorIndexConfig(class); err != nil {
+	if err := p.parseTargetVectorsIndexConfig(class); err != nil {
 		return err
 	}
 	return nil
@@ -182,7 +176,7 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	return nil
 }
 
-func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
+func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 	for targetVector, vectorConfig := range class.VectorConfig {
 		isMultiVector := false
 		vectorizerModuleName := ""
@@ -255,12 +249,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
-	if hasTargetVectors(update) {
-		if err := p.validator.ValidateVectorIndexConfigsUpdate(
-			asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
-			return nil, err
-		}
-	} else {
+	if class.VectorIndexConfig != nil || update.VectorIndexConfig != nil {
 		vIdxConfig, ok1 := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		vIdxConfigU, ok2 := update.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		if !ok1 || !ok2 {
@@ -271,13 +260,20 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		}
 	}
 
+	if hasTargetVectors(update) {
+		if err := p.validator.ValidateVectorIndexConfigsUpdate(
+			asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := validateShardingConfig(class, update, mtEnabled); err != nil {
 		return nil, fmt.Errorf("validate sharding config: %w", err)
 	}
 
-	if !reflect.DeepEqual(class.Properties, update.Properties) {
+	if !p.validateProperties(class.Properties, update.Properties) {
 		return nil, errors.Errorf(
-			"properties cannot be updated through updating the class. Use the add " +
+			"property fields other than description cannot be updated through updating the class. Use the add " +
 				"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
 				"to add additional properties")
 	}
@@ -289,6 +285,80 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	}
 
 	return update, nil
+}
+
+func (p *Parser) validateProperties(existing []*models.Property, new []*models.Property) bool {
+	if len(existing) != len(new) {
+		return false
+	}
+
+	for i, prop := range existing {
+		// make a copy of the properties to remove the description field
+		// so that we can compare the rest of the fields
+		if prop == nil {
+			continue
+		}
+		if new[i] == nil {
+			continue
+		}
+		return p.validateProperty(prop, new[i])
+	}
+
+	return true
+}
+
+func propertyAsMap(in any) (map[string]any, error) {
+	out := make(map[string]any)
+
+	v := reflect.ValueOf(in)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Struct { // Non-structural return error
+		return nil, fmt.Errorf("asMap only accepts struct or struct pointer; got %T", v)
+	}
+
+	t := v.Type()
+	// Traversing structure fields
+	// Specify the tagName value as the key in the map; the field value as the value in the map
+	for i := 0; i < v.NumField(); i++ {
+		tfi := t.Field(i)
+		if tagValue := tfi.Tag.Get("json"); tagValue != "" {
+			key := strings.Split(tagValue, ",")[0]
+			if key == "description" {
+				continue
+			}
+			if key == "nestedProperties" {
+				nps := v.Field(i).Interface().([]*models.NestedProperty)
+				out[key] = make([]map[string]any, 0, len(nps))
+				for _, np := range nps {
+					npm, err := propertyAsMap(np)
+					if err != nil {
+						return nil, err
+					}
+					out[key] = append(out[key].([]map[string]any), npm)
+				}
+				continue
+			}
+			out[key] = v.Field(i).Interface()
+		}
+	}
+	return out, nil
+}
+
+func (p *Parser) validateProperty(existing, new *models.Property) bool {
+	e, err := propertyAsMap(existing)
+	if err != nil {
+		return false
+	}
+
+	n, err := propertyAsMap(new)
+	if err != nil {
+		return false
+	}
+
+	return reflect.DeepEqual(e, n)
 }
 
 func hasTargetVectors(class *models.Class) bool {
@@ -460,15 +530,6 @@ func asVectorIndexConfigs(c *models.Class) map[string]schemaConfig.VectorIndexCo
 		cfgs[vecName] = c.VectorConfig[vecName].VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 	}
 	return cfgs
-}
-
-func asVectorIndexConfig(c *models.Class) schemaConfig.VectorIndexConfig {
-	validCfg, ok := c.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
-	if !ok {
-		return nil
-	}
-
-	return validCfg
 }
 
 func validateShardingConfig(current, update *models.Class, mtEnabled bool) error {

@@ -39,7 +39,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: false,
 				},
-				APIKey: config.APIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: false,
 				},
 			},
@@ -58,7 +58,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: false,
 				},
-				APIKey: config.APIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: false,
 				},
 			},
@@ -78,7 +78,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: true,
 				},
-				APIKey: config.APIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: false,
 				},
 			},
@@ -97,7 +97,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: true,
 				},
-				APIKey: config.APIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: false,
 				},
 			},
@@ -117,7 +117,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: false,
 				},
-				APIKey: config.APIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: true,
 				},
 			},
@@ -136,7 +136,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: false,
 				},
-				APIKey: config.APIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: true,
 				},
 			},
@@ -156,7 +156,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: true,
 				},
-				APIKey: config.APIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: true,
 				},
 			},
@@ -176,7 +176,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: true,
 				},
-				APIKey: config.APIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: true,
 				},
 			},
@@ -196,7 +196,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 				OIDC: config.OIDC{
 					Enabled: true,
 				},
-				APIKey: config.APIKey{
+				APIKey: config.StaticAPIKey{
 					Enabled: true,
 				},
 			},

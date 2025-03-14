@@ -35,6 +35,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get schema: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_GET_COLLECTIONS_COUNT:
+		payload, err = st.schemaManager.QueryCollectionsCount()
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get schema: %w", err)
+		}
 	case cmd.QueryRequest_TYPE_GET_TENANTS:
 		payload, err = st.schemaManager.QueryTenants(req)
 		if err != nil {
@@ -79,6 +84,16 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		payload, err = st.schemaManager.QueryClassVersions(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get class versions: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_GET_USERS:
+		payload, err = st.dynUserManager.GetUsers(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get dynamic user: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_USER_IDENTIFIER_EXISTS:
+		payload, err = st.dynUserManager.GetUsers(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not check user identifier: %w", err)
 		}
 
 	default:

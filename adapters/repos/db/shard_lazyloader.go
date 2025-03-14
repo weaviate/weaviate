@@ -333,7 +333,7 @@ func (l *LazyLoadShard) drop() error {
 
 		// cleanup dimensions
 		if idx.Config.TrackVectorDimensions {
-			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName, idx.vectorIndexUserConfigs)
+			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName)
 		}
 
 		// cleanup index checkpoints
