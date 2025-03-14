@@ -13,6 +13,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -896,6 +897,27 @@ func TestEnvironmentHNSWAcornFilterRatio(t *testing.T) {
 			} else {
 				require.Equal(t, tt.expected, conf.HNSWAcornFilterRatio)
 			}
+		})
+	}
+}
+
+func TestEnabledForHost(t *testing.T) {
+	localHostname := "weaviate-1"
+	envName := "HOSTBASED_SETTING"
+
+	enabledVals := []string{"enabled", "1", "true", "on", "weaviate-1", "weaviate-0,weaviate-1,weaviate-2"}
+	for _, val := range enabledVals {
+		t.Run(fmt.Sprintf("enabled %q", val), func(t *testing.T) {
+			t.Setenv(envName, val)
+			assert.True(t, enabledForHost(envName, localHostname))
+		})
+	}
+
+	disabledVals := []string{"disabled", "0", "false", "off", "weaviate-0", "weaviate-0,weaviate-2,weaviate-3", ""}
+	for _, val := range disabledVals {
+		t.Run(fmt.Sprintf("disabled %q", val), func(t *testing.T) {
+			t.Setenv(envName, val)
+			assert.False(t, enabledForHost(envName, localHostname))
 		})
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -96,16 +97,6 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
 		config.ReindexSetToRoaringsetAtStartup = true
-	}
-
-	if entcfg.Enabled(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_AT_STARTUP")) {
-		config.ReindexMapToBlockmaxAtStartup = true
-		if entcfg.Enabled(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SWAP_BUCKETS")) {
-			config.ReindexMapToBlockmaxSwapBuckets = true
-		}
-		if entcfg.Enabled(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS")) {
-			config.ReindexMapToBlockmaxTidyBuckets = true
-		}
 	}
 
 	if entcfg.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
@@ -326,6 +317,16 @@ func FromEnv(config *Config) error {
 	} else {
 		if config.Persistence.DataPath == "" {
 			config.Persistence.DataPath = DefaultPersistenceDataPath
+		}
+	}
+
+	if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_AT_STARTUP", clusterCfg.Hostname) {
+		config.ReindexMapToBlockmaxAtStartup = true
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_SWAP_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxSwapBuckets = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxTidyBuckets = true
 		}
 	}
 
@@ -776,6 +777,16 @@ func parseFloat64(envName string, defaultValue float64, verify func(val float64)
 
 	cb(asFloat)
 	return nil
+}
+
+func enabledForHost(envName string, localHostname string) bool {
+	if v := os.Getenv(envName); v != "" {
+		if entcfg.Enabled(v) {
+			return true
+		}
+		return slices.Contains(strings.Split(v, ","), localHostname)
+	}
+	return false
 }
 
 func parseInt(envName string, cb func(val int), defaultValue int) error {
