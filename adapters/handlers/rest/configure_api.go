@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user"
+
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	armonmetrics "github.com/armon/go-metrics"
 	armonprometheus "github.com/armon/go-metrics/prometheus"
@@ -490,10 +492,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
 		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
-		EnableFQDNResolver:     appState.ServerConfig.Config.Raft.EnableFQDNResolver,
-		FQDNResolverTLD:        appState.ServerConfig.Config.Raft.FQDNResolverTLD,
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
 		AuthzController:        appState.AuthzController,
+		DynamicUserController:  appState.APIKey.Dynamic,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -749,6 +750,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Metrics,
 		appState.Authorizer,
 		appState.Logger)
+
+	dynamic_user.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization.Rbac, appState.Logger)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,

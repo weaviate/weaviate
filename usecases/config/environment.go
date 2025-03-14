@@ -164,6 +164,12 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if entcfg.Enabled(os.Getenv("DYNAMIC_USERS_ENABLED")) {
+		config.Authentication.DynamicUsers.Enabled = true
+	} else {
+		config.Authentication.DynamicUsers.Enabled = false
+	}
+
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
@@ -678,14 +684,6 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 
 	cfg.EnableOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_ENABLE_ONE_NODE_RECOVERY"))
 	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
-
-	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside
-	// docker without a TLD available. However is running in k8s for example you have a TLD available.
-	if entcfg.Enabled(os.Getenv("RAFT_ENABLE_FQDN_RESOLVER")) {
-		cfg.EnableFQDNResolver = true
-	}
-
-	cfg.FQDNResolverTLD = os.Getenv("RAFT_FQDN_RESOLVER_TLD")
 
 	return cfg, nil
 }

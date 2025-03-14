@@ -24,18 +24,18 @@ import (
 const (
 	// https://casbin.org/docs/rbac/#how-to-distinguish-role-from-user
 	// ROLE_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	ROLE_NAME_PREFIX = "role:"
-	// USER_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	USER_NAME_PREFIX = "user:"
+	ROLE_NAME_PREFIX = "role" + PREFIX_SEPARATOR
 	// GROUP_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	GROUP_NAME_PREFIX = "group:"
+	GROUP_NAME_PREFIX = "group" + PREFIX_SEPARATOR
+	PREFIX_SEPARATOR  = ":"
 
 	// CRUD allow all actions on a resource
 	// this is internal for casbin to handle admin actions
 	CRUD = "(C)|(R)|(U)|(D)"
 	// CRU allow all actions on a resource except DELETE
 	// this is internal for casbin to handle editor actions
-	CRU = "(C)|(R)|(U)"
+	CRU         = "(C)|(R)|(U)"
+	VALID_VERBS = "(C)|(R)|(U)|(D)|(A)"
 	// InternalPlaceHolder is a place holder to mark empty roles
 	InternalPlaceHolder = "wv_internal_empty"
 )
@@ -43,17 +43,18 @@ const (
 var (
 	BuiltInPolicies = map[string]string{
 		authorization.Viewer: authorization.READ,
-		authorization.Admin:  CRUD,
-		authorization.Root:   CRUD,
+		authorization.Admin:  VALID_VERBS,
+		authorization.Root:   VALID_VERBS,
 	}
 	weaviate_actions_prefixes = map[string]string{
-		CRUD:                           "manage",
-		CRU:                            "manage",
-		authorization.ROLE_SCOPE_MATCH: "manage",
-		authorization.CREATE:           "create",
-		authorization.READ:             "read",
-		authorization.UPDATE:           "update",
-		authorization.DELETE:           "delete",
+		CRUD:                                 "manage",
+		CRU:                                  "manage",
+		authorization.ROLE_SCOPE_MATCH:       "manage",
+		authorization.CREATE:                 "create",
+		authorization.READ:                   "read",
+		authorization.UPDATE:                 "update",
+		authorization.DELETE:                 "delete",
+		authorization.USER_ASSIGN_AND_REVOKE: "assign_and_revoke",
 	}
 )
 
@@ -167,9 +168,6 @@ func extractFromExtAction(inputAction string) (string, string, error) {
 	verb := strings.ToUpper(splits[0][:1])
 	if verb == "M" {
 		verb = CRUD
-	}
-	if verb == "A" {
-		verb = authorization.UPDATE
 	}
 
 	if !validVerb(verb) {
@@ -308,11 +306,6 @@ func weaviatePermissionAction(pathLastPart, verb, domain string) string {
 			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.TenantsDomain)
 		}
 		return action
-	case authorization.UsersDomain:
-		if verb == authorization.UPDATE {
-			action = authorization.AssignAndRevokeUsers
-		}
-		return action
 	default:
 		return action
 	}
@@ -418,7 +411,7 @@ func validResource(input string) bool {
 }
 
 func validVerb(input string) bool {
-	return regexp.MustCompile(CRUD).MatchString(input)
+	return regexp.MustCompile(VALID_VERBS).MatchString(input)
 }
 
 func PrefixRoleName(name string) string {
@@ -428,13 +421,6 @@ func PrefixRoleName(name string) string {
 	return fmt.Sprintf("%s%s", ROLE_NAME_PREFIX, name)
 }
 
-func PrefixUserName(name string) string {
-	if strings.HasPrefix(name, USER_NAME_PREFIX) {
-		return name
-	}
-	return fmt.Sprintf("%s%s", USER_NAME_PREFIX, name)
-}
-
 func PrefixGroupName(name string) string {
 	if strings.HasPrefix(name, GROUP_NAME_PREFIX) {
 		return name
@@ -442,17 +428,23 @@ func PrefixGroupName(name string) string {
 	return fmt.Sprintf("%s%s", GROUP_NAME_PREFIX, name)
 }
 
-func PrefixDefaultToUser(name string) string {
-	if strings.HasPrefix(name, GROUP_NAME_PREFIX) {
-		return name
-	}
-	return PrefixUserName(name)
+func NameHasPrefix(name string) bool {
+	return strings.Contains(name, PREFIX_SEPARATOR)
+}
+
+func UserNameWithTypeFromPrincipal(principal *models.Principal) string {
+	return fmt.Sprintf("%s:%s", principal.UserType, principal.Username)
+}
+
+func UserNameWithTypeFromId(username string, userType models.UserType) string {
+	return fmt.Sprintf("%s:%s", userType, username)
 }
 
 func TrimRoleNamePrefix(name string) string {
 	return strings.TrimPrefix(name, ROLE_NAME_PREFIX)
 }
 
-func TrimUserNamePrefix(name string) string {
-	return strings.TrimPrefix(name, USER_NAME_PREFIX)
+func GetUserAndPrefix(name string) (string, string) {
+	splits := strings.Split(name, PREFIX_SEPARATOR)
+	return splits[1], splits[0]
 }
