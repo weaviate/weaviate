@@ -350,8 +350,8 @@ func TestAuthZBatchDeleteWithMT(t *testing.T) {
 		params := getBatchDelete(className, []string{"prop"}, "something", true, &tenant1)
 		_, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
 		require.NotNil(t, err)
-		_, ok := err.(*batch.BatchObjectsDeleteForbidden)
-		require.True(t, ok)
+		var forbidden *batch.BatchObjectsDeleteForbidden
+		require.True(t, errors.As(err, &forbidden))
 	})
 
 	t.Run(fmt.Sprintf("succeed to delete object in %s using grpc", tenant1), func(t *testing.T) {
