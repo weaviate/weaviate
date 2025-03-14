@@ -196,15 +196,34 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 	}
 
 	isSwapped := rt.isSwapped()
-	if t.config.swapBuckets && !isSwapped && isMerged {
-		logger.Debug("merged, not swapped. swapping buckets")
+	isTidied := rt.isTidied()
 
-		if err = t.swapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
-			err = fmt.Errorf("swapping ingest and map buckets:%w", err)
-			return
-		}
-		isSwapped = true
+	if !isSwapped {
 		shard.markSearchableBlockmaxProperties(props...)
+	}
+
+	if isMerged {
+		if isSwapped {
+			if t.config.unswapBuckets && !isTidied {
+				logger.Debug("swapped, not tidied. unswapping buckets")
+
+				if err = t.unswapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
+					err = fmt.Errorf("unswapping ingest and map buckets:%w", err)
+					return
+				}
+				isSwapped = false
+			}
+		} else {
+			if t.config.swapBuckets {
+				logger.Debug("merged, not swapped. swapping buckets")
+
+				if err = t.swapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
+					err = fmt.Errorf("swapping ingest and map buckets:%w", err)
+					return
+				}
+				isSwapped = true
+			}
+		}
 	}
 
 	if err = ctx.Err(); err != nil {
@@ -213,7 +232,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 	}
 
 	if isSwapped {
-		if !rt.isTidied() {
+		if !isTidied {
 			if t.config.tidyBuckets {
 				logger.Debug("swapped, not tidied. tidying buckets")
 
@@ -234,7 +253,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 				}
 			}
 		} else {
-			logger.Debug("swapped and tidied. nothing to do")
+			logger.Debug("tidied. nothing to do")
 		}
 	} else {
 		logger.Debug("merged, not swapped. starting ingest buckets")
@@ -245,7 +264,6 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 			err = fmt.Errorf("starting ingest buckets:%w", err)
 			return
 		}
-		shard.markSearchableBlockmaxProperties(props...)
 		if err = t.duplicateToIngestBuckets(ctx, logger, shard, props); err != nil {
 			err = fmt.Errorf("duplicating ingest buckets:%w", err)
 			return
