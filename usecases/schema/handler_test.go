@@ -379,7 +379,7 @@ func TestSchema(t *testing.T) {
 			// Run each test independently with their own handler
 			t.Run(testCase.name, func(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-				handler.config.MaximumAllowedCollectionsCount = -1
+				handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 				defer fakeSchemaManager.AssertExpectations(t)
 				testCase.fn(t, handler, fakeSchemaManager)
 			})

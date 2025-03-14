@@ -118,7 +118,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		cls.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
-	if err := h.setNewClassDefaults(cls, *h.replication); err != nil {
+	if err := h.setNewClassDefaults(cls, h.config.Replication); err != nil {
 		return nil, 0, err
 	}
 
@@ -141,7 +141,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		h.logger.WithField("error", err).Error("could not query the collections count")
 	}
 
-	limit := runtime.GetOverrides(h.config.MaximumAllowedCollectionsCount, h.config.MaximumAllowedCollectionsCountFn)
+	limit := runtime.GetOverrides(h.schemaConfig.MaximumAllowedCollectionsCount, h.schemaConfig.MaximumAllowedCollectionsCountFn)
 
 	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
 		return nil, 0, fmt.Errorf(
@@ -189,7 +189,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 
-	if err := h.setClassDefaults(class, *h.replication); err != nil {
+	if err := h.setClassDefaults(class, h.config.Replication); err != nil {
 		return err
 	}
 
@@ -243,7 +243,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
-	if err := h.setClassDefaults(updated, *h.replication); err != nil {
+	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
 		return err
 	}
 
@@ -309,7 +309,7 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 
 	if class.ReplicationConfig == nil {
 		class.ReplicationConfig = &models.ReplicationConfig{
-			Factor:           int64(m.replication.MinimumFactor),
+			Factor:           int64(m.config.Replication.MinimumFactor),
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
 		}
 		return nil
@@ -657,7 +657,7 @@ func (h *Handler) validateCanAddClass(
 		return err
 	}
 
-	if err := replica.ValidateConfig(class, *h.replication); err != nil {
+	if err := replica.ValidateConfig(class, h.config.Replication); err != nil {
 		return err
 	}
 

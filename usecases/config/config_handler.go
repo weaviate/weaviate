@@ -90,9 +90,6 @@ type Flags struct {
 type SchemaHandlerConfig struct {
 	MaximumAllowedCollectionsCount   int         `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 	MaximumAllowedCollectionsCountFn func() *int `json:"-" yaml:"-"`
-
-	DefaultVectorizerModule     string `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
-	DefaultVectorDistanceMetric string `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 }
 
 type RuntimeOverrides struct {
@@ -114,6 +111,8 @@ type Config struct {
 	Authorization                       Authorization            `json:"authorization" yaml:"authorization"`
 	Origin                              string                   `json:"origin" yaml:"origin"`
 	Persistence                         Persistence              `json:"persistence" yaml:"persistence"`
+	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
 	EnableApiBasedModules               bool                     `json:"enable_api_based_modules" yaml:"enable_api_based_modules"`
 	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
@@ -205,11 +204,11 @@ func (c *Config) ValidateModules(modProv moduleProvider) error {
 }
 
 func (c *Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
-	if c.SchemaHandlerConfig.DefaultVectorizerModule == VectorizerModuleNone {
+	if c.DefaultVectorizerModule == VectorizerModuleNone {
 		return nil
 	}
 
-	return modProv.ValidateVectorizer(c.SchemaHandlerConfig.DefaultVectorizerModule)
+	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
 }
 
 type moduleProvider interface {
@@ -217,7 +216,7 @@ type moduleProvider interface {
 }
 
 func (c *Config) validateDefaultVectorDistanceMetric() error {
-	switch c.SchemaHandlerConfig.DefaultVectorDistanceMetric {
+	switch c.DefaultVectorDistanceMetric {
 	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
 	default:

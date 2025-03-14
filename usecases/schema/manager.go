@@ -23,11 +23,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -206,8 +204,7 @@ func NewManager(validator validator,
 	repo SchemaStore,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	schemaConfig *config.SchemaHandlerConfig,
-	replicationConfig *replication.GlobalConfig,
-	rbacConfig *rbacconf.Config,
+	config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
@@ -221,7 +218,8 @@ func NewManager(validator validator,
 		schemaManager,
 		validator,
 		logger, authorizer,
-		schemaConfig, replicationConfig, rbacConfig, configParser, vectorizerValidator, invertedConfigValidator,
+		schemaConfig,
+		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
 	)
 	if err != nil {

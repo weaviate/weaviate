@@ -28,10 +28,8 @@ func TestConfigModules(t *testing.T) {
 			valid: []string{"text2vec-contextionary"},
 		}
 		config := Config{
-			SchemaHandlerConfig: SchemaHandlerConfig{
-				DefaultVectorizerModule:     "text2vec-contextionary",
-				DefaultVectorDistanceMetric: "euclidean",
-			},
+			DefaultVectorizerModule:     "text2vec-contextionary",
+			DefaultVectorDistanceMetric: "euclidean",
 		}
 		err := config.ValidateModules(moduleProvider)
 		assert.EqualError(
@@ -46,10 +44,8 @@ func TestConfigModules(t *testing.T) {
 			valid: []string{"text2vec-contextionary"},
 		}
 		config := Config{
-			SchemaHandlerConfig: SchemaHandlerConfig{
-				DefaultVectorizerModule:     "contextionary",
-				DefaultVectorDistanceMetric: "cosine",
-			},
+			DefaultVectorizerModule:     "contextionary",
+			DefaultVectorDistanceMetric: "cosine",
 		}
 		err := config.ValidateModules(moduleProvider)
 		assert.EqualError(
@@ -64,10 +60,8 @@ func TestConfigModules(t *testing.T) {
 			valid: []string{"text2vec-contextionary"},
 		}
 		config := Config{
-			SchemaHandlerConfig: SchemaHandlerConfig{
-				DefaultVectorizerModule:     "text2vec-contextionary",
-				DefaultVectorDistanceMetric: "l2-squared",
-			},
+			DefaultVectorizerModule:     "text2vec-contextionary",
+			DefaultVectorDistanceMetric: "l2-squared",
 		}
 		err := config.ValidateModules(moduleProvider)
 		assert.Nil(t, err, "should not error")
@@ -78,9 +72,7 @@ func TestConfigModules(t *testing.T) {
 			valid: []string{"text2vec-contextionary"},
 		}
 		config := Config{
-			SchemaHandlerConfig: SchemaHandlerConfig{
-				DefaultVectorizerModule: "text2vec-contextionary",
-			},
+			DefaultVectorizerModule: "text2vec-contextionary",
 		}
 		err := config.ValidateModules(moduleProvider)
 		assert.Nil(t, err, "should not error")
@@ -91,9 +83,7 @@ func TestConfigModules(t *testing.T) {
 			valid: []string{"text2vec-contextionary"},
 		}
 		config := Config{
-			SchemaHandlerConfig: SchemaHandlerConfig{
-				DefaultVectorizerModule: "none",
-			},
+			DefaultVectorizerModule: "none",
 		}
 		err := config.ValidateModules(moduleProvider)
 		assert.Nil(t, err, "should not error")

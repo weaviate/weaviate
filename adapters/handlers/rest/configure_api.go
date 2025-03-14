@@ -550,7 +550,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
 		schemaRepo,
-		appState.Logger, appState.Authorizer, &appState.ServerConfig.Config.SchemaHandlerConfig, &appState.ServerConfig.Config.Replication, &appState.ServerConfig.Config.Authorization.Rbac,
+		appState.Logger, appState.Authorizer, &appState.ServerConfig.Config.SchemaHandlerConfig, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, scaler,
 		offloadmod, *schemaParser,
@@ -886,10 +886,10 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 
 	logger.WithFields(logrus.Fields{
 		"action":                    "startup",
-		"default_vectorizer_module": serverConfig.Config.SchemaHandlerConfig.DefaultVectorizerModule,
+		"default_vectorizer_module": serverConfig.Config.DefaultVectorizerModule,
 	}).Infof("the default vectorizer modules is set to %q, as a result all new "+
 		"schema classes without an explicit vectorizer setting, will use this "+
-		"vectorizer", serverConfig.Config.SchemaHandlerConfig.DefaultVectorizerModule)
+		"vectorizer", serverConfig.Config.DefaultVectorizerModule)
 
 	logger.WithFields(logrus.Fields{
 		"action":              "startup",
