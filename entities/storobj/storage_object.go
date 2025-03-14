@@ -290,6 +290,19 @@ type PropertyExtraction struct {
 	PropertyPaths [][]string
 }
 
+func NewPropExtraction() *PropertyExtraction {
+	return &PropertyExtraction{
+		PropertyPaths: [][]string{},
+	}
+}
+
+func (pe *PropertyExtraction) Add(props ...string) *PropertyExtraction {
+	for i := range props {
+		pe.PropertyPaths = append(pe.PropertyPaths, []string{props[i]})
+	}
+	return pe
+}
+
 type bucket interface {
 	GetBySecondary(int, []byte) ([]byte, error)
 	GetBySecondaryWithBuffer(int, []byte, []byte) ([]byte, []byte, error)

@@ -63,7 +63,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		shut:         false,
 		shutdownLock: new(sync.RWMutex),
 
-		status: NewShardStatus(),
+		status:                          NewShardStatus(),
+		searchableBlockmaxPropNamesLock: new(sync.Mutex),
 	}
 
 	defer func() {
