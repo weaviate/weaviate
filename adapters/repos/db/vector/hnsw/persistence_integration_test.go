@@ -38,11 +38,12 @@ func TestHnswPersistence(t *testing.T) {
 	indexID := "integrationtest"
 
 	logger, _ := test.NewNullLogger()
-	cl, clErr := NewCommitLogger(dirName, indexID, logger,
-		cyclemanager.NewCallbackGroupNoop())
+
 	makeCL := func() (CommitLogger, error) {
-		return cl, clErr
+		return NewCommitLogger(dirName, indexID, logger,
+			cyclemanager.NewCallbackGroupNoop())
 	}
+
 	index, err := New(Config{
 		RootPath:              dirName,
 		ID:                    indexID,
@@ -109,11 +110,12 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	indexID := "integrationtest_corrupt"
 
 	logger, _ := test.NewNullLogger()
-	cl, clErr := NewCommitLogger(dirName, indexID, logger,
-		cyclemanager.NewCallbackGroupNoop())
+
 	makeCL := func() (CommitLogger, error) {
-		return cl, clErr
+		return NewCommitLogger(dirName, indexID, logger,
+			cyclemanager.NewCallbackGroupNoop())
 	}
+
 	index, err := New(Config{
 		RootPath:              dirName,
 		ID:                    indexID,
@@ -217,11 +219,12 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	dirName := t.TempDir()
 	indexID := "integrationtest_deletion"
 	logger, _ := test.NewNullLogger()
-	cl, clErr := NewCommitLogger(dirName, indexID, logger,
-		cyclemanager.NewCallbackGroupNoop())
+
 	makeCL := func() (CommitLogger, error) {
-		return cl, clErr
+		return NewCommitLogger(dirName, indexID, logger,
+			cyclemanager.NewCallbackGroupNoop())
 	}
+
 	index, err := New(Config{
 		RootPath:              dirName,
 		ID:                    indexID,
@@ -298,10 +301,12 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	indexID := "integrationtest_tombstonecleanup"
 
 	logger, _ := test.NewNullLogger()
+
 	makeCL := func() (CommitLogger, error) {
 		return NewCommitLogger(dirName, indexID, logger,
 			cyclemanager.NewCallbackGroupNoop())
 	}
+
 	index, err := New(Config{
 		RootPath:              dirName,
 		ID:                    indexID,
