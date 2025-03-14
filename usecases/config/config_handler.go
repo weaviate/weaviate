@@ -88,8 +88,8 @@ type Flags struct {
 }
 
 type SchemaHandlerConfig struct {
-	MaximumAllowedCollectionsCount  int         `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
-	MaximumAllowedCollectionCountFn func() *int `json:"-" yaml:"-"`
+	MaximumAllowedCollectionsCount   int         `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	MaximumAllowedCollectionsCountFn func() *int `json:"-" yaml:"-"`
 
 	DefaultVectorizerModule     string `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	DefaultVectorDistanceMetric string `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`

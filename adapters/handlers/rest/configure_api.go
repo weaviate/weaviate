@@ -543,14 +543,14 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			}
 		}, appState.Logger)
 		rc := config.NewWeaviateRuntimeConfig(cm)
-		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionCountFn = rc.GetMaximumAllowedCollectionCount
+		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCountFn = rc.GetMaximumAllowedCollectionsCount
 	}
 
 	schemaManager, err := schemaUC.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
 		schemaRepo,
-		appState.Logger, appState.Authorizer, appState.ServerConfig.Config.SchemaHandlerConfig, appState.ServerConfig.Config.Replication, appState.ServerConfig.Config.Authorization.Rbac,
+		appState.Logger, appState.Authorizer, &appState.ServerConfig.Config.SchemaHandlerConfig, &appState.ServerConfig.Config.Replication, &appState.ServerConfig.Config.Authorization.Rbac,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, scaler,
 		offloadmod, *schemaParser,

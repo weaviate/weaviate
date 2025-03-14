@@ -127,9 +127,9 @@ type Handler struct {
 
 	logger                  logrus.FieldLogger
 	Authorizer              authorization.Authorizer
-	config                  config.SchemaHandlerConfig
-	replication             replication.GlobalConfig
-	rbac                    rbacconf.Config
+	config                  *config.SchemaHandlerConfig
+	replication             *replication.GlobalConfig
+	rbac                    *rbacconf.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
 	clusterState            clusterState
@@ -145,9 +145,9 @@ func NewHandler(
 	schemaReader SchemaReader,
 	schemaManager SchemaManager,
 	validator validator,
-	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.SchemaHandlerConfig,
-	replication replication.GlobalConfig,
-	rbac rbacconf.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, config *config.SchemaHandlerConfig,
+	replication *replication.GlobalConfig,
+	rbac *rbacconf.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
@@ -194,7 +194,7 @@ func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency b
 		}
 	}
 
-	filteredClasses := filter.New[*models.Class](h.Authorizer, h.rbac).Filter(
+	filteredClasses := filter.New[*models.Class](h.Authorizer, *h.rbac).Filter(
 		h.logger,
 		principal,
 		fullSchema.Objects.Classes,
