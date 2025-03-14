@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -101,37 +102,37 @@ func TestHnswIndexGrow(t *testing.T) {
 		err := index.Add(ctx, id, vector)
 		require.Nil(t, err)
 		// index should grow to 5001
-		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, index.nodes.Len())
 		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
 		// try to add a vector with id: 8001
 		id = uint64(6*cache.InitialSize + cache.MinimumIndexGrowthDelta + 1)
 		err = index.Add(ctx, id, vector)
 		require.Nil(t, err)
 		// index should grow to at least 8001
-		assert.GreaterOrEqual(t, len(index.nodes), 8001)
+		assert.GreaterOrEqual(t, index.nodes.Len(), 8001)
 		assert.GreaterOrEqual(t, index.cache.Len(), int32(8001))
 	})
 
 	t.Run("should grow index", func(t *testing.T) {
 		// should not increase the nodes size
-		sizeBefore := len(index.nodes)
+		sizeBefore := index.nodes.Len()
 		cacheBefore := index.cache.Len()
 		idDontGrowIndex := uint64(6*cache.InitialSize - 1)
 		err := index.Add(ctx, idDontGrowIndex, vector)
 		require.Nil(t, err)
-		assert.Equal(t, sizeBefore, len(index.nodes))
+		assert.Equal(t, sizeBefore, index.nodes.Len())
 		assert.Equal(t, cacheBefore, index.cache.Len())
 		// should increase nodes
 		id := uint64(8*cache.InitialSize + 1)
 		err = index.Add(ctx, id, vector)
 		require.Nil(t, err)
-		assert.GreaterOrEqual(t, len(index.nodes), int(id))
+		assert.GreaterOrEqual(t, index.nodes.Len(), int(id))
 		assert.GreaterOrEqual(t, index.cache.Len(), int32(id))
 		// should increase nodes when a much greater id is passed
 		id = uint64(20*cache.InitialSize + 22)
 		err = index.Add(ctx, id, vector)
 		require.Nil(t, err)
-		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, index.nodes.Len())
 		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
 	})
 }
@@ -146,7 +147,7 @@ func TestHnswIndexGrowSafely(t *testing.T) {
 	t.Run("concurrently add nodes to grow index", func(t *testing.T) {
 		growAttempts := 20
 		var wg sync.WaitGroup
-		offset := uint64(len(index.nodes))
+		offset := uint64(index.nodes.Len())
 		ctx := context.Background()
 
 		addVectorPair := func(ids []uint64) {
@@ -162,16 +163,17 @@ func TestHnswIndexGrowSafely(t *testing.T) {
 			go addVectorPair([]uint64{offset - 2, offset + 2})
 			go addVectorPair([]uint64{offset - 1, offset + 3})
 			wg.Wait()
-			offset = uint64(len(index.nodes))
+			offset = uint64(index.nodes.Len())
 		}
 
 		// Calculate non-nil nodes
 		nonNilNodes := 0
-		for _, node := range index.nodes {
+		index.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
 			if node != nil {
 				nonNilNodes++
 			}
-		}
+			return true
+		})
 
 		assert.Equal(t, growAttempts*8, nonNilNodes)
 	})

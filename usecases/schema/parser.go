@@ -144,9 +144,8 @@ func (p *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 	return parsedMC, nil
 }
 
-func (p *Parser) parseVectorIndexConfig(class *models.Class,
-) error {
-	if !hasTargetVectors(class) {
+func (p *Parser) parseVectorIndexConfig(class *models.Class) error {
+	if !hasTargetVectors(class) || class.VectorIndexType != "" {
 		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer))
 		if err != nil {
 			return err
@@ -155,14 +154,9 @@ func (p *Parser) parseVectorIndexConfig(class *models.Class,
 			return fmt.Errorf("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 		}
 		class.VectorIndexConfig = parsed
-		return nil
 	}
 
-	if class.VectorIndexConfig != nil {
-		return fmt.Errorf("class.vectorIndexConfig can not be set if class.vectorConfig is configured")
-	}
-
-	if err := p.parseTargetVectorsVectorIndexConfig(class); err != nil {
+	if err := p.parseTargetVectorsIndexConfig(class); err != nil {
 		return err
 	}
 	return nil
@@ -182,7 +176,7 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	return nil
 }
 
-func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
+func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 	for targetVector, vectorConfig := range class.VectorConfig {
 		isMultiVector := false
 		vectorizerModuleName := ""
@@ -255,12 +249,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
-	if hasTargetVectors(update) {
-		if err := p.validator.ValidateVectorIndexConfigsUpdate(
-			asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
-			return nil, err
-		}
-	} else {
+	if class.VectorIndexConfig != nil || update.VectorIndexConfig != nil {
 		vIdxConfig, ok1 := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		vIdxConfigU, ok2 := update.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		if !ok1 || !ok2 {
@@ -268,6 +257,13 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		}
 		if err := p.validator.ValidateVectorIndexConfigUpdate(vIdxConfig, vIdxConfigU); err != nil {
 			return nil, fmt.Errorf("validate vector index config: %w", err)
+		}
+	}
+
+	if hasTargetVectors(update) {
+		if err := p.validator.ValidateVectorIndexConfigsUpdate(
+			asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
+			return nil, err
 		}
 	}
 
@@ -534,15 +530,6 @@ func asVectorIndexConfigs(c *models.Class) map[string]schemaConfig.VectorIndexCo
 		cfgs[vecName] = c.VectorConfig[vecName].VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 	}
 	return cfgs
-}
-
-func asVectorIndexConfig(c *models.Class) schemaConfig.VectorIndexConfig {
-	validCfg, ok := c.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
-	if !ok {
-		return nil
-	}
-
-	return validCfg
 }
 
 func validateShardingConfig(current, update *models.Class, mtEnabled bool) error {

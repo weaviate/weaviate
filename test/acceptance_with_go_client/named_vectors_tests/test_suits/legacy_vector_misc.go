@@ -26,6 +26,7 @@ func AllLegacyTests(endpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("[legacy vector] schema validation", testLegacySchemaValidation(endpoint))
 		t.Run("[legacy vector] create schema", testLegacyCreateSchema(endpoint))
+		t.Run("[legacy vector] schema with none vectorizer", testLegacySchemaWithNoneVectorizer(endpoint))
 	}
 }
 
@@ -175,10 +176,8 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 
 			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 			require.Error(t, err)
-			assert.ErrorContains(t, err, "multiple vectorizers configured in property's \\\"text\\\" moduleConfig")
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, text2vecCohere)
-			assert.ErrorContains(t, err, "class.vectorizer is set to \\\"text2vec-cohere\\\"")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.Error(t, err)
@@ -211,10 +210,8 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 
 			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 			require.Error(t, err)
-			assert.ErrorContains(t, err, "multiple vectorizers configured in property's \\\"text\\\" moduleConfig")
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, text2vecCohere)
-			assert.ErrorContains(t, err, "class.vectorizer is set to \\\"text2vec-cohere\\\"")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.Error(t, err)
@@ -288,10 +285,8 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 
 			err = client.Schema().PropertyCreator().WithClassName(className).WithProperty(property).Do(ctx)
 			require.Error(t, err)
-			assert.ErrorContains(t, err, "multiple vectorizers configured in property's \\\"otherText\\\" moduleConfig")
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, text2vecCohere)
-			assert.ErrorContains(t, err, "class.vectorizer is set to \\\"text2vec-cohere\\\"")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.NoError(t, err)
@@ -333,10 +328,8 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 
 			err = client.Schema().PropertyCreator().WithClassName(className).WithProperty(property).Do(ctx)
 			require.Error(t, err)
-			assert.ErrorContains(t, err, "multiple vectorizers configured in property's \\\"otherText\\\" moduleConfig")
 			assert.ErrorContains(t, err, text2vecOpenAI)
-			assert.ErrorContains(t, err, text2vecCohere)
-			assert.ErrorContains(t, err, "class.vectorizer is set to \\\"text2vec-cohere\\\"")
+			assert.ErrorContains(t, err, "not configured for any of target vectors")
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.NoError(t, err)
@@ -464,5 +457,45 @@ func testLegacyCreateSchema(host string) func(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func testLegacySchemaWithNoneVectorizer(host string) func(t *testing.T) {
+	return func(t *testing.T) {
+		ctx := context.Background()
+		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
+		require.NoError(t, err)
+
+		require.NoError(t, client.Schema().AllDeleter().Do(context.Background()))
+
+		class := &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{
+					Name:     "text",
+					DataType: schema.DataTypeText.PropString(),
+				},
+			},
+			Vectorizer: "none",
+			VectorIndexConfig: map[string]interface{}{
+				"skip": true,
+			},
+		}
+		require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+		objWrapper, err := client.Data().Creator().
+			WithClassName(className).
+			WithID(id1).
+			WithProperties(map[string]interface{}{
+				"text": "Lorem ipsum dolor sit amet",
+			}).
+			Do(ctx)
+		require.NoError(t, err)
+
+		obj := objWrapper.Object
+		require.NotNil(t, obj)
+
+		assert.Empty(t, obj.Vector)
+		assert.Empty(t, obj.Vectors)
 	}
 }

@@ -112,7 +112,10 @@ type ShardLike interface {
 	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) // Check if an object was deleted
 	VectorIndex() VectorIndex                                                // Get the vector index
 	VectorIndexes() map[string]VectorIndex                                   // Get the vector indexes
-	hasTargetVectors() bool
+	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
+	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
+	GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool)
+	GetVectorIndex(targetVector string) (VectorIndex, bool)
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
@@ -130,11 +133,10 @@ type ShardLike interface {
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	// TODO tests only
-	Dimensions(ctx context.Context) int // dim(vector)*number vectors
-	// TODO tests only
-	QuantizedDimensions(ctx context.Context, segments int) int
-	extendDimensionTrackerLSM(dimLength int, docID uint64) error
-	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
+	Dimensions(ctx context.Context, targetVector string) int // dim(vector)*number vectors
+	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
+
+	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
 	publishDimensionMetrics(ctx context.Context)
 	resetDimensionsLSM() error
 
@@ -353,6 +355,46 @@ func (s *Shard) ObjectCountAsync() int {
 	}
 
 	return b.CountAsync()
+}
+
+// ForEachVectorIndex iterates through each vector index initialized in the shard (named and legacy).
+// Iteration stops at the first return of non-nil error.
+func (s *Shard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
+	for targetVector, idx := range s.vectorIndexes {
+		if idx == nil {
+			continue
+		}
+
+		if err := f(targetVector, idx); err != nil {
+			return err
+		}
+	}
+	if s.vectorIndex != nil {
+		if err := f("", s.vectorIndex); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ForEachVectorQueue iterates through each vector index queue initialized in the shard (named and legacy).
+// Iteration stops at the first return of non-nil error.
+func (s *Shard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
+	for targetVector, q := range s.queues {
+		if q == nil {
+			continue
+		}
+
+		if err := f(targetVector, q); err != nil {
+			return err
+		}
+	}
+	if s.queue != nil {
+		if err := f("", s.queue); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Shard) isFallbackToSearchable() bool {

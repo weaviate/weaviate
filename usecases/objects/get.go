@@ -38,12 +38,6 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
-
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
@@ -64,11 +58,10 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
-	unlock, err := m.locks.LockConnector()
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", tenant, ""))
 	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
+		return nil, err
 	}
-	defer unlock()
 
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
@@ -96,11 +89,11 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID,
 ) (*models.Class, error) {
-	unlock, err := m.locks.LockConnector()
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", "", id))
 	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
+		return nil, err
 	}
-	defer unlock()
+
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 

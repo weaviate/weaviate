@@ -29,13 +29,12 @@ import (
 func Test_Traverser_Aggregate(t *testing.T) {
 	principal := &models.Principal{}
 	logger, _ := test.NewNullLogger()
-	locks := &fakeLocks{}
 	authorizer := mocks.NewMockAuthorizer()
 	vectorRepo := &fakeVectorRepo{}
 	explorer := &fakeExplorer{}
 	schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
 
-	traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+	traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 		vectorRepo, explorer, schemaGetter, nil, nil, -1)
 
 	t.Run("with aggregation only", func(t *testing.T) {

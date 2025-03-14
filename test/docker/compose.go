@@ -116,6 +116,7 @@ type Compose struct {
 	weaviateApiKeyUsers            []ApiKeyUser
 	weaviateAdminlistAdminUsers    []string
 	weaviateAdminlistReadOnlyUsers []string
+	withWeaviateDynamicUsers       bool
 	withWeaviateRbac               bool
 	weaviateRbacAdmins             []string
 	weaviateRbacRootGroups         []string
@@ -513,6 +514,11 @@ func (d *Compose) WithRBAC() *Compose {
 	return d
 }
 
+func (d *Compose) WithDynamicUsers() *Compose {
+	d.withWeaviateDynamicUsers = true
+	return d
+}
+
 func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
@@ -864,6 +870,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		if len(d.weaviateRbacRootGroups) > 0 {
 			settings["AUTHORIZATION_RBAC_ROOT_GROUPS"] = strings.Join(d.weaviateRbacRootGroups, ",")
 		}
+	}
+
+	if d.withWeaviateDynamicUsers {
+		settings["DYNAMIC_USERS_ENABLED"] = "true"
 	}
 
 	if d.withAutoschema {

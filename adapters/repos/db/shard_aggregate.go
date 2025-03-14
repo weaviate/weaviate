@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -24,11 +25,11 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, module
 
 	// we only need the index queue for vector search
 	if params.NearObject != nil || params.NearVector != nil || params.Hybrid != nil || params.SearchVector != nil {
-		var err error
-		vectorIndex, err = s.getVectorIndex(params.TargetVector)
-		if err != nil {
-			return nil, err
+		idx, ok := s.GetVectorIndex(params.TargetVector)
+		if !ok {
+			return nil, fmt.Errorf("no vector index for target vector %q", params.TargetVector)
 		}
+		vectorIndex = idx
 	}
 
 	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,

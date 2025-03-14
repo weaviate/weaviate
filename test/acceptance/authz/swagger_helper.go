@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"os"
 	"sort"
 	"strings"
@@ -24,7 +25,6 @@ import (
 	"github.com/go-openapi/spec"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"golang.org/x/exp/rand"
 
 	"github.com/weaviate/weaviate/entities/models"
 	eschema "github.com/weaviate/weaviate/entities/schema"
@@ -180,7 +180,7 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 	switch schema.Type[0] {
 	case "string":
 		if len(schema.Enum) > 0 {
-			mockData = schema.Enum[rand.Intn(len(schema.Enum))]
+			mockData = schema.Enum[rand.IntN(len(schema.Enum))]
 		} else if schema.Format == "uuid" {
 			mockData = uuid.New().String()
 		} else if schema.Format == "date-time" {
@@ -189,9 +189,9 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 			mockData = "ABC"
 		}
 	case "integer":
-		mockData = rand.Intn(100)
+		mockData = rand.IntN(100)
 	case "boolean":
-		mockData = rand.Intn(2) == 0
+		mockData = rand.IntN(2) == 0
 	case "array":
 		var array []interface{}
 		if schema.Items != nil && schema.Items.Schema != nil {

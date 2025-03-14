@@ -74,11 +74,6 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return typedErr
 	}
 
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return &Error{"cannot lock", StatusInternalServerError, err}
-	}
-	defer unlock()
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
 	targetRef, err := input.validate(validator, class)
 	if err != nil {

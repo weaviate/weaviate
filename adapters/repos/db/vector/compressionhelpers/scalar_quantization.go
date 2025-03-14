@@ -202,3 +202,19 @@ func (sq *ScalarQuantizer) PersistCompression(logger CommitLogger) {
 func (sq *ScalarQuantizer) norm(code []byte) uint32 {
 	return binary.BigEndian.Uint32(code[len(code)-8:])
 }
+
+type SQStats struct {
+	A float32 `json:"a"`
+	B float32 `json:"b"`
+}
+
+func (s SQStats) CompressionType() string {
+	return "sq"
+}
+
+func (sq *ScalarQuantizer) Stats() CompressionStats {
+	return SQStats{
+		A: sq.a,
+		B: sq.b,
+	}
+}

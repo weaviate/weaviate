@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/locks"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -48,13 +47,12 @@ import (
 type State struct {
 	OIDC            *oidc.Client
 	AnonymousAccess *anonymous.Client
-	APIKey          *apikey.Client
+	APIKey          *apikey.ApiKey
 	Authorizer      authorization.Authorizer
 	AuthzController authorization.Controller
 
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration
-	Locks                 locks.ConnectorSchemaLock
 	Logger                *logrus.Logger
 	gqlMutex              sync.Mutex
 	GraphQL               graphql.GraphQL

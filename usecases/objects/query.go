@@ -68,11 +68,15 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 
 func (m *Manager) Query(ctx context.Context, principal *models.Principal, params *QueryParams,
 ) ([]*models.Object, *Error) {
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return nil, &Error{"cannot lock", StatusInternalServerError, err}
+	class := "*"
+
+	if params != nil && params.Class != "" {
+		class = params.Class
 	}
-	defer unlock()
+
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(class)...); err != nil {
+		return nil, &Error{err.Error(), StatusForbidden, err}
+	}
 
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()

@@ -27,15 +27,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-type locks interface {
-	LockConnector() (func() error, error)
-	LockSchema() (func() error, error)
-}
-
 // Traverser can be used to dynamically traverse the knowledge graph
 type Traverser struct {
 	config                  *config.WeaviateConfig
-	locks                   locks
 	logger                  logrus.FieldLogger
 	authorizer              authorization.Authorizer
 	vectorSearcher          VectorSearcher
@@ -62,8 +56,7 @@ type explorer interface {
 }
 
 // NewTraverser to traverse the knowledge graph
-func NewTraverser(config *config.WeaviateConfig, locks locks,
-	logger logrus.FieldLogger, authorizer authorization.Authorizer,
+func NewTraverser(config *config.WeaviateConfig, logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	vectorSearcher VectorSearcher,
 	explorer explorer, schemaGetter schema.SchemaGetter,
 	modulesProvider ModulesProvider,
@@ -71,7 +64,6 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 ) *Traverser {
 	return &Traverser{
 		config:                  config,
-		locks:                   locks,
 		logger:                  logger,
 		authorizer:              authorizer,
 		vectorSearcher:          vectorSearcher,

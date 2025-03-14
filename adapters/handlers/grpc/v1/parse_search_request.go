@@ -94,7 +94,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, p.authorizedGetClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
+	out.Properties, err = extractPropertiesRequest(req.Properties, p.authorizedGetClass, req.Collection, targetVectors, vectorSearch)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -498,7 +498,11 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 	if vectorSearch {
 		for _, target := range targetVectors {
 			if _, ok := class.VectorConfig[target]; !ok {
-				return nil, nil, false, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, class.VectorConfig)
+				configuredNamedVectors := make([]string, 0, len(class.VectorConfig))
+				for key := range class.VectorConfig {
+					configuredNamedVectors = append(configuredNamedVectors, key)
+				}
+				return nil, nil, false, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, configuredNamedVectors)
 			}
 		}
 	}
@@ -663,7 +667,7 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass func(string) (*models.Class, error), className string, usesNewDefaultLogic bool, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass func(string) (*models.Class, error), className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
@@ -674,11 +678,6 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
 		return nonRefProps, nil
-	}
-
-	if !usesNewDefaultLogic {
-		// Old stubs being used, use deprecated method
-		return extractPropertiesRequestDeprecated(reqProps, authorizedGetClass, className, targetVectors, vectorSearch)
 	}
 
 	if reqProps.ReturnAllNonrefProperties {
@@ -735,102 +734,10 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, authorizedGetClass, linkedClassName, usesNewDefaultLogic, targetVectors, vectorSearch)
+				refProperties, err = extractPropertiesRequest(prop.Properties, authorizedGetClass, linkedClassName, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
-			}
-			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(linkedClass, prop.Metadata, targetVectors, vectorSearch)
-				if err != nil {
-					return nil, errors.Wrap(err, "extract additional props for refs")
-				}
-			}
-
-			if prop.Properties == nil {
-				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName)
-				if err != nil {
-					return nil, errors.Wrap(err, "get all non ref non blob properties")
-				}
-			}
-			if len(refProperties) == 0 && isIdOnlyRequest(prop.Metadata) {
-				// This is a pure-ID query without any properties or additional metadata.
-				// Indicate this to the DB, so it can optimize accordingly
-				addProps.NoProps = true
-			}
-
-			props = append(props, search.SelectProperty{
-				Name:        normalizedRefPropName,
-				IsPrimitive: false,
-				IsObject:    false,
-				Refs: []search.SelectClass{{
-					ClassName:            linkedClassName,
-					RefProperties:        refProperties,
-					AdditionalProperties: addProps,
-				}},
-			})
-		}
-	}
-
-	if len(reqProps.ObjectProperties) > 0 {
-		props = append(props, extractNestedProperties(reqProps.ObjectProperties)...)
-	}
-
-	return props, nil
-}
-
-func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, authorizedGetClass func(string) (*models.Class, error), className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
-	if reqProps == nil {
-		return nil, nil
-	}
-	props := make([]search.SelectProperty, 0)
-	if len(reqProps.NonRefProperties) > 0 {
-		for _, prop := range reqProps.NonRefProperties {
-			props = append(props, search.SelectProperty{
-				Name:        schema.LowercaseFirstLetter(prop),
-				IsPrimitive: true,
-				IsObject:    false,
-			})
-		}
-	}
-
-	if len(reqProps.RefProperties) > 0 {
-		class, err := authorizedGetClass(className)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, prop := range reqProps.RefProperties {
-			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
-			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
-			if err != nil {
-				return nil, err
-			}
-
-			var linkedClassName string
-			if len(schemaProp.DataType) == 1 {
-				// use datatype of the reference property to get the name of the linked class
-				linkedClassName = schemaProp.DataType[0]
-			} else {
-				linkedClassName = prop.TargetCollection
-				if linkedClassName == "" {
-					return nil, fmt.Errorf(
-						"multi target references from collection %v and property %v with need an explicit"+
-							"linked collection. Available linked collections are %v",
-						className, prop.ReferenceProperty, schemaProp.DataType)
-				}
-			}
-			var refProperties []search.SelectProperty
-			var addProps additional.Properties
-			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, authorizedGetClass, linkedClassName, targetVectors, vectorSearch)
-				if err != nil {
-					return nil, errors.Wrap(err, "extract properties request")
-				}
-			}
-			linkedClass, err := authorizedGetClass(linkedClassName)
-			if err != nil {
-				return nil, err
 			}
 			if prop.Metadata != nil {
 				addProps, err = extractAdditionalPropsFromMetadata(linkedClass, prop.Metadata, targetVectors, vectorSearch)

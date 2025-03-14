@@ -45,7 +45,7 @@ func (index *Index) initCycleCallbacks() {
 	routinesN := concurrency.TimesNUMCPU(index.Config.CycleManagerRoutinesFactor)
 
 	vectorTombstoneCleanupIntervalSeconds := hnsw.DefaultCleanupIntervalSeconds
-	if hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig); ok {
+	if hnswUserConfig, ok := index.GetVectorIndexConfig("").(hnsw.UserConfig); ok {
 		vectorTombstoneCleanupIntervalSeconds = hnswUserConfig.CleanupIntervalSeconds
 	}
 

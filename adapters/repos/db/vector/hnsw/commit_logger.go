@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -331,11 +332,11 @@ func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) erro
 }
 
 // AddNode adds an empty node
-func (l *hnswCommitLogger) AddNode(node *vertex) error {
+func (l *hnswCommitLogger) AddNode(node *graph.Vertex) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddNode(node.id, node.level)
+	return l.commitLogger.AddNode(node.ID(), node.Level())
 }
 
 func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {

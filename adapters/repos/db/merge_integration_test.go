@@ -928,6 +928,80 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 	})
 }
 
+func TestMerge_ObjectWithNamedVectors(t *testing.T) {
+	var (
+		ctx          = context.Background()
+		namedVecName = "vec"
+		multiVecName = "multivec"
+		class        = &models.Class{
+			Class:               "testclass",
+			InvertedIndexConfig: invertedConfig(),
+			Properties: []*models.Property{
+				{
+					Name:     "text",
+					DataType: schema.DataTypeText.PropString(),
+				},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				namedVecName: {
+					Vectorizer:        noopVectorizerConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+				},
+				multiVecName: {
+					Vectorizer:        noopVectorizerConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultMultiVectorUserConfig(),
+				},
+			},
+		}
+		objectID = strfmt.UUID("897be7cc-1ae1-4b40-89d9-d3ea98037638")
+
+		db = createTestDatabaseWithClass(t, class)
+	)
+
+	require.NoError(t, db.PutObject(ctx, &models.Object{
+		ID:    objectID,
+		Class: class.Class,
+		Properties: map[string]interface{}{
+			"text": "test1",
+		},
+	}, nil, map[string][]float32{
+		namedVecName: randVector(10),
+	}, map[string][][]float32{
+		multiVecName: {
+			randVector(10),
+			randVector(10),
+		},
+	}, nil, 0))
+
+	newVectors := models.Vectors{
+		namedVecName: randVector(10),
+		multiVecName: [][]float32{
+			randVector(10),
+			randVector(10),
+			randVector(10),
+		},
+	}
+
+	require.NoError(t, db.Merge(ctx, objects.MergeDocument{
+		Class: class.Class,
+		ID:    objectID,
+		PrimitiveSchema: map[string]interface{}{
+			"text":   "test2",
+			"number": 2,
+		},
+		Vectors: newVectors,
+	}, nil, "", 0))
+
+	object, err := db.ObjectByID(context.Background(), objectID, nil, additional.Properties{}, "")
+	require.NoError(t, err)
+
+	require.Equal(t, newVectors, object.Vectors)
+}
+
+func noopVectorizerConfig() any {
+	return map[string]interface{}{"none": map[string]interface{}{}}
+}
+
 func uuidFromInt(in int) strfmt.UUID {
 	return strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", in)).String())
 }
