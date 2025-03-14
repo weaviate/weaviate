@@ -58,6 +58,7 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 				Do(context.Background())
 			require.NoError(t, err)
 		}
+		testAllObjectsIndexed(t, client, class.Class)
 
 		vectors := getVectors(t, client, class.Class, id1, contextionary)
 		require.Len(t, vectors, 1)
