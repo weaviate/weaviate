@@ -60,11 +60,6 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 		}
 		testAllObjectsIndexed(t, client, class.Class)
 
-		vectors := getVectors(t, client, class.Class, id1, contextionary)
-		require.Len(t, vectors, 1)
-		require.Len(t, vectors[contextionary], 300)
-		obj1C11YVector := vectors[contextionary].([]float32)
-
 		t.Run("get object", func(t *testing.T) {
 			objWrappers, err := client.Data().ObjectsGetter().
 				WithClassName(class.Class).
@@ -132,6 +127,11 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 				})
 
 				t.Run("nearVector search", func(t *testing.T) {
+					vectors := getVectors(t, client, class.Class, id1, contextionary)
+					require.Len(t, vectors, 1)
+					require.Len(t, vectors[contextionary], 300)
+					obj1C11YVector := vectors[contextionary].([]float32)
+
 					nearVector := client.GraphQL().NearVectorArgBuilder().
 						WithVector(obj1C11YVector).
 						WithCertainty(0.9)
