@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -86,6 +87,8 @@ func Test_AddClass(t *testing.T) {
 	})
 
 	t.Run("happy path, mixed vectors", func(t *testing.T) {
+		require.NoError(t, os.Setenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true"))
+
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 		class := &models.Class{
