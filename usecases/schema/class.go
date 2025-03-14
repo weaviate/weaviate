@@ -908,7 +908,7 @@ func validateVectorIndexConfigImmutableFields(initial, updated *models.Class) er
 // maybeAllowSchemasWithMixedVectors is a method to disable experimental functionality to create
 // collections that have both legacy and named vectors until development is not finished.
 func (h *Handler) maybeAllowSchemasWithMixedVectors(cls *models.Class) error {
-	featureDisabled := entcfg.Enabled(os.Getenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS"))
+	featureDisabled := !entcfg.Enabled(os.Getenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS"))
 	isMixedSchema := len(cls.VectorConfig) > 0 && (cls.Vectorizer != "" || cls.VectorIndexConfig != nil || cls.VectorIndexType != "")
 
 	if isMixedSchema && featureDisabled {
