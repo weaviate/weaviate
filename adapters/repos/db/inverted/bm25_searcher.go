@@ -83,16 +83,16 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList,
 	className schema.ClassName, limit int, keywordRanking searchparams.KeywordRanking, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	// WEAVIATE-471 - If a property is not searchable, return an error
-	for _, property := range keywordRanking.Properties {
-		if !PropertyHasSearchableIndex(b.getClass(className.String()), property) {
-			return nil, nil, inverted.NewMissingSearchableIndexError(property)
-		}
-	}
-
 	class := b.getClass(className.String())
 	if class == nil {
 		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
+	}
+
+	// WEAVIATE-471 - If a property is not searchable, return an error
+	for _, property := range keywordRanking.Properties {
+		if !PropertyHasSearchableIndex(class, property) {
+			return nil, nil, inverted.NewMissingSearchableIndexError(property)
+		}
 	}
 
 	var objs []*storobj.Object
