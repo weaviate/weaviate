@@ -14,16 +14,25 @@ package test
 // Acceptance tests for objects.
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/schema"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
+
+const UUID = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168241")
 
 func TestAutoSchemaWithDifferentProperties(t *testing.T) {
 	// Add two objects with different properties to the same class. With autoschema enabled both should be added and
@@ -196,5 +205,67 @@ func autoSchemaObjects(t *testing.T) {
 				helper.AssertRequestOk(t, resp, err, nil)
 			})
 		}
+	})
+}
+
+func TestClassCapitalisationInBatchWithAutoSchemaAndExistingClass(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviateWithGRPC().
+		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "true").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	defer helper.ResetClient()
+	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
+
+	helper.CreateClass(t, &models.Class{
+		Class: "Test",
+		Properties: []*models.Property{{
+			DataType: []string{"text"},
+			Name:     "name",
+		}},
+	})
+	defer helper.DeleteClass(t, "Test")
+
+	t.Run("batch insert object over grpc with lowercase class name", func(t *testing.T) {
+		res, err := helper.ClientGRPC(t).BatchObjects(ctx, &pb.BatchObjectsRequest{
+			Objects: []*pb.BatchObject{{
+				Collection: "test",
+				Properties: &pb.BatchObject_Properties{
+					NonRefProperties: &structpb.Struct{
+						Fields: map[string]*structpb.Value{
+							"name": {
+								Kind: &structpb.Value_StringValue{
+									StringValue: "test",
+								},
+							},
+						},
+					},
+				},
+				Uuid: string(UUID),
+			}},
+		})
+		require.Nil(t, err)
+		require.Len(t, res.Errors, 0)
+	})
+
+	t.Run("batch insert object over rest with lowercase class name", func(t *testing.T) {
+		res, err := helper.Client(t).Batch.BatchObjectsCreate(batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
+			Objects: []*models.Object{
+				{
+					Class: "test",
+					Properties: map[string]interface{}{
+						"name": "test",
+					},
+				},
+			},
+		}), nil)
+		require.Nil(t, err)
+		require.Nil(t, res.Payload[0].Result.Errors)
 	})
 }

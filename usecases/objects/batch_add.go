@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 
 	"github.com/google/uuid"
@@ -37,6 +38,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 	classesShards := make(map[string][]string)
 	for _, obj := range objects {
+		obj.Class = schema.UppercaseClassName(obj.Class)
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}
