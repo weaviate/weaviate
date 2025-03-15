@@ -72,7 +72,7 @@ func (v *vectorizer) waitFor(initCtx context.Context, interval time.Duration, en
 	for {
 		select {
 		case <-ticker.C:
-			lastErr = v.client.CheckReady(initCtx, endpoint, serviceName)
+			lastErr = v.client.CheckReady(initCtx, endpoint)
 			if lastErr == nil {
 				return nil
 			}

@@ -20,21 +20,19 @@ import (
 )
 
 type vectorizer struct {
-	originPassage string
-	originQuery   string
-	client        *transformers.Client
-	urlBuilder    *transformers.URLBuilder
-	logger        logrus.FieldLogger
+	url        string
+	client     *transformers.Client
+	urlBuilder *transformers.URLBuilder
+	logger     logrus.FieldLogger
 }
 
-func New(originPassage, originQuery string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
-	urlBuilder := transformers.NewURLBuilder(originPassage, originQuery)
+func New(url string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
+	urlBuilder := transformers.NewURLBuilder(url, url)
 	return &vectorizer{
-		originPassage: originPassage,
-		originQuery:   originQuery,
-		urlBuilder:    urlBuilder,
-		client:        transformers.New(urlBuilder, timeout, logger),
-		logger:        logger,
+		url:        url,
+		urlBuilder: urlBuilder,
+		client:     transformers.New(urlBuilder, timeout, logger),
+		logger:     logger,
 	}
 }
 

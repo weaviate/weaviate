@@ -163,7 +163,7 @@ func (c *Client) vectorize(ctx context.Context, input string,
 	}, nil
 }
 
-func (c *Client) CheckReady(ctx context.Context, endpoint string, serviceName string) error {
+func (c *Client) CheckReady(ctx context.Context, endpoint string) error {
 	// spawn a new context (derived on the overall context) which is used to
 	// consider an individual request timed out
 	// due to parent timeout being superior over request's one, request can be cancelled by parent timeout

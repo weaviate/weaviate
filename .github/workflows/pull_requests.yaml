@@ -149,7 +149,8 @@ jobs:
           "--only-module-text2vec-transformers",
           "--only-module-text2vec-ollama",
           "--only-module-generative-ollama",
-          "--only-module-many-generative"
+          "--only-module-many-generative",
+          "--only-module-text2vec-model2vec"
         ]
     steps:
       - uses: actions/checkout@v4
