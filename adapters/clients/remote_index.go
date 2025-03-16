@@ -54,7 +54,6 @@ func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
 func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	shard string, obj *storobj.Object, schemaVersion uint64,
 ) error {
-	fmt.Println("NATEE RemoteIndex PutObject", host, index, shard)
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", index, shard)
 	method := http.MethodPost
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
@@ -76,7 +75,6 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	fmt.Println("NATEE RemoteIndex PutObject req", req)
 	_, err = c.do(c.timeoutUnit*60, req, body, nil, successCode)
 	return err
 }
@@ -117,7 +115,6 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return nil
 	}
 
-	fmt.Println("NATEE RemoteIndex BatchPutObject req", req)
 	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode, 9); err != nil {
 		return duplicateErr(err, len(objs))
 	}
@@ -864,7 +861,6 @@ func (c *RemoteIndex) PauseAndListFiles(ctx context.Context,
 		return []string{}, errors.Wrap(err, "open http request")
 	}
 
-	fmt.Println("NATEE RemoteIndex.PauseAndListFiles", hostName, indexName, shardName, path, req)
 	res, err := c.client.Do(req)
 	if err != nil {
 		return []string{}, errors.Wrap(err, "send http request")

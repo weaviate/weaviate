@@ -65,12 +65,9 @@ type indicesPayloads struct {
 	UpdateShardsStatusResults updateShardsStatusResultsPayload
 	ShardFiles                shardFilesPayload
 	IncreaseReplicationFactor increaseReplicationFactorPayload
-	PauseAndListFiles         pauseAndListFilesPayload
 }
 
 type increaseReplicationFactorPayload struct{}
-
-type pauseAndListFilesPayload struct{}
 
 func (p increaseReplicationFactorPayload) Marshall(dist scaler.ShardDist) ([]byte, error) {
 	type payload struct {
