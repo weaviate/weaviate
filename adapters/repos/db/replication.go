@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -317,6 +318,41 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 	}
 
 	return i.initLocalShard(ctx, shardName)
+}
+
+func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
+	shardName string,
+) ([]string, error) {
+	// TODO do i need the other stuff from DB.ShardsBackup?
+	localShard, release, err := i.getOrInitShard(context.Background(), shardName)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q could not be found locally", shardName)
+	}
+	defer release()
+
+	// TODO context
+	// TODO do i want true or false for offloading here?
+	err = localShard.HaltForTransfer(context.Background(), false)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q could not be halted for transfer: %w", shardName, err)
+	}
+	// TODO something like this?
+	defer localShard.resumeMaintenanceCycles(context.Background())
+
+	sd := backup.ShardDescriptor{Name: shardName}
+	if err := localShard.ListBackupFiles(ctx, &sd); err != nil {
+		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
+	}
+
+	files := []string{
+		// TODO other files?
+		sd.DocIDCounterPath,
+		sd.PropLengthTrackerPath,
+		sd.ShardVersionPath,
+	}
+	files = append(files, sd.Files...)
+
+	return files, nil
 }
 
 func (s *Shard) filePutter(ctx context.Context,

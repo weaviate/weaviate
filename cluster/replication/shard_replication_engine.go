@@ -18,6 +18,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/replica/copier"
 )
 
 const (
@@ -104,7 +105,12 @@ func (s *shardReplicationEngine) startShardReplication(op shardReplicationOp) {
 
 	go func() {
 		defer s.ongoingReplications.Add(-1)
-
+		// TODO defer deleting the op from ongoing ops map and fsm maps as well? but only if it doesn't work? this is the "in memory" tracking of the replica movement?
+		if s.node == op.targetShard.nodeId {
+			// TODO pass in RemoteIndex to copier here
+			copyController := copier.New()
+			copyController.Run(op.sourceShard.nodeId, op.targetShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId)
+		}
 	}()
 }
 

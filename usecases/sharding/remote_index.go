@@ -102,6 +102,7 @@ type RemoteIndexClient interface {
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
+	PauseAndListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error)
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,

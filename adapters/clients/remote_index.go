@@ -54,6 +54,7 @@ func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
 func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	shard string, obj *storobj.Object, schemaVersion uint64,
 ) error {
+	fmt.Println("NATEE RemoteIndex PutObject", host, index, shard)
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", index, shard)
 	method := http.MethodPost
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
@@ -75,6 +76,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
+	fmt.Println("NATEE RemoteIndex PutObject req", req)
 	_, err = c.do(c.timeoutUnit*60, req, body, nil, successCode)
 	return err
 }
@@ -90,6 +92,7 @@ func duplicateErr(in error, count int) []error {
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
+	fmt.Println("NATEE RemoteIndex PutObject", host, index, shard)
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	url := url.URL{
 		Scheme:   "http",
@@ -115,6 +118,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return nil
 	}
 
+	fmt.Println("NATEE RemoteIndex BatchPutObject req", req)
 	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode, 9); err != nil {
 		return duplicateErr(err, len(objs))
 	}
@@ -842,4 +846,46 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 		return false, nil
 	}
 	return c.retry(ctx, 34, try)
+}
+
+// RemoteIndex.PauseAndListFiles TODO
+// indexName is the collection name
+func (c *RemoteIndex) PauseAndListFiles(ctx context.Context,
+	hostName, indexName, shardName string,
+) ([]string, error) {
+
+	path := fmt.Sprintf("/indices/%s/shards/%s/background:pause", indexName, shardName)
+	method := http.MethodPost
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	body := []byte{}
+	req, err := http.NewRequestWithContext(ctx, method, url.String(),
+		bytes.NewReader(body))
+	if err != nil {
+		return []string{}, errors.Wrap(err, "open http request")
+	}
+
+	fmt.Println("NATEE RemoteIndex.PauseAndListFiles", hostName, indexName, shardName, path, req)
+	res, err := c.client.Do(req)
+	if err != nil {
+		return []string{}, errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return []string{}, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	resBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return []string{}, errors.Wrap(err, "read body")
+	}
+
+	var filePaths []string
+	if err := json.Unmarshal(resBytes, &filePaths); err != nil {
+		return nil, errors.Wrap(err, "unmarshal body")
+	}
+	return filePaths, nil
 }

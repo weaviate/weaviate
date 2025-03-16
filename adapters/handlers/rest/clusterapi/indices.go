@@ -66,8 +66,8 @@ type indices struct {
 	regexpShardFiles          *regexp.Regexp
 	regexpShard               *regexp.Regexp
 	regexpShardReinit         *regexp.Regexp
-
-	logger logrus.FieldLogger
+	regexpPauseAndListFiles   *regexp.Regexp
+	logger                    logrus.FieldLogger
 }
 
 const (
@@ -106,6 +106,8 @@ const (
 		`\/shards\/(` + sh + `)$`
 	urlPatternShardReinit = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `):reinit`
+	urlPatternPauseAndListFiles = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/background:pause`
 )
 
 type shards interface {
@@ -158,6 +160,7 @@ type shards interface {
 		filePath string) (io.WriteCloser, error)
 	CreateShard(ctx context.Context, indexName, shardName string) error
 	ReInitShard(ctx context.Context, indexName, shardName string) error
+	PauseAndListFiles(ctx context.Context, indexName, shardName string) ([]string, error)
 }
 
 type db interface {
@@ -182,6 +185,7 @@ func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() b
 		regexpShardFiles:          regexp.MustCompile(urlPatternShardFiles),
 		regexpShard:               regexp.MustCompile(urlPatternShard),
 		regexpShardReinit:         regexp.MustCompile(urlPatternShardReinit),
+		regexpPauseAndListFiles:   regexp.MustCompile(urlPatternPauseAndListFiles),
 		shards:                    shards,
 		db:                        db,
 		auth:                      auth,
@@ -197,6 +201,7 @@ func (i *indices) Indices() http.Handler {
 func (i *indices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		fmt.Println("NATEE indicesHandler", path)
 		if i.maintenanceModeEnabled() {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
@@ -336,7 +341,13 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 			}
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
-
+		case i.regexpPauseAndListFiles.MatchString(path):
+			if r.Method == http.MethodPost {
+				i.postPauseAndListFiles().ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
 		default:
 			http.NotFound(w, r)
 			return
@@ -1360,5 +1371,31 @@ func (i *indices) putShardReinit() http.Handler {
 		}
 
 		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+func (i *indices) postPauseAndListFiles() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpPauseAndListFiles.FindStringSubmatch(r.URL.Path)
+		if len(args) != 4 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		files, err := i.shards.PauseAndListFiles(r.Context(), index, shard)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resBytes, err := json.Marshal(files)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(resBytes)
 	})
 }

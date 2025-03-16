@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -27,6 +28,36 @@ import (
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
+
+	http.HandleFunc("/debug/index/copy/files", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sourceNodeHostname := r.URL.Query().Get("sourceNodeHostname")
+		collectionName := r.URL.Query().Get("collectionName")
+		shardName := r.URL.Query().Get("shardName")
+		fmt.Println("NATEE got copy files request", sourceNodeHostname, collectionName, shardName)
+
+		if sourceNodeHostname == "" || collectionName == "" || shardName == "" {
+			http.Error(w, "sourceNodeHostname, collectionName, and shardName are required", http.StatusBadRequest)
+			return
+		}
+
+		fmt.Println("NATEE calling pause and list files", sourceNodeHostname, collectionName, shardName)
+		files, err := appState.DB.GetRemoteIndex().PauseAndListFiles(context.Background(), sourceNodeHostname, collectionName, shardName)
+		fmt.Println("NATEE got pause and list files", files, err)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		fmt.Println("NATEE shardreplicacopy files", files)
+
+		jsonBytes, err := json.Marshal(files)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonBytes)
+
+	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
@@ -71,6 +102,7 @@ func setupDebugHandlers(appState *state.State) {
 	// newLogLevel can be one of: panic, fatal, error, warn, info, debug, trace (defaults to info)
 	http.HandleFunc("/debug/config/logger/level", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		newLogLevel := r.URL.Query().Get("newLogLevel")
+		fmt.Println("NATEE got log level request", newLogLevel)
 		if newLogLevel == "" {
 			http.Error(w, "newLogLevel is required", http.StatusBadRequest)
 			return
