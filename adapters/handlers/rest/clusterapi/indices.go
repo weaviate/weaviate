@@ -1377,7 +1377,7 @@ func (i *indices) putShardReinit() http.Handler {
 func (i *indices) postPauseAndListFiles() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpPauseAndListFiles.FindStringSubmatch(r.URL.Path)
-		if len(args) != 4 {
+		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
 		}

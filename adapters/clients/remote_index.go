@@ -92,7 +92,6 @@ func duplicateErr(in error, count int) []error {
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
-	fmt.Println("NATEE RemoteIndex PutObject", host, index, shard)
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	url := url.URL{
 		Scheme:   "http",
