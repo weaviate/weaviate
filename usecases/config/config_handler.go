@@ -410,9 +410,6 @@ type Raft struct {
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
-
-	EnableOneNodeRecovery bool
-	ForceOneNodeRecovery  bool
 }
 
 func (r *Raft) Validate() error {

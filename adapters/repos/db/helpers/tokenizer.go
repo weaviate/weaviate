@@ -28,10 +28,13 @@ import (
 
 var (
 	gseTokenizer     *gse.Segmenter
+	gseTokenizerCh   *gse.Segmenter
 	gseTokenizerLock = &sync.Mutex{}
 	UseGse           = false
+	UseGseCh         = false
 	KagomeKrEnabled  = false
 	KagomeJaEnabled  = false
+	GseCh            = false
 )
 
 // Optional tokenizers can be enabled with an environment variable like:
@@ -46,7 +49,14 @@ var Tokenizations []string = []string{
 
 func init() {
 	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
+		UseGse = true
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
+		init_gse()
+	}
+	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
+		Tokenizations = append(Tokenizations, models.PropertyTokenizationGseCh)
+		UseGseCh = true
+		init_gse_ch()
 	}
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
@@ -54,25 +64,31 @@ func init() {
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeJa)
 	}
-	init_gse()
 	_ = initializeKagomeTokenizerKr()
 	_ = initializeKagomeTokenizerJa()
 }
 
 func init_gse() {
-	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
-		UseGse = true
-	}
-	if UseGse {
-		gseTokenizerLock.Lock()
-		defer gseTokenizerLock.Unlock()
-		if gseTokenizer == nil {
-			seg, err := gse.New("ja")
-			if err != nil {
-				return //[]string{}
-			}
-			gseTokenizer = &seg
+	gseTokenizerLock.Lock()
+	defer gseTokenizerLock.Unlock()
+	if gseTokenizer == nil {
+		seg, err := gse.New("ja")
+		if err != nil {
+			return
 		}
+		gseTokenizer = &seg
+	}
+}
+
+func init_gse_ch() {
+	gseTokenizerLock.Lock()
+	defer gseTokenizerLock.Unlock()
+	if gseTokenizerCh == nil {
+		seg, err := gse.New("zh")
+		if err != nil {
+			return
+		}
+		gseTokenizerCh = &seg
 	}
 }
 
@@ -90,6 +106,8 @@ func Tokenize(tokenization string, in string) []string {
 		return tokenizetrigram(in)
 	case models.PropertyTokenizationGse:
 		return tokenizeGSE(in)
+	case models.PropertyTokenizationGseCh:
+		return tokenizeGseCh(in)
 	case models.PropertyTokenizationKagomeKr:
 		return tokenizeKagomeKr(in)
 	case models.PropertyTokenizationKagomeJa:
@@ -113,6 +131,8 @@ func TokenizeWithWildcards(tokenization string, in string) []string {
 		return tokenizetrigramWithWildcards(in)
 	case models.PropertyTokenizationGse:
 		return tokenizeGSE(in)
+	case models.PropertyTokenizationGseCh:
+		return tokenizeGseCh(in)
 	case models.PropertyTokenizationKagomeKr:
 		return tokenizeKagomeKr(in)
 	case models.PropertyTokenizationKagomeJa:
@@ -178,7 +198,7 @@ func tokenizetrigram(in string) []string {
 	return trigrams
 }
 
-// tokenizeGSE uses the gse tokenizer to tokenise Chinese and Japanese
+// tokenizeGSE uses the gse tokenizer to tokenise Japanese
 func tokenizeGSE(in string) []string {
 	if !UseGse {
 		return []string{}
@@ -191,6 +211,19 @@ func tokenizeGSE(in string) []string {
 
 	alpha := tokenizeWord(in)
 	return append(terms, alpha...)
+}
+
+// tokenizeGSE uses the gse tokenizer to tokenise Chinese
+func tokenizeGseCh(in string) []string {
+	if !UseGseCh {
+		return []string{}
+	}
+	gseTokenizerLock.Lock()
+	defer gseTokenizerLock.Unlock()
+	terms := gseTokenizerCh.CutAll(in)
+	terms = removeEmptyStrings(terms)
+
+	return terms
 }
 
 type KagomeTokenizers struct {
