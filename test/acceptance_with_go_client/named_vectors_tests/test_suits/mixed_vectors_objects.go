@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
 
@@ -58,7 +59,17 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 				Do(context.Background())
 			require.NoError(t, err)
 		}
+
 		testAllObjectsIndexed(t, client, class.Class)
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			res, err := client.GraphQL().Get().WithClassName(class.Class).
+				WithNearText(client.GraphQL().NearTextArgBuilder().
+					WithConcepts([]string{"book"}).
+					WithCertainty(0.9)).
+				WithFields(idField).Do(ctx)
+			require.NoError(ct, err)
+			require.Len(ct, acceptance_with_go_client.GetIds(t, res, class.Class), 2)
+		}, 5*time.Second, 100*time.Millisecond)
 
 		t.Run("get object", func(t *testing.T) {
 			objWrappers, err := client.Data().ObjectsGetter().
