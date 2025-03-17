@@ -13,7 +13,6 @@ package journey
 
 import (
 	"errors"
-	"strconv"
 	"testing"
 	"time"
 
@@ -25,15 +24,26 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
 
-func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string, namedVectors, override bool, overrideName, overridePath string) {
+type vectorsConfigType string
+
+const (
+	vectorsLegacy vectorsConfigType = "legacy"
+	vectorsNamed  vectorsConfigType = "named"
+	vectorsMixed  vectorsConfigType = "mixed"
+)
+
+func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string, vectorsConfigType vectorsConfigType, overrideName, overridePath string) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
 
 	var booksClass *models.Class
-	if namedVectors {
+	switch vectorsConfigType {
+	case vectorsNamed:
 		booksClass = books.ClassNamedContextionaryVectorizer()
-	} else {
+	case vectorsMixed:
+		booksClass = books.ClassMixedContextionaryVectorizer()
+	default:
 		booksClass = books.ClassContextionaryVectorizer()
 	}
 	helper.CreateClass(t, booksClass)
@@ -52,7 +62,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 		vectors := map[string][]float32{}
 		duneBook := helper.AssertGetObject(t, booksClass.Class, books.Dune)
 
-		if namedVectors {
+		if vectorsConfigType == vectorsNamed || vectorsConfigType == vectorsMixed {
 			for name := range booksClass.VectorConfig {
 				switch vec := duneBook.Vectors[name].(type) {
 				case []float32:
@@ -63,13 +73,14 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 					// do nothing
 				}
 			}
-		} else {
+		}
+		if vectorsConfigType == vectorsLegacy || vectorsConfigType == vectorsMixed {
 			vectors["vector"] = duneBook.Vector
 		}
 		return vectors
 	}
 
-	backupID := "backup-1_named_vectors_" + strconv.FormatBool(namedVectors)
+	backupID := "backup-1_named_vectors_" + string(vectorsConfigType)
 	t.Run("add data to Books schema", func(t *testing.T) {
 		for _, book := range books.Objects() {
 			helper.CreateObject(t, book)
