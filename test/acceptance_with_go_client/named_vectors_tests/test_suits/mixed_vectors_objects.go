@@ -95,8 +95,7 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 				t.Run("nearText search", func(t *testing.T) {
 					nearText := client.GraphQL().NearTextArgBuilder().
 						WithConcepts([]string{"book"}).
-						WithCertainty(0.9).
-						WithTargetVectors()
+						WithCertainty(0.9)
 
 					if targetVector != "" {
 						nearText = nearText.WithTargetVectors(targetVector)
