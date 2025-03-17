@@ -31,7 +31,7 @@ import (
 var (
 	gseTokenizer          *gse.Segmenter
 	gseTokenizerCh        *gse.Segmenter
-	gseInitLock      = &sync.Mutex{}
+	gseLock    		  	  = &sync.Mutex{}
 	UseGse                = false
 	UseGseCh              = false
 	KagomeKrEnabled       = false
@@ -97,8 +97,8 @@ func init_gse() {
 		UseGse = true
 	}
 	if UseGse {
-		gseInitLock.Lock()
-		defer gseInitLock.Unlock()
+		gseLock.Lock()
+		defer gseLock.Unlock()
 		if gseTokenizer == nil {
 			seg, err := gse.New("ja")
 			if err != nil {
@@ -110,8 +110,8 @@ func init_gse() {
 }
 
 func init_gse_ch() {
-	gseInitLock.Lock()
-	defer gseInitLock.Unlock()
+	gseLock.Lock()
+	defer gseLock.Unlock()
 	if gseTokenizerCh == nil {
 		seg, err := gse.New("zh")
 		if err != nil {
@@ -171,6 +171,8 @@ func TokenizeWithWildcards(tokenization string, in string) []string {
 		defer func() { <-ApacTokenizerThrottle }()
 		return tokenizeGSE(in)
 	case models.PropertyTokenizationGseCh:
+		ApacTokenizerThrottle <- struct{}{}
+		defer func() { <-ApacTokenizerThrottle }()
 		return tokenizeGseCh(in)
 	case models.PropertyTokenizationKagomeKr:
 		ApacTokenizerThrottle <- struct{}{}
@@ -246,6 +248,8 @@ func tokenizeGSE(in string) []string {
 	if !UseGse {
 		return []string{}
 	}
+	gseLock.Lock()
+	defer gseLock.Unlock()
 	terms := gseTokenizer.CutAll(in)
 
 	terms = removeEmptyStrings(terms)
@@ -258,6 +262,8 @@ func tokenizeGseCh(in string) []string {
 	if !UseGseCh {
 		return []string{}
 	}
+	gseLock.Lock()
+	defer gseLock.Unlock()
 	terms := gseTokenizerCh.CutAll(in)
 	terms = removeEmptyStrings(terms)
 
