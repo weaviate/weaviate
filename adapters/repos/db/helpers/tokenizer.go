@@ -126,6 +126,8 @@ func Tokenize(tokenization string, in string) []string {
 		defer func() { <-ApacTokenizerThrottle }()
 		return tokenizeGSE(in)
 	case models.PropertyTokenizationGseCh:
+		ApacTokenizerThrottle <- struct{}{}
+		defer func() { <-ApacTokenizerThrottle }()
 		return tokenizeGseCh(in)
 	case models.PropertyTokenizationKagomeKr:
 		ApacTokenizerThrottle <- struct{}{}
