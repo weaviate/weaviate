@@ -16,13 +16,14 @@ import (
 	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
-	"github.com/stretchr/testify/require"
 	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkReplaceNodeKeyIndexAndWriteTo(b *testing.B) {
