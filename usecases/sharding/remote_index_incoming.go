@@ -92,6 +92,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingCreateShard(ctx context.Context, className string, shardName string) error
 	IncomingReinitShard(ctx context.Context, shardName string) error
 	IncomingPauseAndListFiles(ctx context.Context, shardName string) ([]string, error)
+	IncomingGetFile(ctx context.Context, shardName, filePath string) (io.ReadCloser, error)
 }
 
 type RemoteIndexIncoming struct {
@@ -320,6 +321,17 @@ func (rii *RemoteIndexIncoming) PauseAndListFiles(ctx context.Context,
 	}
 
 	return index.IncomingPauseAndListFiles(ctx, shardName)
+}
+
+func (rii *RemoteIndexIncoming) GetFile(ctx context.Context,
+	indexName, shardName, filePath string,
+) (io.ReadCloser, error) {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return nil, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingGetFile(ctx, shardName, filePath)
 }
 
 func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,

@@ -861,6 +861,7 @@ func (c *RemoteIndex) PauseAndListFiles(ctx context.Context,
 		return []string{}, errors.Wrap(err, "open http request")
 	}
 
+	// TODO retries
 	res, err := c.client.Do(req)
 	if err != nil {
 		return []string{}, errors.Wrap(err, "send http request")
@@ -883,4 +884,33 @@ func (c *RemoteIndex) PauseAndListFiles(ctx context.Context,
 		return nil, errors.Wrap(err, "unmarshal body")
 	}
 	return filePaths, nil
+}
+
+func (c *RemoteIndex) GetFile(ctx context.Context, hostName, indexName,
+	shardName, fileName string,
+) (io.ReadCloser, error) {
+	path := fmt.Sprintf("/indices/%s/shards/%s/files/%s",
+		indexName, shardName, fileName)
+
+	method := http.MethodGet
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+	// TODO retries
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	// defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	return res.Body, nil
 }

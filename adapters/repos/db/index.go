@@ -1478,7 +1478,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			if err != nil {
 				return err
 			}
-
+			fmt.Println("NATEE Index.objectSearchByShard shard", shard)
 			if shard != nil {
 				defer release()
 				localCtx := helpers.InitSlowQueryDetails(ctx)
@@ -1978,6 +1978,11 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 
 func (i *Index) loadLocalShard(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true)
+}
+
+// TODO temp for testing
+func (i *Index) AddShard(ctx context.Context, shardName string) error {
+	return i.loadLocalShard(ctx, shardName)
 }
 
 func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool) error {

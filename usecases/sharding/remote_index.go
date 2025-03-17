@@ -103,6 +103,7 @@ type RemoteIndexClient interface {
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
 	PauseAndListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error)
+	GetFile(ctx context.Context, hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
@@ -301,6 +302,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		second []float32
 	}
 	f := func(node, host string) (interface{}, error) {
+		fmt.Println("NATEE RemoteIndex.SearchShard host", host)
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
 			queryVec, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {

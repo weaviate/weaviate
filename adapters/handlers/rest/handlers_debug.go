@@ -24,34 +24,35 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/replica/copier"
 )
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
 
 	http.HandleFunc("/debug/index/copy/files", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sourceNodeHostname := r.URL.Query().Get("sourceNodeHostname")
+		sourceNodeName := r.URL.Query().Get("sourceNodeName")
 		collectionName := r.URL.Query().Get("collectionName")
 		shardName := r.URL.Query().Get("shardName")
 
-		if sourceNodeHostname == "" || collectionName == "" || shardName == "" {
-			http.Error(w, "sourceNodeHostname, collectionName, and shardName are required", http.StatusBadRequest)
+		if sourceNodeName == "" || collectionName == "" || shardName == "" {
+			http.Error(w, "sourceNodeName, collectionName, and shardName are required", http.StatusBadRequest)
 			return
 		}
-
-		files, err := appState.DB.GetRemoteIndex().PauseAndListFiles(context.Background(), sourceNodeHostname, collectionName, shardName)
+		c := copier.New(appState.DB.GetRemoteIndex(), appState.Cluster, appState.DB.GetConfig().RootPath, appState.DB.GetIndex(schema.ClassName(collectionName)))
+		err := c.Run(sourceNodeName, appState.Cluster.LocalName(), collectionName, shardName)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		jsonBytes, err := json.Marshal(files)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+		// jsonBytes, err := json.Marshal(files)
+		// if err != nil {
+		// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+		// 	return
+		// }
 		w.WriteHeader(http.StatusOK)
-		w.Write(jsonBytes)
+		// w.Write(jsonBytes)
 
 	}))
 

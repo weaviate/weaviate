@@ -107,8 +107,8 @@ func (s *shardReplicationEngine) startShardReplication(op shardReplicationOp) {
 		defer s.ongoingReplications.Add(-1)
 		// TODO defer deleting the op from ongoing ops map and fsm maps as well? but only if it doesn't work?
 		if s.node == op.targetShard.nodeId {
-			// TODO pass in RemoteIndex to copier here
-			copyController := copier.New()
+			// TODO pass in RemoteIndex to copier here? node resolver? import cycles...
+			copyController := copier.New(nil, nil, "", nil)
 			copyController.Run(op.sourceShard.nodeId, op.targetShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId)
 		}
 	}()

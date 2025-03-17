@@ -355,6 +355,37 @@ func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
 	return files, nil
 }
 
+func (i *Index) IncomingGetFile(ctx context.Context, shardName,
+	filePath string,
+) (io.ReadCloser, error) {
+	localShard, release, err := i.getOrInitShard(context.Background(), shardName)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	defer release()
+
+	// TODO: validate file prefix to rule out that we're accidentally writing
+	// into another shard
+	finalPath := filepath.Join(localShard.Index().Config.RootPath, filePath)
+	// dir := path.Dir(finalPath)
+	// if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+	// 	return nil, fmt.Errorf("create parent folder for %s: %w", filePath, err)
+	// }
+
+	// f, err := os.Create(finalPath)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("open file %q for writing: %w", filePath, err)
+	// }
+
+	reader, err := os.Open(finalPath)
+	if err != nil {
+		return nil, fmt.Errorf("open file %q for reading: %w", filePath, err)
+	}
+
+	return reader, nil
+}
+
 func (s *Shard) filePutter(ctx context.Context,
 	filePath string,
 ) (io.WriteCloser, error) {

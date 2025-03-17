@@ -161,6 +161,8 @@ type shards interface {
 	CreateShard(ctx context.Context, indexName, shardName string) error
 	ReInitShard(ctx context.Context, indexName, shardName string) error
 	PauseAndListFiles(ctx context.Context, indexName, shardName string) ([]string, error)
+	GetFile(ctx context.Context, indexName, shardName,
+		fileName string) (io.ReadCloser, error)
 }
 
 type db interface {
@@ -321,6 +323,10 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 		case i.regexpShardFiles.MatchString(path):
 			if r.Method == http.MethodPost {
 				i.postShardFile().ServeHTTP(w, r)
+				return
+			}
+			if r.Method == http.MethodGet {
+				i.getShardFile().ServeHTTP(w, r)
 				return
 			}
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
@@ -1328,6 +1334,64 @@ func (i *indices) postShardFile() http.Handler {
 			"fileName": filename,
 			"n":        n,
 		}).Debug()
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+func (i *indices) getShardFile() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpShardFiles.FindStringSubmatch(r.URL.Path)
+		if len(args) != 4 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard, filePath := args[1], args[2], args[3]
+
+		ct, ok := IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
+		if !ok {
+			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
+				http.StatusUnsupportedMediaType)
+			return
+		}
+
+		reader, err := i.shards.GetFile(r.Context(), index, shard, filePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		defer reader.Close()
+
+		n, err := io.Copy(w, reader)
+
+		i.logger.WithFields(logrus.Fields{
+			"index":    index,
+			"shard":    shard,
+			"fileName": filePath,
+			"n":        n,
+		}).Debug()
+
+		// fp, err := i.shards.FilePutter(r.Context(), index, shard, filePath)
+		// if err != nil {
+		// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+		// 	return
+		// }
+
+		// defer fp.Close()
+		// n, err := io.Copy(fp, r.Body)
+		// if err != nil {
+		// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+		// 	return
+		// }
+
+		// i.logger.WithFields(logrus.Fields{
+		// 	"index":    index,
+		// 	"shard":    shard,
+		// 	"fileName": filePath,
+		// 	"n":        n,
+		// }).Debug()
 
 		w.WriteHeader(http.StatusNoContent)
 	})
