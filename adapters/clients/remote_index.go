@@ -844,13 +844,16 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 	return c.retry(ctx, 34, try)
 }
 
-// RemoteIndex.PauseAndListFiles TODO
-// indexName is the collection name
+// PauseAndListFiles pauses the collection's shard replica background processes on the specified
+// node and returns a list of files that can be used to get the shard data at the time the pause
+// was requested. You should explicitly call the Resume (TODO) method to resume the background
+// processes. The returned relative file paths are relative to the shard's root directory.
+// indexName is the collection name.
 func (c *RemoteIndex) PauseAndListFiles(ctx context.Context,
 	hostName, indexName, shardName string,
 ) ([]string, error) {
 
-	path := fmt.Sprintf("/indices/%s/shards/%s/background:pause", indexName, shardName)
+	path := fmt.Sprintf("/indices/%s/shards/%s/background:pauselist", indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -879,34 +882,37 @@ func (c *RemoteIndex) PauseAndListFiles(ctx context.Context,
 		return []string{}, errors.Wrap(err, "read body")
 	}
 
-	var filePaths []string
-	if err := json.Unmarshal(resBytes, &filePaths); err != nil {
+	var relativeFilePaths []string
+	if err := json.Unmarshal(resBytes, &relativeFilePaths); err != nil {
 		return nil, errors.Wrap(err, "unmarshal body")
 	}
-	return filePaths, nil
+	return relativeFilePaths, nil
 }
 
+// GetFile caller must close the returned io.ReadCloser if no error is returned.
+// indexName is the collection name. relativeFilePath is the path to the file relative to the
+// shard's root directory.
 func (c *RemoteIndex) GetFile(ctx context.Context, hostName, indexName,
-	shardName, fileName string,
+	shardName, relativeFilePath string,
 ) (io.ReadCloser, error) {
 	path := fmt.Sprintf("/indices/%s/shards/%s/files/%s",
-		indexName, shardName, fileName)
+		indexName, shardName, relativeFilePath)
 
 	method := http.MethodGet
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
-	// TODO retries
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
 	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
+	// TODO retries
 	res, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	// defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
+		defer res.Body.Close()
 		body, _ := io.ReadAll(res.Body)
 		return nil, fmt.Errorf("unexpected status code %d (%s)", res.StatusCode,
 			body)

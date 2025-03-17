@@ -102,7 +102,12 @@ type RemoteIndexClient interface {
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
+	// PauseAndListFiles pauses the shard replica background processes on the specified node and returns a list of files that can be used to get the shard data at the time the pause was requested.
+	// You should explicitly call the Resume (TODO) method to resume the background processes.
+	// The returned relative file paths are relative to the shard's root directory.
 	PauseAndListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error)
+	// GetFile returns a reader for the file at the given path in the shard's root directory.
+	// The caller must close the returned io.ReadCloser if no error is returned.
 	GetFile(ctx context.Context, hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
 }
 
@@ -302,7 +307,6 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		second []float32
 	}
 	f := func(node, host string) (interface{}, error) {
-		fmt.Println("NATEE RemoteIndex.SearchShard host", host)
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
 			queryVec, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {

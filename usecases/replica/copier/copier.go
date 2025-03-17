@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 )
 
-// TODO
+// Copier for shard replicas, can copy a shard replica from one node to another.
 type Copier struct {
 	n          nodeResolver
 	t          targetNode
@@ -19,21 +19,25 @@ type Copier struct {
 
 // using targetNode interface here to avoid circular dependency
 type targetNode interface {
+	// See adapters/clients.RemoteIndex.PauseAndListFiles
 	PauseAndListFiles(ctx context.Context,
 		hostName, indexName, shardName string) ([]string, error)
+	// See adapters/clients.RemoteIndex.GetFile
 	GetFile(ctx context.Context,
 		hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
 }
 
 type nodeResolver interface {
+	// See TODO
 	NodeHostname(nodeName string) (string, bool)
 }
 
 type shardAdder interface {
+	// See TODO
 	AddShard(ctx context.Context, shardName string) error
 }
 
-// TODO
+// New creates a new shard replica Copier.
 func New(t targetNode, nodeResolver nodeResolver, rootPath string, shardAdder shardAdder) *Copier {
 	return &Copier{
 		t:          t,
@@ -43,38 +47,37 @@ func New(t targetNode, nodeResolver nodeResolver, rootPath string, shardAdder sh
 	}
 }
 
-// TODO
-func (c *Copier) Run(srcNodeId, destNodeId, collectionName, shardName string) error {
+// Run copies a shard replica from the source node to this node.
+func (c *Copier) Run(srcNodeId, collectionName, shardName string) error {
 	// TODO context
 	sourceNodeHostname, ok := c.n.NodeHostname(srcNodeId)
 	if !ok {
 		return fmt.Errorf("sourceNodeName not found for node %s", srcNodeId)
 	}
-	filePaths, err := c.t.PauseAndListFiles(context.Background(), sourceNodeHostname, collectionName, shardName)
+	relativeFilePaths, err := c.t.PauseAndListFiles(context.Background(), sourceNodeHostname, collectionName, shardName)
 	if err != nil {
 		return err
 	}
-	fmt.Println("NATEE Copier.Run files", filePaths)
-	// TODO parallel
-	for _, filePath := range filePaths {
-		reader, err := c.t.GetFile(context.Background(), sourceNodeHostname, collectionName, shardName, filePath)
+	fmt.Println("NATEE Copier.Run files", relativeFilePaths)
+	// TODO parallel? worker pool?
+	for _, relativeFilePath := range relativeFilePaths {
+		reader, err := c.t.GetFile(context.Background(), sourceNodeHostname, collectionName, shardName, relativeFilePath)
 		if err != nil {
 			return err
 		}
 		defer reader.Close()
-		fmt.Println("NATEE Copier.Run GetFile", filePath, err)
-		// TODO write to destination
+		fmt.Println("NATEE Copier.Run GetFile", relativeFilePath, err)
 
-		finalPath := filepath.Join(c.rootPath, filePath)
+		finalPath := filepath.Join(c.rootPath, relativeFilePath)
 		fmt.Println("NATEE Copier.Run finalPath", finalPath)
 		dir := path.Dir(finalPath)
 		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-			return fmt.Errorf("create parent folder for %s: %w", filePath, err)
+			return fmt.Errorf("create parent folder for %s: %w", relativeFilePath, err)
 		}
 
 		f, err := os.Create(finalPath)
 		if err != nil {
-			return fmt.Errorf("open file %q for writing: %w", filePath, err)
+			return fmt.Errorf("open file %q for writing: %w", relativeFilePath, err)
 		}
 
 		defer f.Close()

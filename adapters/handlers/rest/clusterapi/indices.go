@@ -107,7 +107,7 @@ const (
 	urlPatternShardReinit = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `):reinit`
 	urlPatternPauseAndListFiles = `\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/background:pause`
+		`\/shards\/(` + sh + `)\/background:pauselist`
 )
 
 type shards interface {
@@ -160,9 +160,11 @@ type shards interface {
 		filePath string) (io.WriteCloser, error)
 	CreateShard(ctx context.Context, indexName, shardName string) error
 	ReInitShard(ctx context.Context, indexName, shardName string) error
+	// See adapters/clients.RemoteIndex.PauseAndListFiles
 	PauseAndListFiles(ctx context.Context, indexName, shardName string) ([]string, error)
+	// See adapters/clients.RemoteIndex.GetFile
 	GetFile(ctx context.Context, indexName, shardName,
-		fileName string) (io.ReadCloser, error)
+		relativeFilePath string) (io.ReadCloser, error)
 }
 
 type db interface {
@@ -1347,7 +1349,7 @@ func (i *indices) getShardFile() http.Handler {
 			return
 		}
 
-		index, shard, filePath := args[1], args[2], args[3]
+		index, shard, relativeFilePath := args[1], args[2], args[3]
 
 		ct, ok := IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
 		if !ok {
@@ -1356,42 +1358,25 @@ func (i *indices) getShardFile() http.Handler {
 			return
 		}
 
-		reader, err := i.shards.GetFile(r.Context(), index, shard, filePath)
+		reader, err := i.shards.GetFile(r.Context(), index, shard, relativeFilePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer reader.Close()
+
+		n, err := io.Copy(w, reader)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		defer reader.Close()
-
-		n, err := io.Copy(w, reader)
-
 		i.logger.WithFields(logrus.Fields{
 			"index":    index,
 			"shard":    shard,
-			"fileName": filePath,
+			"fileName": relativeFilePath,
 			"n":        n,
 		}).Debug()
-
-		// fp, err := i.shards.FilePutter(r.Context(), index, shard, filePath)
-		// if err != nil {
-		// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-		// 	return
-		// }
-
-		// defer fp.Close()
-		// n, err := io.Copy(fp, r.Body)
-		// if err != nil {
-		// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-		// 	return
-		// }
-
-		// i.logger.WithFields(logrus.Fields{
-		// 	"index":    index,
-		// 	"shard":    shard,
-		// 	"fileName": filePath,
-		// 	"n":        n,
-		// }).Debug()
 
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -1447,13 +1432,13 @@ func (i *indices) postPauseAndListFiles() http.Handler {
 
 		index, shard := args[1], args[2]
 
-		files, err := i.shards.PauseAndListFiles(r.Context(), index, shard)
+		relativeFilePaths, err := i.shards.PauseAndListFiles(r.Context(), index, shard)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		resBytes, err := json.Marshal(files)
+		resBytes, err := json.Marshal(relativeFilePaths)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -320,6 +320,10 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 	return i.initLocalShard(ctx, shardName)
 }
 
+// IncomingPauseAndListFiles pauses the background processes of the specified shard
+// and returns a list of files that can be used to get the shard data at the time the pause was requested.
+// You should explicitly call resumeMaintenanceCycles to resume the background processes after you don't
+// need the returned files to stay immutable anymore.
 func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
 	shardName string,
 ) ([]string, error) {
@@ -336,8 +340,8 @@ func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("shard %q could not be halted for transfer: %w", shardName, err)
 	}
-	// TODO something like this?
-	defer localShard.resumeMaintenanceCycles(context.Background())
+	// TODO something like this? heartbeat fail triggers this?
+	// defer localShard.resumeMaintenanceCycles(context.Background())
 
 	sd := backup.ShardDescriptor{Name: shardName}
 	if err := localShard.ListBackupFiles(ctx, &sd); err != nil {
@@ -355,32 +359,24 @@ func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
 	return files, nil
 }
 
+// IncomingGetFile returns a reader for the file at the given path in the specified shard's root
+// directory. The caller must close the returned io.ReadCloser if no error is returned.
 func (i *Index) IncomingGetFile(ctx context.Context, shardName,
-	filePath string,
+	relativeFilePath string,
 ) (io.ReadCloser, error) {
 	localShard, release, err := i.getOrInitShard(context.Background(), shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
-
 	defer release()
 
 	// TODO: validate file prefix to rule out that we're accidentally writing
 	// into another shard
-	finalPath := filepath.Join(localShard.Index().Config.RootPath, filePath)
-	// dir := path.Dir(finalPath)
-	// if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-	// 	return nil, fmt.Errorf("create parent folder for %s: %w", filePath, err)
-	// }
-
-	// f, err := os.Create(finalPath)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("open file %q for writing: %w", filePath, err)
-	// }
+	finalPath := filepath.Join(localShard.Index().Config.RootPath, relativeFilePath)
 
 	reader, err := os.Open(finalPath)
 	if err != nil {
-		return nil, fmt.Errorf("open file %q for reading: %w", filePath, err)
+		return nil, fmt.Errorf("open file %q for reading: %w", relativeFilePath, err)
 	}
 
 	return reader, nil

@@ -91,8 +91,10 @@ type RemoteIndexIncomingRepo interface {
 		filePath string) (io.WriteCloser, error)
 	IncomingCreateShard(ctx context.Context, className string, shardName string) error
 	IncomingReinitShard(ctx context.Context, shardName string) error
+	// See adapters/clients.RemoteIndex.PauseAndListFiles
 	IncomingPauseAndListFiles(ctx context.Context, shardName string) ([]string, error)
-	IncomingGetFile(ctx context.Context, shardName, filePath string) (io.ReadCloser, error)
+	// See adapters/clients.RemoteIndex.GetFile
+	IncomingGetFile(ctx context.Context, shardName, relativeFilePath string) (io.ReadCloser, error)
 }
 
 type RemoteIndexIncoming struct {
@@ -312,6 +314,9 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 	return index.IncomingReinitShard(ctx, shardName)
 }
 
+// PauseAndListFiles pauses the shard replica background processes on the specified node and returns a list of files that can be used to get the shard data at the time the pause was requested.
+// You should explicitly call the Resume (TODO) method to resume the background processes.
+// The returned relative file paths are relative to the shard's root directory.
 func (rii *RemoteIndexIncoming) PauseAndListFiles(ctx context.Context,
 	indexName, shardName string,
 ) ([]string, error) {
@@ -323,15 +328,17 @@ func (rii *RemoteIndexIncoming) PauseAndListFiles(ctx context.Context,
 	return index.IncomingPauseAndListFiles(ctx, shardName)
 }
 
+// GetFile returns a reader for the file at the given path in the shard's root directory.
+// The caller must close the returned io.ReadCloser if no error is returned.
 func (rii *RemoteIndexIncoming) GetFile(ctx context.Context,
-	indexName, shardName, filePath string,
+	indexName, shardName, relativeFilePath string,
 ) (io.ReadCloser, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, errors.Errorf("local index %q not found", indexName)
 	}
 
-	return index.IncomingGetFile(ctx, shardName, filePath)
+	return index.IncomingGetFile(ctx, shardName, relativeFilePath)
 }
 
 func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
