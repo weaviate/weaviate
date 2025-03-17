@@ -3,12 +3,15 @@
 DOCKER_REPO="semitechnologies/weaviate"
 
 only_build_amd64=false
+only_build_arm64=false
 while [[ "$#" -gt 0 ]]; do
   case $1 in
     --amd64-only) only_build_amd64=true;;
+    --arm64-only) only_build_arm64=true;;
     --help|-h) printf '%s\n' \
       "Options:"\
       "--amd64-only"\
+      "--arm64-only"\
       "--help | -h"; exit 1;;
     *) echo "Unknown parameter passed: $1"; exit 1 ;;
   esac
@@ -18,7 +21,10 @@ done
 function release() {
 
   # for multi-platform build
-  docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+  if [ "$only_build_amd64" == "false" ] && [ "$only_build_arm64" == "false" ]; then
+    docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+  fi
+
   docker buildx create --use
 
   tag_latest="${DOCKER_REPO}:latest"
@@ -28,6 +34,18 @@ function release() {
 
   git_hash=$(echo "$GITHUB_SHA" | cut -c1-7)
 
+  # Determine architecture and platform
+  arch=""
+  if $only_build_amd64; then
+    build_platform="linux/amd64"
+    arch="amd64"
+  elif $only_build_arm64; then
+    build_platform="linux/arm64"
+    arch="arm64"
+  else
+    build_platform="linux/amd64,linux/arm64"
+  fi
+
   weaviate_version="$(jq -r '.info.version' < openapi-specs/schema.json)"
   if [  "$GITHUB_REF_TYPE" == "tag" ]; then
         if [ "$GITHUB_REF_NAME" != "v$weaviate_version" ]; then
@@ -36,25 +54,34 @@ function release() {
         fi
         tag_exact="${DOCKER_REPO}:${weaviate_version}"
   else
-    tag_preview_semver="${DOCKER_REPO}:${weaviate_version}-${git_hash}"
+    if [ -n "$arch" ]; then
+      tag_preview_semver="${DOCKER_REPO}:${weaviate_version}-${git_revision}-${arch}"
+    else
+      tag_preview_semver="${DOCKER_REPO}:${weaviate_version}-${git_revision}"
+    fi
     pr_title="$(echo -n "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -c -s '[:alnum:]' '-' | sed 's/-$//g')"
     if [ "$pr_title" == "" ]; then
       prefix="$(echo -n $GITHUB_REF_NAME | sed 's/\//-/g')"
       tag_preview="${DOCKER_REPO}:${prefix}-${git_hash}"
       weaviate_version="${prefix}-${git_hash}"
     else
-      tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_hash}"
-      weaviate_version="preview-${pr_title}-${git_hash}"
+      if [ -n "$arch" ]; then
+        tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_revision}-${arch}"
+      else
+        tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_revision}"
+      fi
+      weaviate_version="preview-${pr_title}-${git_revision}"
     fi
   fi
 
-  if $only_build_amd64; then
-    build_platform="linux/amd64"
-  else
-    build_platform="linux/amd64,linux/arm64"
-  fi
-
-  args=("--build-arg=GITHASH=$git_hash" "--build-arg=DOCKER_IMAGE_TAG=$weaviate_version" "--platform=$build_platform" "--target=weaviate" "--push")
+  args=("--build-arg=GIT_REVISION=$git_revision"
+        "--build-arg=GIT_BRANCH=$git_branch"
+        "--build-arg=BUILD_USER=$build_user"
+        "--build-arg=BUILD_DATE=$build_date"
+        "--build-arg=CGO_ENABLED=0" # Force-disable CGO for cross-compilation - Fixes segmentation faults on arm64 (https://docs.docker.com/docker-hub/image-library/trusted-content/#alpine-images)
+        "--platform=$build_platform"
+        "--target=weaviate"
+        "--push")
 
   if [ -n "$tag_exact" ]; then
     # exact tag on main
