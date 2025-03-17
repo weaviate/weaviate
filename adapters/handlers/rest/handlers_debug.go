@@ -40,7 +40,7 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 		c := copier.New(appState.DB.GetRemoteIndex(), appState.Cluster, appState.DB.GetConfig().RootPath, appState.DB.GetIndex(schema.ClassName(collectionName)))
-		err := c.Run(sourceNodeName, appState.Cluster.LocalName(), collectionName, shardName)
+		err := c.Run(sourceNodeName, collectionName, shardName)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
