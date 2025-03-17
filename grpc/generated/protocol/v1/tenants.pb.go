@@ -100,6 +100,7 @@ type TenantsGetRequest struct {
 	// we might need to add a tenant-cursor api at some point, make this easily extendable
 	//
 	// Types that are assignable to Params:
+	//
 	//	*TenantsGetRequest_Names
 	Params isTenantsGetRequest_Params `protobuf_oneof:"params"`
 }
@@ -402,7 +403,7 @@ func file_v1_tenants_proto_rawDescGZIP() []byte {
 
 var file_v1_tenants_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_v1_tenants_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_v1_tenants_proto_goTypes = []interface{}{
+var file_v1_tenants_proto_goTypes = []any{
 	(TenantActivityStatus)(0), // 0: weaviate.v1.TenantActivityStatus
 	(*TenantsGetRequest)(nil), // 1: weaviate.v1.TenantsGetRequest
 	(*TenantNames)(nil),       // 2: weaviate.v1.TenantNames
@@ -426,7 +427,7 @@ func file_v1_tenants_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_v1_tenants_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_tenants_proto_msgTypes[0].Exporter = func(v any, i int) any {
 			switch v := v.(*TenantsGetRequest); i {
 			case 0:
 				return &v.state
@@ -438,7 +439,7 @@ func file_v1_tenants_proto_init() {
 				return nil
 			}
 		}
-		file_v1_tenants_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_tenants_proto_msgTypes[1].Exporter = func(v any, i int) any {
 			switch v := v.(*TenantNames); i {
 			case 0:
 				return &v.state
@@ -450,7 +451,7 @@ func file_v1_tenants_proto_init() {
 				return nil
 			}
 		}
-		file_v1_tenants_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_tenants_proto_msgTypes[2].Exporter = func(v any, i int) any {
 			switch v := v.(*TenantsGetReply); i {
 			case 0:
 				return &v.state
@@ -462,7 +463,7 @@ func file_v1_tenants_proto_init() {
 				return nil
 			}
 		}
-		file_v1_tenants_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_tenants_proto_msgTypes[3].Exporter = func(v any, i int) any {
 			switch v := v.(*Tenant); i {
 			case 0:
 				return &v.state
@@ -475,7 +476,7 @@ func file_v1_tenants_proto_init() {
 			}
 		}
 	}
-	file_v1_tenants_proto_msgTypes[0].OneofWrappers = []interface{}{
+	file_v1_tenants_proto_msgTypes[0].OneofWrappers = []any{
 		(*TenantsGetRequest_Names)(nil),
 	}
 	type x struct{}

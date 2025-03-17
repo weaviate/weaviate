@@ -54,7 +54,7 @@ type objectsManager interface {
 	ValidateObject(context.Context, *models.Principal,
 		*models.Object, *additional.ReplicationProperties) error
 	GetObject(context.Context, *models.Principal, string, strfmt.UUID,
-		additional.Properties, *additional.ReplicationProperties, string) (*models.Object, error)
+		additional.Properties, *additional.ReplicationProperties, string, []string) (*models.Object, error)
 	DeleteObject(context.Context, *models.Principal, string,
 		strfmt.UUID, *additional.ReplicationProperties, string) error
 	UpdateObject(context.Context, *models.Principal, string, strfmt.UUID,
@@ -62,7 +62,7 @@ type objectsManager interface {
 	HeadObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID,
 		repl *additional.ReplicationProperties, tenant string) (bool, *uco.Error)
 	GetObjects(context.Context, *models.Principal, *int64, *int64,
-		*string, *string, *string, additional.Properties, string) ([]*models.Object, error)
+		*string, *string, *string, additional.Properties, string, []string) ([]*models.Object, error)
 	Query(ctx context.Context, principal *models.Principal,
 		params *uco.QueryParams) ([]*models.Object, *uco.Error)
 	MergeObject(context.Context, *models.Principal, *models.Object,
@@ -189,7 +189,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	tenant := getTenant(params.Tenant)
 
 	object, err := h.manager.GetObject(ctx, principal,
-		params.ClassName, params.ID, additional, replProps, tenant)
+		params.ClassName, params.ID, additional, replProps, tenant, nil) // Not a search, don't need tokens
 	if err != nil {
 		h.metricRequestsTotal.logError(getClassName(object), err)
 		switch {
@@ -231,10 +231,11 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	}
 
 	var deprecationsRes []*models.Deprecation
+	userTokens := params.Tokens
 
 	list, err := h.manager.GetObjects(ctx, principal,
 		params.Offset, params.Limit, params.Sort, params.Order, params.After, additional,
-		getTenant(params.Tenant))
+		getTenant(params.Tenant), userTokens)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch {

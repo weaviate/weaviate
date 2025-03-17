@@ -12,8 +12,16 @@ import (
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-// Requires gRPC-Go v1.32.0 or later.
-const _ = grpc.SupportPackageIsVersion7
+// Requires gRPC-Go v1.64.0 or later.
+const _ = grpc.SupportPackageIsVersion9
+
+const (
+	Weaviate_Search_FullMethodName       = "/weaviate.v1.Weaviate/Search"
+	Weaviate_BatchObjects_FullMethodName = "/weaviate.v1.Weaviate/BatchObjects"
+	Weaviate_BatchDelete_FullMethodName  = "/weaviate.v1.Weaviate/BatchDelete"
+	Weaviate_TenantsGet_FullMethodName   = "/weaviate.v1.Weaviate/TenantsGet"
+	Weaviate_Aggregate_FullMethodName    = "/weaviate.v1.Weaviate/Aggregate"
+)
 
 // WeaviateClient is the client API for Weaviate service.
 //
@@ -35,8 +43,9 @@ func NewWeaviateClient(cc grpc.ClientConnInterface) WeaviateClient {
 }
 
 func (c *weaviateClient) Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SearchReply)
-	err := c.cc.Invoke(ctx, "/weaviate.v1.Weaviate/Search", in, out, opts...)
+	err := c.cc.Invoke(ctx, Weaviate_Search_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -44,8 +53,9 @@ func (c *weaviateClient) Search(ctx context.Context, in *SearchRequest, opts ...
 }
 
 func (c *weaviateClient) BatchObjects(ctx context.Context, in *BatchObjectsRequest, opts ...grpc.CallOption) (*BatchObjectsReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BatchObjectsReply)
-	err := c.cc.Invoke(ctx, "/weaviate.v1.Weaviate/BatchObjects", in, out, opts...)
+	err := c.cc.Invoke(ctx, Weaviate_BatchObjects_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -53,8 +63,9 @@ func (c *weaviateClient) BatchObjects(ctx context.Context, in *BatchObjectsReque
 }
 
 func (c *weaviateClient) BatchDelete(ctx context.Context, in *BatchDeleteRequest, opts ...grpc.CallOption) (*BatchDeleteReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BatchDeleteReply)
-	err := c.cc.Invoke(ctx, "/weaviate.v1.Weaviate/BatchDelete", in, out, opts...)
+	err := c.cc.Invoke(ctx, Weaviate_BatchDelete_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -62,8 +73,9 @@ func (c *weaviateClient) BatchDelete(ctx context.Context, in *BatchDeleteRequest
 }
 
 func (c *weaviateClient) TenantsGet(ctx context.Context, in *TenantsGetRequest, opts ...grpc.CallOption) (*TenantsGetReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TenantsGetReply)
-	err := c.cc.Invoke(ctx, "/weaviate.v1.Weaviate/TenantsGet", in, out, opts...)
+	err := c.cc.Invoke(ctx, Weaviate_TenantsGet_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -71,8 +83,9 @@ func (c *weaviateClient) TenantsGet(ctx context.Context, in *TenantsGetRequest, 
 }
 
 func (c *weaviateClient) Aggregate(ctx context.Context, in *AggregateRequest, opts ...grpc.CallOption) (*AggregateReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AggregateReply)
-	err := c.cc.Invoke(ctx, "/weaviate.v1.Weaviate/Aggregate", in, out, opts...)
+	err := c.cc.Invoke(ctx, Weaviate_Aggregate_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +94,7 @@ func (c *weaviateClient) Aggregate(ctx context.Context, in *AggregateRequest, op
 
 // WeaviateServer is the server API for Weaviate service.
 // All implementations must embed UnimplementedWeaviateServer
-// for forward compatibility
+// for forward compatibility.
 type WeaviateServer interface {
 	Search(context.Context, *SearchRequest) (*SearchReply, error)
 	BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error)
@@ -91,9 +104,12 @@ type WeaviateServer interface {
 	mustEmbedUnimplementedWeaviateServer()
 }
 
-// UnimplementedWeaviateServer must be embedded to have forward compatible implementations.
-type UnimplementedWeaviateServer struct {
-}
+// UnimplementedWeaviateServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedWeaviateServer struct{}
 
 func (UnimplementedWeaviateServer) Search(context.Context, *SearchRequest) (*SearchReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Search not implemented")
@@ -111,6 +127,7 @@ func (UnimplementedWeaviateServer) Aggregate(context.Context, *AggregateRequest)
 	return nil, status.Errorf(codes.Unimplemented, "method Aggregate not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
+func (UnimplementedWeaviateServer) testEmbeddedByValue()                  {}
 
 // UnsafeWeaviateServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to WeaviateServer will
@@ -120,6 +137,13 @@ type UnsafeWeaviateServer interface {
 }
 
 func RegisterWeaviateServer(s grpc.ServiceRegistrar, srv WeaviateServer) {
+	// If the following call pancis, it indicates UnimplementedWeaviateServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
 	s.RegisterService(&Weaviate_ServiceDesc, srv)
 }
 
@@ -133,7 +157,7 @@ func _Weaviate_Search_Handler(srv interface{}, ctx context.Context, dec func(int
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/weaviate.v1.Weaviate/Search",
+		FullMethod: Weaviate_Search_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WeaviateServer).Search(ctx, req.(*SearchRequest))
@@ -151,7 +175,7 @@ func _Weaviate_BatchObjects_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/weaviate.v1.Weaviate/BatchObjects",
+		FullMethod: Weaviate_BatchObjects_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WeaviateServer).BatchObjects(ctx, req.(*BatchObjectsRequest))
@@ -169,7 +193,7 @@ func _Weaviate_BatchDelete_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/weaviate.v1.Weaviate/BatchDelete",
+		FullMethod: Weaviate_BatchDelete_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WeaviateServer).BatchDelete(ctx, req.(*BatchDeleteRequest))
@@ -187,7 +211,7 @@ func _Weaviate_TenantsGet_Handler(srv interface{}, ctx context.Context, dec func
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/weaviate.v1.Weaviate/TenantsGet",
+		FullMethod: Weaviate_TenantsGet_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WeaviateServer).TenantsGet(ctx, req.(*TenantsGetRequest))
@@ -205,7 +229,7 @@ func _Weaviate_Aggregate_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/weaviate.v1.Weaviate/Aggregate",
+		FullMethod: Weaviate_Aggregate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WeaviateServer).Aggregate(ctx, req.(*AggregateRequest))

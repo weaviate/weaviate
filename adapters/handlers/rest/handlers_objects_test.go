@@ -1087,7 +1087,7 @@ func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal,
 }
 
 func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, class string,
-	_ strfmt.UUID, _ additional.Properties, _ *additional.ReplicationProperties, _ string,
+	_ strfmt.UUID, _ additional.Properties, _ *additional.ReplicationProperties, _ string, _ []string,
 ) (*models.Object, error) {
 	return f.getObjectReturn, f.getObjectErr
 }
@@ -1112,7 +1112,7 @@ func (f *fakeManager) GetObjectClassFromName(ctx context.Context, principal *mod
 	return class, nil
 }
 
-func (f *fakeManager) GetObjects(ctx context.Context, principal *models.Principal, offset *int64, limit *int64, sort *string, order *string, after *string, addl additional.Properties, tenant string) ([]*models.Object, error) {
+func (f *fakeManager) GetObjects(ctx context.Context, principal *models.Principal, offset *int64, limit *int64, sort *string, order *string, after *string, addl additional.Properties, tenant string, userTokens []string) ([]*models.Object, error) {
 	return f.queryResult, nil
 }
 
