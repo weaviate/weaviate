@@ -19,14 +19,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
-
-	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -403,7 +403,9 @@ func (ob *objectsBatcher) shouldSkipInAdditionalStorage(i int, status objectInse
 
 func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Context,
 	object *storobj.Object, status objectInsertStatus, index int,
+	wg *sync.WaitGroup,
 ) {
+	defer wg.Done()
 	defer func() {
 		err := recover()
 		if err != nil {
