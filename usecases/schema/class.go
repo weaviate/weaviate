@@ -915,7 +915,7 @@ func (h *Handler) maybeAllowSchemasWithMixedVectors(cls *models.Class) error {
 	isMixedSchema := len(cls.VectorConfig) > 0 && (cls.Vectorizer != "" || cls.VectorIndexConfig != nil || cls.VectorIndexType != "")
 
 	if isMixedSchema && featureDisabled {
-		return errors.Errorf("collection %s has configuration for both collection level and named vectors which is currently not supported.", cls.Class)
+		return errors.Errorf("class %s has configuration for both class level and named vectors which is currently not supported.", cls.Class)
 	}
 
 	return nil
