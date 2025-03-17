@@ -31,14 +31,26 @@ import (
 var (
 	gseTokenizer          *gse.Segmenter
 	gseTokenizerCh        *gse.Segmenter
-	gseTokenizerLock      = &sync.Mutex{}
+	gseInitLock      = &sync.Mutex{}
 	UseGse                = false
 	UseGseCh              = false
 	KagomeKrEnabled       = false
 	KagomeJaEnabled       = false
 	GseCh                 = false
 	ApacTokenizerThrottle = chan struct{}(nil)
+	tokenizers     KagomeTokenizers
+	kagomeInitLock sync.Mutex
 )
+
+type KagomeTokenizers struct {
+	Korean   *kagomeTokenizer.Tokenizer
+	Japanese *kagomeTokenizer.Tokenizer
+}
+
+var (
+
+)
+
 
 // Optional tokenizers can be enabled with an environment variable like:
 // 'ENABLE_TOKENIZER_XXX', e.g. 'ENABLE_TOKENIZER_GSE', 'ENABLE_TOKENIZER_KAGOME_KR', 'ENABLE_TOKENIZER_KAGOME_JA'
@@ -85,8 +97,8 @@ func init_gse() {
 		UseGse = true
 	}
 	if UseGse {
-		gseTokenizerLock.Lock()
-		defer gseTokenizerLock.Unlock()
+		gseInitLock.Lock()
+		defer gseInitLock.Unlock()
 		if gseTokenizer == nil {
 			seg, err := gse.New("ja")
 			if err != nil {
@@ -98,8 +110,8 @@ func init_gse() {
 }
 
 func init_gse_ch() {
-	gseTokenizerLock.Lock()
-	defer gseTokenizerLock.Unlock()
+	gseInitLock.Lock()
+	defer gseInitLock.Unlock()
 	if gseTokenizerCh == nil {
 		seg, err := gse.New("zh")
 		if err != nil {
@@ -234,14 +246,11 @@ func tokenizeGSE(in string) []string {
 	if !UseGse {
 		return []string{}
 	}
-	gseTokenizerLock.Lock()
-	defer gseTokenizerLock.Unlock()
 	terms := gseTokenizer.CutAll(in)
 
 	terms = removeEmptyStrings(terms)
 
-	alpha := tokenizeWord(in)
-	return append(terms, alpha...)
+	return terms
 }
 
 // tokenizeGSE uses the gse tokenizer to tokenise Chinese
@@ -249,23 +258,11 @@ func tokenizeGseCh(in string) []string {
 	if !UseGseCh {
 		return []string{}
 	}
-	gseTokenizerLock.Lock()
-	defer gseTokenizerLock.Unlock()
 	terms := gseTokenizerCh.CutAll(in)
 	terms = removeEmptyStrings(terms)
 
 	return terms
 }
-
-type KagomeTokenizers struct {
-	Korean   *kagomeTokenizer.Tokenizer
-	Japanese *kagomeTokenizer.Tokenizer
-}
-
-var (
-	tokenizers     KagomeTokenizers
-	kagomeInitLock sync.Mutex
-)
 
 func initializeKagomeTokenizerKr() error {
 	// Acquire lock to prevent initialization race
