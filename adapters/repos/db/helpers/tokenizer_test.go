@@ -29,11 +29,9 @@ func TestTokeniseParallel(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		go SingleTokenise(t)
 	}
-
 }
 
 func SingleTokenise(t *testing.T) {
-
 	tokens := Tokenize(models.PropertyTokenizationTrigram, "Thequickbrownfoxjumpsoverthelazydog")
 	assert.Equal(t, []string{"the", "heq", "equ", "qui", "uic", "ick", "ckb", "kbr", "bro", "row", "own", "wnf", "nfo", "fox", "oxj", "xju", "jum", "ump", "mps", "pso", "sov", "ove", "ver", "ert", "rth", "the", "hel", "ela", "laz", "azy", "zyd", "ydo", "dog"}, tokens)
 

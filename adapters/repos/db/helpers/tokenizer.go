@@ -31,26 +31,21 @@ import (
 var (
 	gseTokenizer          *gse.Segmenter
 	gseTokenizerCh        *gse.Segmenter
-	gseLock    		  	  = &sync.Mutex{}
+	gseLock               = &sync.Mutex{}
 	UseGse                = false
 	UseGseCh              = false
 	KagomeKrEnabled       = false
 	KagomeJaEnabled       = false
 	GseCh                 = false
 	ApacTokenizerThrottle = chan struct{}(nil)
-	tokenizers     KagomeTokenizers
-	kagomeInitLock sync.Mutex
+	tokenizers            KagomeTokenizers
+	kagomeInitLock        sync.Mutex
 )
 
 type KagomeTokenizers struct {
 	Korean   *kagomeTokenizer.Tokenizer
 	Japanese *kagomeTokenizer.Tokenizer
 }
-
-var (
-
-)
-
 
 // Optional tokenizers can be enabled with an environment variable like:
 // 'ENABLE_TOKENIZER_XXX', e.g. 'ENABLE_TOKENIZER_GSE', 'ENABLE_TOKENIZER_KAGOME_KR', 'ENABLE_TOKENIZER_KAGOME_JA'
