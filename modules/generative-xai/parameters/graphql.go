@@ -43,6 +43,14 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 					Description: "maxTokens",
 					Type:        graphql.Int,
 				},
+				"images": &graphql.InputObjectFieldConfig{
+					Description: "images",
+					Type:        graphql.NewList(graphql.String),
+				},
+				"imageProperties": &graphql.InputObjectFieldConfig{
+					Description: "imageProperties",
+					Type:        graphql.NewList(graphql.String),
+				},
 			},
 		}),
 		DefaultValue: nil,

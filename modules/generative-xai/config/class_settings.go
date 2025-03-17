@@ -27,8 +27,8 @@ const (
 )
 
 var (
-	DefaultBaseURL     = "https://api.x.ai/v1"
-	DefaultXaiaModel = "grok-2-latest"
+	DefaultBaseURL  = "https://api.x.ai"
+	DefaultXaiModel = "grok-2-latest"
 )
 
 type classSettings struct {

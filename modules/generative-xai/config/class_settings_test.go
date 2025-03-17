@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -34,7 +35,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantBaseURL: "https://api.x.ai/v1",
+			wantBaseURL: "https://api.x.ai",
 			wantModel:   "grok-2-latest",
 			wantErr:     nil,
 		},
@@ -42,14 +43,14 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"baseURL":     "https://api.x.ai/v1",
+					"baseURL":     "https://api.x.ai",
 					"model":       "grok-2-latest",
 					"temperature": 0.5,
 					"topP":        1,
 					"maxTokens":   1024,
 				},
 			},
-			wantBaseURL:     "https://api.x.ai/v1",
+			wantBaseURL:     "https://api.x.ai",
 			wantModel:       "grok-2-latest",
 			wantTemperature: ptFloat64(0.5),
 			wantTopP:        ptFloat64(1),
@@ -95,6 +96,10 @@ func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
 }
 
 func ptInt(in int) *int {

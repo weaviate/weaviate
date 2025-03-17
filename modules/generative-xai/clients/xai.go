@@ -18,11 +18,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
-	"strings"
+	"strconv"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -31,8 +31,6 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-xai/config"
 	xaiparams "github.com/weaviate/weaviate/modules/generative-xai/parameters"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type xai struct {
 	apiKey     string
@@ -50,16 +48,16 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *xai {
 	}
 }
 
-func (v *xai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *xai) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
 	return v.generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *xai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *xai) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
@@ -101,17 +99,16 @@ func (v *xai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 		return nil, errors.Wrap(err, "read response body")
 	}
 
-	if res.StatusCode != 200 {
-		var resBody generateResponseError
-		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body error: got: %v", string(bodyBytes)))
-		}
-		return nil, errors.Errorf("connection to xAI API failed with status: %d error: %s: %s", res.StatusCode, resBody.Title, resBody.Detail)
-	}
-
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+	}
+
+	if res.StatusCode != 200 || resBody.Error != nil {
+		if resBody.Error != nil {
+			return nil, errors.Errorf("connection to xAI API failed with status: %d error: %s", res.StatusCode, resBody.Error.Message)
+		}
+		return nil, errors.Errorf("connection to xAI API failed with status: %d", res.StatusCode)
 	}
 
 	textResponse := resBody.Choices[0].Message.Content
@@ -124,13 +121,42 @@ func (v *xai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 }
 
 func (v *xai) getRequest(prompt string, params xaiparams.Params) generateInput {
-	return generateInput{
+	var input generateInput
+
+	var content interface{}
+	if len(params.Images) > 0 {
+		imageInput := contentImageInput{}
+		imageInput = append(imageInput, contentText{
+			Type: "text",
+			Text: prompt,
+		})
+		for i := range params.Images {
+			url := fmt.Sprintf("data:image/jpeg;base64,%s", *params.Images[i])
+			imageInput = append(imageInput, contentImage{
+				Type:     "image_url",
+				ImageURL: contentImageURL{URL: &url},
+			})
+		}
+		content = imageInput
+	} else {
+		content = prompt
+	}
+
+	messages := []message{{
+		Role:    "user",
+		Content: content,
+	}}
+
+	input = generateInput{
+		Messages:    messages,
 		Model:       params.Model,
-		Messages:    []message{{Role: "user", Content: prompt}},
+		Stream:      false,
+		MaxTokens:   params.MaxTokens,
 		Temperature: params.Temperature,
 		TopP:        params.TopP,
-		MaxTokens:   params.MaxTokens,
 	}
+
+	return input
 }
 
 func (v *xai) getParameters(cfg moduletools.ClassConfig, options interface{}) xaiparams.Params {
@@ -191,30 +217,6 @@ func (v *xai) getXaiUrl(ctx context.Context, baseURL string) string {
 	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL)
 }
 
-func (v *xai) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *xai) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
-}
-
 func (v *xai) getApiKey(ctx context.Context) (string, error) {
 	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Xai-Api-Key"); apiKey != "" {
 		return apiKey, nil
@@ -228,40 +230,97 @@ func (v *xai) getApiKey(ctx context.Context) (string, error) {
 }
 
 type generateInput struct {
-	Model       string    `json:"model"`
-	Messages    []message `json:"messages,omitempty"`
-	Temperature *float64  `json:"temperature,omitempty"`
-	TopP        *float64  `json:"top_p,omitempty"`
-	MaxTokens   *int      `json:"max_tokens,omitempty"`
+	Prompt           string    `json:"prompt,omitempty"`
+	Messages         []message `json:"messages,omitempty"`
+	Stream           bool      `json:"stream,omitempty"`
+	Model            string    `json:"model,omitempty"`
+	FrequencyPenalty *float64  `json:"frequency_penalty,omitempty"`
+	Logprobs         *bool     `json:"logprobs,omitempty"`
+	TopLogprobs      *int      `json:"top_logprobs,omitempty"`
+	MaxTokens        *int      `json:"max_tokens,omitempty"`
+	N                *int      `json:"n,omitempty"`
+	PresencePenalty  *float64  `json:"presence_penalty,omitempty"`
+	Stop             []string  `json:"stop,omitempty"`
+	Temperature      *float64  `json:"temperature,omitempty"`
+	TopP             *float64  `json:"top_p,omitempty"`
+}
+
+type responseMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+	Name    string `json:"name,omitempty"`
 }
 
 type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // string or array of contentText and contentImage
+	Name    string      `json:"name,omitempty"`
 }
 
-type generateResponseError struct {
-	Status int    `json:"status,omitempty"`
-	Title  string `json:"title,omitempty"`
-	Detail string `json:"detail,omitempty"`
+type contentImageInput []interface{}
+
+type contentText struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type contentImage struct {
+	Type     string          `json:"type"`
+	ImageURL contentImageURL `json:"image_url,omitempty"`
+}
+
+type contentImageURL struct {
+	URL *string `json:"url"`
 }
 
 type generateResponse struct {
-	Choices []choice `json:"choices,omitempty"`
-	Usage   *usage   `json:"usage,omitempty"`
-	Created int64    `json:"created"`
+	Choices []choice
+	Usage   *usage          `json:"usage,omitempty"`
+	Error   *openAIApiError `json:"error,omitempty"`
 }
 
 type choice struct {
-	Message      message `json:"message"`
-	Index        int     `json:"index"`
-	FinishReason string  `json:"finish_reason"`
+	FinishReason string
+	Index        float32
+	Text         string           `json:"text,omitempty"`
+	Message      *responseMessage `json:"message,omitempty"`
+}
+
+type openAIApiError struct {
+	Message string     `json:"message"`
+	Type    string     `json:"type"`
+	Param   string     `json:"param"`
+	Code    openAICode `json:"code"`
 }
 
 type usage struct {
 	PromptTokens     *int `json:"prompt_tokens,omitempty"`
-	TotalTokens      *int `json:"total_tokens,omitempty"`
 	CompletionTokens *int `json:"completion_tokens,omitempty"`
+	TotalTokens      *int `json:"total_tokens,omitempty"`
+}
+
+type openAICode string
+
+func (c *openAICode) String() string {
+	if c == nil {
+		return ""
+	}
+	return string(*c)
+}
+
+func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
+	if number, err := strconv.Atoi(string(data)); err == nil {
+		str := strconv.Itoa(number)
+		*c = openAICode(str)
+		return nil
+	}
+	var str string
+	err = json.Unmarshal(data, &str)
+	if err != nil {
+		return err
+	}
+	*c = openAICode(str)
+	return nil
 }
 
 type responseParams struct {

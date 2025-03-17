@@ -17,11 +17,13 @@ import (
 )
 
 type Params struct {
-	BaseURL     string
-	Model       string
-	Temperature *float64
-	TopP        *float64
-	MaxTokens   *int
+	BaseURL         string
+	Model           string
+	Temperature     *float64
+	TopP            *float64
+	MaxTokens       *int
+	Images          []*string
+	ImageProperties []string
 }
 
 func extract(field *ast.ObjectField) interface{} {
@@ -40,6 +42,10 @@ func extract(field *ast.ObjectField) interface{} {
 				out.TopP = gqlparser.GetValueAsFloat64(f)
 			case "maxTokens":
 				out.MaxTokens = gqlparser.GetValueAsInt(f)
+			case "images":
+				out.Images = gqlparser.GetValueAsStringPtrArray(f)
+			case "imageProperties":
+				out.ImageProperties = gqlparser.GetValueAsStringArray(f)
 			default:
 				// do nothing
 			}

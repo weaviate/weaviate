@@ -24,13 +24,15 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestGetAnswer(t *testing.T) {
 	tests := []struct {
 		name           string
 		answer         generateResponse
-		errorResponse  *generateResponseError
+		errorResponse  *generateResponse
 		timeout        time.Duration
 		expectedResult string
 	}{
@@ -39,7 +41,7 @@ func TestGetAnswer(t *testing.T) {
 			answer: generateResponse{
 				Choices: []choice{
 					{
-						Message: message{
+						Message: &responseMessage{
 							Role:    "user",
 							Content: "John",
 						},
@@ -50,10 +52,10 @@ func TestGetAnswer(t *testing.T) {
 		},
 		{
 			name: "when the server has an error",
-			errorResponse: &generateResponseError{
-				Status: 402,
-				Title:  "Payment Required",
-				Detail: "Account 'x': Cloud credits expired - Please contact xAI representatives",
+			errorResponse: &generateResponse{
+				Error: &openAIApiError{
+					Message: "Account 'x': Cloud credits expired - Please contact xAI representatives",
+				},
 			},
 		},
 	}
@@ -71,11 +73,11 @@ func TestGetAnswer(t *testing.T) {
 			c := New("apiKey", tt.timeout, nullLogger())
 
 			settings := &fakeClassConfig{baseURL: server.URL}
-			textProperties := []map[string]string{{"prop": "My name is john"}}
-			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, settings)
+			props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
+			res, err := c.GenerateAllResults(context.Background(), props, "What is my name?", nil, false, settings)
 
 			if tt.errorResponse != nil {
-				assert.Contains(t, err.Error(), tt.errorResponse.Title, tt.errorResponse.Detail)
+				assert.Contains(t, err.Error(), tt.errorResponse.Error.Message)
 			} else {
 				assert.Equal(t, tt.expectedResult, *res.Result)
 			}
@@ -99,7 +101,7 @@ type testAnswerHandler struct {
 	t *testing.T
 	// the test handler will report as not ready before the time has passed
 	answer        generateResponse
-	errorResponse *generateResponseError
+	errorResponse *generateResponse
 	timeout       time.Duration
 }
 
@@ -155,6 +157,10 @@ func (cfg *fakeClassConfig) Property(propName string) map[string]interface{} {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
 }
 
 func nullLogger() logrus.FieldLogger {
