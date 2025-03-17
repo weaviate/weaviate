@@ -74,7 +74,8 @@ func init_gse() {
 	if gseTokenizer == nil {
 		seg, err := gse.New("ja")
 		if err != nil {
-			return //[]string{}
+
+			return
 		}
 		gseTokenizer = &seg
 	}
@@ -86,7 +87,7 @@ func init_gse_ch() {
 	if gseTokenizerCh == nil {
 		seg, err := gse.New("zh")
 		if err != nil {
-			return //[]string{}
+			return
 		}
 		gseTokenizerCh = &seg
 	}
