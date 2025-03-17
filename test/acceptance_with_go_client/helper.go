@@ -92,22 +92,20 @@ func GetVectors(t *testing.T,
 
 		for _, targetVector := range targetVectors {
 			if targetVector == "" {
-				targetVectorsMap[""] = parseVector(additional["vector"])
+				targetVectorsMap[""] = parseVector(t, additional["vector"])
 				continue
 			}
 
-			targetVectorsMap[targetVector] = parseVector(vectors[targetVector])
+			targetVectorsMap[targetVector] = parseVector(t, vectors[targetVector])
 		}
 	}
 
 	return targetVectorsMap
 }
 
-func parseVector(data interface{}) models.Vector {
+func parseVector(t *testing.T, data interface{}) models.Vector {
 	vector, ok := data.([]interface{})
-	if !ok {
-		panic(fmt.Sprintf("unexpected vector types in GraphQL response: %T", data))
-	}
+	require.Truef(t, ok, "unexpected vector types in GraphQL response: %T", data)
 
 	var multiVector [][]float32
 	var vec []float32

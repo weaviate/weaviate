@@ -89,6 +89,7 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 			require.Len(t, resultVectors[""], 300)
 			require.Len(t, resultVectors[transformers], 384)
 		})
+
 		for _, targetVector := range []string{"", contextionary} {
 			t.Run(fmt.Sprintf("targetVector=%q", targetVector), func(t *testing.T) {
 				t.Run("nearText search", func(t *testing.T) {
