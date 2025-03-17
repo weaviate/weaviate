@@ -63,9 +63,9 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 		testAllObjectsIndexed(t, client, class.Class)
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			res, err := client.GraphQL().Get().WithClassName(class.Class).
-				WithNearText(client.GraphQL().NearTextArgBuilder().
-					WithConcepts([]string{"book"}).
-					WithCertainty(0.9)).
+				WithNearText(client.GraphQL().
+					NearTextArgBuilder().
+					WithConcepts([]string{"book"})).
 				WithFields(idField).Do(ctx)
 			require.NoError(ct, err)
 			require.Len(ct, acceptance_with_go_client.GetIds(t, res, class.Class), 2)
