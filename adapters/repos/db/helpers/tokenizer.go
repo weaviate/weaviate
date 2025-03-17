@@ -41,7 +41,7 @@ var (
 )
 
 // Optional tokenizers can be enabled with an environment variable like:
-// 'ENABLE_TOKENIZER_XXX', e.g. 'ENABLE_TOKENIZER_GSE', 'ENABLE_TOKENIZER_KAGOME_KR'
+// 'ENABLE_TOKENIZER_XXX', e.g. 'ENABLE_TOKENIZER_GSE', 'ENABLE_TOKENIZER_KAGOME_KR', 'ENABLE_TOKENIZER_KAGOME_JA'
 var Tokenizations []string = []string{
 	models.PropertyTokenizationWord,
 	models.PropertyTokenizationLowercase,
