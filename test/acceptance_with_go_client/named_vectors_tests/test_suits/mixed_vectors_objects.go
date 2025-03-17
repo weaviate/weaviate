@@ -171,7 +171,7 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 			}
 		})
 
-		t.Run("update object", func(t *testing.T) {
+		t.Run("update object with merge", func(t *testing.T) {
 			vectorsToCheck := []string{"", contextionary}
 			beforeUpdate := getVectors(t, client, class.Class, id1, vectorsToCheck...)
 			require.NoError(t, client.Data().Updater().
