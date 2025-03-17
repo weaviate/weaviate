@@ -29,17 +29,17 @@ import (
 )
 
 var (
-	gseTokenizer          *gse.Segmenter
-	gseTokenizerCh        *gse.Segmenter
-	gseLock               = &sync.Mutex{}
-	UseGse                = false
-	UseGseCh              = false
-	KagomeKrEnabled       = false
-	KagomeJaEnabled       = false
-	GseCh                 = false
-	ApacTokenizerThrottle = chan struct{}(nil)
-	tokenizers            KagomeTokenizers
-	kagomeInitLock        sync.Mutex
+	gseTokenizer    *gse.Segmenter  // Japanese
+	gseTokenizerCh  *gse.Segmenter  // Chinese
+	gseLock         = &sync.Mutex{} // Lock for gse
+	UseGse          = false         // Load Japanese dictionary and prepare tokenizer
+	UseGseCh        = false         // Load Chinese dictionary and prepare tokenizer
+	KagomeKrEnabled = false         // Load Korean dictionary and prepare tokenizer
+	KagomeJaEnabled = false         // Load Japanese dictionary and prepare tokenizer
+	// The Tokenizer Libraries can consume a lot of memory, so we limit the number of parallel tokenizers
+	ApacTokenizerThrottle = chan struct{}(nil) // Throttle for tokenizers
+	tokenizers            KagomeTokenizers     // Tokenizers for Korean and Japanese
+	kagomeInitLock        sync.Mutex           // Lock for kagome initialization
 )
 
 type KagomeTokenizers struct {
