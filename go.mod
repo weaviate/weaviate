@@ -2,7 +2,7 @@ module github.com/weaviate/weaviate
 
 // replace github.com/rapidsai/cuvs/go => ../cuvs/go // remove once PR is merged
 
-replace github.com/rapidsai/cuvs/go => github.com/ajit283/cuvs/go v0.0.0-20250311224502-fbef7b09b533
+replace github.com/rapidsai/cuvs/go => github.com/ajit283/cuvs/go v0.0.0-20250316184838-d6da9e4e38da
 
 require (
 	cloud.google.com/go/storage v1.43.0

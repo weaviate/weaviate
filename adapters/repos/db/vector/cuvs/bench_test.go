@@ -322,7 +322,7 @@ func BenchmarkDataset(b *testing.B) {
 		TargetVector:   "vector",
 		Logger:         logger,
 		RootPath:       b.TempDir(),
-		CuvsPoolMemory: 90,
+		CuvsPoolMemory: 0,
 	}, cuvsEnt.NewDefaultUserConfig(), store)
 	if err != nil {
 		b.Fatal(err)
@@ -415,7 +415,7 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 // into memory, then processes them in batches to query the index and compute recall.
 func QueryVectors(index *cuvs_index, testDataset *hdf5.Dataset, neighborsDataset *hdf5.Dataset) (float64, float64, float64) {
 	// Constants as defined in the original.
-	const batchSize = 100
+	const batchSize = 1
 	const K = 10
 
 	allTestVectors := loadHdf5Float32FromDataset(testDataset)

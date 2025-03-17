@@ -47,6 +47,7 @@ import (
 type cuvs_internals struct {
 	cuvsIndex        *cagra.CagraIndex
 	cuvsIndexParams  *cagra.IndexParams
+	cuvsBuildAlgo    cagra.BuildAlgo
 	cuvsSearchParams *cagra.SearchParams
 	hnswIndex        *hnsw.HnswIndex
 	hnswIndexParams  *hnsw.IndexParams
@@ -178,6 +179,14 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		dlpackTensor:     nil,
 	}
 
+	if uc.BuildAlgo == "ivf_pq" {
+		internals.cuvsBuildAlgo = cagra.IvfPq
+	} else if uc.BuildAlgo == "nn_descent" {
+		internals.cuvsBuildAlgo = cagra.NnDescent
+	} else if uc.BuildAlgo == "auto_select" {
+		internals.cuvsBuildAlgo = cagra.AutoSelect
+	}
+
 	index := &cuvs_index{
 		cuvs_internals: internals,
 		id:             cfg.ID,
@@ -191,7 +200,7 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		isIndexBuilt:      false,
 
 		idCuvsIdMap:    *NewBiMap(),
-		cuvsPoolMemory: cfg.CuvsPoolMemory,
+		cuvsPoolMemory: 90,
 
 		batchEnabled:   uc.BatchEnabled,
 		batchSize:      uc.BatchSize,
@@ -295,8 +304,8 @@ func shouldExtend(index *cuvs_index, num_new uint64) bool {
 }
 
 func (index *cuvs_index) ConvertToHnsw() error {
-	index.Lock()
-	defer index.Unlock()
+	// index.Lock()
+	// defer index.Unlock()
 
 	if index.isConvertedToHnsw {
 		return nil
@@ -307,14 +316,21 @@ func (index *cuvs_index) ConvertToHnsw() error {
 		return err
 	}
 
-	hnswIndexParams.SetHierarchy(hnsw.HierarchyCPU)
+	hnswIndexParams.SetHierarchy(hnsw.HierarchyNone)
 
 	hnswIndex, err := hnsw.CreateIndex()
 	if err != nil {
 		return err
 	}
 
-	hnsw.FromCagra(*index.cuvsResource, hnswIndexParams, index.cuvsIndex, hnswIndex)
+	index.logger.Info("before from cagra")
+
+	err = hnsw.FromCagra[int](*index.cuvsResource, hnswIndexParams, index.cuvsIndex, hnswIndex)
+	if err != nil {
+		return err
+	}
+
+	index.logger.Info("after from cagra")
 
 	index.hnswIndex = hnswIndex
 	index.hnswIndexParams = hnswIndexParams
@@ -489,9 +505,11 @@ func AddWithRebuild(index *cuvs_index, id []uint64, vector [][]float32) error {
 		if err != nil {
 			return err
 		}
-		_, err = tensor.ToDevice(index.cuvsResource)
-		if err != nil {
-			return err
+		if index.cuvsBuildAlgo != cagra.IvfPq {
+			_, err = tensor.ToDevice(index.cuvsResource)
+			if err != nil {
+				return err
+			}
 		}
 		index.dlpackTensor = &tensor
 	} else {
@@ -505,7 +523,15 @@ func AddWithRebuild(index *cuvs_index, id []uint64, vector [][]float32) error {
 	if err != nil {
 		return err
 	}
+
 	index.logger.Info("done adding with rebuild")
+
+	if index.cuvsBuildAlgo == cagra.IvfPq {
+		error := index.ConvertToHnsw()
+		if error != nil {
+			return error
+		}
+	}
 
 	return nil
 }
@@ -716,8 +742,8 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 	if index.isConvertedToHnsw {
 		return index.searchByVectorWithHnsw(ctx, vector, k, allow)
 	}
-	index.Lock()
-	defer index.Unlock()
+	// index.Lock()
+	// defer index.Unlock()
 
 	// If index is not built yet, perform linear search on holding vectors
 	if !index.isIndexBuilt {
@@ -1041,6 +1067,7 @@ func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow he
 
 func (index *cuvs_index) initBuckets(ctx context.Context) error {
 	if err := index.store.CreateOrLoadBucket(ctx, index.getBucketName(),
+		lsmkv.WithForceCompaction(false),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
 		lsmkv.WithPread(false), // Add this critical flag
@@ -1069,16 +1096,16 @@ func (index *cuvs_index) AlreadyIndexed() uint64 {
 }
 
 func (index *cuvs_index) PostStartup() {
-	// if index.cuvsPoolMemory != 0 {
-	mem, err := cuvs.NewCuvsPoolMemory(index.cuvsPoolMemory, 90, false)
-	if err != nil {
-		fmt.Println("err")
+	if index.cuvsPoolMemory != 0 {
+		mem, err := cuvs.NewCuvsPoolMemory(index.cuvsPoolMemory, 90, false)
+		if err != nil {
+			fmt.Println("err")
+		}
+
+		fmt.Println("cuvs memory created")
+
+		index.cuvsMemory = mem
 	}
-
-	fmt.Println("cuvs memory created")
-
-	index.cuvsMemory = mem
-	// }
 
 	cursor := index.store.Bucket(index.getBucketName()).Cursor()
 	defer cursor.Close()
