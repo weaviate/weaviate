@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user"
+
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	armonmetrics "github.com/armon/go-metrics"
 	armonprometheus "github.com/armon/go-metrics/prometheus"
@@ -479,8 +481,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
 		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
 		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
-		EnableOneNodeRecovery:  appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
-		ForceOneNodeRecovery:   appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
 		DB:                     nil,
 		Parser:                 schemaParser,
 		NodeNameToPortMap:      server2port,
@@ -490,10 +490,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
 		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
-		EnableFQDNResolver:     appState.ServerConfig.Config.Raft.EnableFQDNResolver,
-		FQDNResolverTLD:        appState.ServerConfig.Config.Raft.FQDNResolverTLD,
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
 		AuthzController:        appState.AuthzController,
+		DynamicUserController:  appState.APIKey.Dynamic,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -520,11 +519,38 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger,
 	)
 
+	// Enable runtime config manager
+	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
+		cm, err := configRuntime.NewConfigManager(
+			appState.ServerConfig.Config.RuntimeOverrides.Path,
+			config.ParseYaml,
+			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
+			appState.Logger,
+			prometheus.DefaultRegisterer)
+		if err != nil {
+			appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
+			os.Exit(1)
+		}
+
+		enterrors.GoWrapper(func() {
+			// NOTE: Not using parent `ctx` because that is getting cancelled in the caller even during startup.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			if err := cm.Run(ctx); err != nil {
+				appState.Logger.WithField("action", "runtime config manager startup ").WithError(err).
+					Fatal("runtime config manager stopped")
+			}
+		}, appState.Logger)
+		rc := config.NewWeaviateRuntimeConfig(cm)
+		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCountFn = rc.GetMaximumAllowedCollectionsCount
+	}
+
 	schemaManager, err := schemaUC.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
 		schemaRepo,
-		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
+		appState.Logger, appState.Authorizer, &appState.ServerConfig.Config.SchemaHandlerConfig, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, scaler,
 		offloadmod, *schemaParser,
@@ -722,6 +748,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Metrics,
 		appState.Authorizer,
 		appState.Logger)
+
+	dynamic_user.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization.Rbac, appState.Logger)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,

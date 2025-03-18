@@ -38,6 +38,8 @@ const (
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
 	DefaultHNSWAcornFilterRatio = 0.4
+
+	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -160,6 +162,12 @@ func FromEnv(config *Config) error {
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
 			config.Authentication.OIDC.GroupsClaim = v
 		}
+	}
+
+	if entcfg.Enabled(os.Getenv("DYNAMIC_USERS_ENABLED")) {
+		config.Authentication.DynamicUsers.Enabled = true
+	} else {
+		config.Authentication.DynamicUsers.Enabled = false
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
@@ -535,7 +543,7 @@ func FromEnv(config *Config) error {
 
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
-		func(val int) { config.MaximumAllowedCollectionsCount = val },
+		func(val int) { config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = val },
 		DefaultMaximumAllowedCollectionsCount,
 	); err != nil {
 		return err
@@ -562,6 +570,20 @@ func FromEnv(config *Config) error {
 		DefaultMetadataServerDataEventsChannelCapacity,
 	); err != nil {
 		return err
+	}
+
+	config.RuntimeOverrides.Enabled = entcfg.Enabled(os.Getenv("RUNTIME_OVERRIDES_ENABLED"))
+
+	if v := os.Getenv("RUNTIME_OVERRIDES_PATH"); v != "" {
+		config.RuntimeOverrides.Path = v
+	}
+
+	if v := os.Getenv("RUNTIME_OVERRIDES_LOAD_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse RUNTIME_OVERRIDES_LOAD_INTERVAL as time.Duration: %w", err)
+		}
+		config.RuntimeOverrides.LoadInterval = interval
 	}
 
 	return nil
@@ -659,17 +681,6 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	); err != nil {
 		return cfg, err
 	}
-
-	cfg.EnableOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_ENABLE_ONE_NODE_RECOVERY"))
-	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
-
-	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside
-	// docker without a TLD available. However is running in k8s for example you have a TLD available.
-	if entcfg.Enabled(os.Getenv("RAFT_ENABLE_FQDN_RESOLVER")) {
-		cfg.EnableFQDNResolver = true
-	}
-
-	cfg.FQDNResolverTLD = os.Getenv("RAFT_FQDN_RESOLVER_TLD")
 
 	return cfg, nil
 }

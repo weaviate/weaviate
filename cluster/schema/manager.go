@@ -119,9 +119,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	i := 0
 	for _, v := range classes {
 		migratePropertiesIfNecessary(&v.Class)
-		// an immutable copy of the sharding state has to be used to avoid conflicts
-		shardingState, _ := v.CopyShardingState()
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
+		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
@@ -190,14 +188,6 @@ func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, s
 	)
 }
 
-// ReplaceStatesNodeName it update the node name inside sharding states.
-// WARNING: this shall be used in one node cluster environments only.
-// because it will replace the shard node name if the node name got updated
-// only if the replication factor is 1, otherwise it's no-op
-func (s *SchemaManager) ReplaceStatesNodeName(new string) {
-	s.schema.replaceStatesNodeName(new)
-}
-
 // UpdateClass modifies the vectors and inverted indexes associated with a class
 // Other class properties are handled by separate functions
 func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool) error {
@@ -223,6 +213,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
 		meta.Class.Description = u.Description
+		meta.Class.Properties = u.Properties
 		meta.ClassVersion = cmd.Version
 		if req.State != nil {
 			meta.Sharding = *req.State

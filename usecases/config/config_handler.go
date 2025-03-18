@@ -81,6 +81,21 @@ type Flags struct {
 	RaftSnapshotThreshold  int      `long:"raft-snap-threshold" description:"number of outstanding log entries before performing a snapshot"`
 	RaftSnapshotInterval   int      `long:"raft-snap-interval" description:"controls how often raft checks if it should perform a snapshot"`
 	RaftMetadataOnlyVoters bool     `long:"raft-metadata-only-voters" description:"configures the voters to store metadata exclusively, without storing any other data"`
+
+	RuntimeOverridesEnabled      bool          `long:"runtime-overrides.enabled" description:"enable runtime overrides config"`
+	RuntimeOverridesPath         string        `long:"runtime-overrides.path" description:"path to runtime overrides config"`
+	RuntimeOverridesLoadInterval time.Duration `long:"runtime-overrides.load-interval" description:"load interval for runtime overrides config"`
+}
+
+type SchemaHandlerConfig struct {
+	MaximumAllowedCollectionsCount   int         `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	MaximumAllowedCollectionsCountFn func() *int `json:"-" yaml:"-"`
+}
+
+type RuntimeOverrides struct {
+	Enabled      bool          `json:"enabled"`
+	Path         string        `json:"path" yaml:"path"`
+	LoadInterval time.Duration `json:"load_interval" yaml:"load_interval"`
 }
 
 // Config outline of the config file
@@ -129,7 +144,7 @@ type Config struct {
 	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
-	MaximumAllowedCollectionsCount      int                      `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
@@ -137,6 +152,8 @@ type Config struct {
 
 	// map[className][]propertyName
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
+
+	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 }
 
 // Validate the configuration
@@ -393,12 +410,6 @@ type Raft struct {
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
-
-	EnableOneNodeRecovery bool
-	ForceOneNodeRecovery  bool
-
-	EnableFQDNResolver bool
-	FQDNResolverTLD    string
 }
 
 func (r *Raft) Validate() error {
@@ -580,6 +591,18 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 	}
 	if flags.RaftMetadataOnlyVoters {
 		f.Config.Raft.MetadataOnlyVoters = true
+	}
+
+	if flags.RuntimeOverridesEnabled {
+		f.Config.RuntimeOverrides.Enabled = flags.RuntimeOverridesEnabled
+	}
+
+	if flags.RuntimeOverridesPath != "" {
+		f.Config.RuntimeOverrides.Path = flags.RuntimeOverridesPath
+	}
+
+	if flags.RuntimeOverridesLoadInterval > 0 {
+		f.Config.RuntimeOverrides.LoadInterval = flags.RuntimeOverridesLoadInterval
 	}
 }
 

@@ -505,7 +505,19 @@ jobs:
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
     name: push-docker-fast
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    outputs:
+      preview-tags-amd64: ${{ steps.set-outputs.outputs.preview-tags-amd64 }}
+      semver-tags-amd64: ${{ steps.set-outputs.outputs.semver-tags-amd64 }}
+      preview-tags-arm64: ${{ steps.set-outputs.outputs.preview-tags-arm64 }}
+      semver-tags-arm64: ${{ steps.set-outputs.outputs.semver-tags-arm64 }}
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -515,11 +527,36 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
         id: push-container
-        run: ./ci/push_docker.sh --amd64-only
+        run: ./ci/push_docker.sh --${{ matrix.arch }}-only
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
-      - name: Generate Report
-        env:
-          PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
-          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
-        run: ./ci/generate_docker_report.sh
+      - name: Set architecture-specific outputs
+        id: set-outputs
+        run: |
+          # Unique output names per architecture
+          echo "preview-tags-${{ matrix.arch }}=${{ steps.push-container.outputs.PREVIEW_TAG }}" >> $GITHUB_OUTPUT
+          echo "semver-tags-${{ matrix.arch }}=${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}" >> $GITHUB_OUTPUT
+  Generate-Docker-Report:
+    needs: [Push-Docker-Fast]
+    name: generate-docker-report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Combine tags
+        run: |
+          # Collect all architecture-specific outputs
+          ALL_PREVIEW_TAGS="${{ needs.Push-Docker-Fast.outputs.preview-tags-amd64 }}"
+          ALL_PREVIEW_TAGS+="\n${{ needs.Push-Docker-Fast.outputs.preview-tags-arm64 }}"
+          
+          ALL_SEMVER_TAGS="${{ needs.Push-Docker-Fast.outputs.semver-tags-amd64 }}"
+          ALL_SEMVER_TAGS+="\n${{ needs.Push-Docker-Fast.outputs.semver-tags-arm64 }}"
+
+          # Write to environment variables
+          echo "PREVIEW_TAG<<EOF" >> $GITHUB_ENV
+          echo -e "$ALL_PREVIEW_TAGS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+          echo "PREVIEW_SEMVER_TAG<<EOF" >> $GITHUB_ENV
+          echo -e "$ALL_SEMVER_TAGS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+      - run: ./ci/generate_docker_report.sh
