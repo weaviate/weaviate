@@ -84,10 +84,6 @@ func FromEnv(config *Config) error {
 		config.DisableLazyLoadShards = true
 	}
 
-	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
-		config.ForceFullReplicasSearch = true
-	}
-
 	// Recount all property lengths at startup to support accurate BM25 scoring
 	if entcfg.Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
