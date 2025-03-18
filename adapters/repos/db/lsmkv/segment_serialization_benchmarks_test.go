@@ -89,8 +89,7 @@ func BenchmarkFileParseReplaceNode(b *testing.B) {
 	}
 
 	out := &segmentReplaceNode{}
-	tempDir, cleanup := makeTempDir(b)
-	defer cleanup()
+	tempDir := b.TempDir()
 
 	for _, tc := range testCases {
 		data, err := generateTestData(tc.valueSize, tc.keySize, tc.secondaryKeysCount, tc.secondaryKeySize)
@@ -340,20 +339,6 @@ func generateTestData(valueSize, keySize, secondaryKeysCount, secondaryKeySize i
 	}
 
 	return buffer.Bytes(), nil
-}
-
-func makeTempDir(b *testing.B) (string, func()) {
-	tempDir, err := os.MkdirTemp("", "benchmark-*")
-	if err != nil {
-		b.Fatal("Failed to create temp directory:", err)
-	}
-	cleanup := func() {
-		err := os.RemoveAll(tempDir)
-		if err != nil {
-			b.Fatalf("Failed to remove temp directory %q: %v", tempDir, err)
-		}
-	}
-	return tempDir, cleanup
 }
 
 func openFile(b *testing.B, tempFile string) (*os.File, func()) {
