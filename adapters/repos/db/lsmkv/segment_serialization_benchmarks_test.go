@@ -72,14 +72,16 @@ func BenchmarkCollectionNodeKeyIndexAndWriteTo(b *testing.B) {
 	}
 }
 
+type testCase struct {
+	name               string
+	valueSize          int
+	keySize            int
+	secondaryKeysCount int
+	secondaryKeySize   int
+}
+
 func BenchmarkFileParseReplaceNode(b *testing.B) {
-	testCases := []struct {
-		name               string
-		valueSize          int
-		keySize            int
-		secondaryKeysCount int
-		secondaryKeySize   int
-	}{
+	testCases := []testCase{
 		{"SecondaryKeys-0-0", 4096, 128, 0, 0},
 		{"SecondaryKeys-4-128", 4096, 128, 4, 128},
 		{"SecondaryKeys-16-128", 4096, 128, 16, 128},
@@ -143,13 +145,7 @@ func benchmarkWithGCMetrics(b *testing.B, name string, benchFn func(b *testing.B
 
 // runFileParsingOnly measures the cost of parsing when the file is already in memory.
 // This isolates parsing performance without any file reading overhead.
-func runFileParsingOnly(b *testing.B, tc struct {
-	name               string
-	valueSize          int
-	keySize            int
-	secondaryKeysCount int
-	secondaryKeySize   int
-}, data []byte, tempFile string, out *segmentReplaceNode,
+func runFileParsingOnly(b *testing.B, tc testCase, data []byte, tempFile string, out *segmentReplaceNode,
 ) {
 	fileContents, err := os.ReadFile(tempFile) // Read file before timing.
 	if err != nil {
@@ -192,13 +188,7 @@ func runFileBufferingOnly(b *testing.B, data []byte, tempFile string) {
 
 // runPreloadBufferAccess measures parsing performance when the file has already been loaded into memory and a shared buffer is used.
 // This isolates the parsing cost and avoids measuring I/O overhead.
-func runPreloadBufferAccess(b *testing.B, tc struct {
-	name               string
-	valueSize          int
-	keySize            int
-	secondaryKeysCount int
-	secondaryKeySize   int
-}, data []byte, tempFile string, out *segmentReplaceNode,
+func runPreloadBufferAccess(b *testing.B, tc testCase, data []byte, tempFile string, out *segmentReplaceNode,
 ) {
 	fileContents, err := os.ReadFile(tempFile) // File read before benchmark timing.
 	require.NoErrorf(b, err, "error reading file: %v", err)
@@ -217,13 +207,7 @@ func runPreloadBufferAccess(b *testing.B, tc struct {
 
 // runBufferedFileAccess measures performance of a buffered approach where the entire file is read into memory first,
 // then parsed from a memory buffer. Includes the cost of reading the file into memory.
-func runBufferedFileAccess(b *testing.B, tc struct {
-	name               string
-	valueSize          int
-	keySize            int
-	secondaryKeysCount int
-	secondaryKeySize   int
-}, data []byte, tempFile string, out *segmentReplaceNode,
+func runBufferedFileAccess(b *testing.B, tc testCase, data []byte, tempFile string, out *segmentReplaceNode,
 ) {
 	file, cleanup := openFile(b, tempFile)
 	b.Cleanup(cleanup)
@@ -248,13 +232,7 @@ func runBufferedFileAccess(b *testing.B, tc struct {
 
 // runDirectFileAccess measures performance of direct file access using multiple `pread` calls.
 // Includes the overhead of system calls for reading from disk.
-func runDirectFileAccess(b *testing.B, tc struct {
-	name               string
-	valueSize          int
-	keySize            int
-	secondaryKeysCount int
-	secondaryKeySize   int
-}, data []byte, tempFile string, out *segmentReplaceNode,
+func runDirectFileAccess(b *testing.B, tc testCase, data []byte, tempFile string, out *segmentReplaceNode,
 ) {
 	var err error
 	file, cleanup := openFile(b, tempFile)
@@ -330,13 +308,7 @@ func openFile(b *testing.B, tempFile string) (*os.File, func()) {
 	return file, cleanup
 }
 
-func makeTempFile(b *testing.B, tempDir string, tc struct {
-	name               string
-	valueSize          int
-	keySize            int
-	secondaryKeysCount int
-	secondaryKeySize   int
-}, data []byte,
+func makeTempFile(b *testing.B, tempDir string, tc testCase, data []byte,
 ) string {
 	tempFile := filepath.Join(tempDir, fmt.Sprintf("%s.dat", tc.name))
 	err := os.WriteFile(tempFile, data, 0o644)
