@@ -181,7 +181,7 @@ func runFileBufferingOnly(b *testing.B, tc struct {
 }, data []byte, tempFile string,
 ) {
 	file, cleanup := openFile(b, tempFile)
-	defer cleanup()
+	b.Cleanup(cleanup)
 
 	b.ResetTimer()
 	b.SetBytes(int64(len(data)))
@@ -240,7 +240,7 @@ func runBufferedFileAccess(b *testing.B, tc struct {
 }, data []byte, tempFile string, out *segmentReplaceNode,
 ) {
 	file, cleanup := openFile(b, tempFile)
-	defer cleanup()
+	b.Cleanup(cleanup)
 
 	b.ResetTimer()
 	b.SetBytes(int64(len(data)))
@@ -278,7 +278,7 @@ func runDirectFileAccess(b *testing.B, tc struct {
 }, data []byte, tempFile string, out *segmentReplaceNode,
 ) {
 	file, cleanup := openFile(b, tempFile)
-	defer cleanup()
+	b.Cleanup(cleanup)
 
 	b.ResetTimer()
 	b.SetBytes(int64(len(data)))
