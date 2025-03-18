@@ -266,10 +266,10 @@ func generateTestData(b *testing.B, valueSize, keySize, secondaryKeysCount, seco
 
 	tombstone, err := randomTombstone()
 	if err != nil {
-		return nil, fmt.Errorf("error generating random tombstone: %v", err)
+		return nil, fmt.Errorf("error generating random tombstone: %w", err)
 	}
 
-	if err = binary.Write(&buffer, binary.LittleEndian, tombstone); err != nil {
+	if err = binary.Write(&buffer, binary.LittleEndian, tombstone == 0); err != nil {
 		return nil, fmt.Errorf("error writing tombstone binary: %w", err)
 	}
 
