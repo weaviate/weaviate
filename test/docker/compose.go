@@ -873,7 +873,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 
 	if d.withWeaviateDynamicUsers {
-		settings["DYNAMIC_USERS_ENABLED"] = "true"
+		settings["AUTHENTICATION_DYNAMIC_USERS_ENABLED"] = "true"
 	}
 
 	if d.withAutoschema {
