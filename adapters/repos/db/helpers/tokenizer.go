@@ -286,10 +286,14 @@ func tokenizeGseCh(in string) []string {
 	}
 	gseLock.Lock()
 	defer gseLock.Unlock()
+	startTime := time.Now()
 	terms := gseTokenizerCh.CutAll(in)
-	terms = removeEmptyStrings(terms)
+	ret := removeEmptyStrings(terms)
 
-	return terms
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("gse").Observe(float64(time.Since(startTime).Seconds()))
+	monitoring.GetMetrics().TokenCount.WithLabelValues("gse").Add(float64(len(ret)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("gse").Observe(float64(len(ret)))
+	return ret
 }
 
 func initializeKagomeTokenizerKr() error {
