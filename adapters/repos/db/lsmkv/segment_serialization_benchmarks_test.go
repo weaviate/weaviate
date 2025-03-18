@@ -95,9 +95,7 @@ func BenchmarkFileParseReplaceNode(b *testing.B) {
 
 	for _, tc := range testCases {
 		data, err := generateTestData(b, tc.valueSize, tc.keySize, tc.secondaryKeysCount, tc.secondaryKeySize)
-		if err != nil {
-			b.Fatal("error generating test data:", err)
-		}
+		require.NoErrorf(b, err, "error generating test data")
 		dataLen := len(data)
 
 		tempFile := makeTempFile(b, tempDir, tc, data)
@@ -148,9 +146,7 @@ func benchmarkWithGCMetrics(b *testing.B, name string, benchFn func(b *testing.B
 func runFileParsingOnly(b *testing.B, tc testCase, data []byte, tempFile string, out *segmentReplaceNode,
 ) {
 	fileContents, err := os.ReadFile(tempFile) // Read file before timing.
-	if err != nil {
-		b.Fatal("Failed to read file:", err)
-	}
+	require.NoErrorf(b, err, "error reading file %s", tempFile)
 
 	reader := bytes.NewReader(fileContents)
 	b.ResetTimer()
@@ -160,9 +156,7 @@ func runFileParsingOnly(b *testing.B, tc testCase, data []byte, tempFile string,
 	for i := 0; i < b.N; i++ {
 		reader.Reset(fileContents)
 		err = ParseReplaceNodeIntoPread(reader, uint16(tc.secondaryKeysCount), out)
-		if err != nil {
-			b.Fatal("error parsing test data:", err)
-		}
+		require.NoErrorf(b, err, "error parsing file %s", tempFile)
 	}
 }
 
