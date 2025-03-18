@@ -184,7 +184,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	if res.StatusCode != 200 || resBody.Error != nil {
 		return nil, nil, 0, v.getError(res.StatusCode, requestID, resBody.Error, config.IsAzure)
 	}
-	rateLimit := ent.GetRateLimitsFromHeader(res.Header)
+	rateLimit := ent.GetRateLimitsFromHeader(res.Header, config.IsAzure)
 
 	texts := make([]string, len(resBody.Data))
 	embeddings := make([][]float32, len(resBody.Data))
