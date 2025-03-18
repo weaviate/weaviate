@@ -17,8 +17,10 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"sync"
@@ -46,6 +48,7 @@ const (
 	defaultFrequencyWhilePropagating   = 10 * time.Millisecond
 	defaultAliveNodesCheckingFrequency = 5 * time.Second
 	defaultLoggingFrequency            = 5 * time.Second
+	defaultInitShieldCPUEveryN         = 1_000
 	defaultDiffBatchSize               = 1_000
 	defaultDiffPerNodeTimeout          = 10 * time.Second
 	defaultPropagationTimeout          = 30 * time.Second
@@ -56,6 +59,9 @@ const (
 
 	minHashtreeHeight = 0
 	maxHashtreeHeight = 20
+
+	minInitShieldCPUEveryN = 0
+	maxInitShieldCPUEveryN = math.MaxInt
 
 	minDiffBatchSize = 1
 	maxDiffBatchSize = 10_000
@@ -76,6 +82,7 @@ type asyncReplicationConfig struct {
 	frequencyWhilePropagating   time.Duration
 	aliveNodesCheckingFrequency time.Duration
 	loggingFrequency            time.Duration
+	initShieldCPUEveryN         int
 	diffBatchSize               int
 	diffPerNodeTimeout          time.Duration
 	propagationTimeout          time.Duration
@@ -112,6 +119,12 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 		os.Getenv("ASYNC_REPLICATION_LOGGING_FREQUENCY"), defaultLoggingFrequency)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_LOGGING_FREQUENCY", err)
+	}
+
+	config.initShieldCPUEveryN, err = optParseInt(
+		os.Getenv("ASYNC_REPLICATION_INIT_SHIELD_CPU_EVERY_N"), defaultInitShieldCPUEveryN, minInitShieldCPUEveryN, maxInitShieldCPUEveryN)
+	if err != nil {
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_INIT_SHIELD_CPU_EVERY_N", err)
 	}
 
 	config.diffBatchSize, err = optParseInt(
@@ -300,10 +313,6 @@ func (s *Shard) initAsyncReplication() error {
 		prevProgressLogging := time.Now()
 
 		err := bucket.ApplyToObjectDigests(ctx, func(object *storobj.Object) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-
 			if time.Since(prevProgressLogging) >= config.loggingFrequency {
 				s.index.logger.
 					WithField("action", "async_replication").
@@ -326,6 +335,14 @@ func (s *Shard) initAsyncReplication() error {
 			}
 
 			objCount++
+
+			if config.initShieldCPUEveryN > 0 {
+				if objCount%config.initShieldCPUEveryN == 0 {
+					// yield the processor so other goroutines can run
+					runtime.Gosched()
+					time.Sleep(time.Millisecond)
+				}
+			}
 
 			return nil
 		})
