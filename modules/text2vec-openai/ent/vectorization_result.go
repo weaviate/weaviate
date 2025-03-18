@@ -16,12 +16,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 const dummyLimit = 10000000
 
-func GetRateLimitsFromHeader(header http.Header, isAzure bool) *modulecomponents.RateLimits {
+func GetRateLimitsFromHeader(l *logrusext.Sampler, header http.Header, isAzure bool) *modulecomponents.RateLimits {
 	requestsReset, err := time.ParseDuration(header.Get("x-ratelimit-reset-requests"))
 	if err != nil {
 		requestsReset = 0
@@ -45,6 +47,13 @@ func GetRateLimitsFromHeader(header http.Header, isAzure bool) *modulecomponents
 	updateWithMissingValues := false
 	if limitRequests < 0 || limitTokens < 0 || remainingRequests < 0 || remainingTokens < 0 {
 		updateWithMissingValues = true
+
+		// logging all headers as there should not be anything sensitive according to the documentation:
+		// https://platform.openai.com/docs/api-reference/debugging-requests
+		l.WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("headers", header).
+				Warn("rate limit headers are missing or invalid, using dummy")
+		})
 	}
 	return &modulecomponents.RateLimits{
 		LimitRequests:           limitRequests,
