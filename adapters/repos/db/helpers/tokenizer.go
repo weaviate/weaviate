@@ -90,17 +90,17 @@ func init() {
 }
 
 func init_gse() {
-		gseLock.Lock()
-		defer gseLock.Unlock()
-		if gseTokenizer == nil {
-			startTime := time.Now()
-			seg, err := gse.New("ja")
-			if err != nil {
-				return //[]string{}
-			}
-			gseTokenizer = &seg
-			monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
+	gseLock.Lock()
+	defer gseLock.Unlock()
+	if gseTokenizer == nil {
+		startTime := time.Now()
+		seg, err := gse.New("ja")
+		if err != nil {
+			return //[]string{}
 		}
+		gseTokenizer = &seg
+		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
+	}
 }
 
 func init_gse_ch() {
