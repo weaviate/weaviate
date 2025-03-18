@@ -150,7 +150,8 @@ func runFileParsingOnly(b *testing.B, tc struct {
 	keySize            int
 	secondaryKeysCount int
 	secondaryKeySize   int
-}, data []byte, tempFile string, out *segmentReplaceNode) {
+}, data []byte, tempFile string, out *segmentReplaceNode,
+) {
 	fileContents, err := os.ReadFile(tempFile) // Read file before timing.
 	if err != nil {
 		b.Fatal("Failed to read file:", err)
@@ -178,7 +179,8 @@ func runFileBufferingOnly(b *testing.B, tc struct {
 	keySize            int
 	secondaryKeysCount int
 	secondaryKeySize   int
-}, data []byte, tempFile string) {
+}, data []byte, tempFile string,
+) {
 	file, cleanup := openFile(b, tempFile)
 	defer cleanup()
 
@@ -207,7 +209,8 @@ func runPreloadBufferAccess(b *testing.B, tc struct {
 	keySize            int
 	secondaryKeysCount int
 	secondaryKeySize   int
-}, data []byte, tempFile string, out *segmentReplaceNode) {
+}, data []byte, tempFile string, out *segmentReplaceNode,
+) {
 	fileContents, err := os.ReadFile(tempFile) // File read before benchmark timing.
 	if err != nil {
 		b.Fatal("Failed to read file:", err)
@@ -235,7 +238,8 @@ func runBufferedFileAccess(b *testing.B, tc struct {
 	keySize            int
 	secondaryKeysCount int
 	secondaryKeySize   int
-}, data []byte, tempFile string, out *segmentReplaceNode) {
+}, data []byte, tempFile string, out *segmentReplaceNode,
+) {
 	file, cleanup := openFile(b, tempFile)
 	defer cleanup()
 
@@ -272,7 +276,8 @@ func runDirectFileAccess(b *testing.B, tc struct {
 	keySize            int
 	secondaryKeysCount int
 	secondaryKeySize   int
-}, data []byte, tempFile string, out *segmentReplaceNode) {
+}, data []byte, tempFile string, out *segmentReplaceNode,
+) {
 	file, cleanup := openFile(b, tempFile)
 	defer cleanup()
 
@@ -371,9 +376,10 @@ func makeTempFile(b *testing.B, tempDir string, tc struct {
 	keySize            int
 	secondaryKeysCount int
 	secondaryKeySize   int
-}, data []byte) string {
+}, data []byte,
+) string {
 	tempFile := filepath.Join(tempDir, fmt.Sprintf("%s.dat", tc.name))
-	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+	if err := os.WriteFile(tempFile, data, 0o644); err != nil {
 		b.Fatal("Failed to write test data to file:", err)
 	}
 	return tempFile
