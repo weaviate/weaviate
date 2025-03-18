@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
@@ -108,6 +109,7 @@ type client struct {
 	httpClient         *http.Client
 	buildUrlFn         func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error)
 	logger             logrus.FieldLogger
+	sampledLogger      *logrusext.Sampler
 }
 
 func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
@@ -118,8 +120,9 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		buildUrlFn: buildUrl,
-		logger:     logger,
+		buildUrlFn:    buildUrl,
+		logger:        logger,
+		sampledLogger: logrusext.NewSampler(logger, 5, time.Minute),
 	}
 }
 
@@ -184,7 +187,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	if res.StatusCode != 200 || resBody.Error != nil {
 		return nil, nil, 0, v.getError(res.StatusCode, requestID, resBody.Error, config.IsAzure)
 	}
-	rateLimit := ent.GetRateLimitsFromHeader(res.Header)
+	rateLimit := ent.GetRateLimitsFromHeader(v.sampledLogger, res.Header, config.IsAzure)
 
 	texts := make([]string, len(resBody.Data))
 	embeddings := make([][]float32, len(resBody.Data))
