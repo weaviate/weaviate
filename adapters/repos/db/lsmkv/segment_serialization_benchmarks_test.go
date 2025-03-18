@@ -201,7 +201,7 @@ func runPreloadBufferAccess(b *testing.B, tc struct {
 }, data []byte, tempFile string, out *segmentReplaceNode,
 ) {
 	fileContents, err := os.ReadFile(tempFile) // File read before benchmark timing.
-	require.Errorf(b, err, "error reading file: %v", err)
+	require.NoErrorf(b, err, "error reading file: %v", err)
 
 	reader := bytes.NewReader(fileContents)
 	b.ResetTimer()
