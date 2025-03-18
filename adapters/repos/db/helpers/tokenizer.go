@@ -266,15 +266,13 @@ func tokenizeGSE(in string) []string {
 	if !UseGse {
 		return []string{}
 	}
-	alpha := tokenizeWord(in)
 	startTime := time.Now()
 	gseLock.Lock()
 	defer gseLock.Unlock()
 	terms := gseTokenizer.CutAll(in)
 
-	terms = removeEmptyStrings(terms)
+	ret := removeEmptyStrings(terms)
 
-	ret := append(terms, alpha...)
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("gse").Observe(float64(time.Since(startTime).Seconds()))
 	monitoring.GetMetrics().TokenCount.WithLabelValues("gse").Add(float64(len(ret)))
 	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("gse").Observe(float64(len(ret)))
