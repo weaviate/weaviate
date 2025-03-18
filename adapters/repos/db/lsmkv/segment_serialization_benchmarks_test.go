@@ -96,34 +96,35 @@ func BenchmarkFileParseReplaceNode(b *testing.B) {
 		if err != nil {
 			b.Fatal("error generating test data:", err)
 		}
+		dataLen := len(data)
 
 		tempFile := makeTempFile(b, tempDir, tc, data)
 
-		benchmarkWithGCMetrics(b, func(b *testing.B) {
+		benchmarkWithGCMetrics(b, fmt.Sprintf("DirectFileAccess-%s-%d", tc.name, dataLen), func(b *testing.B) {
 			runDirectFileAccess(b, tc, data, tempFile, out)
 		})
 
-		benchmarkWithGCMetrics(b, func(b *testing.B) {
+		benchmarkWithGCMetrics(b, fmt.Sprintf("BufferedFileAccess-%s-%d", tc.name, dataLen), func(b *testing.B) {
 			runBufferedFileAccess(b, tc, data, tempFile, out)
 		})
 
-		benchmarkWithGCMetrics(b, func(b *testing.B) {
+		benchmarkWithGCMetrics(b, fmt.Sprintf("PreloadBufferAccess-%s-%d", tc.name, dataLen), func(b *testing.B) {
 			runPreloadBufferAccess(b, tc, data, tempFile, out)
 		})
 
-		benchmarkWithGCMetrics(b, func(b *testing.B) {
+		benchmarkWithGCMetrics(b, fmt.Sprintf("FileBufferingOnly-%s-%d", tc.name, dataLen), func(b *testing.B) {
 			runFileBufferingOnly(b, data, tempFile)
 		})
 
-		benchmarkWithGCMetrics(b, func(b *testing.B) {
+		benchmarkWithGCMetrics(b, fmt.Sprintf("FileParsingOnly-%s-%d", tc.name, dataLen), func(b *testing.B) {
 			runFileParsingOnly(b, tc, data, tempFile, out)
 		})
 	}
 }
 
 // benchmarkWithGCMetrics runs a benchmark and reports GC pressure metrics
-func benchmarkWithGCMetrics(b *testing.B, benchFn func(b *testing.B)) {
-	for b.Loop() {
+func benchmarkWithGCMetrics(b *testing.B, name string, benchFn func(b *testing.B)) {
+	b.Run(name, func(b *testing.B) {
 		var memStatsBeforeGC, memStatsAfterGC runtime.MemStats
 
 		// Force GC before measurement to get a clean slate
@@ -137,7 +138,7 @@ func benchmarkWithGCMetrics(b *testing.B, benchFn func(b *testing.B)) {
 
 		pauseTimeNanos := float64(memStatsAfterGC.PauseTotalNs - memStatsBeforeGC.PauseTotalNs)
 		b.ReportMetric(pauseTimeNanos/float64(b.N), "ns/op")
-	}
+	})
 }
 
 // runFileParsingOnly measures the cost of parsing when the file is already in memory.
