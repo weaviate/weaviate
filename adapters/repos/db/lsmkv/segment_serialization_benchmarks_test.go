@@ -100,31 +100,31 @@ func BenchmarkFileParseReplaceNode(b *testing.B) {
 
 		tempFile := makeTempFile(b, tempDir, tc, data)
 
-		benchmarkWithGCMetrics(b, fmt.Sprintf("DirectFileAccess-%s-%d", tc.name, dataLen), func(b *testing.B) {
+		benchmarkWithGCMetrics(b, func(b *testing.B) {
 			runDirectFileAccess(b, tc, data, tempFile, out)
 		})
 
-		benchmarkWithGCMetrics(b, fmt.Sprintf("BufferedFileAccess-%s-%d", tc.name, dataLen), func(b *testing.B) {
+		benchmarkWithGCMetrics(b, func(b *testing.B) {
 			runBufferedFileAccess(b, tc, data, tempFile, out)
 		})
 
-		benchmarkWithGCMetrics(b, fmt.Sprintf("PreloadBufferAccess-%s-%d", tc.name, dataLen), func(b *testing.B) {
+		benchmarkWithGCMetrics(b, func(b *testing.B) {
 			runPreloadBufferAccess(b, tc, data, tempFile, out)
 		})
 
-		benchmarkWithGCMetrics(b, fmt.Sprintf("FileBufferingOnly-%s-%d", tc.name, dataLen), func(b *testing.B) {
+		benchmarkWithGCMetrics(b, func(b *testing.B) {
 			runFileBufferingOnly(b, tc, data, tempFile)
 		})
 
-		benchmarkWithGCMetrics(b, fmt.Sprintf("FileParsingOnly-%s-%d", tc.name, dataLen), func(b *testing.B) {
+		benchmarkWithGCMetrics(b, func(b *testing.B) {
 			runFileParsingOnly(b, tc, data, tempFile, out)
 		})
 	}
 }
 
 // benchmarkWithGCMetrics runs a benchmark and reports GC pressure metrics
-func benchmarkWithGCMetrics(b *testing.B, name string, benchFn func(b *testing.B)) {
-	b.Run(name, func(b *testing.B) {
+func benchmarkWithGCMetrics(b *testing.B, benchFn func(b *testing.B)) {
+	for b.Loop() {
 		var memStatsBeforeGC, memStatsAfterGC runtime.MemStats
 
 		// Force GC before measurement to get a clean slate
