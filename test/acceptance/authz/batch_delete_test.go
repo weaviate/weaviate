@@ -308,18 +308,16 @@ func TestAuthZBatchDeleteWithMT(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	t.Run(fmt.Sprintf("make and assign role with rights to delete in only %s", tenant1), func(t *testing.T) {
-		helper.CreateRole(t, adminKey, &models.Role{
-			Name: &testRoleName,
-			Permissions: []*models.Permission{
-				{
-					Action: &deleteDataAction,
-					Data:   &models.PermissionData{Collection: &className, Tenant: &tenant1},
-				},
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: &testRoleName,
+		Permissions: []*models.Permission{
+			{
+				Action: &deleteDataAction,
+				Data:   &models.PermissionData{Collection: &className, Tenant: &tenant1},
 			},
-		})
-		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+		},
 	})
+	helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
 	t.Run(fmt.Sprintf("fail to delete object in %s using rest", tenant2), func(t *testing.T) {
 		params := getBatchDelete(className, []string{"prop"}, "something", true, &tenant2)
