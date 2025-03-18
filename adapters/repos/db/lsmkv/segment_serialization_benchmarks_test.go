@@ -82,12 +82,18 @@ type testCase struct {
 
 func BenchmarkFileParseReplaceNode(b *testing.B) {
 	testCases := []testCase{
-		{"SecondaryKeys-0-0", 4096, 128, 0, 0},
+		{"PrimaryKey-64-Sec-0", 4096, 64, 0, 0},
+		{"PrimaryKey-64-Sec-0", 4096, 128, 0, 0},
+		{"PrimaryKey-512-Sec-0", 4096, 512, 0, 0},
+		{"PrimaryKey-1024-Sec-0", 4096, 1024, 0, 0},
+		{"PrimaryKey-4096-Sec-0", 4096, 4096, 0, 0},
+		{"SecondaryKeys-1-128", 4096, 128, 1, 128},
+		{"SecondaryKeys-2-128", 4096, 128, 2, 128},
+		{"SecondaryKeys-3-128", 4096, 128, 3, 128},
 		{"SecondaryKeys-4-128", 4096, 128, 4, 128},
+		{"SecondaryKeys-8-128", 4096, 128, 8, 128},
 		{"SecondaryKeys-16-128", 4096, 128, 16, 128},
 		{"SecondaryKeys-128-128", 4096, 128, 128, 128},
-		{"SecondaryKeys-1024-128", 4096, 128, 1024, 128},
-		{"SecondaryKeys-1024-512", 4096, 128, 1024, 512},
 	}
 
 	out := &segmentReplaceNode{}
