@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -58,7 +59,9 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
 	allowCreateClass bool, classes map[string]versioned.Class, objects ...*models.Object,
 ) (uint64, error) {
-	if !m.config.Enabled {
+	enabled := runtime.GetOverrides(m.config.Enabled, m.config.EnabledFn)
+
+	if !enabled {
 		return 0, nil
 	}
 

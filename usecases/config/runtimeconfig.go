@@ -19,7 +19,8 @@ import (
 )
 
 type WeaviateRuntimeConfig struct {
-	MaximumAllowedCollectionsCount int `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	MaximumAllowedCollectionsCount int  `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	AutoSchemaEnabled              bool `json:"auto_schema_enabled" yaml:"auto_schema_enabled""`
 
 	// config manager that keep the runtime config up to date
 	cm *runtime.ConfigManager[WeaviateRuntimeConfig]
@@ -34,6 +35,13 @@ func NewWeaviateRuntimeConfig(cm *runtime.ConfigManager[WeaviateRuntimeConfig]) 
 func (rc *WeaviateRuntimeConfig) GetMaximumAllowedCollectionsCount() *int {
 	if cfg, err := rc.cm.Config(); err == nil {
 		return &cfg.MaximumAllowedCollectionsCount
+	}
+	return nil
+}
+
+func (rc *WeaviateRuntimeConfig) GetAutoSchemaEnabled() *bool {
+	if cfg, err := rc.cm.Config(); err == nil {
+		return &cfg.AutoSchemaEnabled
 	}
 	return nil
 }
