@@ -238,9 +238,7 @@ func runBufferedFileAccess(b *testing.B, tc struct {
 		all, err := io.ReadAll(file) // Reading full file into memory.
 		require.NoErrorf(b, err, "error reading data: %v", err)
 
-		if len(all) == 0 {
-			b.Fatalf("file is empty")
-		}
+		require.NotEmpty(b, all, "file is empty")
 
 		err = ParseReplaceNodeIntoPread(bytes.NewReader(all), uint16(tc.secondaryKeysCount), out)
 		require.NoErrorf(b, err, "error parsing test data: %v", err)
