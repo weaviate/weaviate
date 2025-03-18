@@ -90,10 +90,6 @@ func init() {
 }
 
 func init_gse() {
-	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
-		UseGse = true
-	}
-	if UseGse {
 		gseLock.Lock()
 		defer gseLock.Unlock()
 		if gseTokenizer == nil {
@@ -105,8 +101,6 @@ func init_gse() {
 			gseTokenizer = &seg
 			monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
 		}
-	}
-
 }
 
 func init_gse_ch() {
