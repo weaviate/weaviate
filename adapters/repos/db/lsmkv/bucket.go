@@ -374,6 +374,8 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 		return err
 	}
 
+	i := 0
+
 	for k, v := onDiskCursor.First(); k != nil; k, v = onDiskCursor.Next() {
 		select {
 		case <-ctx.Done():
@@ -386,6 +388,12 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 			if err := f(obj); err != nil {
 				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 			}
+		}
+
+		i++
+
+		if i%1_000 == 0 {
+			onDiskCursor.First()
 		}
 	}
 
