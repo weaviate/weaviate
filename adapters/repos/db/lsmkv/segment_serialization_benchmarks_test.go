@@ -13,11 +13,10 @@ package lsmkv
 
 import (
 	"bytes"
-	crand "crypto/rand"
+	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -251,13 +250,26 @@ func runDirectFileAccess(b *testing.B, tc testCase, data []byte, tempFile string
 	}
 }
 
+func randomTombstone() (int, error) {
+	b := make([]byte, 1)
+	if _, err := rand.Read(b); err != nil {
+		return 0, err
+	}
+	return int(b[0] & 1), nil
+}
+
 func generateTestData(b *testing.B, valueSize, keySize, secondaryKeysCount, secondaryKeySize int) ([]byte, error) {
 	b.Helper()
 
 	var buffer bytes.Buffer
 	var err error
 
-	if err = binary.Write(&buffer, binary.LittleEndian, byte(rand.Intn(2))); err != nil {
+	tombstone, err := randomTombstone()
+	if err != nil {
+		return nil, fmt.Errorf("error generating random tombstone: %v", err)
+	}
+
+	if err = binary.Write(&buffer, binary.LittleEndian, tombstone); err != nil {
 		return nil, fmt.Errorf("error writing tombstone binary: %w", err)
 	}
 
@@ -266,7 +278,7 @@ func generateTestData(b *testing.B, valueSize, keySize, secondaryKeysCount, seco
 	}
 
 	valueBuffer := make([]byte, valueSize)
-	if _, err = crand.Read(valueBuffer); err != nil {
+	if _, err = rand.Read(valueBuffer); err != nil {
 		return nil, fmt.Errorf("error reading valueSize binary: %w", err)
 	}
 	buffer.Write(valueBuffer)
@@ -276,7 +288,7 @@ func generateTestData(b *testing.B, valueSize, keySize, secondaryKeysCount, seco
 	}
 
 	keyBuffer := make([]byte, keySize)
-	if _, err = crand.Read(keyBuffer); err != nil {
+	if _, err = rand.Read(keyBuffer); err != nil {
 		return nil, fmt.Errorf("error reading keySize binary: %w", err)
 	}
 	buffer.Write(keyBuffer)
@@ -288,7 +300,7 @@ func generateTestData(b *testing.B, valueSize, keySize, secondaryKeysCount, seco
 
 		if secondaryKeySize > 0 {
 			secondaryKeyBuffer := make([]byte, secondaryKeySize)
-			if _, err := crand.Read(secondaryKeyBuffer); err != nil {
+			if _, err := rand.Read(secondaryKeyBuffer); err != nil {
 				return nil, fmt.Errorf("error reading secondaryKeySize binary: %w", err)
 			}
 			buffer.Write(secondaryKeyBuffer)
