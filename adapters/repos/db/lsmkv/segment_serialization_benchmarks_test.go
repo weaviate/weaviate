@@ -96,7 +96,6 @@ func BenchmarkFileParseReplaceNode(b *testing.B) {
 		if err != nil {
 			b.Fatal("error generating test data:", err)
 		}
-		dataLen := len(data)
 
 		tempFile := makeTempFile(b, tempDir, tc, data)
 
@@ -113,7 +112,7 @@ func BenchmarkFileParseReplaceNode(b *testing.B) {
 		})
 
 		benchmarkWithGCMetrics(b, func(b *testing.B) {
-			runFileBufferingOnly(b, tc, data, tempFile)
+			runFileBufferingOnly(b, data, tempFile)
 		})
 
 		benchmarkWithGCMetrics(b, func(b *testing.B) {
@@ -138,7 +137,7 @@ func benchmarkWithGCMetrics(b *testing.B, benchFn func(b *testing.B)) {
 
 		pauseTimeNanos := float64(memStatsAfterGC.PauseTotalNs - memStatsBeforeGC.PauseTotalNs)
 		b.ReportMetric(pauseTimeNanos/float64(b.N), "ns/op")
-	})
+	}
 }
 
 // runFileParsingOnly measures the cost of parsing when the file is already in memory.
@@ -172,14 +171,8 @@ func runFileParsingOnly(b *testing.B, tc struct {
 
 // runFileBufferingOnly measures the cost of reading the file into a memory buffer (without parsing).
 // This isolates the I/O overhead from parsing.
-func runFileBufferingOnly(b *testing.B, tc struct {
-	name               string
-	valueSize          int
-	keySize            int
-	secondaryKeysCount int
-	secondaryKeySize   int
-}, data []byte, tempFile string,
-) {
+func runFileBufferingOnly(b *testing.B, data []byte, tempFile string) {
+	var err error
 	file, cleanup := openFile(b, tempFile)
 	b.Cleanup(cleanup)
 
@@ -188,15 +181,11 @@ func runFileBufferingOnly(b *testing.B, tc struct {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := file.Seek(0, 0); err != nil {
-			b.Fatal("Failed to seek file:", err)
-		}
+		_, err = file.Seek(0, 0)
+		require.NoError(b, err, "error seeking file: %v", err)
 
-		all, err := io.ReadAll(file) // Includes measuring the cost of reading the file into memory.
-		if err != nil {
-			b.Fatal("error reading data:", err)
-		}
-		runtime.KeepAlive(all) // Prevents compiler optimizations.
+		_, err = io.ReadAll(file) // Includes measuring the cost of reading the file into memory.
+		require.NoErrorf(b, err, "error reading all: %v", err)
 	}
 }
 
@@ -211,9 +200,7 @@ func runPreloadBufferAccess(b *testing.B, tc struct {
 }, data []byte, tempFile string, out *segmentReplaceNode,
 ) {
 	fileContents, err := os.ReadFile(tempFile) // File read before benchmark timing.
-	if err != nil {
-		b.Fatal("Failed to read file:", err)
-	}
+	require.Errorf(b, err, "error reading file: %v", err)
 
 	reader := bytes.NewReader(fileContents)
 	b.ResetTimer()
@@ -223,9 +210,7 @@ func runPreloadBufferAccess(b *testing.B, tc struct {
 	for i := 0; i < b.N; i++ {
 		reader.Reset(fileContents) // Resets reader instead of allocating a new one.
 		err = ParseReplaceNodeIntoPread(reader, uint16(tc.secondaryKeysCount), out)
-		if err != nil {
-			b.Fatal("error parsing test data:", err)
-		}
+		require.NoErrorf(b, err, "error parsing test data: %v", err)
 	}
 }
 
@@ -247,23 +232,18 @@ func runBufferedFileAccess(b *testing.B, tc struct {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := file.Seek(0, 0); err != nil {
-			b.Fatalf("Failed to seek file: %v", err)
-		}
+		_, err := file.Seek(0, 0)
+		require.NoError(b, err, "error seeking file: %v", err)
 
 		all, err := io.ReadAll(file) // Reading full file into memory.
-		if err != nil {
-			b.Fatal("error reading file:", err)
-		}
+		require.NoErrorf(b, err, "error reading data: %v", err)
 
 		if len(all) == 0 {
 			b.Fatalf("file is empty")
 		}
 
 		err = ParseReplaceNodeIntoPread(bytes.NewReader(all), uint16(tc.secondaryKeysCount), out)
-		if err != nil {
-			b.Fatal("error parsing test data:", err)
-		}
+		require.NoErrorf(b, err, "error parsing test data: %v", err)
 	}
 }
 
@@ -277,6 +257,7 @@ func runDirectFileAccess(b *testing.B, tc struct {
 	secondaryKeySize   int
 }, data []byte, tempFile string, out *segmentReplaceNode,
 ) {
+	var err error
 	file, cleanup := openFile(b, tempFile)
 	b.Cleanup(cleanup)
 
@@ -285,14 +266,11 @@ func runDirectFileAccess(b *testing.B, tc struct {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := file.Seek(0, 0); err != nil {
-			b.Fatal("Failed to seek file:", err)
-		}
+		_, err = file.Seek(0, 0)
+		require.NoErrorf(b, err, "error seeking file: %v", err)
 
-		err := ParseReplaceNodeIntoPread(file, uint16(tc.secondaryKeysCount), out)
-		if err != nil {
-			b.Fatal("error parsing test data:", err)
-		}
+		err = ParseReplaceNodeIntoPread(file, uint16(tc.secondaryKeysCount), out)
+		require.NoErrorf(b, err, "error parsing test data: %v", err)
 	}
 }
 
@@ -343,14 +321,10 @@ func generateTestData(valueSize, keySize, secondaryKeysCount, secondaryKeySize i
 
 func openFile(b *testing.B, tempFile string) (*os.File, func()) {
 	file, err := os.Open(tempFile)
-	if err != nil {
-		b.Fatal("Failed to open file:", err)
-	}
+	require.NoErrorf(b, err, "error opening temp file: %v", err)
 	cleanup := func() {
 		err := file.Close()
-		if err != nil {
-			b.Fatalf("Failed to close file %q: %v", tempFile, err)
-		}
+		require.NoErrorf(b, err, "error closing temp file: %v", err)
 	}
 	return file, cleanup
 }
@@ -364,8 +338,7 @@ func makeTempFile(b *testing.B, tempDir string, tc struct {
 }, data []byte,
 ) string {
 	tempFile := filepath.Join(tempDir, fmt.Sprintf("%s.dat", tc.name))
-	if err := os.WriteFile(tempFile, data, 0o644); err != nil {
-		b.Fatal("Failed to write test data to file:", err)
-	}
+	err := os.WriteFile(tempFile, data, 0o644)
+	require.NoErrorf(b, err, "error writing temp file: %v", err)
 	return tempFile
 }
