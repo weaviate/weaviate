@@ -18,17 +18,18 @@ import (
 )
 
 type RateLimits struct {
-	LastOverwrite        time.Time
-	AfterRequestFunction func(limits *RateLimits, tokensUsed int, deductRequest bool)
-	LimitRequests        int
-	LimitTokens          int
-	RemainingRequests    int
-	RemainingTokens      int
-	ReservedRequests     int
-	ReservedTokens       int
-	ResetRequests        time.Time
-	ResetTokens          time.Time
-	Label                string
+	LastOverwrite           time.Time
+	AfterRequestFunction    func(limits *RateLimits, tokensUsed int, deductRequest bool)
+	LimitRequests           int
+	LimitTokens             int
+	RemainingRequests       int
+	RemainingTokens         int
+	ReservedRequests        int
+	ReservedTokens          int
+	ResetRequests           time.Time
+	ResetTokens             time.Time
+	Label                   string
+	UpdateWithMissingValues bool
 }
 
 func (rl *RateLimits) ResetAfterRequestFunction(tokensUsed int) {
@@ -81,6 +82,9 @@ func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int, addMetr
 }
 
 func (rl *RateLimits) UpdateWithRateLimit(other *RateLimits) {
+	if other.UpdateWithMissingValues {
+		return
+	}
 	rl.LimitRequests = other.LimitRequests
 	rl.LimitTokens = other.LimitTokens
 	rl.ResetRequests = other.ResetRequests
