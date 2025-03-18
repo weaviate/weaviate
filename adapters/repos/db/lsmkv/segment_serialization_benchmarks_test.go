@@ -92,7 +92,7 @@ func BenchmarkFileParseReplaceNode(b *testing.B) {
 	tempDir := b.TempDir()
 
 	for _, tc := range testCases {
-		data, err := generateTestData(tc.valueSize, tc.keySize, tc.secondaryKeysCount, tc.secondaryKeySize)
+		data, err := generateTestData(b, tc.valueSize, tc.keySize, tc.secondaryKeysCount, tc.secondaryKeySize)
 		if err != nil {
 			b.Fatal("error generating test data:", err)
 		}
@@ -272,15 +272,17 @@ func runDirectFileAccess(b *testing.B, tc struct {
 	}
 }
 
-func generateTestData(valueSize, keySize, secondaryKeysCount, secondaryKeySize int) ([]byte, error) {
-	buffer := new(bytes.Buffer)
+func generateTestData(b *testing.B, valueSize, keySize, secondaryKeysCount, secondaryKeySize int) ([]byte, error) {
+	b.Helper()
+
+	var buffer bytes.Buffer
 	var err error
 
-	if err = binary.Write(buffer, binary.LittleEndian, byte(rand.Intn(2))); err != nil {
+	if err = binary.Write(&buffer, binary.LittleEndian, byte(rand.Intn(2))); err != nil {
 		return nil, fmt.Errorf("error writing tombstone binary: %w", err)
 	}
 
-	if err = binary.Write(buffer, binary.LittleEndian, uint64(valueSize)); err != nil {
+	if err = binary.Write(&buffer, binary.LittleEndian, uint64(valueSize)); err != nil {
 		return nil, fmt.Errorf("error writing valueSize binary: %w", err)
 	}
 
@@ -290,7 +292,7 @@ func generateTestData(valueSize, keySize, secondaryKeysCount, secondaryKeySize i
 	}
 	buffer.Write(valueBuffer)
 
-	if err = binary.Write(buffer, binary.LittleEndian, uint32(keySize)); err != nil {
+	if err = binary.Write(&buffer, binary.LittleEndian, uint32(keySize)); err != nil {
 		return nil, fmt.Errorf("error writing keySize binary: %w", err)
 	}
 
@@ -301,7 +303,7 @@ func generateTestData(valueSize, keySize, secondaryKeysCount, secondaryKeySize i
 	buffer.Write(keyBuffer)
 
 	for i := 0; i < secondaryKeysCount; i++ {
-		if err = binary.Write(buffer, binary.LittleEndian, uint32(secondaryKeySize)); err != nil {
+		if err = binary.Write(&buffer, binary.LittleEndian, uint32(secondaryKeySize)); err != nil {
 			return nil, fmt.Errorf("error writing secondaryKeySize binary: %w", err)
 		}
 
