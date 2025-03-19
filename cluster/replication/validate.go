@@ -15,7 +15,7 @@ import (
 	"errors"
 	"fmt"
 
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 )
 
@@ -27,7 +27,7 @@ var (
 )
 
 // ValidateReplicationReplicateShard validates that c is valid given the current state of the schema read using schemaReader
-func ValidateReplicationReplicateShard(schemaReader schema.SchemaReader, c *cmd.ReplicationReplicateShardRequest) error {
+func ValidateReplicationReplicateShard(schemaReader schema.SchemaReader, c *api.ReplicationReplicateShardRequest) error {
 	classInfo := schemaReader.ClassInfo(c.SourceCollection)
 	// ClassInfo doesn't return an error, so the only way to know if the class exist is to check if the Exists
 	// boolean is not set to default value

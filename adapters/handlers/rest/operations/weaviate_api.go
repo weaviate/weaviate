@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
@@ -239,6 +240,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		AuthzRemovePermissionsHandler: authz.RemovePermissionsHandlerFunc(func(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.RemovePermissions has not yet been implemented")
+		}),
+		ReplicationReplicateHandler: replication.ReplicateHandlerFunc(func(params replication.ReplicateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.Replicate has not yet been implemented")
 		}),
 		AuthzRevokeRoleFromGroupHandler: authz.RevokeRoleFromGroupHandlerFunc(func(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.RevokeRoleFromGroup has not yet been implemented")
@@ -481,6 +485,8 @@ type WeaviateAPI struct {
 	ObjectsObjectsValidateHandler objects.ObjectsValidateHandler
 	// AuthzRemovePermissionsHandler sets the operation handler for the remove permissions operation
 	AuthzRemovePermissionsHandler authz.RemovePermissionsHandler
+	// ReplicationReplicateHandler sets the operation handler for the replicate operation
+	ReplicationReplicateHandler replication.ReplicateHandler
 	// AuthzRevokeRoleFromGroupHandler sets the operation handler for the revoke role from group operation
 	AuthzRevokeRoleFromGroupHandler authz.RevokeRoleFromGroupHandler
 	// AuthzRevokeRoleFromUserHandler sets the operation handler for the revoke role from user operation
@@ -775,6 +781,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzRemovePermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.RemovePermissionsHandler")
+	}
+	if o.ReplicationReplicateHandler == nil {
+		unregistered = append(unregistered, "replication.ReplicateHandler")
 	}
 	if o.AuthzRevokeRoleFromGroupHandler == nil {
 		unregistered = append(unregistered, "authz.RevokeRoleFromGroupHandler")
@@ -1164,6 +1173,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/authz/roles/{id}/remove-permissions"] = authz.NewRemovePermissions(o.context, o.AuthzRemovePermissionsHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/replication/replicate"] = replication.NewReplicate(o.context, o.ReplicationReplicateHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

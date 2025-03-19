@@ -3442,6 +3442,60 @@ func init() {
         ]
       }
     },
+    "/replication/replicate": {
+      "post": {
+        "tags": [
+          "replication"
+        ],
+        "summary": "Start the async operation to replicate a replica between two nodes",
+        "operationId": "replicate",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication operation registered successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate"
+        ]
+      }
+    },
     "/schema": {
       "get": {
         "description": "Fetch an array of all collection definitions from the schema.",
@@ -6551,6 +6605,77 @@ func init() {
         }
       }
     },
+    "ReplicationDeleteReplicaRequest": {
+      "description": "Request body to delete a replica of given shard of a given collection",
+      "required": [
+        "nodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the replica to be delete",
+          "type": "string"
+        },
+        "nodeName": {
+          "description": "The node containing the replica to be deleted",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be deleted",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationDisableReplicaRequest": {
+      "description": "Request body to disable (soft-delete) a replica of given shard of a given collection",
+      "required": [
+        "nodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the replica to be disabled",
+          "type": "string"
+        },
+        "nodeName": {
+          "description": "The node containing the replica to be disabled",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be disabled",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateReplicaRequest": {
+      "description": "Request body to add a replica of given shard of a given collection",
+      "required": [
+        "sourceNodeName",
+        "destinationNodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the shard",
+          "type": "string"
+        },
+        "destinationNodeName": {
+          "description": "The node to add a copy of the replica on",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be copied",
+          "type": "string"
+        },
+        "sourceNodeName": {
+          "description": "The node containing the replica",
+          "type": "string"
+        }
+      }
+    },
     "RestoreConfig": {
       "description": "Backup custom configuration",
       "type": "object",
@@ -6660,44 +6785,6 @@ func init() {
     "SchemaHistory": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
-    },
-    "ShardCopyReplicaRequest": {
-      "description": "Request body to add a replica of given shard of a given collection",
-      "properties": {
-        "collectionId": {
-          "description": "The collection name holding the shard",
-          "type": "string"
-        },
-        "destinationNodeName": {
-          "description": "The node to add a copy of the replica on",
-          "type": "string"
-        },
-        "shardId": {
-          "description": "The shard id holding the replica to be copied",
-          "type": "string"
-        },
-        "sourceNodeName": {
-          "description": "The node containing the replica",
-          "type": "string"
-        }
-      }
-    },
-    "ShardDeleteReplicaRequest": {
-      "description": "Request body to delete a replica of given shard of a given collection",
-      "properties": {
-        "collectionId": {
-          "description": "The collection name holding the replica to be delete",
-          "type": "string"
-        },
-        "nodeName": {
-          "description": "The node containing the replica to be deleted",
-          "type": "string"
-        },
-        "shardId": {
-          "description": "The shard id holding the replica to be deleted",
-          "type": "string"
-        }
-      }
     },
     "ShardStatus": {
       "description": "The status of a single shard",
@@ -10832,6 +10919,60 @@ func init() {
         ]
       }
     },
+    "/replication/replicate": {
+      "post": {
+        "tags": [
+          "replication"
+        ],
+        "summary": "Start the async operation to replicate a replica between two nodes",
+        "operationId": "replicate",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication operation registered successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate"
+        ]
+      }
+    },
     "/schema": {
       "get": {
         "description": "Fetch an array of all collection definitions from the schema.",
@@ -14229,6 +14370,77 @@ func init() {
         }
       }
     },
+    "ReplicationDeleteReplicaRequest": {
+      "description": "Request body to delete a replica of given shard of a given collection",
+      "required": [
+        "nodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the replica to be delete",
+          "type": "string"
+        },
+        "nodeName": {
+          "description": "The node containing the replica to be deleted",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be deleted",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationDisableReplicaRequest": {
+      "description": "Request body to disable (soft-delete) a replica of given shard of a given collection",
+      "required": [
+        "nodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the replica to be disabled",
+          "type": "string"
+        },
+        "nodeName": {
+          "description": "The node containing the replica to be disabled",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be disabled",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateReplicaRequest": {
+      "description": "Request body to add a replica of given shard of a given collection",
+      "required": [
+        "sourceNodeName",
+        "destinationNodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the shard",
+          "type": "string"
+        },
+        "destinationNodeName": {
+          "description": "The node to add a copy of the replica on",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be copied",
+          "type": "string"
+        },
+        "sourceNodeName": {
+          "description": "The node containing the replica",
+          "type": "string"
+        }
+      }
+    },
     "RestoreConfig": {
       "description": "Backup custom configuration",
       "type": "object",
@@ -14338,44 +14550,6 @@ func init() {
     "SchemaHistory": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
-    },
-    "ShardCopyReplicaRequest": {
-      "description": "Request body to add a replica of given shard of a given collection",
-      "properties": {
-        "collectionId": {
-          "description": "The collection name holding the shard",
-          "type": "string"
-        },
-        "destinationNodeName": {
-          "description": "The node to add a copy of the replica on",
-          "type": "string"
-        },
-        "shardId": {
-          "description": "The shard id holding the replica to be copied",
-          "type": "string"
-        },
-        "sourceNodeName": {
-          "description": "The node containing the replica",
-          "type": "string"
-        }
-      }
-    },
-    "ShardDeleteReplicaRequest": {
-      "description": "Request body to delete a replica of given shard of a given collection",
-      "properties": {
-        "collectionId": {
-          "description": "The collection name holding the replica to be delete",
-          "type": "string"
-        },
-        "nodeName": {
-          "description": "The node containing the replica to be deleted",
-          "type": "string"
-        },
-        "shardId": {
-          "description": "The shard id holding the replica to be deleted",
-          "type": "string"
-        }
-      }
     },
     "ShardStatus": {
       "description": "The status of a single shard",

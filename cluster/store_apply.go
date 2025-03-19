@@ -234,7 +234,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			ret.Error = st.dynUserManager.ActivateUser(&cmd)
 		}
 
-	case api.ApplyRequest_TYPE_SHARD_REPLICATE:
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
 		}
