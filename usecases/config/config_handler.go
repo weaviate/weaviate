@@ -225,7 +225,9 @@ func (c *Config) validateDefaultVectorDistanceMetric() error {
 }
 
 type AutoSchema struct {
-	Enabled       bool   `json:"enabled" yaml:"enabled"`
+	Enabled   bool         `json:"enabled" yaml:"enabled"`
+	EnabledFn func() *bool `json:"-" yaml:"-"`
+
 	DefaultString string `json:"defaultString" yaml:"defaultString"`
 	DefaultNumber string `json:"defaultNumber" yaml:"defaultNumber"`
 	DefaultDate   string `json:"defaultDate" yaml:"defaultDate"`
@@ -410,6 +412,9 @@ type Raft struct {
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
+
+	EnableOneNodeRecovery bool
+	ForceOneNodeRecovery  bool
 }
 
 func (r *Raft) Validate() error {
