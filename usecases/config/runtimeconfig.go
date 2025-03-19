@@ -14,9 +14,12 @@ package config
 import (
 	"bytes"
 
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"gopkg.in/yaml.v2"
 )
+
+type ConfigManager interface {
+	Config() (*WeaviateRuntimeConfig, error)
+}
 
 type WeaviateRuntimeConfig struct {
 	MaximumAllowedCollectionsCount int `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
@@ -26,10 +29,10 @@ type WeaviateRuntimeConfig struct {
 	AutoSchemaEnabled *bool `json:"auto_schema_enabled" yaml:"auto_schema_enabled"`
 
 	// config manager that keep the runtime config up to date
-	cm *runtime.ConfigManager[WeaviateRuntimeConfig]
+	cm ConfigManager
 }
 
-func NewWeaviateRuntimeConfig(cm *runtime.ConfigManager[WeaviateRuntimeConfig]) *WeaviateRuntimeConfig {
+func NewWeaviateRuntimeConfig(cm ConfigManager) *WeaviateRuntimeConfig {
 	return &WeaviateRuntimeConfig{
 		cm: cm,
 	}
