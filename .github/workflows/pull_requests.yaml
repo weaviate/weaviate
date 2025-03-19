@@ -16,7 +16,7 @@ concurrency:
 jobs:
   Buf-Checks:
     name: buf-checks
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@v1
@@ -32,7 +32,7 @@ jobs:
           against: "https://github.com/${GITHUB_REPOSITORY}.git#branch=${{ github.event.pull_request.base.ref }},subdir=cluster/proto"
   Run-Swagger:
     name: run-swagger
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -55,7 +55,7 @@ jobs:
           fi
   Vulnerability-Scanning:
     name: vulnerability-scanning
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     env:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
@@ -80,7 +80,7 @@ jobs:
           sarif_file: results/image.sarif
   SAST-Scanning:
     name: sast-scanning
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     env:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork

@@ -9,7 +9,7 @@ on:
 jobs:
   golangci:
     name: golangci
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     steps:
       - uses: actions/setup-go@v5
         with:
@@ -22,13 +22,13 @@ jobs:
           version: v1.64
   protolint:
     name: protolint
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     steps:
       - uses: actions/checkout@v4
       - uses: yoheimuta/action-protolint@v1
   python:
     name: python checks
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     steps:
       - uses: actions/checkout@v4
       - uses: psf/black@stable
@@ -36,7 +36,7 @@ jobs:
           version: "24.2.0"
   custom:
     name: custom checks
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     steps:
       - uses: actions/checkout@v4
       - name: Error groups checks
