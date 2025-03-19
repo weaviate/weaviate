@@ -41,6 +41,18 @@ func TestRuntimeConfig(t *testing.T) {
 		val := rm.GetAutoSchemaEnabled()
 		require.Nil(t, val)
 	})
+
+	t.Run("auto schema not being set should return nil", func(t *testing.T) {
+		cm.c.AutoSchemaEnabled = nil
+		val := rm.GetAutoSchemaEnabled()
+		require.Nil(t, val)
+	})
+
+	t.Run("maxmimu collection limit not being set should return nil", func(t *testing.T) {
+		cm.c.MaximumAllowedCollectionsCount = nil
+		val := rm.GetMaximumAllowedCollectionsCount()
+		require.Nil(t, val)
+	})
 }
 
 type mockManager struct {
