@@ -41,7 +41,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -49,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/multi"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
@@ -59,6 +59,7 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	runtimeconfig "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -159,14 +160,16 @@ func (m *shardMap) LoadAndDelete(name string) (ShardLike, bool) {
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
 type Index struct {
-	classSearcher inverted.ClassSearcher // to allow for nested by-references searches
-	shards        shardMap
-	Config        IndexConfig
-	getSchema     schemaUC.SchemaGetter
-	logger        logrus.FieldLogger
-	remote        *sharding.RemoteIndex
-	stopwords     *stopwords.Detector
-	replicator    *replica.Replicator
+	classSearcher           inverted.ClassSearcher // to allow for nested by-references searches
+	shards                  shardMap
+	Config                  IndexConfig
+	globalreplicationConfig *replication.GlobalConfig
+
+	getSchema  schemaUC.SchemaGetter
+	logger     logrus.FieldLogger
+	remote     *sharding.RemoteIndex
+	stopwords  *stopwords.Detector
+	replicator *replica.Replicator
 
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
@@ -242,6 +245,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
+	globalReplicationConfig replication.GlobalConfig,
 	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
@@ -584,9 +588,8 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	return nil
 }
 
-func asyncReplicationGloballyDisabled() bool {
-	// Disable async replication regardless of class setting if env var is set
-	return entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED"))
+func (i *Index) asyncReplicationGloballyDisabled() bool {
+	return runtimeconfig.GetOverrides(i.replicationConfig.AsyncReplicationDisabled, i.replicationConfig.AsyncReplicationDisabledFn)
 }
 
 func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.ReplicationConfig) error {
@@ -595,7 +598,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !asyncReplicationGloballyDisabled()
+	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.updateAsyncReplicationConfig(ctx, i.Config.AsyncReplicationEnabled); err != nil {
@@ -797,7 +800,7 @@ func (i *Index) asyncReplicationEnabled() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
-	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !asyncReplicationGloballyDisabled()
+	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
