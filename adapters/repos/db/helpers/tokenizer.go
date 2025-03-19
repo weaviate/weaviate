@@ -96,7 +96,7 @@ func init_gse() {
 		startTime := time.Now()
 		seg, err := gse.New("ja")
 		if err != nil {
-			return //[]string{}
+			return
 		}
 		gseTokenizer = &seg
 		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
