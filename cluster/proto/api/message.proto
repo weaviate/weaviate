@@ -68,7 +68,9 @@ message ApplyRequest {
 
     TYPE_STORE_SCHEMA_V1 = 99;
 
-    TYPE_SHARD_REPLICATE = 200;
+    TYPE_REPLICATION_REPLICATE = 200;
+    TYPE_REPLICATION_REPLICA_DISABLE = 201;
+    TYPE_REPLICATION_REPLICA_DELETE = 202;
   }
   Type type = 1;
   string class = 2;
