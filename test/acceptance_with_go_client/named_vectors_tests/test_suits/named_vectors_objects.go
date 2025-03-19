@@ -15,9 +15,12 @@ import (
 	"context"
 	"testing"
 
+	acceptance_with_go_client "acceptance_tests_with_client"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -127,6 +130,24 @@ func testCreateObject(host string) func(t *testing.T) {
 					resultVectors := getVectorsWithNearObjectWithCertainty(t, client, className, id1, nearObject, c11y)
 					require.NotEmpty(t, resultVectors[c11y])
 				})
+			})
+
+			t.Run("nearText with certainty limit", func(t *testing.T) {
+				nearText := client.GraphQL().NearTextArgBuilder().
+					WithTargetVectors(c11y).
+					WithConcepts([]string{"book"}).
+					WithCertainty(0.9)
+
+				res, err := client.GraphQL().Get().
+					WithClassName(className).
+					WithNearText(nearText).
+					WithFields(graphql.Field{
+						Name:   "_additional",
+						Fields: []graphql.Field{{Name: "id"}},
+					}).
+					Do(ctx)
+				require.NoError(t, err)
+				require.Equal(t, []string{id1}, acceptance_with_go_client.GetIds(t, res, className))
 			})
 
 			t.Run("delete 1 object", func(t *testing.T) {

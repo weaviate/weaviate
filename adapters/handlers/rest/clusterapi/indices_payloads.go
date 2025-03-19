@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/go-openapi/strfmt"
@@ -432,28 +431,30 @@ func (p vectorDistanceResultsPayload) CheckContentTypeHeader(r *http.Response) (
 	return ct, ct == p.MIME()
 }
 
+type searchParametersPayload struct {
+	SearchVector      []float32                    `json:"searchVector"`
+	TargetVector      string                       `json:"targetVector"`
+	Distance          float32                      `json:"distance"`
+	Limit             int                          `json:"limit"`
+	Filters           *filters.LocalFilter         `json:"filters"`
+	KeywordRanking    *searchparams.KeywordRanking `json:"keywordRanking"`
+	Sort              []filters.Sort               `json:"sort"`
+	Cursor            *filters.Cursor              `json:"cursor"`
+	GroupBy           *searchparams.GroupBy        `json:"groupBy"`
+	Additional        additional.Properties        `json:"additional"`
+	SearchVectors     [][]float32                  `json:"searchVectors"`
+	TargetVectors     []string                     `json:"targetVectors"`
+	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
+	Properties        []string                     `json:"properties"`
+}
+
 type searchParamsPayload struct{}
 
-func (p searchParamsPayload) Marshal(vectors [][]float32, targetVectors []string, limit int,
+func (p searchParamsPayload) Marshal(vectors [][]float32, targetVectors []string, distance float32, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]byte, error) {
-	type params struct {
-		SearchVector      []float32                    `json:"searchVector"`
-		TargetVector      string                       `json:"targetVector"`
-		Limit             int                          `json:"limit"`
-		Filters           *filters.LocalFilter         `json:"filters"`
-		KeywordRanking    *searchparams.KeywordRanking `json:"keywordRanking"`
-		Sort              []filters.Sort               `json:"sort"`
-		Cursor            *filters.Cursor              `json:"cursor"`
-		GroupBy           *searchparams.GroupBy        `json:"groupBy"`
-		Additional        additional.Properties        `json:"additional"`
-		SearchVectors     [][]float32                  `json:"searchVectors"`
-		TargetVectors     []string                     `json:"targetVectors"`
-		TargetCombination *dto.TargetCombination       `json:"targetCombination"`
-		Properties        []string                     `json:"properties"`
-	}
 	var vector []float32
 	var targetVector string
 	// BC with pre 1.26
@@ -462,7 +463,7 @@ func (p searchParamsPayload) Marshal(vectors [][]float32, targetVectors []string
 		targetVector = targetVectors[0]
 	}
 
-	par := params{vector, targetVector, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties}
+	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties}
 	return json.Marshal(par)
 }
 
@@ -470,22 +471,6 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([][]float32, []string, float3
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
 	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, error,
 ) {
-	type searchParametersPayload struct {
-		SearchVector      []float32                    `json:"searchVector"`
-		TargetVector      string                       `json:"targetVector"`
-		Distance          float32                      `json:"distance"`
-		Limit             int                          `json:"limit"`
-		Filters           *filters.LocalFilter         `json:"filters"`
-		KeywordRanking    *searchparams.KeywordRanking `json:"keywordRanking"`
-		Sort              []filters.Sort               `json:"sort"`
-		Cursor            *filters.Cursor              `json:"cursor"`
-		GroupBy           *searchparams.GroupBy        `json:"groupBy"`
-		Additional        additional.Properties        `json:"additional"`
-		SearchVectors     [][]float32                  `json:"searchVectors"`
-		TargetVectors     []string                     `json:"targetVectors"`
-		TargetCombination *dto.TargetCombination       `json:"targetCombination"`
-		Properties        []string                     `json:"properties"`
-	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
 	if len(par.SearchVector) > 0 {
