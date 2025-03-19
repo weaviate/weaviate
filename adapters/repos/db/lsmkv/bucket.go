@@ -123,8 +123,7 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction   bool
-	disableCompaction bool
+	forceCompaction bool
 
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
@@ -190,10 +189,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	if b.memtableResizer != nil {
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
-	}
-
-	if b.disableCompaction {
-		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
 
 	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
@@ -936,7 +931,7 @@ func (b *Bucket) loadAllTombstones(segmentsDisk []*segment) ([]*sroar.Bitmap, er
 	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
 	for i, segment := range segmentsDisk {
 		if segment.strategy == segmentindex.StrategyInverted {
-			tombstones, err := segment.ReadOnlyTombstones()
+			tombstones, err := segment.GetTombstones()
 			if err != nil {
 				return nil, err
 			}
@@ -947,14 +942,14 @@ func (b *Bucket) loadAllTombstones(segmentsDisk []*segment) ([]*sroar.Bitmap, er
 	if hasTombstones {
 
 		if b.flushing != nil {
-			tombstones, err := b.flushing.ReadOnlyTombstones()
+			tombstones, err := b.flushing.GetTombstones()
 			if err != nil {
 				return nil, err
 			}
 			allTombstones[len(segmentsDisk)] = tombstones
 		}
 
-		tombstones, err := b.active.ReadOnlyTombstones()
+		tombstones, err := b.active.GetTombstones()
 		if err != nil {
 			return nil, err
 		}
@@ -1300,7 +1295,6 @@ func (b *Bucket) isReadOnly() bool {
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
 	before := time.Now()
-	var err error
 
 	bucketPath := b.GetDir()
 
@@ -1327,9 +1321,11 @@ func (b *Bucket) FlushAndSwitch() error {
 	}
 
 	var tombstones *sroar.Bitmap
+	var err2 error
 	if b.strategy == StrategyInverted {
-		if tombstones, err = b.flushing.ReadOnlyTombstones(); err != nil {
-			return fmt.Errorf("get tombstones: %w", err)
+		tombstones, err2 = b.flushing.GetTombstones()
+		if err2 != nil {
+			return fmt.Errorf("get tombstones: %w", err2)
 		}
 	}
 
@@ -1343,18 +1339,21 @@ func (b *Bucket) FlushAndSwitch() error {
 	}
 
 	if b.strategy == StrategyInverted && !tombstones.IsEmpty() {
-		if err = func() error {
+		errInn := func() error {
 			b.disk.maintenanceLock.RLock()
 			defer b.disk.maintenanceLock.RUnlock()
 			// add flushing memtable tombstones to all segments
 			for _, seg := range b.disk.segments {
-				if _, err := seg.MergeTombstones(tombstones); err != nil {
-					return fmt.Errorf("merge tombstones: %w", err)
+				segTombstones, errInner := seg.GetTombstones()
+				if errInner != nil {
+					return fmt.Errorf("get tombstones: %w", errInner)
 				}
+				segTombstones.Or(tombstones)
 			}
 			return nil
-		}(); err != nil {
-			return fmt.Errorf("add tombstones: %w", err)
+		}()
+		if errInn != nil {
+			return fmt.Errorf("add tombstones: %w", errInn)
 		}
 	}
 
@@ -1574,7 +1573,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	// active memtable
 	output[len(segmentsDisk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
-	memTombstones := sroar.NewBitmap()
+	allTombstones := make([]*sroar.Bitmap, 2)
 
 	for i, queryTerm := range query {
 		key := []byte(queryTerm)
@@ -1583,7 +1582,6 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		active := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
 		flushing := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
 
-		var activeTombstones *sroar.Bitmap
 		if b.active != nil {
 			memtable := b.active
 			n2, _ := fillTerm(memtable, key, active, filterDocIds)
@@ -1591,14 +1589,12 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 				output[len(segmentsDisk)+1] = append(output[len(segmentsDisk)+1], active)
 			}
 			n += n2
-
-			var err error
-			activeTombstones, err = b.active.ReadOnlyTombstones()
+			tombstones, err := b.active.GetTombstones()
 			if err != nil {
 				release()
 				return nil, nil, func() {}, err
 			}
-			memTombstones.Or(activeTombstones)
+			allTombstones[1] = tombstones
 
 			if n2 > 0 {
 				active.advanceOnTombstoneOrFilter()
@@ -1613,15 +1609,16 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 			n += n2
 
-			tombstones, err := b.flushing.ReadOnlyTombstones()
+			tombstones, err := b.flushing.GetTombstones()
 			if err != nil {
 				release()
 				return nil, nil, func() {}, err
 			}
-			memTombstones.Or(tombstones)
 
+			allTombstones[0] = tombstones
 			if n2 > 0 {
-				flushing.tombstones = activeTombstones
+				tombstones, _ = b.active.GetTombstones()
+				flushing.tombstones = tombstones
 				flushing.advanceOnTombstoneOrFilter()
 			}
 
@@ -1649,22 +1646,37 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		segment := segmentsDisk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
 
-		allTombstones := memTombstones.Clone()
-		if j != len(segmentsDisk)-1 {
-			segTombstones, err := segmentsDisk[j+1].ReadOnlyTombstones()
+		var tombstones *sroar.Bitmap
+		var err error
+		if j == len(segmentsDisk)-1 {
+			tombstones = sroar.NewBitmap()
+		} else {
+			tombstones, err = segmentsDisk[j+1].GetTombstones()
 			if err != nil {
 				release()
 				return nil, nil, func() {}, err
 			}
-			allTombstones.Or(segTombstones)
 		}
 
+		if err != nil {
+			release()
+			return nil, nil, func() {}, err
+		}
+
+		if allTombstones[0] != nil {
+			tombstones.Or(allTombstones[0])
+		}
+		if allTombstones[1] != nil {
+			tombstones.Or(allTombstones[1])
+		}
 		for i, key := range query {
-			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
+
+			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, tombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
 		}
+
 	}
 	return output, idfCounts, release, nil
 }

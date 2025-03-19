@@ -129,13 +129,11 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 
-		bucketName := helpers.BucketSearchableFromPropNameLSM(prop.Name)
-		if err := s.store.CreateOrLoadBucket(ctx, bucketName, searchableBucketOpts...); err != nil {
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketSearchableFromPropNameLSM(prop.Name),
+			searchableBucketOpts...,
+		); err != nil {
 			return err
-		}
-
-		if actualStrategy := s.store.Bucket(bucketName).Strategy(); actualStrategy == lsmkv.StrategyInverted {
-			s.markSearchableBlockmaxProperties(prop.Name)
 		}
 	}
 
@@ -292,17 +290,4 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		s.segmentCleanupConfig(),
 	)
-}
-
-func (s *Shard) markSearchableBlockmaxProperties(propNames ...string) {
-	s.searchableBlockmaxPropNamesLock.Lock()
-	s.searchableBlockmaxPropNames = append(s.searchableBlockmaxPropNames, propNames...)
-	s.searchableBlockmaxPropNamesLock.Unlock()
-}
-
-func (s *Shard) getSearchableBlockmaxProperties() []string {
-	// since slice is only appended, it should be safe to return it that way
-	s.searchableBlockmaxPropNamesLock.Lock()
-	defer s.searchableBlockmaxPropNamesLock.Unlock()
-	return s.searchableBlockmaxPropNames
 }

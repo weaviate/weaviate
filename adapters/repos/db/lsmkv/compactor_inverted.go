@@ -84,12 +84,12 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "init")
 	}
 
-	c.tombstonesToWrite, err = c.c1.segment.ReadOnlyTombstones()
+	c.tombstonesToWrite, err = c.c1.segment.GetTombstones()
 	if err != nil {
 		return errors.Wrap(err, "get tombstones")
 	}
 
-	c.tombstonesToClean, err = c.c2.segment.ReadOnlyTombstones()
+	c.tombstonesToClean, err = c.c2.segment.GetTombstones()
 	if err != nil {
 		return errors.Wrap(err, "get tombstones")
 	}
