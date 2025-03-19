@@ -97,7 +97,7 @@ jobs:
             "."
   Unit-Tests:
     name: unit-tests
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -114,7 +114,7 @@ jobs:
           path: coverage-unit.txt
   Integration-Tests:
     name: integration-tests
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -131,7 +131,7 @@ jobs:
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
     name: modules-acceptance-tests
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     strategy:
       fail-fast: false
       matrix:
@@ -174,7 +174,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-On-Demand-Tests-Check:
     name: modules-on-demand-tests-check
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
@@ -197,7 +197,7 @@ jobs:
           fi
   Modules-Acceptance-Tests-large:
     name: modules-acceptance-tests-large
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
@@ -232,7 +232,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
     name: modules-acceptance-tests-api
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     strategy:
@@ -312,7 +312,7 @@ jobs:
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance-tests
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     strategy:
       fail-fast: false
       matrix:
@@ -345,7 +345,7 @@ jobs:
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-large:
     name: acceptance-tests-large
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     strategy:
       fail-fast: false
       matrix:
@@ -383,7 +383,7 @@ jobs:
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
     name: codecov
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
       - uses: actions/checkout@v4
@@ -403,7 +403,7 @@ jobs:
           verbose: true
   Compile-and-upload-binaries:
     name: compile-and-upload-binaries
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -483,7 +483,7 @@ jobs:
     needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
     name: push-docker
     timeout-minutes: 30
-    runs-on: ubuntu-latest-8-cores
+    runs-on: DB-ubuntu-24.04-8-cores
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -539,7 +539,7 @@ jobs:
   Generate-Docker-Report:
     needs: [Push-Docker-Fast]
     name: generate-docker-report
-    runs-on: ubuntu-latest
+    runs-on: DB-ubuntu-24.04-2-cores
     steps:
       - uses: actions/checkout@v4
       - name: Combine tags
