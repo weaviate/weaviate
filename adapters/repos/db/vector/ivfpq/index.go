@@ -53,7 +53,7 @@ type ivfpq struct {
 	rescore             int64
 	sq                  *compressionhelpers.ScalarQuantizer
 	lsh                 *compressionhelpers.LSHQuantizer
-	invertedIndex       invertedIndexNode
+	//invertedIndex       invertedIndexNode
 
 	pqResults *common.PqMaxPool
 	pool      *pools
@@ -141,9 +141,9 @@ func (index *ivfpq) Add(ctx context.Context, id uint64, vector []float32) error 
 	if index.Compressed() {
 		vectorSQ := index.sq.Encode(vector)
 		index.storeVector(id, vectorSQ, index.getCompressedBucketName())
-		code := index.lsh.Encode8(vector)
+		//code := index.lsh.Encode8(vector)
 		index.Lock()
-		index.invertedIndex = index.invertedIndex.add(code, id, 0)
+		//index.invertedIndex = index.invertedIndex.add(code, id, 0)
 		index.Unlock()
 	}
 	newCount := atomic.LoadUint64(&index.count)
@@ -159,13 +159,13 @@ func (index *ivfpq) SearchByVector(ctx context.Context, vector []float32, k int,
 	if index.Compressed() {
 		vector = index.normalized(vector)
 		start := time.Now()
-		code := index.lsh.Encode8(vector)
+		//code := index.lsh.Encode8(vector)
 		helpers.AnnotateSlowQueryLog(ctx, "encoding", time.Since(start))
 		probingSize := int(atomic.LoadInt32(&index.probingSize))
 		heap := priorityqueue.NewMax[byte](probingSize)
-		aux := priorityqueue.NewMin[byte](probingSize)
+		//aux := priorityqueue.NewMin[byte](probingSize)
 		start = time.Now()
-		index.invertedIndex.search(code, probingSize, heap, aux, 0, 0)
+		//index.invertedIndex.search(code, probingSize, heap, aux, 0, 0)
 		helpers.AnnotateSlowQueryLog(ctx, fmt.Sprintf("traversing %d:", heap.Len()), time.Since(start))
 
 		compressedK := 15
@@ -548,10 +548,10 @@ func (index *ivfpq) Upgrade(callback func()) error {
 	bands := 3
 	perBand := 64
 	index.lsh = compressionhelpers.NewLSHQuantizer(perBand, bands, len(data[0]))
-	index.invertedIndex = newInvertedIndex(0, bands*perBand/64)
+	//index.invertedIndex = newInvertedIndex(0, bands*perBand/64)
 	compressionhelpers.Concurrently(index.logger, uint64(len(data)), func(i uint64) {
-		code := index.lsh.Encode8(data[i])
-		index.invertedIndex = index.invertedIndex.add(code, ids[i], 0)
+		//code := index.lsh.Encode8(data[i])
+		//index.invertedIndex = index.invertedIndex.add(code, ids[i], 0)
 		vectorSQ := index.sq.Encode(data[i])
 		index.storeVector(ids[i], vectorSQ, index.getCompressedBucketName())
 	})

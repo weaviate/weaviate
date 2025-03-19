@@ -12,261 +12,310 @@
 package ivfpq
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
-	"math/bits"
+	"math"
+	"reflect"
 	"sync"
-	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-type invertedIndexNode interface {
-	add(code []byte, id uint64, dim int) invertedIndexNode
-	search(codes []byte, k int, heap, aux *priorityqueue.Queue[byte], dim, accDist int)
-}
+const (
+	targetProbe        = 300
+	rescoreConcurrency = 10
+)
 
-type invertedIndex struct {
+type bucket struct {
 	sync.RWMutex
-	nextDim []invertedIndexNode
-	codes   []byte
+	code          []byte
+	ids           []uint64
+	codes         []uint64
+	accessCounter byte
 }
 
-type leave struct {
-	sync.RWMutex
-	ids   []uint64
-	codes []byte
+func (b *bucket) store(store *lsmkv.Bucket) {
+	if b == nil {
+		return
+	}
+	var buf *bytes.Buffer = new(bytes.Buffer)
+	binary.Write(buf, binary.LittleEndian, b.codes)
+	toWrite := buf.Bytes()
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, uint64(b.code[0])*256+uint64(b.code[1]))
+	store.Put(idBytes, toWrite)
+	if len(b.ids) > 1_000 {
+		b.codes = nil
+	}
 }
 
-func newInvertedIndex(dimension, maxDimension int) invertedIndexNode {
-	return &leave{}
+func (b *bucket) load(store *lsmkv.Bucket, sketchSize int) {
+	if b == nil || len(b.ids) < 1_000 {
+		return
+	}
+	b.Lock()
+	b.accessCounter++
+	if b.accessCounter == 1 {
+		idBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(idBytes, uint64(b.code[0])*256+uint64(b.code[1]))
+		buf, _ := store.Get(idBytes)
+		b.codes = make([]uint64, len(b.ids)*sketchSize)
+		binary.Read(bytes.NewReader(buf), binary.LittleEndian, &b.codes)
+	}
+	b.Unlock()
 }
 
-func (i *invertedIndex) add(code []byte, id uint64, dim int) invertedIndexNode {
-	i.Lock()
-	offset := 0
-	for offset < len(i.codes) && i.codes[offset] == code[dim+offset] {
-		offset++
+func (b *bucket) release() {
+	b.Lock()
+	b.accessCounter--
+	if b.accessCounter == 0 {
+		b.codes = nil
 	}
-	if offset < len(i.codes) {
-		//split
-		common := make([]byte, offset)
-		copy(common, i.codes[:offset])
-		nextDim := make([]invertedIndexNode, 256)
-		nextDim[i.codes[offset]] = i
-		i.codes = i.codes[offset+1:]
-		i.Unlock()
-		remaining := make([]byte, len(code)-dim-1-offset)
-		copy(remaining, code[dim+1+offset:])
-		nextDim[code[dim+offset]] = &leave{
-			codes: remaining,
-			ids:   []uint64{id},
-		}
-		newInvertedIndex := &invertedIndex{
-			codes:   common,
-			nextDim: nextDim,
-		}
-		return newInvertedIndex
+	b.Unlock()
+}
+
+func (b *bucket) memInUse() int {
+	baseSize := int(reflect.TypeOf(b).Size())
+	if b != nil {
+		baseSize += int(reflect.TypeOf(*b).Size()) + 2 + len(b.ids)*8
 	}
-	if len(i.codes) == 0 {
-		if i.nextDim[code[dim]] == nil {
-			remaining := make([]byte, len(code)-dim-1-offset)
-			copy(remaining, code[dim+offset+1:])
-			i.nextDim[code[dim]] = &leave{
-				codes: remaining,
-				ids:   []uint64{id},
-			}
-			i.Unlock()
-			return i
-		}
-		i.nextDim[code[dim+offset]] = i.nextDim[code[dim+offset]].add(code, id, dim+offset+1)
-		i.Unlock()
-		return i
+	if b == nil || len(b.ids) >= 1_000 {
+		return baseSize
 	}
-	if i.nextDim[code[dim+offset]] == nil {
-		remaining := make([]byte, len(code)-dim-offset-1)
-		copy(remaining, code[dim+offset+1:])
-		i.nextDim[code[dim+offset]] = &leave{
-			ids:   []uint64{id},
-			codes: remaining,
-		}
-		i.Unlock()
-		return i
+	return len(b.codes)*8 + baseSize
+}
+
+type FlatPQ struct {
+	sync.Mutex
+
+	segments   int
+	centroids  int
+	probing    int
+	sketchSize int
+
+	pq      *compressionhelpers.ProductQuantizer
+	bq      compressionhelpers.BinaryQuantizer
+	buckets []*bucket
+	locks   *common.ShardedRWLocks
+	store   *lsmkv.Store
+
+	distancer distancer.Provider
+}
+
+func NewFlatPQ(vectors [][]float32, distancer distancer.Provider, segments, centroids, probing int, store *lsmkv.Store) *FlatPQ {
+	pq, _ := compressionhelpers.NewProductQuantizer(hnsw.PQConfig{
+		Enabled:       true,
+		Segments:      segments,
+		Centroids:     centroids,
+		TrainingLimit: len(vectors),
+		Encoder: hnsw.PQEncoder{
+			Type:         hnsw.PQEncoderTypeKMeans,
+			Distribution: hnsw.PQEncoderDistributionNormal,
+		},
+	}, distancer, len(vectors[0]), logrus.New())
+	pq.Fit(vectors)
+	totalSize := int(math.Pow(float64(centroids), float64(segments)))
+	i := &FlatPQ{
+		segments:   segments,
+		centroids:  centroids,
+		probing:    probing,
+		sketchSize: len(vectors[0]) / 64,
+		pq:         pq,
+		bq:         compressionhelpers.NewBinaryQuantizer(distancer),
+		buckets:    make([]*bucket, totalSize),
+		locks:      common.NewDefaultShardedRWLocks(),
+		store:      store,
+		distancer:  distancer,
 	}
-	i.nextDim[code[dim+offset]] = i.nextDim[code[dim+offset]].add(code, id, dim+offset+1)
-	i.Unlock()
+
+	store.CreateOrLoadBucket(context.Background(), "ivf")
+	store.CreateOrLoadBucket(context.Background(), "vectors")
 	return i
 }
 
-func (i *leave) add(code []byte, id uint64, dim int) invertedIndexNode {
-	i.Lock()
-	if len(i.ids) == 0 {
-		i.codes = code
-		i.ids = append(i.ids, id)
-		i.Unlock()
-		return i
+func (i *FlatPQ) Add(id uint64, vector []float32) {
+	code := i.pq.Encode(vector)
+	flatId := i.idFromCode(code)
+	i.locks.Lock(flatId)
+	if i.buckets[flatId] == nil {
+		i.buckets[flatId] = &bucket{
+			code: code,
+		}
 	}
-	offset := 0
-	for offset < len(i.codes) && i.codes[offset] == code[dim+offset] {
-		offset++
-	}
-	if offset < len(i.codes) {
-		common := make([]byte, offset)
-		copy(common, i.codes[:offset])
-		nextDim := make([]invertedIndexNode, 256)
-		nextDim[i.codes[offset]] = i
-		i.codes = i.codes[offset+1:]
-		remaining := make([]byte, len(code)-dim-1-offset)
-		copy(remaining, code[dim+1+offset:])
-		nextDim[code[dim+offset]] = &leave{
-			codes: remaining,
-			ids:   []uint64{id},
-		}
-		newInvertedIndex := &invertedIndex{
-			codes:   common,
-			nextDim: nextDim,
-		}
-		if dim+1+len(i.codes)+len(common) != len(code) {
-			fmt.Println("here")
-		}
-		if dim+1+len(remaining)+len(common) != len(code) {
-			fmt.Println("here")
-		}
-		i.Unlock()
-		return newInvertedIndex
-	}
-	i.ids = append(i.ids, id)
-	i.Unlock()
-	return i
+	i.buckets[flatId].ids = append(i.buckets[flatId].ids, id)
+	i.buckets[flatId].codes = append(i.buckets[flatId].codes, i.bq.Encode(vector)...)
+	i.locks.Unlock(flatId)
+
+	var buf *bytes.Buffer = new(bytes.Buffer)
+	binary.Write(buf, binary.LittleEndian, vector)
+	toWrite := buf.Bytes()
+
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, id)
+	i.store.Bucket("vectors").Put(idBytes, toWrite)
 }
 
-func (i *invertedIndex) search(code []byte, k int, heap, aux *priorityqueue.Queue[byte], dim, accDist int) {
-	var maxDist int
-	if heap.Len() < k {
-		maxDist = len(code) * 64
-	} else {
-		maxDist = int(heap.Top().Dist)
-	}
+// +reading 200 buckets * 50 sketches * 24*8 bytes = 2MB ==>> 100M -> 200MB per query
+// keeping 15% of sketches 30MB ==>> 100M -> 3GB
+func (i *FlatPQ) SearchByVector(ctx context.Context, searchVec []float32, k int) ([]uint64, []int, error) {
+	heap := priorityqueue.NewMax[byte](i.probing)
+	distancer := i.pq.NewDistancer(searchVec)
 
-	offset := 0
-	i.RLock()
-	defer i.RUnlock()
-	for offset < len(i.codes) {
-		accDist += bits.OnesCount8(i.codes[offset] ^ code[dim+offset])
-		offset++
-	}
+	for id := uint64(0); id < uint64(len(i.buckets)); id++ {
+		i.locks.RLock(id)
+		bucket := i.buckets[id]
+		i.locks.RUnlock(id)
+		if bucket == nil {
+			continue
+		}
+		d, _ := distancer.Distance(bucket.code)
 
-	currentCode := code[dim+offset]
-	for idx := range i.nextDim {
-		if i.nextDim[idx] != nil {
-			currDist := bits.OnesCount8(currentCode ^ byte(idx))
-			if accDist+currDist < maxDist {
-				aux.Insert(uint64(idx), float32(currDist))
+		if heap.Len() == i.probing {
+			if d >= heap.Top().Dist {
+				continue
 			}
+			heap.Pop()
 		}
+		heap.Insert(id, d)
+
 	}
 
-	ids := make([]uint64, aux.Len())
-	dist := make([]int, aux.Len())
-	j := 0
-	for aux.Len() > 0 {
-		elem := aux.Pop()
-		ids[j] = elem.ID
-		dist[j] = int(elem.Dist)
-		j++
+	heap_ids := priorityqueue.NewMax[byte](targetProbe)
+	searchVecCode := i.bq.Encode(searchVec)
+	bids := make([]uint64, 0, heap.Len())
+	for heap.Len() > 0 {
+		bids = append(bids, heap.Pop().ID)
 	}
 
-	for j := range ids {
-		currentDist := dist[j]
+	ivfBucket := i.store.Bucket("ivf")
 
-		if accDist+currentDist < maxDist {
-			i.nextDim[ids[j]].search(code, k, heap, aux, dim+offset+1, accDist+currentDist)
-			if heap.Len() >= k {
-				maxDist = int(heap.Top().Dist)
+	logger := logrus.New()
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	for workerID := 0; workerID < rescoreConcurrency; workerID++ {
+		workerID := workerID
+
+		eg.Go(func() error {
+			for idPos := workerID; idPos < len(bids); idPos += rescoreConcurrency {
+				bid := bids[idPos]
+				i.locks.RLock(bid)
+				bucket := i.buckets[bid]
+				i.locks.RUnlock(bid)
+				bucket.load(ivfBucket, i.sketchSize)
 			}
-		}
+			return nil
+		}, logger)
 	}
-}
 
-func (i *leave) search(code []byte, k int, heap, aux *priorityqueue.Queue[byte], dim, accDist int) {
-	offset := 0
-	i.RLock()
-	defer i.RUnlock()
-	for offset < len(i.codes) {
-		accDist += bits.OnesCount8(i.codes[offset] ^ code[dim+offset])
-		offset++
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
 	}
-	if heap.Len() < k || heap.Top().Dist > float32(accDist) {
-		for _, id := range i.ids {
-			heap.Insert(id, float32(accDist))
+	for _, bid := range bids {
+		i.locks.RLock(bid)
+		bucket := i.buckets[bid]
+		i.locks.RUnlock(bid)
+		defer bucket.release()
+		for j, id := range bucket.ids {
+			d, _ := i.bq.DistanceBetweenCompressedVectors(searchVecCode, bucket.codes[j*i.sketchSize:(j+1)*i.sketchSize])
+			if heap_ids.Len() == targetProbe {
+				if heap_ids.Top().Dist < d {
+					continue
+				}
+				heap_ids.Pop()
+			}
+			heap_ids.Insert(id, d)
+
 		}
-		for heap.Len() > k {
+	}
+
+	ids := make([]uint64, heap_ids.Len())
+	j := heap_ids.Len() - 1
+	for heap_ids.Len() > 0 {
+		ids[j] = heap_ids.Pop().ID
+		j--
+	}
+
+	heap.Reset()
+	mu := sync.Mutex{} // protect res
+	addID := func(id uint64, dist float32) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		heap.Insert(id, dist)
+		if heap.Len() > k {
 			heap.Pop()
 		}
 	}
-}
+	eg = enterrors.NewErrorGroupWrapper(logger)
+	for workerID := 0; workerID < rescoreConcurrency; workerID++ {
+		workerID := workerID
 
-type IvfPQ struct {
-	sync.Mutex
-	lsh            *compressionhelpers.LSHQuantizer
-	compressor     *compressionhelpers.ScalarQuantizer
-	compressedVecs [][]byte
-	invertedIndex  invertedIndexNode
-}
+		eg.Go(func() error {
+			for idPos := workerID; idPos < len(ids); idPos += rescoreConcurrency {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("rescore: %w", err)
+				}
 
-func NewIvf(vectors [][]float32, distancer distancer.Provider) *IvfPQ {
-	bands := 3
-	perBand := 192
-	ivf := &IvfPQ{
-		lsh:            compressionhelpers.NewLSHQuantizer(perBand, bands, len(vectors[0])),
-		compressor:     compressionhelpers.NewScalarQuantizer(vectors, distancer),
-		invertedIndex:  newInvertedIndex(0, bands*perBand/64),
-		compressedVecs: make([][]byte, 1_000_000),
+				id := ids[idPos]
+				dist, err := i.distanceToVector(searchVec, id)
+				if err == nil {
+					addID(id, dist)
+				}
+			}
+			return nil
+		}, logger)
 	}
-	return ivf
-}
 
-func (ivf *IvfPQ) Add(id uint64, vector []float32) {
-	code := ivf.lsh.Encode8(vector)
-	ivf.compressedVecs[id] = ivf.compressor.Encode(vector)
-	ivf.Lock()
-	ivf.invertedIndex = ivf.invertedIndex.add(code, id, 0)
-	ivf.Unlock()
-}
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
 
-func (ivf *IvfPQ) SearchByVector(ctx context.Context, searchVec []float32, k int) ([]uint64, []float32, error) {
-	code := ivf.lsh.Encode8(searchVec)
-	probing := 5_000
-	heap := priorityqueue.NewMax[byte](probing)
-	aux := priorityqueue.NewMin[byte](probing)
-	start := time.Now()
-	ivf.invertedIndex.search(code, probing, heap, aux, 0, 0)
-	fmt.Println(time.Since(start))
-
-	compressedK := 15
-	cheap := priorityqueue.NewMax[byte](compressedK)
-	cdistancer := ivf.compressor.NewDistancer(searchVec)
-
+	ids = make([]uint64, heap.Len())
+	j = heap.Len() - 1
 	for heap.Len() > 0 {
-		element := heap.Pop()
-		d, _ := cdistancer.Distance(ivf.compressedVecs[element.ID])
-		if cheap.Len() >= compressedK {
-			cheap.Pop()
-		}
-		cheap.Insert(element.ID, d)
+		ids[j] = heap.Pop().ID
+		j--
 	}
+	return ids, nil, nil
+}
 
-	ids := make([]uint64, compressedK)
-	dist := make([]float32, compressedK)
-
-	index := compressedK
-	for cheap.Len() > 0 {
-		index--
-		element := cheap.Pop()
-		ids[index] = element.ID
-		dist[index] = element.Dist
+func (i *FlatPQ) idFromCode(code []byte) uint64 {
+	id := uint64(0)
+	for j := 0; j < i.segments; j++ {
+		id *= uint64(i.centroids)
+		id += uint64(code[j])
 	}
-	return ids, dist, nil
+	return id
+}
+
+func (i *FlatPQ) Store() {
+	ivfBucket := i.store.Bucket("ivf")
+	for _, bucket := range i.buckets {
+		bucket.store(ivfBucket)
+	}
+}
+
+func (i *FlatPQ) MemoryInUse() int {
+	total := int(reflect.TypeOf(i).Size())
+	for _, bucket := range i.buckets {
+		total += bucket.memInUse()
+	}
+	return total
+}
+
+func (i *FlatPQ) distanceToVector(searchVec []float32, id uint64) (float32, error) {
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, id)
+	buf, _ := i.store.Bucket("vectors").Get(idBytes)
+	vector := make([]float32, 1536)
+	binary.Read(bytes.NewReader(buf), binary.LittleEndian, &vector)
+	return i.distancer.SingleDist(searchVec, vector)
 }
