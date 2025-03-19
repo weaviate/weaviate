@@ -627,11 +627,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	reindexFinishedV2 := make(chan error, 1)
 	if appState.ServerConfig.Config.ReindexMapToBlockmaxAtStartup {
 		reindexTasksV2Names = append(reindexTasksV2Names, "ShardInvertedReindexTask_MapToBlockmax")
-		reindexTasksV2Args["ShardInvertedReindexTask_MapToBlockmax"] = map[string]bool{
-			"ReindexMapToBlockmaxSwapBuckets":   appState.ServerConfig.Config.ReindexMapToBlockmaxSwapBuckets,
-			"ReindexMapToBlockmaxUnswapBuckets": appState.ServerConfig.Config.ReindexMapToBlockmaxUnswapBuckets,
-			"ReindexMapToBlockmaxTidyBuckets":   appState.ServerConfig.Config.ReindexMapToBlockmaxTidyBuckets,
-			"ReindexMapToBlockmaxRollback":      appState.ServerConfig.Config.ReindexMapToBlockmaxRollback,
+		reindexTasksV2Args["ShardInvertedReindexTask_MapToBlockmax"] = map[string]any{
+			"SwapBuckets":               appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.SwapBuckets,
+			"UnswapBuckets":             appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.UnswapBuckets,
+			"TidyBuckets":               appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.TidyBuckets,
+			"Rollback":                  appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.Rollback,
+			"ProcessingDurationSeconds": appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds,
+			"PauseDurationSeconds":      appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.PauseDurationSeconds,
 		}
 	}
 

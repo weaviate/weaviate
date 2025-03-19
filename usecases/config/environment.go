@@ -323,17 +323,23 @@ func FromEnv(config *Config) error {
 	if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_AT_STARTUP", clusterCfg.Hostname) {
 		config.ReindexMapToBlockmaxAtStartup = true
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_SWAP_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxSwapBuckets = true
+			config.ReindexMapToBlockmaxConfig.SwapBuckets = true
 		}
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_UNSWAP_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxUnswapBuckets = true
+			config.ReindexMapToBlockmaxConfig.UnswapBuckets = true
 		}
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxTidyBuckets = true
+			config.ReindexMapToBlockmaxConfig.TidyBuckets = true
 		}
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxRollback = true
+			config.ReindexMapToBlockmaxConfig.Rollback = true
 		}
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PROCESSING_DURATION_SECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds = val },
+			DefaultMapToBlockmaxProcessingDurationSeconds)
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
+			DefaultMapToBlockmaxPauseDurationSeconds)
 	}
 
 	if err := config.parseMemtableConfig(); err != nil {

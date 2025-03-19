@@ -118,10 +118,7 @@ type Config struct {
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	ReindexMapToBlockmaxAtStartup       bool                     `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
-	ReindexMapToBlockmaxSwapBuckets     bool                     `json:"reindex_map_to_blockmax_swap_buckets" yaml:"reindex_map_to_blockmax_swap_buckets"`
-	ReindexMapToBlockmaxTidyBuckets     bool                     `json:"reindex_map_to_blockmax_remove_buckets" yaml:"reindex_map_to_blockmax_remove_buckets"`
-	ReindexMapToBlockmaxUnswapBuckets   bool                     `json:"reindex_map_to_blockmax_unswap_buckets" yaml:"reindex_map_to_blockmax_unswap_buckets"`
-	ReindexMapToBlockmaxRollback        bool                     `json:"reindex_map_to_blockmax_rollback" yaml:"reindex_map_to_blockmax_rollback"`
+	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig     `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
@@ -140,6 +137,15 @@ type Config struct {
 
 	// map[className][]propertyName
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
+}
+
+type MapToBlockamaxConfig struct {
+	SwapBuckets               bool `json:"swap_buckets" yaml:"swap_buckets"`
+	UnswapBuckets             bool `json:"unswap_buckets" yaml:"unswap_buckets"`
+	TidyBuckets               bool `json:"tidy_buckets" yaml:"tidy_buckets"`
+	Rollback                  bool `json:"rollback" yaml:"rollback"`
+	ProcessingDurationSeconds int  `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
+	PauseDurationSeconds      int  `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
 }
 
 // Validate the configuration
@@ -292,6 +298,11 @@ const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
+
+const (
+	DefaultMapToBlockmaxProcessingDurationSeconds = 3 * 60
+	DefaultMapToBlockmaxPauseDurationSeconds      = 60
+)
 
 // MetadataServer is experimental.
 type MetadataServer struct {

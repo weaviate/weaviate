@@ -35,15 +35,14 @@ import (
 )
 
 type mapToBlockmaxConfig struct {
-	swapBuckets               bool
-	unswapBuckets             bool
-	tidyBuckets               bool
-	rollback                  bool
-	concurrency               int
-	memtableOptBlockmaxFactor int
-
-	processingInterval            time.Duration
-	pauseInterval                 time.Duration
+	swapBuckets                   bool
+	unswapBuckets                 bool
+	tidyBuckets                   bool
+	rollback                      bool
+	concurrency                   int
+	memtableOptBlockmaxFactor     int
+	processingDuration            time.Duration
+	pauseDuration                 time.Duration
 	checkProcessingEveryNoObjects int
 }
 
@@ -55,8 +54,9 @@ type ShardInvertedReindexTask_MapToBlockmax struct {
 	config            mapToBlockmaxConfig
 }
 
-func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger, swapBuckets, unswapBuckets,
-	tidyBuckets, rollback bool,
+func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
+	swapBuckets, unswapBuckets, tidyBuckets, rollback bool,
+	processingDuration, pauseDuration time.Duration,
 ) *ShardInvertedReindexTask_MapToBlockmax {
 	keyParser := &uuidKeyParser{}
 	objectsIterator := uuidObjectsIterator
@@ -82,8 +82,8 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger, swapBuc
 			rollback:                      rollback,
 			concurrency:                   concurrency.NUMCPU_2,
 			memtableOptBlockmaxFactor:     4,
-			processingInterval:            15 * time.Minute,
-			pauseInterval:                 1 * time.Second,
+			processingDuration:            processingDuration,
+			pauseDuration:                 pauseDuration,
 			checkProcessingEveryNoObjects: 1000,
 		},
 	}
@@ -941,7 +941,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 
 		// check execution time every X objects processed to pause
 		if processedCount%t.config.checkProcessingEveryNoObjects == 0 {
-			if time.Since(processingStarted) > t.config.processingInterval {
+			if time.Since(processingStarted) > t.config.processingDuration {
 				if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
 					return false, fmt.Errorf("marking reindex progress (iterator): %w", err)
 				}
@@ -970,7 +970,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 		}
 		return zerotime, nil
 	}
-	return time.Now().Add(t.config.pauseInterval), nil
+	return time.Now().Add(t.config.pauseDuration), nil
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) reindexBucketName(propName string) string {
