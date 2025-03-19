@@ -50,7 +50,7 @@ type ShardInvertedReindexTask_MapToBlockmax struct {
 	logger               logrus.FieldLogger
 	newReindexTracker    func(lsmPath string) (reindexTracker, error)
 	keyParser            indexKeyParser
-	objectsIteratorAsync func(logger logrus.FieldLogger, objectsBucket *lsmkv.Bucket, lastKey indexKey, readCh <-chan struct{}, breakCh <-chan bool) (started time.Time, kvCh <-chan objectKV)
+	objectsIteratorAsync objectsIteratorAsync
 	config               mapToBlockmaxConfig
 }
 
@@ -897,11 +897,8 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 		}
 	}()
 
-	addProps := additional.Properties{}
-	propExtraction := storobj.NewPropExtraction()
-
 	store := shard.Store()
-	objectsBucket := store.Bucket(helpers.ObjectsBucketLSM)
+	propExtraction := storobj.NewPropExtraction()
 	bucketsByPropName := map[string]*lsmkv.Bucket{}
 	for _, prop := range props {
 		propExtraction.Add(prop)
@@ -909,64 +906,33 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 		bucketsByPropName[prop] = store.Bucket(bucketName)
 	}
 
-	bufK := make([]byte, 0, 1024)
-	bufV := make([]byte, 0, 1024)
-	readCh := make(chan struct{}, 1)
 	breakCh := make(chan bool, 1)
 	breakCh <- false
 	finished := false
 
-	processingStarted, kvCh := t.objectsIteratorAsync(logger, objectsBucket, lastStoredKey, readCh, breakCh)
-	for kv := range kvCh {
-		if kv.k == nil {
-			readCh <- struct{}{}
+	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
+		propExtraction, reindexStarted, breakCh)
+
+	for md := range mdCh {
+		if md == nil {
 			finished = true
+		} else if md.err != nil {
+			err = md.err
+			return zerotime, err
 		} else if err = ctx.Err(); err != nil {
-			readCh <- struct{}{}
 			breakCh <- true
 			err = fmt.Errorf("context check (loop): %w", err)
 			return zerotime, err
 		} else {
-			if lenK := len(kv.k); lenK > cap(bufK) {
-				bufK = make([]byte, lenK)
-			} else if lenK != len(bufK) {
-				bufK = bufK[:lenK]
-			}
-			copy(bufK, kv.k)
-
-			if lenV := len(kv.v); lenV > cap(bufV) {
-				bufV = make([]byte, lenV)
-			} else if lenV != len(bufV) {
-				bufV = bufV[:lenV]
-			}
-			copy(bufV, kv.v)
-
-			readCh <- struct{}{}
-
-			ik := t.keyParser.FromBytes(bufK)
-			obj, err := storobj.FromBinaryOptional(bufV, addProps, propExtraction)
-			if err != nil {
-				breakCh <- true
-				err = fmt.Errorf("unmarshalling object %q: %w", ik.String(), err)
-				return zerotime, err
-			}
-
-			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
-				props, _, err := shard.AnalyzeObject(obj)
-				if err != nil {
-					breakCh <- true
-					err = fmt.Errorf("analyzing object %q: %w", ik.String(), err)
-					return zerotime, err
-				}
-
-				for _, invprop := range props {
+			if len(md.props) > 0 {
+				for _, invprop := range md.props {
 					if bucket, ok := bucketsByPropName[invprop.Name]; ok {
 						propLen := t.calcPropLenInverted(invprop.Items)
 						for _, item := range invprop.Items {
-							pair := shard.pairPropertyWithFrequency(obj.DocID, item.TermFrequency, propLen)
+							pair := shard.pairPropertyWithFrequency(md.docID, item.TermFrequency, propLen)
 							if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
 								breakCh <- true
-								err = fmt.Errorf("adding object %q prop %q: %w", ik.String(), invprop.Name, err)
+								err = fmt.Errorf("adding object %q prop %q: %w", md.key.String(), invprop.Name, err)
 								return zerotime, err
 							}
 						}
@@ -974,9 +940,8 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 				}
 				indexedCount++
 			}
-
-			lastProcessedKey = ik.Clone()
 			processedCount++
+			lastProcessedKey = md.key
 
 			// check execution time every X objects processed to close the cursor and pause shard's migration
 			breakCh <- processedCount%t.config.checkProcessingEveryNoObjects == 0 &&
@@ -1044,22 +1009,28 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLi
 	return props, nil
 }
 
-type objectKV struct {
-	k []byte
-	v []byte
+type migrationData struct {
+	key   indexKey
+	docID uint64
+	props []inverted.Property
+	err   error
 }
 
-func uuidObjectsIteratorAsync(logger logrus.FieldLogger, objectsBucket *lsmkv.Bucket, lastKey indexKey,
-	readCh <-chan struct{}, breakCh <-chan bool,
-) (time.Time, <-chan objectKV) {
+type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+) (time.Time, <-chan *migrationData)
+
+func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey,
+	propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+) (time.Time, <-chan *migrationData) {
 	startedCh := make(chan time.Time)
-	kvCh := make(chan objectKV)
+	mdCh := make(chan *migrationData)
 
 	enterrors.GoWrapper(func() {
-		cursor := objectsBucket.CursorOnDisk()
+		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
 		defer cursor.Close()
 
-		startedCh <- time.Now()
+		startedCh <- time.Now() // after cursor created (necessary locks acquired)
+		addProps := additional.Properties{}
 
 		var k, v []byte
 		if lastKey == nil {
@@ -1073,21 +1044,39 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, objectsBucket *lsmkv.Bu
 		}
 
 		for ; k != nil; k, v = cursor.Next() {
-			if <-breakCh {
+			ik := keyParse(k)
+			obj, err := storobj.FromBinaryOptional(v, addProps, propExtraction)
+			if err != nil {
+				mdCh <- &migrationData{err: fmt.Errorf("unmarshalling object %q: %w", ik.String(), err)}
 				break
 			}
-			kvCh <- objectKV{k: k, v: v}
-			<-readCh
+
+			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
+				props, _, err := shard.AnalyzeObject(obj)
+				if err != nil {
+					mdCh <- &migrationData{err: fmt.Errorf("analyzing object %q: %w", ik.String(), err)}
+					break
+				}
+
+				if <-breakCh {
+					break
+				}
+				mdCh <- &migrationData{key: ik.Clone(), props: props, docID: obj.DocID}
+			} else {
+				if <-breakCh {
+					break
+				}
+				mdCh <- &migrationData{key: ik.Clone()}
+			}
 		}
 		if k == nil {
 			<-breakCh
-			kvCh <- objectKV{}
-			<-readCh
+			mdCh <- nil
 		}
-		close(kvCh)
+		close(mdCh)
 	}, logger)
 
-	return <-startedCh, kvCh
+	return <-startedCh, mdCh
 }
 
 type reindexTracker interface {
