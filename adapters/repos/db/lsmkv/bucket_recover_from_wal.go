@@ -133,8 +133,8 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 
 	if emptyWALPaths.Len() > 0 {
 		b.logger.WithField("action", "lsm_recover_from_active_wal").
-			WithField("paths", strings.TrimSuffix(emptyWALPaths.String(), pathSeparator)).
-			Info("found empty write-ahead-log files during recovery")
+			WithField("path", strings.TrimSuffix(emptyWALPaths.String(), pathSeparator)).
+			Warning("empty write-ahead-log found. Did weaviate crash prior to this or the tenant on/loaded from the cloud? Nothing to recover from this file.")
 	}
 
 	return nil
