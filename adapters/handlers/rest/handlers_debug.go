@@ -14,7 +14,6 @@ package rest
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -30,6 +29,7 @@ import (
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
 
+	// NOTE this should be removed before merging, just here for testing until we have the API code
 	http.HandleFunc("/debug/index/copy/files", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sourceNodeName := r.URL.Query().Get("sourceNodeName")
 		collectionName := r.URL.Query().Get("collectionName")
@@ -39,8 +39,8 @@ func setupDebugHandlers(appState *state.State) {
 			http.Error(w, "sourceNodeName, collectionName, and shardName are required", http.StatusBadRequest)
 			return
 		}
-		c := copier.New(appState.DB.GetRemoteIndex(), appState.Cluster, appState.DB.GetConfig().RootPath, appState.DB.GetIndex(schema.ClassName(collectionName)))
-		err := c.Run(sourceNodeName, collectionName, shardName)
+		c := copier.New(appState.DB.GetRemoteIndex(), appState.Cluster, appState.DB.GetConfig().RootPath, appState.DB)
+		err := c.CopyReplica(sourceNodeName, collectionName, shardName)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -92,7 +92,6 @@ func setupDebugHandlers(appState *state.State) {
 	// newLogLevel can be one of: panic, fatal, error, warn, info, debug, trace (defaults to info)
 	http.HandleFunc("/debug/config/logger/level", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		newLogLevel := r.URL.Query().Get("newLogLevel")
-		fmt.Println("NATEE got log level request", newLogLevel)
 		if newLogLevel == "" {
 			http.Error(w, "newLogLevel is required", http.StatusBadRequest)
 			return

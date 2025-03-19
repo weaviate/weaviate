@@ -1981,7 +1981,7 @@ func (i *Index) loadLocalShard(ctx context.Context, shardName string) error {
 }
 
 // TODO temp for testing
-func (i *Index) AddShard(ctx context.Context, shardName string) error {
+func (i *Index) LoadShard(ctx context.Context, shardName string) error {
 	return i.loadLocalShard(ctx, shardName)
 }
 

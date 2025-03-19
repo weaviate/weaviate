@@ -314,9 +314,7 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 	return index.IncomingReinitShard(ctx, shardName)
 }
 
-// PauseAndListFiles pauses the shard replica background processes on the specified node and returns a list of files that can be used to get the shard data at the time the pause was requested.
-// You should explicitly call the Resume (TODO) method to resume the background processes.
-// The returned relative file paths are relative to the shard's root directory.
+// PauseAndListFiles see adapters/clients.RemoteIndex.PauseAndListFiles
 func (rii *RemoteIndexIncoming) PauseAndListFiles(ctx context.Context,
 	indexName, shardName string,
 ) ([]string, error) {
@@ -328,8 +326,7 @@ func (rii *RemoteIndexIncoming) PauseAndListFiles(ctx context.Context,
 	return index.IncomingPauseAndListFiles(ctx, shardName)
 }
 
-// GetFile returns a reader for the file at the given path in the shard's root directory.
-// The caller must close the returned io.ReadCloser if no error is returned.
+// GetFile see adapters/clients.RemoteIndex.GetFile
 func (rii *RemoteIndexIncoming) GetFile(ctx context.Context,
 	indexName, shardName, relativeFilePath string,
 ) (io.ReadCloser, error) {

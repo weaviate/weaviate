@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/replica/copier"
 
 	"github.com/prometheus/client_golang/prometheus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -146,6 +147,9 @@ type Config struct {
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
 	AuthzController authorization.Controller
+
+	// ReplicaCopier copies shard replicas between nodes
+	ReplicaCopier *copier.Copier
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -230,7 +234,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		raftResolver:       raftResolver,
 		schemaManager:      schemaManager,
 		authZManager:       rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
-		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader()),
+		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader(), cfg.ReplicaCopier),
 	}
 }
 

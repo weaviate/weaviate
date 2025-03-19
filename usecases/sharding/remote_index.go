@@ -102,8 +102,9 @@ type RemoteIndexClient interface {
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
-	// PauseAndListFiles pauses the shard replica background processes on the specified node and returns a list of files that can be used to get the shard data at the time the pause was requested.
-	// You should explicitly call the Resume (TODO) method to resume the background processes.
+	// PauseAndListFiles pauses the shard replica background processes on the specified node and
+	// returns a list of files that can be used to get the shard data at the time the pause was
+	// requested. You should explicitly resume the background processes once you're done.
 	// The returned relative file paths are relative to the shard's root directory.
 	PauseAndListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error)
 	// GetFile returns a reader for the file at the given path in the shard's root directory.

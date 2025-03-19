@@ -1349,7 +1349,7 @@ func (i *indices) getShardFile() http.Handler {
 			return
 		}
 
-		index, shard, relativeFilePath := args[1], args[2], args[3]
+		indexName, shardName, relativeFilePath := args[1], args[2], args[3]
 
 		ct, ok := IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
 		if !ok {
@@ -1358,7 +1358,7 @@ func (i *indices) getShardFile() http.Handler {
 			return
 		}
 
-		reader, err := i.shards.GetFile(r.Context(), index, shard, relativeFilePath)
+		reader, err := i.shards.GetFile(r.Context(), indexName, shardName, relativeFilePath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1372,13 +1372,13 @@ func (i *indices) getShardFile() http.Handler {
 		}
 
 		i.logger.WithFields(logrus.Fields{
-			"index":    index,
-			"shard":    shard,
+			"index":    indexName,
+			"shard":    shardName,
 			"fileName": relativeFilePath,
 			"n":        n,
 		}).Debug()
 
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(http.StatusOK)
 	})
 }
 
@@ -1430,9 +1430,9 @@ func (i *indices) postPauseAndListFiles() http.Handler {
 			return
 		}
 
-		index, shard := args[1], args[2]
+		indexName, shardName := args[1], args[2]
 
-		relativeFilePaths, err := i.shards.PauseAndListFiles(r.Context(), index, shard)
+		relativeFilePaths, err := i.shards.PauseAndListFiles(r.Context(), indexName, shardName)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1444,6 +1444,13 @@ func (i *indices) postPauseAndListFiles() http.Handler {
 			return
 		}
 
+		i.logger.WithFields(logrus.Fields{
+			"index":    indexName,
+			"shard":    shardName,
+			"numFiles": len(relativeFilePaths),
+		}).Debug()
+
 		w.Write(resBytes)
+		w.WriteHeader(http.StatusOK)
 	})
 }

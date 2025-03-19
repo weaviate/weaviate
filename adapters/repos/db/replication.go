@@ -327,21 +327,16 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
 	shardName string,
 ) ([]string, error) {
-	// TODO do i need the other stuff from DB.ShardsBackup?
-	localShard, release, err := i.getOrInitShard(context.Background(), shardName)
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q could not be found locally", shardName)
 	}
 	defer release()
 
-	// TODO context
-	// TODO do i want true or false for offloading here?
-	err = localShard.HaltForTransfer(context.Background(), false)
+	err = localShard.HaltForTransfer(ctx, false)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q could not be halted for transfer: %w", shardName, err)
 	}
-	// TODO something like this? heartbeat fail triggers this?
-	// defer localShard.resumeMaintenanceCycles(context.Background())
 
 	sd := backup.ShardDescriptor{Name: shardName}
 	if err := localShard.ListBackupFiles(ctx, &sd); err != nil {
@@ -349,7 +344,6 @@ func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
 	}
 
 	files := []string{
-		// TODO other files?
 		sd.DocIDCounterPath,
 		sd.PropLengthTrackerPath,
 		sd.ShardVersionPath,
@@ -364,14 +358,12 @@ func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
 func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	relativeFilePath string,
 ) (io.ReadCloser, error) {
-	localShard, release, err := i.getOrInitShard(context.Background(), shardName)
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 	defer release()
 
-	// TODO: validate file prefix to rule out that we're accidentally writing
-	// into another shard
 	finalPath := filepath.Join(localShard.Index().Config.RootPath, relativeFilePath)
 
 	reader, err := os.Open(finalPath)

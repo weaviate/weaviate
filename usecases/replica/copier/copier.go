@@ -7,18 +7,30 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
+
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 // Copier for shard replicas, can copy a shard replica from one node to another.
 type Copier struct {
-	n          nodeResolver
-	t          targetNode
-	rootPath   string
-	shardAdder shardAdder
+	// nodeSelector converts node IDs to hostnames
+	nodeSelector cluster.NodeSelector
+	// remoteIndex allows you to "call" methods on other nodes, in this case, we'll be "calling"
+	// methods on the source node to perform the copy
+	remoteIndex remoteIndex
+	// rootDataPath is the local path to the root data directory for the shard, we'll copy files
+	// to this path
+	rootDataPath string
+	// indexGetter is used to load the index for the collection so that we can create/interact
+	// with the shard on this node
+	indexGetter ShardLoaderAdapter
 }
 
-// using targetNode interface here to avoid circular dependency
-type targetNode interface {
+// remoteIndex interface here is just to avoid a circular dependency introduced by
+// adapters/clients.RemoteIndex
+type remoteIndex interface {
 	// See adapters/clients.RemoteIndex.PauseAndListFiles
 	PauseAndListFiles(ctx context.Context,
 		hostName, indexName, shardName string) ([]string, error)
@@ -27,49 +39,50 @@ type targetNode interface {
 		hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
 }
 
-type nodeResolver interface {
-	// See TODO
-	NodeHostname(nodeName string) (string, bool)
+// ShardLoaderAdapter is a type that can get an index as a ShardLoader, this is used to avoid a circular
+// dependency between the copier and the db package.
+type ShardLoaderAdapter interface {
+	// See adapters/repos/db.DB.GetIndexAsShardLoader
+	GetAsShardLoader(name schema.ClassName) ShardLoader
 }
 
-type shardAdder interface {
-	// See TODO
-	AddShard(ctx context.Context, shardName string) error
+// ShardLoader is a type that can load a shard from disk files, this is used to avoid a circular
+// dependency between the copier and the db package.
+type ShardLoader interface {
+	// See adapters/repos/db.Index.LoadShard
+	LoadShard(ctx context.Context, name string) error
 }
 
 // New creates a new shard replica Copier.
-func New(t targetNode, nodeResolver nodeResolver, rootPath string, shardAdder shardAdder) *Copier {
+func New(t remoteIndex, nodeSelector cluster.NodeSelector, rootPath string, indexGetter ShardLoaderAdapter) *Copier {
 	return &Copier{
-		t:          t,
-		n:          nodeResolver,
-		rootPath:   rootPath,
-		shardAdder: shardAdder,
+		remoteIndex:  t,
+		nodeSelector: nodeSelector,
+		rootDataPath: rootPath,
+		indexGetter:  indexGetter,
 	}
 }
 
-// Run copies a shard replica from the source node to this node.
-func (c *Copier) Run(srcNodeId, collectionName, shardName string) error {
-	// TODO context
-	sourceNodeHostname, ok := c.n.NodeHostname(srcNodeId)
+// CopyReplica copies a shard replica from the source node to this node.
+func (c *Copier) CopyReplica(srcNodeId, collectionName, shardName string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour)
+	defer cancel()
+	sourceNodeHostname, ok := c.nodeSelector.NodeHostname(srcNodeId)
 	if !ok {
 		return fmt.Errorf("sourceNodeName not found for node %s", srcNodeId)
 	}
-	relativeFilePaths, err := c.t.PauseAndListFiles(context.Background(), sourceNodeHostname, collectionName, shardName)
+	relativeFilePaths, err := c.remoteIndex.PauseAndListFiles(ctx, sourceNodeHostname, collectionName, shardName)
 	if err != nil {
 		return err
 	}
-	fmt.Println("NATEE Copier.Run files", relativeFilePaths)
-	// TODO parallel? worker pool?
 	for _, relativeFilePath := range relativeFilePaths {
-		reader, err := c.t.GetFile(context.Background(), sourceNodeHostname, collectionName, shardName, relativeFilePath)
+		reader, err := c.remoteIndex.GetFile(ctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
 		if err != nil {
 			return err
 		}
 		defer reader.Close()
-		fmt.Println("NATEE Copier.Run GetFile", relativeFilePath, err)
 
-		finalPath := filepath.Join(c.rootPath, relativeFilePath)
-		fmt.Println("NATEE Copier.Run finalPath", finalPath)
+		finalPath := filepath.Join(c.rootDataPath, relativeFilePath)
 		dir := path.Dir(finalPath)
 		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 			return fmt.Errorf("create parent folder for %s: %w", relativeFilePath, err)
@@ -81,17 +94,15 @@ func (c *Copier) Run(srcNodeId, collectionName, shardName string) error {
 		}
 
 		defer f.Close()
-		n, err := io.Copy(f, reader)
+		_, err = io.Copy(f, reader)
 		if err != nil {
 			return err
 		}
-		fmt.Println("NATEE Copier.Run io.Copy", n)
 	}
 
 	// TODO need to understand more about hwo to create/add shard, do i need to coordinate with the
-	// fsm changes to sharding state stuff too here? locks/etc?
-	err = c.shardAdder.AddShard(context.Background(), shardName)
-	fmt.Println("NATEE Copier.Run AddShard", err)
+	// fsm changes to sharding state stuff too here? do i need the shard transfer locks/etc?
+	err = c.indexGetter.GetAsShardLoader(schema.ClassName(collectionName)).LoadShard(ctx, shardName)
 	if err != nil {
 		return err
 	}
