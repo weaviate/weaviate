@@ -40,12 +40,14 @@ func TestRbacWithOIDC(t *testing.T) {
 		name          string
 		image         *docker.Compose
 		nameCollision bool
+		onlyOIDC      bool
 	}{
 		{
 			name: "RBAC with OIDC",
 			image: docker.New().
 				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
 			nameCollision: false,
+			onlyOIDC:      true,
 		},
 		{
 			name: "RBAC with OIDC and API key",
@@ -114,13 +116,28 @@ func TestRbacWithOIDC(t *testing.T) {
 			// only OIDC user has role assigned
 			rolesOIDC := helper.GetRolesForUserOIDC(t, customUser, tokenAdmin)
 			require.Len(t, rolesOIDC, 1)
-			rolesDB := helper.GetRolesForUser(t, customUser, tokenAdmin)
-			require.Len(t, rolesDB, 0)
+
+			if test.onlyOIDC {
+				_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)), helper.CreateAuth(tokenAdmin))
+				require.Error(t, err)
+				var notFound *authz.GetRolesForUserNotFound
+				require.True(t, errors.As(err, &notFound))
+			} else {
+				rolesDB := helper.GetRolesForUser(t, customUser, tokenAdmin)
+				require.Len(t, rolesDB, 0)
+			}
 
 			usersOidc := helper.GetUserForRolesOIDC(t, createSchemaRoleName, tokenAdmin)
 			require.Len(t, usersOidc, 1)
-			usersDB := helper.GetUserForRoles(t, createSchemaRoleName, tokenAdmin)
-			require.Len(t, usersDB, 0)
+			if test.onlyOIDC {
+				_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)), helper.CreateAuth(tokenAdmin))
+				require.Error(t, err)
+				var notFound *authz.GetRolesForUserNotFound
+				require.True(t, errors.As(err, &notFound))
+			} else {
+				usersDB := helper.GetUserForRoles(t, createSchemaRoleName, tokenAdmin)
+				require.Len(t, usersDB, 0)
+			}
 
 			// assign role to non-existing user => no error (if OIDC is enabled)
 			helper.AssignRoleToUserOIDC(t, tokenAdmin, createSchemaRoleName, "i-dont-exist")
@@ -134,6 +151,36 @@ func TestRbacWithOIDC(t *testing.T) {
 
 				helper.AssignRoleToUser(t, tokenAdmin, createSchemaRoleName, "custom-user")
 				err = createClass(t, &models.Class{Class: "testingApiKey"}, helper.CreateAuth(customKey))
+				require.NoError(t, err)
+			}
+
+			if test.onlyOIDC {
+				// cannot assign/revoke to/from db users
+				resp, err := helper.Client(t).Authz.AssignRoleToUser(
+					authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{createSchemaRoleName}, UserType: models.UserTypeDb}),
+					helper.CreateAuth(tokenAdmin),
+				)
+				require.Nil(t, resp)
+				require.Error(t, err)
+
+				resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
+					authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{createSchemaRoleName}, UserType: models.UserTypeDb}),
+					helper.CreateAuth(tokenAdmin),
+				)
+				require.Nil(t, resp2)
+				require.Error(t, err)
+
+				// no validation for deprecated path when OIDC is enabled:
+				_, err = helper.Client(t).Authz.AssignRoleToUser(
+					authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{createSchemaRoleName}}),
+					helper.CreateAuth(tokenAdmin),
+				)
+				require.NoError(t, err)
+
+				_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+					authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{createSchemaRoleName}}),
+					helper.CreateAuth(tokenAdmin),
+				)
 				require.NoError(t, err)
 			}
 		})
