@@ -97,7 +97,6 @@ func SingleTokenise(t *testing.T) {
 	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "한국어를 처리하는 예시입니다")
 	assert.Equal(t, []string{"한국어", "를", "처리", "하", "는", "예시", "입니다"}, tokens)
 
-
 	tokens = Tokenize(models.PropertyTokenizationKagomeJa, `春の夜の夢はうつつよりもかなしき
 	夏の夜の夢はうつつに似たり
 	秋の夜の夢はうつつを超え
