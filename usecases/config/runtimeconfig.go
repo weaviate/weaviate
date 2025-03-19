@@ -39,9 +39,6 @@ func NewWeaviateRuntimeConfig(cm ConfigManager) *WeaviateRuntimeConfig {
 
 func (rc *WeaviateRuntimeConfig) GetMaximumAllowedCollectionsCount() *int {
 	if cfg, err := rc.cm.Config(); err == nil {
-		if cfg.MaximumAllowedCollectionsCount == nil {
-			return nil
-		}
 		return cfg.MaximumAllowedCollectionsCount
 	}
 	return nil
@@ -49,9 +46,6 @@ func (rc *WeaviateRuntimeConfig) GetMaximumAllowedCollectionsCount() *int {
 
 func (rc *WeaviateRuntimeConfig) GetAutoSchemaEnabled() *bool {
 	if cfg, err := rc.cm.Config(); err == nil {
-		if cfg.AutoSchemaEnabled == nil {
-			return nil
-		}
 		return cfg.AutoSchemaEnabled
 	}
 	return nil
