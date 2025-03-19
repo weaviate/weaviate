@@ -431,7 +431,7 @@ func (m *Memtable) writeWAL() error {
 	return m.commitlog.flushBuffers()
 }
 
-func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
+func (m *Memtable) GetTombstones() (*sroar.Bitmap, error) {
 	if m.strategy != StrategyInverted {
 		return nil, errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
 	}
@@ -440,7 +440,7 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	defer m.RUnlock()
 
 	if m.tombstones != nil {
-		return m.tombstones.Clone(), nil
+		return m.tombstones, nil
 	}
 
 	return nil, lsmkv.NotFound
@@ -451,8 +451,8 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	m.RLock()
+	defer m.RUnlock()
 
 	m.tombstones.Set(docId)
 

@@ -103,8 +103,6 @@ var DeprecatedPrimitiveDataTypes []DataType = []DataType{
 	DataTypeString, DataTypeStringArray,
 }
 
-var allPrimitiveDataTypes []DataType = append(PrimitiveDataTypes, DeprecatedPrimitiveDataTypes...)
-
 type PropertyKind int
 
 const (
@@ -300,9 +298,9 @@ func FindPropertyDataTypeWithRefsAndAuth(authorizedGetClass func(string) (*model
 
 func AsPrimitive(dataType []string) (DataType, bool) {
 	if len(dataType) == 1 {
-		for i := range allPrimitiveDataTypes {
-			if dataType[0] == allPrimitiveDataTypes[i].String() {
-				return allPrimitiveDataTypes[i], true
+		for _, dt := range append(PrimitiveDataTypes, DeprecatedPrimitiveDataTypes...) {
+			if dataType[0] == dt.String() {
+				return dt, true
 			}
 		}
 		if len(dataType[0]) == 0 {

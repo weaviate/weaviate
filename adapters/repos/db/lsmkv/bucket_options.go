@@ -185,10 +185,3 @@ func WithForceCompaction(opt bool) BucketOption {
 		return nil
 	}
 }
-
-func WithDisableCompaction(disable bool) BucketOption {
-	return func(b *Bucket) error {
-		b.disableCompaction = disable
-		return nil
-	}
-}

@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
@@ -123,10 +122,6 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 			}
 		}
-	}
-
-	if err := s.onAddToPropertyValueIndex(docID, &property); err != nil {
-		return err
 	}
 
 	return nil
@@ -378,14 +373,6 @@ func (s *Shard) addToDimensionBucket(
 		Value:     []byte{},
 		Tombstone: tombstone,
 	})
-}
-
-func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
-	ec := errorcompounder.New()
-	for i := range s.callbacksAddToPropertyValueIndex {
-		ec.Add(s.callbacksAddToPropertyValueIndex[i](s, docID, property))
-	}
-	return ec.ToError()
 }
 
 func isMetaCountProperty(property inverted.Property) bool {
