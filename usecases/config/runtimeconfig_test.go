@@ -27,7 +27,7 @@ func TestRuntimeConfig(t *testing.T) {
 		require.Equal(t, true, *val)
 	})
 
-	t.Run("setting explicity value for auto schema enabled", func(t *testing.T) {
+	t.Run("setting explicitly value for auto schema enabled", func(t *testing.T) {
 		b := true
 
 		cm.c.AutoSchemaEnabled = &b
