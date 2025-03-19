@@ -26,6 +26,10 @@ func TestTokeniseParallel(t *testing.T) {
 	// Kagome tokenizer for Korean
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
 	_ = initializeKagomeTokenizerKr()
+
+	// Kagome tokenizer for Japanese
+	t.Setenv("ENABLE_TOKENIZER_KAGOME_JA", "true")
+	_ = initializeKagomeTokenizerJa()
 	for i := 0; i < 1000; i++ {
 		go SingleTokenise(t)
 	}
@@ -93,9 +97,6 @@ func SingleTokenise(t *testing.T) {
 	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "한국어를 처리하는 예시입니다")
 	assert.Equal(t, []string{"한국어", "를", "처리", "하", "는", "예시", "입니다"}, tokens)
 
-	// Kagome tokenizer for Japanese
-	t.Setenv("ENABLE_TOKENIZER_KAGOME_JA", "true")
-	_ = initializeKagomeTokenizerJa()
 
 	tokens = Tokenize(models.PropertyTokenizationKagomeJa, `春の夜の夢はうつつよりもかなしき
 	夏の夜の夢はうつつに似たり
