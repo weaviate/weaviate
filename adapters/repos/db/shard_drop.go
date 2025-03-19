@@ -89,25 +89,32 @@ func (s *Shard) drop() (err error) {
 	if s.hasTargetVectors() {
 		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(s.index.logger, ctx)
 		eg.SetLimit(_NUMCPU)
+
 		for targetVector, queue := range s.queues {
 			targetVector, queue := targetVector, queue // capture loop variables
 			eg.Go(func() error {
-				if err = queue.Drop(); err != nil {
-					return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
+				// Remove err from closure scope, use local error
+				if dropErr := queue.Drop(); dropErr != nil {
+					return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), dropErr)
 				}
 				return nil
 			})
 		}
+
 		for targetVector, vectorIndex := range s.vectorIndexes {
 			targetVector, vectorIndex := targetVector, vectorIndex // capture loop variables
 			eg.Go(func() error {
-				if err = vectorIndex.Drop(ctx); err != nil {
-					return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
+				// Remove err from closure scope, use local error
+				if dropErr := vectorIndex.Drop(ctx); dropErr != nil {
+					return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), dropErr)
 				}
 				return nil
 			})
 		}
-		_ = eg.Wait()
+
+		if err = eg.Wait(); err != nil {
+			return err
+		}
 	} else {
 		// delete queue cursor
 		if err = s.queue.Drop(); err != nil {
