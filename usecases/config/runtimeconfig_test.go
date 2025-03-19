@@ -48,7 +48,7 @@ func TestRuntimeConfig(t *testing.T) {
 		require.Nil(t, val)
 	})
 
-	t.Run("maxmimu collection limit not being set should return nil", func(t *testing.T) {
+	t.Run("maximum collection limit not being set should return nil", func(t *testing.T) {
 		cm.c.MaximumAllowedCollectionsCount = nil
 		val := rm.GetMaximumAllowedCollectionsCount()
 		require.Nil(t, val)
