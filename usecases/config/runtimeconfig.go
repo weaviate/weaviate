@@ -46,11 +46,11 @@ func (rc *WeaviateRuntimeConfig) GetMaximumAllowedCollectionsCount() *int {
 }
 
 func (rc *WeaviateRuntimeConfig) GetAutoSchemaEnabled() *bool {
-	true := true
+	defaultVal := true
 
 	if cfg, err := rc.cm.Config(); err == nil {
 		if cfg.AutoSchemaEnabled == nil {
-			return &true
+			return &defaultVal
 		}
 		return cfg.AutoSchemaEnabled
 	}
