@@ -22,21 +22,22 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/dynusers"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
+	"github.com/prometheus/client_golang/prometheus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-
-	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 const (
@@ -133,6 +134,14 @@ type Config struct {
 	// SentryEnabled configures the sentry integration to add internal middlewares to rpc client/server to set spans &
 	// capture traces
 	SentryEnabled bool
+
+	// EnableOneNodeRecovery enables the actually one node recovery logic to avoid it running all the time when
+	// unnecessary
+	EnableOneNodeRecovery bool
+	// ForceOneNodeRecovery will force the single node recovery routine to run. This is useful if the cluster has
+	// committed wrong peer configuration entry that makes it unable to obtain a quorum to start.
+	// WARNING: This should be run on *actual* one node cluster only.
+	ForceOneNodeRecovery bool
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
 	AuthzController authorization.Controller
@@ -257,6 +266,14 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
+	}
+
+	// Only if node recovery is enabled will we check if we are either forcing it or automating the detection of a one
+	// node cluster
+	if st.cfg.EnableOneNodeRecovery && (st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2)) {
+		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
+			return err
+		}
 	}
 
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
@@ -671,4 +688,92 @@ func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 		return 0
 	}
 	return ls[0].Index
+}
+
+// recoverSingleNode is used to manually force a new configuration in order to
+// recover from a loss of quorum where the current configuration cannot be
+// WARNING! This operation implicitly commits all entries in the Raft log, so
+// in general this is an extremely unsafe operation and that's why it's made to be
+// used in a single cluster node.
+// for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
+func (st *Store) recoverSingleNode(force bool) error {
+	if !force && (st.cfg.BootstrapExpect > 1 || len(st.candidates) > 1) {
+		return fmt.Errorf("bootstrap expect %v, candidates %v, "+
+			"can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidates)
+	}
+	servers := st.raft.GetConfiguration().Configuration().Servers
+	// nothing to do here, wasn't a single node
+	if !force && len(servers) != 1 {
+		st.log.WithFields(logrus.Fields{
+			"servers_from_previous_configuration": servers,
+			"candidates":                          st.candidates,
+		}).Warn("didn't perform cluster recovery")
+		return nil
+	}
+
+	exNode := servers[0]
+	newNode := raft.Server{
+		ID:       raft.ServerID(st.cfg.NodeID),
+		Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RPCPort)),
+		Suffrage: raft.Voter,
+	}
+
+	// same node nothing to do here
+	if !force && (exNode.ID == newNode.ID && exNode.Address == newNode.Address) {
+		return nil
+	}
+
+	st.log.WithFields(logrus.Fields{
+		"action":                      "raft_cluster_recovery",
+		"existed_single_cluster_node": exNode,
+		"new_single_cluster_node":     newNode,
+	}).Info("perform cluster recovery")
+
+	fut := st.raft.Shutdown()
+	if err := fut.Error(); err != nil {
+		return err
+	}
+
+	recoveryConfig := st.cfg
+	// Force the recovery to be metadata only and un-assign the associated DB to ensure no DB operations are made during
+	// the restore to avoid any data change.
+	recoveryConfig.MetadataOnlyVoters = true
+	recoveryConfig.DB = nil
+	if err := raft.RecoverCluster(st.raftConfig(), &Store{
+		cfg:           recoveryConfig,
+		log:           st.log,
+		raftResolver:  st.raftResolver,
+		raftTransport: st.raftTransport,
+		applyTimeout:  st.applyTimeout,
+		snapshotStore: st.snapshotStore,
+		schemaManager: st.schemaManager,
+		logStore:      st.logStore,
+		logCache:      st.logCache,
+	}, st.logCache,
+		st.logStore,
+		st.snapshotStore,
+		st.raftTransport,
+		raft.Configuration{Servers: []raft.Server{newNode}}); err != nil {
+		return err
+	}
+
+	var err error
+	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
+	if err != nil {
+		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
+	}
+
+	if exNode.ID == newNode.ID {
+		// no node name change needed in the state
+		return nil
+	}
+
+	st.log.WithFields(logrus.Fields{
+		"action":                       "replace_states_node_name",
+		"old_single_cluster_node_name": exNode.ID,
+		"new_single_cluster_node_name": newNode.ID,
+	}).Info("perform cluster recovery")
+	st.schemaManager.ReplaceStatesNodeName(string(newNode.ID))
+
+	return nil
 }

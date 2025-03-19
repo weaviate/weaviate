@@ -371,6 +371,30 @@ func (s *schema) replaceClasses(classes map[string]*metaClass) {
 	}
 }
 
+// replaceStatesNodeName it update the node name inside sharding states.
+// WARNING: this shall be used in one node cluster environments only.
+// because it will replace the shard node name if the node name got updated
+// only if the replication factor is 1, otherwise it's no-op
+func (s *schema) replaceStatesNodeName(new string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, meta := range s.classes {
+		meta.LockGuard(func(mc *metaClass) error {
+			if meta.Class.ReplicationConfig.Factor > 1 {
+				return nil
+			}
+
+			for idx := range meta.Sharding.Physical {
+				cp := meta.Sharding.Physical[idx].DeepCopy()
+				cp.BelongsToNodes = []string{new}
+				meta.Sharding.Physical[idx] = cp
+			}
+			return nil
+		})
+	}
+}
+
 func (s *schema) addProperty(class string, v uint64, props ...*models.Property) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
