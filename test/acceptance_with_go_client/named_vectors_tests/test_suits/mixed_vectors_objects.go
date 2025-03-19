@@ -18,6 +18,8 @@ import (
 
 	acceptance_with_go_client "acceptance_tests_with_client"
 
+	"github.com/davecgh/go-spew/spew"
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
@@ -187,6 +189,58 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 				require.NotEqual(t, beforeUpdate[targetVector], afterUpdate[targetVector])
 			}
 		})
+	}
+}
+
+func testMixedVectorsBatchBYOV(host string) func(t *testing.T) {
+	return func(t *testing.T) {
+		ctx := context.Background()
+
+		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
+		require.NoError(t, err)
+
+		require.NoError(t, client.Schema().AllDeleter().Do(ctx))
+		class := createMixedVectorsSchema(t, client)
+
+		var objects []*models.Object
+		for i, data := range []struct {
+			id     strfmt.UUID
+			text   string
+			vector []float32
+		}{
+			{id: UUID1, text: "I like reading books", vector: []float32{1, 2, 3, 4}},
+			{id: UUID2, text: "I like programming", vector: []float32{5, 6, 7, 8}},
+		} {
+			objects = append(objects, &models.Object{
+				Class: class.Class,
+				ID:    data.id,
+				Properties: map[string]interface{}{
+					"text":   data.text,
+					"number": i,
+				},
+				Vector: data.vector,
+				Vectors: models.Vectors{
+					contextionary: data.vector,
+				},
+			})
+		}
+
+		resp, err := client.Batch().
+			ObjectsBatcher().
+			WithObjects(objects...).
+			Do(ctx)
+		require.NoError(t, err)
+		for _, r := range resp {
+			require.Nil(t, r.Result.Errors, spew.Sdump(r.Result.Errors))
+		}
+
+		for _, obj := range objects {
+			vectors := getVectors(t, client, class.Class, obj.ID.String(), "", contextionary, transformers)
+			require.Len(t, vectors, 3)
+			require.Equal(t, []float32(obj.Vector), vectors[""].([]float32))
+			require.Equal(t, []float32(obj.Vector), vectors[contextionary].([]float32))
+			require.Len(t, vectors[transformers], 384)
+		}
 	}
 }
 
