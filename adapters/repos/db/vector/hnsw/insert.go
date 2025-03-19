@@ -72,7 +72,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if h.multivector.Load() {
+	if h.multivector.Load() && !h.muvera.Load() {
 		return errors.Errorf("AddBatch called on multivector index")
 	}
 	if len(ids) != len(vectors) {
@@ -156,6 +156,21 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	}
 	if len(docIDs) == 0 {
 		return errors.Errorf("addMultiBatch called with empty lists")
+	}
+
+	if h.muvera.Load() {
+		// Process vectors using Muvera encoding
+		if err := h.encoder.Fit(vectors); err != nil {
+			panic(err)
+		}
+
+		// Process all vectors
+		processedVectors := make([][]float32, len(vectors))
+		for i, v := range vectors {
+			processedVectors[i] = h.encoder.EncodeDoc(v)
+		}
+		// Replace original vectors with processed ones
+		return h.AddBatch(ctx, docIDs, processedVectors)
 	}
 
 	var err error
@@ -335,7 +350,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, id uint64, level in
 	if h.compressed.Load() && !h.multivector.Load() {
 		h.compressor.Preload(id, vector)
 	} else {
-		if !h.multivector.Load() {
+		if h.muvera.Load() || !h.multivector.Load() {
 			h.cache.Preload(id, vector)
 		}
 	}
@@ -429,7 +444,7 @@ func (h *hnsw) insertInitialElement(id uint64, nodeVec []float32) error {
 	if h.compressed.Load() && !h.multivector.Load() {
 		h.compressor.Preload(id, nodeVec)
 	} else {
-		if !h.multivector.Load() {
+		if h.muvera.Load() || !h.multivector.Load() {
 			h.cache.Preload(id, nodeVec)
 		}
 	}

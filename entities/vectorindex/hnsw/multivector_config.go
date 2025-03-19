@@ -29,6 +29,7 @@ const (
 // Multivector configuration
 type MultivectorConfig struct {
 	Enabled     bool   `json:"enabled"`
+	Muvera      bool   `json:"muvera"`
 	Aggregation string `json:"aggregation"`
 }
 
@@ -72,6 +73,12 @@ func parseMultivectorMap(in map[string]interface{}, multivector *MultivectorConf
 		} else {
 			multivector.Enabled = v
 		}
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalBoolFromMap(multivectorConfigMap, "muvera", func(v bool) {
+		multivector.Muvera = v
 	}); err != nil {
 		return err
 	}

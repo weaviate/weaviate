@@ -37,7 +37,7 @@ func (h *hnsw) init(cfg Config) error {
 	if err := h.restoreFromDisk(); err != nil {
 		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
-	if h.multivector.Load() {
+	if h.multivector.Load() && !h.muvera.Load() {
 		if err := h.restoreDocMappings(); err != nil {
 			return errors.Wrapf(err, "restore doc mappings %q", cfg.ID)
 		}

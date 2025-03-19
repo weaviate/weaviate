@@ -81,7 +81,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
-	vector = h.normalizeVec(vector)
+	//vector = h.normalizeVec(vector)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
@@ -94,6 +94,21 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	if !h.multivector.Load() {
 		return nil, nil, errors.New("multivector search is not enabled")
+	}
+
+	if h.muvera.Load() {
+		muvera_query := h.encoder.EncodeQuery(vectors)
+		overfetch := 10
+		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
+		if err != nil {
+			return nil, nil, err
+		}
+		candidateSet := make(map[uint64]struct{})
+		for _, docID := range docIDs {
+			candidateSet[docID] = struct{}{}
+		}
+
+		return h.computeLateInteraction(vectors, k, candidateSet)
 	}
 
 	h.compressActionLock.RLock()
@@ -523,7 +538,7 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 	defer h.pools.tempVectors.Put(slice)
 	var vec []float32
 	var err error
-	if !h.multivector.Load() {
+	if h.muvera.Load() || !h.multivector.Load() {
 		vec, err = h.TempVectorForIDThunk(context.Background(), nodeID, slice)
 	} else {
 		docID, relativeID := h.cache.GetKeys(nodeID)
@@ -707,7 +722,8 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	beforeRescore := time.Now()
-	if h.shouldRescore() && !h.multivector.Load() {
+	if h.shouldRescore() && (h.muvera.Load() || !h.multivector.Load()) {
+		fmt.Println("rescoring")
 		if err := h.rescore(ctx, res, k, compressorDistancer); err != nil {
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_rescore")
 			took := time.Since(beforeRescore)
@@ -718,7 +734,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		helpers.AnnotateSlowQueryLog(ctx, "knn_search_rescore_took", took)
 	}
 
-	if !h.multivector.Load() {
+	if h.muvera.Load() || !h.multivector.Load() {
 		for res.Len() > k {
 			res.Pop()
 		}
@@ -801,13 +817,22 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 		}
 		h.pools.tempVectors.Put(slice)
 	} else {
-		var errs []error
-		docVecs, errs = h.multiVectorForID(context.TODO(), vecIDs)
-		for _, err := range errs {
+		if !h.muvera.Load() {
+			var errs []error
+			docVecs, errs = h.multiVectorForID(context.Background(), vecIDs)
+			for _, err := range errs {
+				if err != nil {
+					return 0.0, errors.Wrap(err, "get vector for docID")
+				}
+			}
+		} else {
+			var err error
+			docVecs, err = h.cache.GetDoc(context.Background(), docID)
 			if err != nil {
-				return 0.0, errors.Wrap(err, "get vector for docID")
+				return 0.0, errors.Wrap(err, "get muvera vector for docID")
 			}
 		}
+
 	}
 
 	similarity := float32(0.0)

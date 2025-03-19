@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -186,6 +187,8 @@ type hnsw struct {
 
 	// only used for multivector mode
 	multivector  atomic.Bool
+	muvera       atomic.Bool
+	encoder      *multivector.MuveraEncoder
 	docIDVectors map[uint64][]uint64
 	vecIDcounter uint64
 	maxDocID     uint64
@@ -246,11 +249,11 @@ func New(cfg Config, uc ent.UserConfig,
 
 	var vectorCache cache.Cache[float32]
 
-	if uc.Multivector.Enabled {
+	if uc.Multivector.Enabled && !uc.Multivector.Muvera {
 		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	} else {
-		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
+		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
 			normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
@@ -314,6 +317,13 @@ func New(cfg Config, uc ent.UserConfig,
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
+	index.muvera.Store(uc.Multivector.Muvera)
+
+	if uc.Multivector.Muvera {
+		config := multivector.DefaultMuveraConfig()
+		encoder := multivector.NewMuveraEncoder(config)
+		index.encoder = encoder
+	}
 
 	if uc.Multivector.Enabled && (uc.PQ.Enabled || uc.SQ.Enabled || uc.BQ.Enabled) {
 		return nil, errors.New("compression is not supported in multivector mode")
@@ -334,9 +344,11 @@ func New(cfg Config, uc ent.UserConfig,
 
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
-		err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
-		if err != nil {
-			return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
+		if !uc.Multivector.Muvera {
+			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			if err != nil {
+				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
+			}
 		}
 	}
 
@@ -663,7 +675,7 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
 }
 
 func (h *hnsw) ContainsDoc(docID uint64) bool {
-	if h.Multivector() {
+	if h.Multivector() && !h.muvera.Load() {
 		h.RLock()
 		vecIds, exists := h.docIDVectors[docID]
 		h.RUnlock()
@@ -676,7 +688,7 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 }
 
 func (h *hnsw) Iterate(fn func(docID uint64) bool) {
-	if h.Multivector() {
+	if h.Multivector() && !h.muvera.Load() {
 		h.iterateMulti(fn)
 		return
 	}

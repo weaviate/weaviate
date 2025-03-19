@@ -175,6 +175,10 @@ func (f *fakeCache) AllMulti() [][][]float32 {
 	panic("not implemented")
 }
 
+func (f *fakeCache) GetDoc(ctx context.Context, docID uint64) ([][]float32, error) {
+	panic("not implemented")
+}
+
 func generateDummyVertices(amount int) *graph.Nodes {
 	out := make([]*graph.Vertex, amount)
 	for i := range out {
