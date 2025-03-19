@@ -589,7 +589,7 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 }
 
 func (i *Index) asyncReplicationGloballyDisabled() bool {
-	return runtimeconfig.GetOverrides(i.replicationConfig.AsyncReplicationDisabled, i.replicationConfig.AsyncReplicationDisabledFn)
+	return runtimeconfig.GetOverrides(i.globalreplicationConfig.AsyncReplicationDisabled, i.globalreplicationConfig.AsyncReplicationDisabledFn)
 }
 
 func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.ReplicationConfig) error {
