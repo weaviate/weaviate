@@ -1064,3 +1064,67 @@ func TestRaceConcurrentRoleCreation(t *testing.T) {
 
 	}
 }
+
+func TestRolesUserExistence(t *testing.T) {
+	adminKey := "admin-key"
+	adminUser := "admin-user"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDynamicUsers().
+		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	roleName := "role1"
+	helper.DeleteRole(t, adminKey, roleName)
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: &roleName,
+		Permissions: []*models.Permission{
+			{
+				Action: String(authorization.DeleteCollections),
+				Collections: &models.PermissionCollections{
+					Collection: String("Collection1"),
+				},
+			},
+		},
+	})
+	defer helper.DeleteRole(t, adminKey, roleName)
+
+	t.Run("Cannot assign or revoke to/from OIDC user (not enabled)", func(t *testing.T) {
+		resp, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, UserType: models.UserTypeOidc}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Nil(t, resp)
+		require.Error(t, err)
+
+		resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
+			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, UserType: models.UserTypeOidc}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Nil(t, resp2)
+		require.Error(t, err)
+	})
+
+	t.Run("Cannot assign or revoke to/from non-existent db user", func(t *testing.T) {
+		resp, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, UserType: models.UserTypeDb}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Nil(t, resp)
+		require.Error(t, err)
+
+		resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
+			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, UserType: models.UserTypeDb}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Nil(t, resp2)
+		require.Error(t, err)
+	})
+}
