@@ -544,6 +544,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}, appState.Logger)
 		rc := config.NewWeaviateRuntimeConfig(cm)
 		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCountFn = rc.GetMaximumAllowedCollectionsCount
+		appState.ServerConfig.Config.AutoSchema.EnabledFn = rc.GetAutoSchemaEnabled
 	}
 
 	schemaManager, err := schemaUC.NewManager(migrator,
