@@ -23,10 +23,31 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/replica/copier"
 )
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
+
+	// NOTE this should be removed before merging, just here for testing until we have the API code
+	http.HandleFunc("/debug/index/copy/files", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sourceNodeName := r.URL.Query().Get("sourceNodeName")
+		collectionName := r.URL.Query().Get("collectionName")
+		shardName := r.URL.Query().Get("shardName")
+
+		if sourceNodeName == "" || collectionName == "" || shardName == "" {
+			http.Error(w, "sourceNodeName, collectionName, and shardName are required", http.StatusBadRequest)
+			return
+		}
+		c := copier.New(appState.DB.GetRemoteIndex(), appState.Cluster, appState.DB.GetConfig().RootPath, appState.DB)
+		err := c.CopyReplica(sourceNodeName, collectionName, shardName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")

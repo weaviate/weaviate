@@ -18,6 +18,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/replica/copier"
 )
 
 const (
@@ -35,14 +36,17 @@ type shardReplicationEngine struct {
 	ongoingReplicationOps  map[shardReplicationOp]struct{}
 	opChan                 chan shardReplicationOp
 	stopChan               chan bool
+	// replicaCopier does the "data tranfer" work
+	replicaCopier *copier.Copier
 }
 
-func newShardReplicationEngine(logger *logrus.Logger, replicationFSM *ShardReplicationFSM) *shardReplicationEngine {
+func newShardReplicationEngine(logger *logrus.Logger, replicationFSM *ShardReplicationFSM, replicaCopier *copier.Copier) *shardReplicationEngine {
 	return &shardReplicationEngine{
 		logger:                logger.WithFields(logrus.Fields{"action": replicationEngineLogAction}),
 		ongoingReplicationOps: make(map[shardReplicationOp]struct{}),
 		opChan:                make(chan shardReplicationOp, 100),
 		stopChan:              make(chan bool),
+		replicaCopier:         replicaCopier,
 	}
 }
 
@@ -104,7 +108,10 @@ func (s *shardReplicationEngine) startShardReplication(op shardReplicationOp) {
 
 	go func() {
 		defer s.ongoingReplications.Add(-1)
-
+		// TODO defer deleting the op from ongoing ops map and fsm maps as well? but only if it doesn't work?
+		if s.node == op.targetShard.nodeId {
+			s.replicaCopier.CopyReplica(op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId)
+		}
 	}()
 }
 

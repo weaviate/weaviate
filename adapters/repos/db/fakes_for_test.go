@@ -262,6 +262,16 @@ func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	return nil
 }
 
+func (f *fakeRemoteClient) PauseAndListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error) {
+	return nil, nil
+}
+
+func (f *fakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, shardName,
+	fileName string,
+) (io.ReadCloser, error) {
+	return nil, nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) AllHostnames() []string {
