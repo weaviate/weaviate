@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -328,9 +329,8 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
 	// set legacy vector index defaults only when:
 	// 	- no target vectors are configured
-	//  - OR, there are target vectors configured AND there are hints that legacy index is also needed
-	legacyVectorIndexConfigured := class.Vectorizer != "" || class.VectorIndexType != "" || class.VectorIndexConfig != nil
-	if !hasTargetVectors(class) || legacyVectorIndexConfigured {
+	//  - OR, there are target vectors configured AND there is a legacy vector configured
+	if !hasTargetVectors(class) || schemachecks.HasLegacyVectorIndex(class) {
 		if class.Vectorizer == "" {
 			class.Vectorizer = h.config.DefaultVectorizerModule
 		}
