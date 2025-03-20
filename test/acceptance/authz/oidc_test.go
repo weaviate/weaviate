@@ -39,7 +39,7 @@ func TestRbacWithOIDC(t *testing.T) {
 	tests := []struct {
 		name          string
 		image         *docker.Compose
-		nameCollision bool
+		nameCollision bool // same username for DB and OIDC
 		onlyOIDC      bool
 	}{
 		{
@@ -117,7 +117,8 @@ func TestRbacWithOIDC(t *testing.T) {
 			rolesOIDC := helper.GetRolesForUserOIDC(t, customUser, tokenAdmin)
 			require.Len(t, rolesOIDC, 1)
 
-			if test.onlyOIDC {
+			if test.onlyOIDC || !test.nameCollision {
+				// validation check for existence will fail
 				_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)), helper.CreateAuth(tokenAdmin))
 				require.Error(t, err)
 				var notFound *authz.GetRolesForUserNotFound
@@ -129,7 +130,7 @@ func TestRbacWithOIDC(t *testing.T) {
 
 			usersOidc := helper.GetUserForRolesOIDC(t, createSchemaRoleName, tokenAdmin)
 			require.Len(t, usersOidc, 1)
-			if test.onlyOIDC {
+			if test.onlyOIDC || !test.nameCollision {
 				_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)), helper.CreateAuth(tokenAdmin))
 				require.Error(t, err)
 				var notFound *authz.GetRolesForUserNotFound
