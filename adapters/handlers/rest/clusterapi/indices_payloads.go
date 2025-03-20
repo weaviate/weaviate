@@ -500,7 +500,7 @@ func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
 
 type searchParamsPayload struct{}
 
-func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []string, limit int,
+func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []string, distance float32, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,

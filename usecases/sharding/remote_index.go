@@ -84,7 +84,7 @@ type RemoteIndexClient interface {
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
-		searchVector []models.Vector, targetVector []string, limit int, filters *filters.LocalFilter,
+		searchVector []models.Vector, targetVector []string, distance float32, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
@@ -258,6 +258,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	shard string,
 	queryVec []models.Vector,
 	targetVector []string,
+	distance float32,
 	limit int,
 	filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking,
@@ -272,7 +273,8 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 ) ([]ReplicasSearchResult, error) {
 	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+			queryVec, targetVector, distance, limit, filters, keywordRanking,
+			sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {
 			return ReplicasSearchResult{}, err
 		}
@@ -284,6 +286,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	queryVec []models.Vector,
 	targetVector []string,
+	distance float32,
 	limit int,
 	filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking,
@@ -301,7 +304,8 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	}
 	f := func(node, host string) (interface{}, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+			queryVec, targetVector, distance, limit, filters, keywordRanking,
+			sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {
 			return nil, err
 		}
