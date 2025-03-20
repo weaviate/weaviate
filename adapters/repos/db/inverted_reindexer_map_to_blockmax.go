@@ -830,12 +830,14 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
-		return zerotime, fmt.Errorf("creating reindex tracker: %w", err)
+		err = fmt.Errorf("creating reindex tracker: %w", err)
+		return zerotime, err
 	}
 
 	props, err := t.getPropsToReindex(shard, rt)
 	if err != nil {
-		return zerotime, fmt.Errorf("getting reindexable props: %w", err)
+		err = fmt.Errorf("getting reindexable props: %w", err)
+		return zerotime, err
 	}
 	logger.WithField("props", props).Debug("props found")
 	if len(props) == 0 {
@@ -850,15 +852,18 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 	reindexStarted := time.Now()
 	if rt.isStarted() {
 		if reindexStarted, err = rt.getStarted(); err != nil {
-			return zerotime, fmt.Errorf("getting reindex started: %w", err)
+			err = fmt.Errorf("getting reindex started: %w", err)
+			return zerotime, err
 		}
 	} else if err = rt.markStarted(reindexStarted); err != nil {
-		return zerotime, fmt.Errorf("marking reindex started: %w", err)
+		err = fmt.Errorf("marking reindex started: %w", err)
+		return zerotime, err
 	}
 
 	var lastStoredKey indexKey
 	if lastStoredKey, err = rt.getProgress(); err != nil {
-		return zerotime, fmt.Errorf("getting reindex progress: %w", err)
+		err = fmt.Errorf("getting reindex progress: %w", err)
+		return zerotime, err
 	}
 
 	logger.WithFields(map[string]any{
@@ -867,15 +872,18 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 	}).Debug("reindexing")
 
 	if err = ctx.Err(); err != nil {
-		return zerotime, fmt.Errorf("context check (1): %w", err)
+		err = fmt.Errorf("context check (1): %w", err)
+		return zerotime, err
 	}
 
 	if err = t.loadReindexSearchBuckets(ctx, logger, shard, props); err != nil {
-		return zerotime, fmt.Errorf("starting reindex buckets: %w", err)
+		err = fmt.Errorf("starting reindex buckets: %w", err)
+		return zerotime, err
 	}
 
 	if err = ctx.Err(); err != nil {
-		return zerotime, fmt.Errorf("context check (2): %w", err)
+		err = fmt.Errorf("context check (2): %w", err)
+		return zerotime, err
 	}
 
 	processedCount := 0
@@ -958,7 +966,8 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 	}
 	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
 		if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
-			return zerotime, fmt.Errorf("marking reindex progress: %w", err)
+			err = fmt.Errorf("marking reindex progress: %w", err)
+			return zerotime, err
 		}
 		lastStoredKey = lastProcessedKey.Clone()
 		processedCount = 0
@@ -966,7 +975,8 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 	}
 	if finished {
 		if err = rt.markReindexed(); err != nil {
-			return zerotime, fmt.Errorf("marking reindexed: %w", err)
+			err = fmt.Errorf("marking reindexed: %w", err)
+			return zerotime, err
 		}
 		return zerotime, nil
 	}
@@ -1020,7 +1030,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLi
 func uuidObjectsIterator(objectsBucket *lsmkv.Bucket, lastKey indexKey,
 	callback func(key, value []byte) (proceed bool, err error),
 ) (finished bool, err error) {
-	cursor := objectsBucket.Cursor()
+	cursor := objectsBucket.CursorOnDisk()
 	defer cursor.Close()
 
 	var k, v []byte
