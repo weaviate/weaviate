@@ -23,6 +23,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -308,10 +309,21 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	db.indexLock.Lock()
 	defer db.indexLock.Unlock()
+
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(db.logger, ctx)
+	eg.SetLimit(_NUMCPU)
 	for id, index := range db.indices {
-		if err := index.Shutdown(ctx); err != nil {
-			return errors.Wrapf(err, "shutdown index %q", id)
-		}
+		id, index := id, index // capture loop variables
+		eg.Go(func() error {
+			if err := index.Shutdown(ctx); err != nil {
+				return errors.Wrapf(err, "shutdown index %q", id)
+			}
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return err
 	}
 
 	if asyncEnabled() {

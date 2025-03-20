@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 /*
@@ -66,12 +67,16 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	s.mayCloseAndStoreHashTree()
 
 	if s.hasTargetVectors() {
-		// TODO run in parallel?
+		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(s.Index().logger, ctx)
+		eg.SetLimit(_NUMCPU)
 		for targetVector, queue := range s.queues {
-			err := queue.Close()
-			if err != nil {
-				ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
-			}
+			targetVector, queue := targetVector, queue // capture loop variables
+			eg.Go(func() error {
+				if err := queue.Close(); err != nil {
+					ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
+				}
+				return nil
+			})
 		}
 
 		for targetVector, vectorIndex := range s.vectorIndexes {
@@ -81,16 +86,20 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 				continue
 			}
 
-			err := vectorIndex.Flush()
-			if err != nil {
-				ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
-			}
+			targetVector, vectorIndex := targetVector, vectorIndex // capture loop variables
+			eg.Go(func() error {
+				if err := vectorIndex.Flush(); err != nil {
+					ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
+				}
 
-			err = vectorIndex.Shutdown(ctx)
-			if err != nil {
-				ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
-			}
+				if err := vectorIndex.Shutdown(ctx); err != nil {
+					ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
+				}
+				return nil
+			})
 		}
+
+		_ = eg.Wait()
 	} else {
 		err = s.queue.Close()
 		ec.AddWrap(err, "shut down vector index queue")
