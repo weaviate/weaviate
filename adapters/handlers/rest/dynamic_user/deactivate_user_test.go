@@ -75,16 +75,18 @@ func TestDeactivateBadParameters(t *testing.T) {
 	tests := []struct {
 		name          string
 		user          string
+		principal     string
 		getUserReturn map[string]*apikey.User
 	}{
-		{name: "static user", user: "static-user"},
-		{name: "root user", user: "root-user"},
-		{name: "Deactivateed user", user: "Deactivateed-user", getUserReturn: map[string]*apikey.User{"Deactivateed-user": {Id: "Deactivateed-user", Active: false}}},
+		{name: "static user", user: "static-user", principal: "admin"},
+		{name: "root user", user: "root-user", principal: "admin"},
+		{name: "Deactivateed user", user: "Deactivateed-user", getUserReturn: map[string]*apikey.User{"Deactivateed-user": {Id: "Deactivateed-user", Active: false}}, principal: "admin"},
+		{name: "own user", user: "myself", principal: "myself"},
 	}
 
 	for _, test := range tests {
 		t.Run(fmt.Sprint(test.name), func(t *testing.T) {
-			principal := &models.Principal{}
+			principal := &models.Principal{Username: test.principal}
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users(test.user)[0]).Return(nil)
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
