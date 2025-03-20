@@ -69,7 +69,6 @@ func TestActivateBadParameters(t *testing.T) {
 	}{
 		{name: "static user", user: "static-user"},
 		{name: "root user", user: "root-user"},
-		{name: "active user", user: "suspended-user", getUserReturn: map[string]*apikey.User{"suspended-user": {Id: "suspended-user", Active: true}}},
 	}
 
 	for _, test := range tests {
@@ -94,6 +93,26 @@ func TestActivateBadParameters(t *testing.T) {
 			assert.True(t, ok)
 		})
 	}
+}
+
+func TestDoubleActivate(t *testing.T) {
+	user := "active-user"
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users(user)[0]).Return(nil)
+	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{user: {Id: user, Active: true}}, nil)
+
+	h := dynUserHandler{
+		dynamicUser:          dynUser,
+		authorizer:           authorizer,
+		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static-user"}},
+		rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}}, dynUserEnabled: true,
+	}
+
+	res := h.activateUser(users.ActivateUserParams{UserID: user}, principal)
+	_, ok := res.(*users.ActivateUserConflict)
+	assert.True(t, ok)
 }
 
 func TestActivateNoDynamic(t *testing.T) {

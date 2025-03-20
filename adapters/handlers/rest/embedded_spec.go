@@ -4464,6 +4464,9 @@ func init() {
           "404": {
             "description": "user not found"
           },
+          "409": {
+            "description": "user already activated"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
@@ -4533,6 +4536,9 @@ func init() {
           },
           "404": {
             "description": "user not found"
+          },
+          "409": {
+            "description": "user already deactivated"
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -11816,6 +11822,9 @@ func init() {
           "404": {
             "description": "user not found"
           },
+          "409": {
+            "description": "user already activated"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
@@ -11885,6 +11894,9 @@ func init() {
           },
           "404": {
             "description": "user not found"
+          },
+          "409": {
+            "description": "user already deactivated"
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",

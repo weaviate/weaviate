@@ -226,6 +226,8 @@ func TestSuspendAndActivate(t *testing.T) {
 		// suspend again
 		_, err := helper.Client(t).Users.DeactivateUser(users.NewDeactivateUserParams().WithUserID(dynamicUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
+		var conflict *users.DeactivateUserConflict
+		require.True(t, errors.As(err, &conflict))
 	})
 
 	t.Run("activate active user", func(t *testing.T) {
@@ -233,5 +235,7 @@ func TestSuspendAndActivate(t *testing.T) {
 		helper.CreateUser(t, dynamicUser, adminKey)
 		_, err := helper.Client(t).Users.ActivateUser(users.NewActivateUserParams().WithUserID(dynamicUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
+		var conflict *users.ActivateUserConflict
+		require.True(t, errors.As(err, &conflict))
 	})
 }
