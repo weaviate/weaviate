@@ -1636,7 +1636,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32
 	} else {
 		// Search only what is necessary
 		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
-			shardName, searchVectors, targetVectors, 0, limit, localFilters,
+			shardName, searchVectors, targetVectors, distance, limit, localFilters,
 			nil, sort, nil, groupBy, additional, i.replicationEnabled(), targetCombination, properties)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
