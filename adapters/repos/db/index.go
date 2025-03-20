@@ -1604,11 +1604,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors [][]float32,
 	return localShardResult, localShardScores, nil
 }
 
-func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32,
-	targetVectors []string, limit int, localFilters *filters.LocalFilter,
-	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
-	targetCombination *dto.TargetCombination, properties []string, shardName string,
-) ([]*storobj.Object, []float32, error) {
+func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, distance float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, shardName string) ([]*storobj.Object, []float32, error) {
 	var outObjects []*storobj.Object
 	var outScores []float32
 
@@ -1623,7 +1619,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32
 	if i.Config.ForceFullReplicasSearch {
 		// Force a search on all the replicas for the shard
 		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
-			i.logger, shardName, searchVectors, targetVectors, 0, limit, localFilters,
+			i.logger, shardName, searchVectors, targetVectors, distance, limit, localFilters,
 			nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName(), targetCombination, properties)
 		// Only return an error if we failed to query remote shards AND we had no local shard to query
 		if err != nil && shard == nil {
@@ -1733,7 +1729,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
-				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err2)
