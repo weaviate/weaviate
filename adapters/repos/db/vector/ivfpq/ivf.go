@@ -32,6 +32,7 @@ import (
 
 const (
 	targetProbe        = 250
+	ivfProbing         = 3_000
 	rescoreConcurrency = 10
 	bucketThreshold    = 1000
 )
@@ -103,7 +104,6 @@ type FlatPQ struct {
 
 	segments   int
 	centroids  int
-	probing    int
 	sketchSize int
 
 	pq      *compressionhelpers.ProductQuantizer
@@ -116,7 +116,7 @@ type FlatPQ struct {
 	bytesRead int
 }
 
-func NewFlatPQ(vectors [][]float32, distancer distancer.Provider, segments, centroids, probing int, store *lsmkv.Store) *FlatPQ {
+func NewFlatPQ(vectors [][]float32, distancer distancer.Provider, segments, centroids int, store *lsmkv.Store) *FlatPQ {
 	pq, _ := compressionhelpers.NewProductQuantizer(hnsw.PQConfig{
 		Enabled:       true,
 		Segments:      segments,
@@ -132,7 +132,6 @@ func NewFlatPQ(vectors [][]float32, distancer distancer.Provider, segments, cent
 	i := &FlatPQ{
 		segments:   segments,
 		centroids:  centroids,
-		probing:    probing,
 		sketchSize: len(vectors[0]) / 64,
 		pq:         pq,
 		bq:         compressionhelpers.NewBinaryQuantizer(distancer),
@@ -172,7 +171,7 @@ func (i *FlatPQ) Add(id uint64, vector []float32) {
 // +reading 200 buckets * 50 sketches * 24*8 bytes = 2MB ==>> 100M -> 200MB per query
 // keeping 15% of sketches 30MB ==>> 100M -> 3GB
 func (i *FlatPQ) SearchByVector(ctx context.Context, searchVec []float32, k int) ([]uint64, []int, error) {
-	heap := priorityqueue.NewMax[byte](i.probing)
+	heap := priorityqueue.NewMax[byte](ivfProbing)
 	distancer := i.pq.NewDistancer(searchVec)
 
 	for id := uint64(0); id < uint64(len(i.buckets)); id++ {
@@ -184,7 +183,7 @@ func (i *FlatPQ) SearchByVector(ctx context.Context, searchVec []float32, k int)
 		}
 		d, _ := distancer.Distance(bucket.code)
 
-		if heap.Len() == i.probing {
+		if heap.Len() == ivfProbing {
 			if d >= heap.Top().Dist {
 				continue
 			}

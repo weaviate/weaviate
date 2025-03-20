@@ -197,7 +197,7 @@ func TestIVF(t *testing.T) {
 		if i == 100_000 {
 			go func() {
 				defer wg1.Done()
-				ivf = ivfpq.NewFlatPQ(vectors[:100_000], distancer.NewCosineDistanceProvider(), 2, 128, 3_000, testinghelpers.NewDummyStore(t))
+				ivf = ivfpq.NewFlatPQ(vectors[:100_000], distancer.NewCosineDistanceProvider(), 2, 128, testinghelpers.NewDummyStore(t))
 				log.Println("PQ trained...")
 			}()
 		}
