@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
@@ -133,7 +134,7 @@ type (
 	}
 )
 
-type boolTuple tuple[RepairResponse]
+type boolTuple tuple[types.RepairResponse]
 
 // readExistence checks if replicated object exists
 func (f *finderStream) readExistence(ctx context.Context,
@@ -311,7 +312,7 @@ type batchReply struct {
 	// FullData returned from a full read request
 	FullData []objects.Replica
 	// DigestData returned from a digest read request
-	DigestData []RepairResponse
+	DigestData []types.RepairResponse
 }
 
 // UpdateTimeAt gets update time from reply

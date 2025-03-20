@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -43,8 +44,8 @@ func TestRepairerOneWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
@@ -60,7 +61,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, nil)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 		require.NoError(t, err)
 		require.Equal(t, item.Object, got)
 	})
@@ -72,9 +73,9 @@ func TestRepairerOneWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: objectWithVectors(id, 3, vectors)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
-			digestR4  = []RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR4  = []types.RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
@@ -91,7 +92,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR4, nil)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 		require.Error(t, err)
 		require.ErrorContains(t, err, msgCLevel)
 		require.Nil(t, got)
@@ -107,8 +108,8 @@ func TestRepairerOneWithALL(t *testing.T) {
 			digestIDs = []strfmt.UUID{id}
 			item2     = objects.Replica{ID: id, Object: object(id, 2)}
 			item3     = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item2, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR3, nil)
@@ -124,7 +125,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			require.Equal(t, &item3.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 		require.Nil(t, err)
 		require.Equal(t, item3.Object, got)
 	})
@@ -135,8 +136,8 @@ func TestRepairerOneWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
@@ -151,7 +152,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 		require.ErrorContains(t, err, msgCLevel)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.Nil(t, got)
@@ -164,8 +165,8 @@ func TestRepairerOneWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item1     = objects.Replica{ID: id, Object: object(id, 1)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item1, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
@@ -173,7 +174,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.ErrorContains(t, err, msgCLevel)
 		require.Nil(t, got)
@@ -185,8 +186,8 @@ func TestRepairerOneWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item1     = objects.Replica{ID: id, Object: object(id, 1)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item1, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
@@ -195,7 +196,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).
 			Return(item1, nil).Once()
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 		require.ErrorContains(t, err, msgCLevel)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.Nil(t, got)
@@ -209,8 +210,8 @@ func TestRepairerOneWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 0, Deleted: false}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 0, Deleted: false}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
@@ -223,7 +224,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			require.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 		require.Nil(t, err)
 		require.Equal(t, item.Object, got)
 	})
@@ -233,14 +234,14 @@ func TestRepairerOneWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: nil, Deleted: true}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 		require.ErrorContains(t, err, msgCLevel)
 		require.Equal(t, nilObject, got)
 		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
@@ -251,14 +252,14 @@ func TestRepairerOneWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: nil, LastUpdateTimeUnixMilli: 3, Deleted: true}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: true}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: true}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: true}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: true}}
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 		require.NoError(t, err)
 		require.Equal(t, nilObject, got)
 	})
@@ -282,9 +283,9 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
-			digestR4  = []RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR4  = []types.RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
 		)
 
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR3, nil)
@@ -307,7 +308,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			require.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.ErrorContains(t, err, msgCLevel)
 		require.Equal(t, false, got)
@@ -322,8 +323,8 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item3     = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR2, nil)
@@ -341,7 +342,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			require.Equal(t, &item3.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
 		require.Nil(t, err)
 		require.Equal(t, true, got)
 	})
@@ -352,8 +353,8 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR3, nil)
@@ -373,7 +374,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.ErrorContains(t, err, msgCLevel)
 		require.Equal(t, false, got)
@@ -387,9 +388,9 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			f         = newFakeFactory("C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			digestR1  = []RepairResponse{{ID: id.String(), UpdateTime: 1}}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR1  = []types.RepairResponse{{ID: id.String(), UpdateTime: 1}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR1, nil)
@@ -398,7 +399,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.ErrorContains(t, err, msgCLevel)
 		require.Equal(t, false, got)
@@ -412,9 +413,9 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item1     = objects.Replica{ID: id, Object: object(id, 1)}
-			digestR1  = []RepairResponse{{ID: id.String(), UpdateTime: 1}}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR1  = []types.RepairResponse{{ID: id.String(), UpdateTime: 1}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR1, nil)
@@ -423,7 +424,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(item1, nil)
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.ErrorContains(t, err, msgCLevel)
 		require.Equal(t, false, got)
@@ -437,8 +438,8 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2, Deleted: false}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2, Deleted: false}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 		)
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR3, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
@@ -455,7 +456,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			require.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
 		require.Nil(t, err)
 		require.Equal(t, true, got)
 	})
@@ -466,15 +467,15 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 
-			digestR0 = []RepairResponse{{ID: id.String(), Deleted: true}}
-			digestR2 = []RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
-			digestR3 = []RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
+			digestR0 = []types.RepairResponse{{ID: id.String(), Deleted: true}}
+			digestR2 = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
+			digestR3 = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 		)
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR0, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.ErrorContains(t, err, msgCLevel)
 		require.Equal(t, false, got)
@@ -500,9 +501,9 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
-			digestR4  = []RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR4  = []types.RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
 		)
 
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR3, nil)
@@ -526,7 +527,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			require.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
 		require.ErrorContains(t, err, msgCLevel)
 		require.Equal(t, false, got)
 		f.assertLogContains(t, "msg", "A:3", "B:2")
@@ -539,8 +540,8 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item3     = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR2, nil)
@@ -557,7 +558,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			require.Equal(t, &item3.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
 		require.Nil(t, err)
 		require.Equal(t, true, got)
 	})
@@ -568,8 +569,8 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR3, nil)
@@ -588,7 +589,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.ErrorContains(t, err, msgCLevel)
 		require.Equal(t, false, got)
@@ -601,9 +602,9 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			f         = newFakeFactory("C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			digestR1  = []RepairResponse{{ID: id.String(), UpdateTime: 1}}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR1  = []types.RepairResponse{{ID: id.String(), UpdateTime: 1}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR1, nil)
@@ -612,7 +613,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.ErrorContains(t, err, msgCLevel)
 		require.Equal(t, false, got)
@@ -625,8 +626,8 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item1     = objects.Replica{ID: id, Object: object(id, 1)}
-			digestR1  = []RepairResponse{{ID: id.String(), UpdateTime: 1}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			digestR1  = []types.RepairResponse{{ID: id.String(), UpdateTime: 1}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR1, nil)
@@ -635,7 +636,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[1], cls, shard, id, proj, adds).Return(item1, nil)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.ErrorContains(t, err, msgCLevel)
 		require.Equal(t, false, got)
@@ -650,8 +651,8 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2, Deleted: false}}
-			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
+			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2, Deleted: false}}
+			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 		)
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR3, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
@@ -666,7 +667,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			require.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
 		require.Nil(t, err)
 		require.Equal(t, true, got)
 	})
@@ -677,13 +678,13 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 
-			digestR0 = []RepairResponse{{ID: id.String(), UpdateTime: 0, Deleted: true}}
-			digestR2 = []RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
+			digestR0 = []types.RepairResponse{{ID: id.String(), UpdateTime: 0, Deleted: true}}
+			digestR2 = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 		)
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR0, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
 		require.ErrorContains(t, err, errRepair.Error())
 		require.ErrorContains(t, err, msgCLevel)
 		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
@@ -714,12 +715,12 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				replica(ids[2], 6, false),
 			}
 
-			digestR2 = []RepairResponse{
+			digestR2 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 4},
 				{ID: ids[1].String(), UpdateTime: 2},
 				{ID: ids[2].String(), UpdateTime: 0}, // doesn't exist
 			}
-			digestR3 = []RepairResponse{
+			digestR3 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 0}, // doesn't exist
 				{ID: ids[1].String(), UpdateTime: 5},
 				{ID: ids[2].String(), UpdateTime: 3},
@@ -781,7 +782,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			require.ElementsMatch(t, want, got)
 		}
 
-		err := finder.CheckConsistency(ctx, All, directR)
+		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, directR)
 		require.Nil(t, err)
 		require.Equal(t, want, directR)
 	})
@@ -810,14 +811,14 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			directRe = []objects.Replica{
 				replica(ids[3], 4, false),
 			}
-			digestR2 = []RepairResponse{
+			digestR2 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 2}, // latest
 				{ID: ids[1].String(), UpdateTime: 2}, // latest
 				{ID: ids[2].String(), UpdateTime: 1},
 				{ID: ids[3].String(), UpdateTime: 1},
 				{ID: ids[4].String(), UpdateTime: 1},
 			}
-			digestR3 = []RepairResponse{
+			digestR3 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 1},
 				{ID: ids[1].String(), UpdateTime: 1},
 				{ID: ids[2].String(), UpdateTime: 3}, // latest
@@ -861,18 +862,18 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 		// repair
 		var (
-			overwriteR1 = []RepairResponse{
+			overwriteR1 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 1},
 				{ID: ids[1].String(), UpdateTime: 1},
 				{ID: ids[2].String(), UpdateTime: 2},
 				{ID: ids[4].String(), UpdateTime: 2},
 			}
-			overwriteR2 = []RepairResponse{
+			overwriteR2 = []types.RepairResponse{
 				{ID: ids[2].String(), UpdateTime: 1},
 				{ID: ids[3].String(), UpdateTime: 1},
 				{ID: ids[4].String(), UpdateTime: 1},
 			}
-			overwriteR3 = []RepairResponse{
+			overwriteR3 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 1},
 				{ID: ids[1].String(), UpdateTime: 1},
 				{ID: ids[3].String(), UpdateTime: 1},
@@ -969,7 +970,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			require.ElementsMatch(t, want, got)
 		}
 
-		err := finder.CheckConsistency(ctx, All, xs)
+		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -983,17 +984,17 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				objectEx(ids[1], 5, shard, "A"),
 				objectEx(ids[2], 6, shard, "A"),
 			}
-			digestR2 = []RepairResponse{
+			digestR2 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 4},
 				{ID: ids[1].String(), UpdateTime: 2},
 				{ID: ids[2].String(), UpdateTime: 3},
 			}
-			digestR3 = []RepairResponse{
+			digestR3 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 1},
 				{ID: ids[1].String(), UpdateTime: 5},
 				{ID: ids[2].String(), UpdateTime: 3},
 			}
-			directR2 = []RepairResponse{
+			directR2 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 4},
 				{ID: ids[1].String(), UpdateTime: 2},
 				{ID: ids[2].String(), UpdateTime: 1, Err: "conflict"}, // this one
@@ -1066,7 +1067,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			require.ElementsMatch(t, want, got)
 		}
 
-		err := finder.CheckConsistency(ctx, All, xs)
+		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -1082,12 +1083,12 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				objectEx(ids[2], 1, shard, "A"),
 			}
 
-			digestR2 = []RepairResponse{
+			digestR2 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 1},
 				{ID: ids[1].String(), UpdateTime: 3}, // latest
 				{ID: ids[2].String(), UpdateTime: 1},
 			}
-			digestR3 = []RepairResponse{
+			digestR3 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 1},
 				{ID: ids[1].String(), UpdateTime: 1},
 				{ID: ids[2].String(), UpdateTime: 4}, // latest
@@ -1137,13 +1138,13 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Once()
 		// repair
 		var (
-			repairR1 = []RepairResponse{
+			repairR1 = []types.RepairResponse{
 				{ID: ids[1].String(), UpdateTime: 1},
 				{ID: ids[2].String(), UpdateTime: 1},
 			}
 
-			repairR2 = []RepairResponse(nil)
-			repairR3 = []RepairResponse{
+			repairR2 = []types.RepairResponse(nil)
+			repairR3 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 1},
 				{ID: ids[1].String(), UpdateTime: 1},
 			}
@@ -1159,7 +1160,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR3, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, All, xs)
+		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -1175,12 +1176,12 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				objectEx(ids[2], 1, shard, "A"),
 			}
 
-			digestR2 = []RepairResponse{
+			digestR2 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 2},
 				{ID: ids[1].String(), UpdateTime: 3}, // latest
 				{ID: ids[2].String(), UpdateTime: 1},
 			}
-			digestR3 = []RepairResponse{
+			digestR3 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 2},
 				{ID: ids[1].String(), UpdateTime: 3},
 				{ID: ids[2].String(), UpdateTime: 4}, // latest
@@ -1213,12 +1214,12 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Once()
 		// repair
 		var (
-			repairR1 = []RepairResponse{
+			repairR1 = []types.RepairResponse{
 				{ID: ids[1].String(), UpdateTime: 1},
 				{ID: ids[2].String(), UpdateTime: 1},
 			}
 
-			repairR2 = []RepairResponse(nil)
+			repairR2 = []types.RepairResponse(nil)
 		)
 		f.RClient.On("OverwriteObjects", anyVal, nodes[0], cls, shard, anyVal).
 			Return(repairR1, nil).
@@ -1228,7 +1229,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR2, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, All, xs)
+		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -1244,12 +1245,12 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				objectEx(ids[2], 1, shard, "A"),
 			}
 
-			digestR2 = []RepairResponse{
+			digestR2 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 2},
 				{ID: ids[1].String(), UpdateTime: 3}, // latest
 				{ID: ids[2].String(), UpdateTime: 1},
 			}
-			digestR3 = []RepairResponse{
+			digestR3 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 2},
 				{ID: ids[1].String(), UpdateTime: 3},
 				{ID: ids[2].String(), UpdateTime: 4}, // latest
@@ -1294,12 +1295,12 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Once()
 		// repair
 		var (
-			repairR1 = []RepairResponse{
+			repairR1 = []types.RepairResponse{
 				{ID: ids[1].String(), UpdateTime: 1},
 				{ID: ids[2].String(), UpdateTime: 1},
 			}
 
-			repairR2 = []RepairResponse(nil)
+			repairR2 = []types.RepairResponse(nil)
 		)
 		f.RClient.On("OverwriteObjects", anyVal, nodes[0], cls, shard, anyVal).
 			Return(repairR1, nil).
@@ -1309,7 +1310,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR2, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, All, xs)
+		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -1325,12 +1326,12 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				objectEx(ids[2], 1, shard, "A"),
 			}
 
-			digestR2 = []RepairResponse{
+			digestR2 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 1},
 				{ID: ids[1].String(), UpdateTime: 3}, // latest
 				{ID: ids[2].String(), UpdateTime: 1, Deleted: true},
 			}
-			digestR3 = []RepairResponse{
+			digestR3 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 1},
 				{ID: ids[1].String(), UpdateTime: 1},
 				{ID: ids[2].String(), UpdateTime: 4, Deleted: true}, // latest
@@ -1369,11 +1370,11 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Once()
 		// repair
 		var (
-			repairR2 = []RepairResponse{
+			repairR2 = []types.RepairResponse{
 				{ID: ids[1].String(), UpdateTime: 1},
 			}
 
-			repairR3 = []RepairResponse{
+			repairR3 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 1},
 				{ID: ids[1].String(), UpdateTime: 1},
 			}
@@ -1386,7 +1387,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR3, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, All, xs)
+		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -1406,12 +1407,12 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 			objectEx(ids[1], 5, shard, "A"),
 			objectEx(ids[2], 6, shard, "A"),
 		}
-		digestR2 = []RepairResponse{
+		digestR2 = []types.RepairResponse{
 			{ID: ids[0].String(), UpdateTime: 4},
 			{ID: ids[1].String(), UpdateTime: 2},
 			{ID: ids[2].String(), UpdateTime: 3},
 		}
-		digestR3 = []RepairResponse{
+		digestR3 = []types.RepairResponse{
 			{ID: ids[0].String(), UpdateTime: 1},
 			{ID: ids[1].String(), UpdateTime: 5},
 			{ID: ids[2].String(), UpdateTime: 3},
@@ -1457,7 +1458,7 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 		require.ElementsMatch(t, want, got)
 	}
 
-	err := finder.CheckConsistency(ctx, Quorum, xs)
+	err := finder.CheckConsistency(ctx, types.ConsistencyLevelQuorum, xs)
 	require.Nil(t, err)
 	require.Equal(t, want, xs)
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -343,7 +344,7 @@ func (s *Shard) filePutter(ctx context.Context,
 // and otherwise a list of failed operations.
 func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
-) ([]replica.RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	s, release, err := idx.GetShard(ctx, shard)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
@@ -353,14 +354,14 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 	}
 	defer release()
 
-	var result []replica.RepairResponse
+	var result []types.RepairResponse
 
 	for i, u := range updates {
 		incomingObj := u.LatestObject
 
 		if (u.Deleted && u.ID == "") || (!u.Deleted && (incomingObj == nil || incomingObj.ID == "")) {
 			msg := fmt.Sprintf("received nil object or empty uuid at position %d", i)
-			result = append(result, replica.RepairResponse{Err: msg})
+			result = append(result, types.RepairResponse{Err: msg})
 			continue
 		}
 
@@ -384,7 +385,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
 			} // otherwise an unknown deletion time
 		} else if !errors.Is(err, lsmkv.NotFound) {
-			result = append(result, replica.RepairResponse{
+			result = append(result, types.RepairResponse{
 				ID:  id.String(),
 				Err: err.Error(),
 			})
@@ -409,7 +410,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 				idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
 				currUpdateTime > u.LastUpdateTimeUnixMilli {
 				// object changed and its state differs from recent known state
-				r := replica.RepairResponse{
+				r := types.RepairResponse{
 					ID:         id.String(),
 					Deleted:    locallyDeleted,
 					UpdateTime: currUpdateTime,
@@ -431,7 +432,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		if !u.Deleted && locallyDeleted &&
 			(idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
 				currUpdateTime > u.LastUpdateTimeUnixMilli) {
-			r := replica.RepairResponse{
+			r := types.RepairResponse{
 				ID:         id.String(),
 				Deleted:    locallyDeleted,
 				UpdateTime: currUpdateTime,
@@ -445,7 +446,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		if u.Deleted {
 			err := s.DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli))
 			if err != nil {
-				r := replica.RepairResponse{
+				r := types.RepairResponse{
 					ID:  u.ID.String(),
 					Err: fmt.Sprintf("overwrite deleted object: %v", err),
 				}
@@ -456,7 +457,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
 		if err != nil {
-			r := replica.RepairResponse{
+			r := types.RepairResponse{
 				ID:  id.String(),
 				Err: fmt.Sprintf("overwrite stale object: %v", err),
 			}
@@ -470,14 +471,14 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 func (i *Index) IncomingOverwriteObjects(ctx context.Context,
 	shardName string, vobjects []*objects.VObject,
-) ([]replica.RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	return i.OverwriteObjects(ctx, shardName, vobjects)
 }
 
 func (i *Index) DigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
-) (result []replica.RepairResponse, err error) {
-	result = make([]replica.RepairResponse, len(ids))
+) (result []types.RepairResponse, err error) {
+	result = make([]types.RepairResponse, len(ids))
 
 	s, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -512,7 +513,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 				updateTime = deletionTime.UnixMilli()
 			}
 
-			result[j] = replica.RepairResponse{
+			result[j] = types.RepairResponse{
 				ID:         ids[j].String(),
 				Deleted:    deleted,
 				UpdateTime: updateTime,
@@ -520,7 +521,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 				Version: 0,
 			}
 		} else {
-			result[j] = replica.RepairResponse{
+			result[j] = types.RepairResponse{
 				ID:         objs[j].ID().String(),
 				UpdateTime: objs[j].LastUpdateTimeUnix(),
 				// TODO: use version when supported
@@ -534,13 +535,13 @@ func (i *Index) DigestObjects(ctx context.Context,
 
 func (i *Index) IncomingDigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
-) (result []replica.RepairResponse, err error) {
+) (result []types.RepairResponse, err error) {
 	return i.DigestObjects(ctx, shardName, ids)
 }
 
 func (i *Index) DigestObjectsInRange(ctx context.Context,
 	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (result []replica.RepairResponse, err error) {
+) (result []types.RepairResponse, err error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
@@ -556,7 +557,7 @@ func (i *Index) DigestObjectsInRange(ctx context.Context,
 
 func (i *Index) IncomingDigestObjectsInRange(ctx context.Context,
 	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (result []replica.RepairResponse, err error) {
+) (result []types.RepairResponse, err error) {
 	return i.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 

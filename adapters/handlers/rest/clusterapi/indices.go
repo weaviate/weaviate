@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
@@ -145,11 +146,11 @@ type shards interface {
 
 	// Replication-specific
 	OverwriteObjects(ctx context.Context, indexName, shardName string,
-		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
+		vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	DigestObjects(ctx context.Context, indexName, shardName string,
-		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
+		ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, indexName, shardName string,
-		initialUUID, finalUUID strfmt.UUID, limit int) (result []replica.RepairResponse, err error)
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
 	HashTreeLevel(ctx context.Context, indexName, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 

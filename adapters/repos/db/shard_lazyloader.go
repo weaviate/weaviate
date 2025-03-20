@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/dto"
 
 	"github.com/go-openapi/strfmt"
@@ -302,7 +303,7 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 
 func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) (objs []replica.RepairResponse, err error) {
+) (objs []types.RepairResponse, err error) {
 	if !l.isLoaded() {
 		return nil, err
 	}
