@@ -48,9 +48,15 @@ func (c *fakeBatchClientWithRL) Vectorize(ctx context.Context,
 	errors := make([]error, len(text))
 	if c.rateLimit == nil {
 		c.rateLimit = &modulecomponents.RateLimits{LastOverwrite: time.Now(), RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
+	} else if c.rateLimit.UpdateWithMissingValues {
+		// return original values
+		c.rateLimit.UpdateWithMissingValues = false
+		c.rateLimit.RemainingTokens = 100
+		c.rateLimit.RemainingRequests = 100
 	} else {
 		c.rateLimit.ResetTokens = time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)
 	}
+
 	for i := range text {
 		if len(text[i]) >= len("error ") && text[i][:6] == "error " {
 			errors[i] = fmt.Errorf("%s", text[i][6:])
@@ -71,6 +77,10 @@ func (c *fakeBatchClientWithRL) Vectorize(ctx context.Context,
 		} else if len(text[i]) >= len("wait ") && text[i][:5] == "wait " {
 			wait, _ := strconv.Atoi(text[i][5:])
 			time.Sleep(time.Duration(wait) * time.Millisecond)
+		} else if len(text[i]) >= len("missingValues ") && text[i][:14] == "missingValues " {
+			c.rateLimit.UpdateWithMissingValues = true
+			c.rateLimit.RemainingTokens = -1
+			c.rateLimit.RemainingRequests = -1
 		} else {
 			// refresh the remaining token
 			secondsSinceLastRefresh := time.Since(c.rateLimit.LastOverwrite)
@@ -94,13 +104,14 @@ func (c *fakeBatchClientWithRL) Vectorize(ctx context.Context,
 			Text:       text,
 			Errors:     errors,
 		}, &modulecomponents.RateLimits{
-			LastOverwrite:     c.rateLimit.LastOverwrite,
-			RemainingTokens:   c.rateLimit.RemainingTokens,
-			RemainingRequests: c.rateLimit.RemainingRequests,
-			LimitTokens:       c.rateLimit.LimitTokens,
-			ResetTokens:       c.rateLimit.ResetTokens,
-			ResetRequests:     c.rateLimit.ResetRequests,
-			LimitRequests:     c.rateLimit.LimitRequests,
+			LastOverwrite:           c.rateLimit.LastOverwrite,
+			RemainingTokens:         c.rateLimit.RemainingTokens,
+			RemainingRequests:       c.rateLimit.RemainingRequests,
+			LimitTokens:             c.rateLimit.LimitTokens,
+			ResetTokens:             c.rateLimit.ResetTokens,
+			ResetRequests:           c.rateLimit.ResetRequests,
+			LimitRequests:           c.rateLimit.LimitRequests,
+			UpdateWithMissingValues: c.rateLimit.UpdateWithMissingValues,
 		}, 0, reqError
 }
 
