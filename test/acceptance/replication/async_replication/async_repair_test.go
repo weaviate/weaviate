@@ -154,8 +154,10 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-			resp, err := body.Payload, clientErr
-			require.NoError(ct, err)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+
+			resp := body.Payload
 			require.Len(ct, resp.Nodes, 3)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)
@@ -202,8 +204,10 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-			resp, err := body.Payload, clientErr
-			require.NoError(ct, err)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+
+			resp := body.Payload
 			require.Len(ct, resp.Nodes, 3)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)

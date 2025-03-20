@@ -18,7 +18,8 @@ import (
 func AllMixedVectorsTests(endpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("schema", testMixedVectorsCreateSchema(endpoint))
-		t.Run("object", testMixedVectorsCreateObject(endpoint))
+		t.Run("object", testMixedVectorsObject(endpoint))
+		t.Run("batch byov", testMixedVectorsBatchBYOV(endpoint))
 		t.Run("hybrid", testMixedVectorsHybrid(endpoint))
 		t.Run("aggregate", testMixedVectorsAggregate(endpoint))
 	}

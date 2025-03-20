@@ -16,32 +16,38 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
+	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 )
 
 func (v *Validator) vector(ctx context.Context, class *models.Class,
 	incomingObject *models.Object,
 ) error {
-	if len(class.VectorConfig) > 1 && len(incomingObject.Vector) > 0 {
-		return fmt.Errorf("collection %v is configured with multiple named vectors %v, but received a single vector", class.Class, class.VectorConfig)
+	if !schemachecks.HasLegacyVectorIndex(class) && len(incomingObject.Vector) > 0 {
+		// if there is only one named vector we can assume that the single vector
+		if len(class.VectorConfig) == 1 {
+			namedVectorName := ""
+			for key := range class.VectorConfig {
+				namedVectorName = key
+			}
+			var vector []float32
+			if len(incomingObject.Vector) > 0 {
+				vector = make([]float32, len(incomingObject.Vector))
+				copy(vector, incomingObject.Vector)
+			}
+			incomingObject.Vectors = map[string]models.Vector{namedVectorName: models.Vector(vector)}
+			incomingObject.Vector = nil
+			return nil
+		}
+
+		return fmt.Errorf("collection %v configuration does not have single vector index", class.Class)
 	}
 
-	if class.VectorIndexConfig != nil && len(incomingObject.Vectors) > 0 {
-		return fmt.Errorf("collection %v is configured without multiple named vectors, but received named vectors: %v", class.Class, incomingObject.Vectors)
-	}
-
-	// if there is only one named vector we can assume that the single vector
-	if len(class.VectorConfig) == 1 && len(incomingObject.Vector) > 0 {
-		namedVectorName := ""
-		for key := range class.VectorConfig {
-			namedVectorName = key
+	if len(class.VectorConfig) == 0 && len(incomingObject.Vectors) > 0 {
+		var targetVectors []string
+		for name := range incomingObject.Vectors {
+			targetVectors = append(targetVectors, name)
 		}
-		var vector []float32
-		if len(incomingObject.Vector) > 0 {
-			vector = make([]float32, len(incomingObject.Vector))
-			copy(vector, incomingObject.Vector)
-		}
-		incomingObject.Vectors = map[string]models.Vector{namedVectorName: models.Vector(vector)}
-		incomingObject.Vector = nil
+		return fmt.Errorf("collection %v is configured without multiple named vectors, but received named vectors: %v", class.Class, targetVectors)
 	}
 
 	return nil

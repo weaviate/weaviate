@@ -38,7 +38,7 @@ func TestCreateUnprocessableEntity(t *testing.T) {
 		name   string
 		userId string
 	}{
-		{name: "too long", userId: strings.Repeat("A", 100)},
+		{name: "too long", userId: strings.Repeat("A", 129)},
 		{name: "invalid characters", userId: "#a"},
 	}
 
@@ -139,19 +139,20 @@ func TestCreateConflict(t *testing.T) {
 func TestCreateSuccess(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
+	user := "user@weaviate.io"
+	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
 
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
+	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-	dynUser.On("CreateUser", "user", mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("CreateUser", user, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dynamicUser: dynUser,
 		authorizer:  authorizer, dynUserEnabled: true,
 	}
 
-	res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
+	res := h.createUser(users.CreateUserParams{UserID: user}, principal)
 	parsed, ok := res.(*users.CreateUserCreated)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
