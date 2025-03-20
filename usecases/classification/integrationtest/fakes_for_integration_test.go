@@ -22,12 +22,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -425,7 +425,7 @@ func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
-	shardName string, vector []models.Vector, targetVector []string, limit int, filters *filters.LocalFilter,
+	shardName string, vector [][]float32, targetVector []string, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
 	properties []string,
