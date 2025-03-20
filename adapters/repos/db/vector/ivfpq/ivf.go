@@ -31,8 +31,9 @@ import (
 )
 
 const (
-	targetProbe        = 300
+	targetProbe        = 250
 	rescoreConcurrency = 10
+	bucketThreshold    = 1000
 )
 
 type bucket struct {
@@ -53,25 +54,28 @@ func (b *bucket) store(store *lsmkv.Bucket) {
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, uint64(b.code[0])*256+uint64(b.code[1]))
 	store.Put(idBytes, toWrite)
-	if len(b.ids) > 1_000 {
+	if len(b.ids) > bucketThreshold {
 		b.codes = nil
 	}
 }
 
-func (b *bucket) load(store *lsmkv.Bucket, sketchSize int) {
-	if b == nil || len(b.ids) < 1_000 {
-		return
+func (b *bucket) load(store *lsmkv.Bucket, sketchSize int) int {
+	if b == nil || len(b.ids) < bucketThreshold {
+		return 0
 	}
 	b.Lock()
 	b.accessCounter++
+	read := 0
 	if b.accessCounter == 1 {
 		idBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(idBytes, uint64(b.code[0])*256+uint64(b.code[1]))
 		buf, _ := store.Get(idBytes)
 		b.codes = make([]uint64, len(b.ids)*sketchSize)
 		binary.Read(bytes.NewReader(buf), binary.LittleEndian, &b.codes)
+		read = len(buf)
 	}
 	b.Unlock()
+	return read
 }
 
 func (b *bucket) release() {
@@ -88,7 +92,7 @@ func (b *bucket) memInUse() int {
 	if b != nil {
 		baseSize += int(reflect.TypeOf(*b).Size()) + 2 + len(b.ids)*8
 	}
-	if b == nil || len(b.ids) >= 1_000 {
+	if b == nil || len(b.ids) >= bucketThreshold {
 		return baseSize
 	}
 	return len(b.codes)*8 + baseSize
@@ -109,6 +113,7 @@ type FlatPQ struct {
 	store   *lsmkv.Store
 
 	distancer distancer.Provider
+	bytesRead int
 }
 
 func NewFlatPQ(vectors [][]float32, distancer distancer.Provider, segments, centroids, probing int, store *lsmkv.Store) *FlatPQ {
@@ -209,7 +214,12 @@ func (i *FlatPQ) SearchByVector(ctx context.Context, searchVec []float32, k int)
 				i.locks.RLock(bid)
 				bucket := i.buckets[bid]
 				i.locks.RUnlock(bid)
-				bucket.load(ivfBucket, i.sketchSize)
+				read := bucket.load(ivfBucket, i.sketchSize)
+				if read > 0 {
+					i.Lock()
+					i.bytesRead += read
+					i.Unlock()
+				}
 			}
 			return nil
 		}, logger)
@@ -318,4 +328,8 @@ func (i *FlatPQ) distanceToVector(searchVec []float32, id uint64) (float32, erro
 	vector := make([]float32, 1536)
 	binary.Read(bytes.NewReader(buf), binary.LittleEndian, &vector)
 	return i.distancer.SingleDist(searchVec, vector)
+}
+
+func (i *FlatPQ) BytesRead() int {
+	return i.bytesRead
 }

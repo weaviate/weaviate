@@ -259,5 +259,6 @@ func TestIVF(t *testing.T) {
 	log.Println("QPS: ", int64(rows)*1000/ellapsed.Milliseconds(), "QPS")
 	log.Println("Recall: ", recall)
 	log.Println("Memory: ", ivf.MemoryInUse()/1024/1024, "MB")
+	log.Println("Average bytes read per query: ", float32(ivf.BytesRead())/1024/1024/float32(rows), "MB")
 	assert.Nil(t, ivf)
 }
