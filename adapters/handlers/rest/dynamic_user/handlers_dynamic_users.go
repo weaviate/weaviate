@@ -333,7 +333,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 	}
 
 	if params.UserID == principal.Username {
-		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("cannot deactivate own user '%v'", params.UserID)))
+		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' cannot self-deactivate", params.UserID)))
 	}
 
 	if h.staticUserExists(params.UserID) {
