@@ -1650,7 +1650,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	return localShardResult, localShardScores, nil
 }
 
-func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, distance float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, shardName string) ([]*storobj.Object, []float32, error) {
+func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, distance float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, shardName string) ([]*storobj.Object, []float32, error) {
 	var outObjects []*storobj.Object
 	var outScores []float32
 
