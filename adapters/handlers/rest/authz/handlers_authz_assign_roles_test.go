@@ -101,7 +101,7 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 		principal     *models.Principal
 		existedRoles  map[string][]authorization.Policy
 		existedUsers  []string
-		callToGetRole bool
+		callToGetUser bool
 	}
 
 	tests := []testCase{
@@ -113,9 +113,10 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 					Roles: []string{"role1"},
 				},
 			},
-			principal:    &models.Principal{Username: "user1"},
-			existedRoles: map[string][]authorization.Policy{},
-			existedUsers: []string{"user1"},
+			principal:     &models.Principal{Username: "user1"},
+			existedRoles:  map[string][]authorization.Policy{"role1": {}},
+			existedUsers:  []string{"user1"},
+			callToGetUser: true,
 		},
 		{
 			name: "role not found",
@@ -128,7 +129,7 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			existedRoles:  map[string][]authorization.Policy{},
 			existedUsers:  []string{"user1"},
-			callToGetRole: true,
+			callToGetUser: false,
 		},
 	}
 
@@ -140,9 +141,8 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 
 			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, mock.Anything, mock.Anything).Return(nil)
 
-			if tt.callToGetRole {
-				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
-			} else {
+			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
+			if tt.callToGetUser {
 				controller.On("GetUsers", tt.params.ID).Return(nil, nil)
 			}
 
@@ -506,8 +506,8 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 
 			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
-			controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
 			if tt.getRolesErr == nil {
+				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
 				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, tt.params.Body.UserType), tt.params.Body.Roles).Return(tt.assignErr)
 			}
 

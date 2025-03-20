@@ -63,6 +63,18 @@ func TestVectors(t *testing.T) {
 			},
 			expErr: true,
 		},
+		"mixed vectors": {
+			class: &models.Class{
+				Vectorizer:      "legacy",
+				VectorIndexType: "hnsw",
+				VectorConfig:    map[string]models.VectorConfig{"first": {}, "second": {}},
+			},
+			obj: &models.Object{
+				Vector:  []float32{1, 2, 3},
+				Vectors: models.Vectors{"first": []float32{1, 2, 3}, "second": []float32{4, 5, 6}},
+			},
+			expErr: false,
+		},
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {

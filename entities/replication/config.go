@@ -14,6 +14,10 @@ package replication
 // GlobalConfig represents system-wide config that may restrict settings of an
 // individual class
 type GlobalConfig struct {
+	AsyncReplicationDisabled bool `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	// AsyncReplicationDisabledFn is way to get overridden value for enabled flag.
+	AsyncReplicationDisabledFn func() *bool `json:"-" yaml:"-"`
+
 	// MinimumFactor can enforce replication. For example, with MinimumFactor set
 	// to 2, users can no longer create classes with a factor of 1, therefore
 	// forcing them to have replicated classes.
