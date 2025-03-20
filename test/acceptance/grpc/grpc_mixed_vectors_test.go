@@ -29,10 +29,6 @@ func TestGRPC_MixedVectors(t *testing.T) {
 		grpcClient, _ = newClient(t)
 	)
 
-	if true {
-		panic("check in CI")
-	}
-
 	class := books.ClassMixedContextionaryVectorizer()
 	helper.DeleteClass(t, class.Class)
 	helper.CreateClass(t, class)
