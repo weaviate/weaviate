@@ -293,3 +293,41 @@ func generateTokens(objects []*models.Object) ([]string, []int) {
 
 	return texts, tokenCounts
 }
+
+func TestBatchRequestMissingRLValues(t *testing.T) {
+	client := &fakeBatchClientWithRL{defaultResetRate: 1}
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	logger, _ := test.NewNullLogger()
+
+	v := NewBatchVectorizer(client, time.Second, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
+	skip := []bool{false}
+
+	start := time.Now()
+	// normal batch
+	objs := []*models.Object{
+		{Class: "Car", Properties: map[string]interface{}{"test": "text"}},
+	}
+	texts, tokenCounts := generateTokens(objs)
+
+	_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
+	require.Len(t, errs, 0)
+
+	// now batch with missing values, this should not cause any waiting or failures
+	objs = []*models.Object{
+		{Class: "Car", Properties: map[string]interface{}{"test": "missingValues "}}, // first request, set rate down so the next two items can be sent
+	}
+	texts, tokenCounts = generateTokens(objs)
+
+	_, errs = v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
+	require.Len(t, errs, 0)
+
+	// normal batch that is unaffected by the change
+	objs = []*models.Object{
+		{Class: "Car", Properties: map[string]interface{}{"test": "text"}},
+	}
+	texts, tokenCounts = generateTokens(objs)
+	_, errs = v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
+	require.Len(t, errs, 0)
+	// refresh rate is 1s. If the missing values would have any effect the batch algo would wait for the refresh to happen
+	require.Less(t, time.Since(start), time.Millisecond*900)
+}

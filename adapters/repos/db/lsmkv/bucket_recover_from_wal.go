@@ -21,10 +21,13 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 var logOnceWhenRecoveringFromWAL sync.Once
+
+const pathSeparator = ","
 
 func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 	beforeAll := time.Now()
@@ -84,6 +87,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 				Warning("active write-ahead-log found. Did weaviate crash prior to this?")
 		})
 	}
+	var emptyWALPaths strings.Builder
 
 	// recover from each log
 	for _, fname := range walFileNames {
@@ -134,6 +138,12 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		b.logger.WithField("action", "lsm_recover_from_active_wal_success").
 			WithField("path", filepath.Join(b.dir, fname)).
 			Info("successfully recovered from write-ahead-log")
+	}
+
+	if emptyWALPaths.Len() > 0 {
+		b.logger.WithField("action", "lsm_recover_from_active_wal").
+			WithField("path", strings.TrimSuffix(emptyWALPaths.String(), pathSeparator)).
+			Warning("empty write-ahead-log found. Did weaviate crash prior to this or the tenant on/loaded from the cloud? Nothing to recover from this file.")
 	}
 
 	return nil
