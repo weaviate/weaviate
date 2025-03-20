@@ -15,7 +15,7 @@ package replication
 // individual class
 type GlobalConfig struct {
 	AsyncReplicationDisabled bool `json:"async_replication_disabled" yaml:"async_replication_disabled"`
-	// AsyncReplicationDisabledFn is way to get overriden value for enabled flag.
+	// AsyncReplicationDisabledFn is way to get overridden value for enabled flag.
 	AsyncReplicationDisabledFn func() *bool `json:"-" yaml:"-"`
 
 	// MinimumFactor can enforce replication. For example, with MinimumFactor set
