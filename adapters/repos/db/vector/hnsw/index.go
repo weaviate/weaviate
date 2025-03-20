@@ -174,11 +174,12 @@ type hnsw struct {
 	// to define the rescoring concurrency.
 	rescoreConcurrency int
 
-	compressActionLock *sync.RWMutex
-	className          string
-	shardName          string
-	VectorForIDThunk   common.VectorForID[float32]
-	store              *lsmkv.Store
+	compressActionLock    *sync.RWMutex
+	className             string
+	shardName             string
+	VectorForIDThunk      common.VectorForID[float32]
+	MultiVectorForIDThunk common.VectorForID[[]float32]
+	store                 *lsmkv.Store
 
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
@@ -301,6 +302,7 @@ func New(cfg Config, uc ent.UserConfig,
 		compressActionLock:        &sync.RWMutex{},
 		className:                 cfg.ClassName,
 		VectorForIDThunk:          cfg.VectorForIDThunk,
+		MultiVectorForIDThunk:     cfg.MultiVectorForIDThunk,
 		TempVectorForIDThunk:      cfg.TempVectorForIDThunk,
 		TempMultiVectorForIDThunk: cfg.TempMultiVectorForIDThunk,
 		pqConfig:                  uc.PQ,
@@ -365,6 +367,49 @@ func New(cfg Config, uc ent.UserConfig,
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	return index, nil
+}
+
+func (h *hnsw) encodeMultiVector() error {
+	vectors := h.cache.All()
+	filteredVectors := make([][]float32, 0, len(vectors))
+	for _, v := range vectors {
+		if len(v) > 0 {
+			filteredVectors = append(filteredVectors, v)
+		}
+	}
+	if err := h.encoder.Fit([][][]float32{filteredVectors}); err != nil {
+		return err
+	}
+	fmt.Println("encoder fitted")
+	// Iterate over all the keys of the docIDVectors map
+	muveraVectors := make([][]float32, 0, len(h.docIDVectors))
+	var vecs [][]float32
+	var err error
+	var muveraVec []float32
+	docIDs := make([]uint64, 0, len(h.docIDVectors))
+	for docID := range h.docIDVectors {
+		docIDs = append(docIDs, docID)
+		vecs, err = h.cache.GetDoc(context.Background(), docID)
+		if err != nil {
+			return err
+		}
+		muveraVec = h.encoder.EncodeDoc(vecs)
+		muveraVectors = append(muveraVectors, muveraVec)
+	}
+	h.cache.Drop()
+	fmt.Println("dropped cache")
+	h.cache = cache.NewShardedFloat32LockCache(h.VectorForIDThunk, h.MultiVectorForIDThunk, 1e12, 1, h.logger,
+		true, cache.DefaultDeletionInterval, h.allocChecker)
+	fmt.Println("created new cache")
+	compressionhelpers.Concurrently(h.logger, uint64(len(muveraVectors)),
+		func(index uint64) {
+			if muveraVectors[index] == nil {
+				return
+			}
+			h.cache.Preload(docIDs[index], muveraVectors[index])
+		})
+	h.muvera.Store(true)
+	return nil
 }
 
 // TODO: use this for incoming replication
