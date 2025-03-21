@@ -17,11 +17,15 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
 	"io"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -92,7 +96,7 @@ GetRolesForUserOK describes a response with status code 200, with default header
 Role assigned users
 */
 type GetRolesForUserOK struct {
-	Payload models.RolesListResponse
+	Payload *GetRolesForUserOKBody
 }
 
 // IsSuccess returns true when this get roles for user o k response has a 2xx status code
@@ -133,14 +137,15 @@ func (o *GetRolesForUserOK) String() string {
 	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserOK  %+v", 200, o.Payload)
 }
 
-func (o *GetRolesForUserOK) GetPayload() models.RolesListResponse {
+func (o *GetRolesForUserOK) GetPayload() *GetRolesForUserOKBody {
 	return o.Payload
 }
 
 func (o *GetRolesForUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+	o.Payload = new(GetRolesForUserOKBody)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
 
@@ -204,7 +209,6 @@ func (o *GetRolesForUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -225,8 +229,7 @@ GetRolesForUserUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type GetRolesForUserUnauthorized struct {
-}
+type GetRolesForUserUnauthorized struct{}
 
 // IsSuccess returns true when this get roles for user unauthorized response has a 2xx status code
 func (o *GetRolesForUserUnauthorized) IsSuccess() bool {
@@ -267,7 +270,6 @@ func (o *GetRolesForUserUnauthorized) String() string {
 }
 
 func (o *GetRolesForUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -328,7 +330,6 @@ func (o *GetRolesForUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -349,8 +350,7 @@ GetRolesForUserNotFound describes a response with status code 404, with default 
 
 no role found for user
 */
-type GetRolesForUserNotFound struct {
-}
+type GetRolesForUserNotFound struct{}
 
 // IsSuccess returns true when this get roles for user not found response has a 2xx status code
 func (o *GetRolesForUserNotFound) IsSuccess() bool {
@@ -391,7 +391,6 @@ func (o *GetRolesForUserNotFound) String() string {
 }
 
 func (o *GetRolesForUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -452,7 +451,6 @@ func (o *GetRolesForUserUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetRolesForUserUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -520,7 +518,6 @@ func (o *GetRolesForUserInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetRolesForUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -528,5 +525,106 @@ func (o *GetRolesForUserInternalServerError) readResponse(response runtime.Clien
 		return err
 	}
 
+	return nil
+}
+
+/*
+GetRolesForUserOKBody get roles for user o k body
+swagger:model GetRolesForUserOKBody
+*/
+type GetRolesForUserOKBody struct {
+	// List of role names
+	// Required: true
+	RoleNames []string `json:"role_names"`
+
+	// Detailed role information
+	Roles models.RolesListResponse `json:"roles"`
+}
+
+// Validate validates this get roles for user o k body
+func (o *GetRolesForUserOKBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateRoleNames(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := o.validateRoles(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *GetRolesForUserOKBody) validateRoleNames(formats strfmt.Registry) error {
+	if err := validate.Required("getRolesForUserOK"+"."+"role_names", "body", o.RoleNames); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *GetRolesForUserOKBody) validateRoles(formats strfmt.Registry) error {
+	if swag.IsZero(o.Roles) { // not required
+		return nil
+	}
+
+	if err := o.Roles.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("getRolesForUserOK" + "." + "roles")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("getRolesForUserOK" + "." + "roles")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this get roles for user o k body based on the context it is used
+func (o *GetRolesForUserOKBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateRoles(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *GetRolesForUserOKBody) contextValidateRoles(ctx context.Context, formats strfmt.Registry) error {
+	if err := o.Roles.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("getRolesForUserOK" + "." + "roles")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("getRolesForUserOK" + "." + "roles")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *GetRolesForUserOKBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *GetRolesForUserOKBody) UnmarshalBinary(b []byte) error {
+	var res GetRolesForUserOKBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
 	return nil
 }

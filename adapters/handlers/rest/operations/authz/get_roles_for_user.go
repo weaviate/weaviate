@@ -17,9 +17,14 @@ package authz
 // Editing this file might prove futile when you re-run the generate command
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -57,7 +62,7 @@ func (o *GetRolesForUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewGetRolesForUserParams()
+	Params := NewGetRolesForUserParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -78,5 +83,104 @@ func (o *GetRolesForUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+}
 
+// GetRolesForUserOKBody get roles for user o k body
+//
+// swagger:model GetRolesForUserOKBody
+type GetRolesForUserOKBody struct {
+	// List of role names
+	// Required: true
+	RoleNames []string `json:"role_names" yaml:"role_names"`
+
+	// Detailed role information
+	Roles models.RolesListResponse `json:"roles" yaml:"roles"`
+}
+
+// Validate validates this get roles for user o k body
+func (o *GetRolesForUserOKBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateRoleNames(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := o.validateRoles(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *GetRolesForUserOKBody) validateRoleNames(formats strfmt.Registry) error {
+	if err := validate.Required("getRolesForUserOK"+"."+"role_names", "body", o.RoleNames); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *GetRolesForUserOKBody) validateRoles(formats strfmt.Registry) error {
+	if swag.IsZero(o.Roles) { // not required
+		return nil
+	}
+
+	if err := o.Roles.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("getRolesForUserOK" + "." + "roles")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("getRolesForUserOK" + "." + "roles")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this get roles for user o k body based on the context it is used
+func (o *GetRolesForUserOKBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateRoles(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *GetRolesForUserOKBody) contextValidateRoles(ctx context.Context, formats strfmt.Registry) error {
+	if err := o.Roles.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("getRolesForUserOK" + "." + "roles")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("getRolesForUserOK" + "." + "roles")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *GetRolesForUserOKBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *GetRolesForUserOKBody) UnmarshalBinary(b []byte) error {
+	var res GetRolesForUserOKBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
+	return nil
 }

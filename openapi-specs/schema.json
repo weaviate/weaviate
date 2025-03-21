@@ -3728,13 +3728,36 @@
             "type": "string",
             "enum": ["oidc", "db"],
             "description": "The type of user"
+          },
+          {
+            "in": "query",
+            "name": "includeFullRoles",
+            "required": false,
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission"
           }
         ],
         "responses": {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "$ref": "#/definitions/RolesListResponse"
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "type": "object",
+                  "description": "Detailed role information",
+                  "$ref": "#/definitions/RolesListResponse"
+                },
+                "role_names": {
+                  "type": "array",
+                  "description": "List of role names",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": ["role_names"]
             }
           },
           "400": {

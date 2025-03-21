@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewGetRolesForUserParams creates a new GetRolesForUserParams object,
@@ -71,12 +72,17 @@ GetRolesForUserParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type GetRolesForUserParams struct {
-
 	/* ID.
 
 	   user name
 	*/
 	ID string
+
+	/* IncludeFullRoles.
+
+	   Whether to include detailed role information needed the roles permission
+	*/
+	IncludeFullRoles *bool
 
 	/* UserType.
 
@@ -101,7 +107,16 @@ func (o *GetRolesForUserParams) WithDefaults() *GetRolesForUserParams {
 //
 // All values with no default are reset to their zero value.
 func (o *GetRolesForUserParams) SetDefaults() {
-	// no default values defined for this parameter
+	includeFullRolesDefault := bool(false)
+
+	val := GetRolesForUserParams{
+		IncludeFullRoles: &includeFullRolesDefault,
+	}
+
+	val.timeout = o.timeout
+	val.Context = o.Context
+	val.HTTPClient = o.HTTPClient
+	*o = val
 }
 
 // WithTimeout adds the timeout to the get roles for user params
@@ -148,6 +163,17 @@ func (o *GetRolesForUserParams) SetID(id string) {
 	o.ID = id
 }
 
+// WithIncludeFullRoles adds the includeFullRoles to the get roles for user params
+func (o *GetRolesForUserParams) WithIncludeFullRoles(includeFullRoles *bool) *GetRolesForUserParams {
+	o.SetIncludeFullRoles(includeFullRoles)
+	return o
+}
+
+// SetIncludeFullRoles adds the includeFullRoles to the get roles for user params
+func (o *GetRolesForUserParams) SetIncludeFullRoles(includeFullRoles *bool) {
+	o.IncludeFullRoles = includeFullRoles
+}
+
 // WithUserType adds the userType to the get roles for user params
 func (o *GetRolesForUserParams) WithUserType(userType string) *GetRolesForUserParams {
 	o.SetUserType(userType)
@@ -161,7 +187,6 @@ func (o *GetRolesForUserParams) SetUserType(userType string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *GetRolesForUserParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -170,6 +195,22 @@ func (o *GetRolesForUserParams) WriteToRequest(r runtime.ClientRequest, reg strf
 	// path param id
 	if err := r.SetPathParam("id", o.ID); err != nil {
 		return err
+	}
+
+	if o.IncludeFullRoles != nil {
+
+		// query param includeFullRoles
+		var qrIncludeFullRoles bool
+
+		if o.IncludeFullRoles != nil {
+			qrIncludeFullRoles = *o.IncludeFullRoles
+		}
+		qIncludeFullRoles := swag.FormatBool(qrIncludeFullRoles)
+		if qIncludeFullRoles != "" {
+			if err := r.SetQueryParam("includeFullRoles", qIncludeFullRoles); err != nil {
+				return err
+			}
+		}
 	}
 
 	// path param userType

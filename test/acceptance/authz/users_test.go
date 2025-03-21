@@ -49,13 +49,13 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	})
 
 	t.Run("role exists for admin", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, adminUser, adminKey)
-		require.Equal(t, 1, len(roles))
+		_, names := helper.GetRolesForUser(t, adminUser, adminKey, false)
+		require.Equal(t, 1, len(names))
 	})
 
 	t.Run("get empty roles for existing user without role", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, customUser, adminKey)
-		require.Equal(t, 0, len(roles))
+		_, names := helper.GetRolesForUser(t, customUser, adminKey, false)
+		require.Equal(t, 0, len(names))
 	})
 
 	t.Run("get roles for non existing user", func(t *testing.T) {
@@ -96,7 +96,7 @@ func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
 		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
 		require.Equal(t, "*", *role.Permissions[0].Collections.Collection)
 
-		roles := helper.GetRolesForUser(t, similar, adminKey)
+		roles, _ := helper.GetRolesForUser(t, similar, adminKey, true)
 		require.Equal(t, 1, len(roles))
 		require.NotNil(t, role)
 		require.Equal(t, similar, *role.Name)
@@ -199,9 +199,11 @@ func TestUserPermissions(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, roleNameReadRoles, customUser)
 
 		// revoking works after user has appropriate rights
-		require.Len(t, helper.GetRolesForUser(t, customUser, adminKey), 3)
+		roles, _ := helper.GetRolesForUser(t, customUser, customKey, true)
+		require.Len(t, roles, 3)
 		helper.RevokeRoleFromUser(t, customKey, otherRoleName, customUser)
-		require.Len(t, helper.GetRolesForUser(t, customUser, adminKey), 2)
+		roles, _ = helper.GetRolesForUser(t, customUser, customKey, true)
+		require.Len(t, roles, 2)
 
 		helper.RevokeRoleFromUser(t, adminKey, roleNameUpdate, customUser)
 		helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
@@ -264,13 +266,13 @@ func TestReadUserPermissions(t *testing.T) {
 	helper.AssignRoleToUser(t, adminKey, otherRoleName, secondUser)
 
 	t.Run("admin can return roles", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, secondUser, adminKey)
+		roles, _ := helper.GetRolesForUser(t, secondUser, adminKey, true)
 		require.NotNil(t, roles)
 		require.Len(t, roles, 1)
 	})
 
 	t.Run("user can return roles for themselves", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, secondUser, secondKey)
+		roles, _ := helper.GetRolesForUser(t, secondUser, secondKey, true)
 		require.NotNil(t, roles)
 		require.Len(t, roles, 1)
 	})
@@ -285,9 +287,9 @@ func TestReadUserPermissions(t *testing.T) {
 	t.Run("add permission", func(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, roleNameReadUsers, customUser)
 		helper.AssignRoleToUser(t, adminKey, roleNameReadRoles, customUser)
-		roles := helper.GetRolesForUser(t, secondUser, customKey)
-		require.NotNil(t, roles)
-		require.Len(t, roles, 1)
+		_, names := helper.GetRolesForUser(t, secondUser, customKey, false)
+		require.NotNil(t, names)
+		require.Len(t, names, 1)
 
 		helper.RevokeRoleFromUser(t, adminKey, roleNameReadUsers, customUser)
 		helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
@@ -296,7 +298,7 @@ func TestReadUserPermissions(t *testing.T) {
 	t.Run("check returns", func(t *testing.T) {
 		helper.RevokeRoleFromUser(t, adminKey, roleNameReadUsers, customUser)
 		helper.AssignRoleToUser(t, adminKey, roleNameReadUsers, customUser)
-		roles := helper.GetRolesForUser(t, customUser, customKey)
+		roles, _ := helper.GetRolesForUser(t, customUser, customKey, true)
 		require.NotNil(t, roles)
 		require.Len(t, roles, 1)
 		require.Len(t, roles[0].Permissions, 1)
@@ -478,14 +480,14 @@ func TestUserEndpoint(t *testing.T) {
 		// create user and assign roles
 		helper.CreateUser(t, testUserName, adminKey)
 		helper.AssignRoleToUser(t, adminKey, deleteUserRoleName, testUserName)
-		testUserRoles := helper.GetRolesForUser(t, testUserName, adminKey)
-		require.Len(t, testUserRoles, 1)
+		_, names := helper.GetRolesForUser(t, testUserName, adminKey, false)
+		require.Len(t, names, 1)
 
 		// delete user and recreate with same name => role assignment should be gone
 		helper.DeleteUser(t, testUserName, adminKey)
 		helper.CreateUser(t, testUserName, adminKey)
-		testUserRolesNew := helper.GetRolesForUser(t, testUserName, adminKey)
-		require.Len(t, testUserRolesNew, 0)
+		_, names = helper.GetRolesForUser(t, testUserName, adminKey, false)
+		require.Len(t, names, 0)
 	})
 }
 

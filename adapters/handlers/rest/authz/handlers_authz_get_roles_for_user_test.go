@@ -44,6 +44,8 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 	returnedPolices := map[string][]authorization.Policy{
 		"testRole": policies,
 	}
+	truep := true
+	falseP := false
 	tests := []struct {
 		name        string
 		params      authz.GetRolesForUserParams
@@ -53,8 +55,19 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 		{
 			name: "success",
 			params: authz.GetRolesForUserParams{
-				ID:       "testUser",
-				UserType: string(userType),
+				ID:               "testUser",
+				UserType:         string(userType),
+				IncludeFullRoles: &truep,
+			},
+			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeDb},
+			expectAuthz: true,
+		},
+		{
+			name: "success without roles",
+			params: authz.GetRolesForUserParams{
+				ID:               "testUser",
+				UserType:         string(userType),
+				IncludeFullRoles: &falseP,
 			},
 			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeDb},
 			expectAuthz: true,
@@ -62,8 +75,9 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 		{
 			name: "success for own user",
 			params: authz.GetRolesForUserParams{
-				ID:       "user1",
-				UserType: string(userType),
+				ID:               "user1",
+				UserType:         string(userType),
+				IncludeFullRoles: &truep,
 			},
 			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeDb},
 			expectAuthz: false,
@@ -74,7 +88,9 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.expectAuthz {
 				authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(nil)
+				if *tt.params.IncludeFullRoles {
+					authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(nil)
+				}
 			}
 			controller.On("GetRolesForUser", tt.params.ID, models.UserTypeDb).Return(returnedPolices, nil)
 			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{"testUser": {}}, nil)
@@ -99,7 +115,11 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				},
 			}
 			expectedRoles := models.RolesListResponse(roles)
-			assert.Equal(t, expectedRoles, parsed.Payload)
+			if *tt.params.IncludeFullRoles {
+				assert.Equal(t, len(parsed.Payload.Roles), len(parsed.Payload.RoleNames))
+				assert.Equal(t, expectedRoles, parsed.Payload.Roles)
+			}
+			assert.Equal(t, *roles[0].Name, parsed.Payload.RoleNames[0])
 		})
 	}
 }
@@ -112,13 +132,15 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 		authorizeErr  error
 		expectedError string
 	}
+	truep := true
 	userType := models.UserTypeDb
 	tests := []testCase{
 		{
 			name: "authorization error no access to role",
 			params: authz.GetRolesForUserParams{
-				ID:       "testUser",
-				UserType: string(userType),
+				ID:               "testUser",
+				UserType:         string(userType),
+				IncludeFullRoles: &truep,
 			},
 			principal:     &models.Principal{Username: "user1", UserType: userType},
 			authorizeErr:  fmt.Errorf("authorization error"),

@@ -1054,13 +1054,37 @@ func init() {
             "name": "userType",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission",
+            "name": "includeFullRoles",
+            "in": "query"
           }
         ],
         "responses": {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "$ref": "#/definitions/RolesListResponse"
+              "type": "object",
+              "required": [
+                "role_names"
+              ],
+              "properties": {
+                "role_names": {
+                  "description": "List of role names",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "roles": {
+                  "description": "Detailed role information",
+                  "type": "object",
+                  "$ref": "#/definitions/RolesListResponse"
+                }
+              }
             }
           },
           "400": {
@@ -8290,13 +8314,37 @@ func init() {
             "name": "userType",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission",
+            "name": "includeFullRoles",
+            "in": "query"
           }
         ],
         "responses": {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "$ref": "#/definitions/RolesListResponse"
+              "type": "object",
+              "required": [
+                "role_names"
+              ],
+              "properties": {
+                "role_names": {
+                  "description": "List of role names",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "roles": {
+                  "description": "Detailed role information",
+                  "type": "object",
+                  "$ref": "#/definitions/RolesListResponse"
+                }
+              }
             }
           },
           "400": {

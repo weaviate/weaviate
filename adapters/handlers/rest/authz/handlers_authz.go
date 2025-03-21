@@ -602,6 +602,8 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		}
 	}
 
+	includeFullRoles := params.IncludeFullRoles != nil && *params.IncludeFullRoles
+
 	userType, err := validateUserTypeInput(params.UserType)
 	if err != nil {
 		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown userType: %v", params.UserType)))
@@ -620,32 +622,38 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
 	}
 
-	response := []*models.Role{}
-	var authErr error
+	var roles []*models.Role
+	var roleNames []string
+	var authErrs []error
 	for roleName, policies := range existingRoles {
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
 			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %w", err)))
 		}
 
-		if !ownUser {
-			if err := h.authorizeRoleScopes(principal, authorization.READ, nil, roleName); err != nil {
-				authErr = err
-				continue
+		roleNames = append(roleNames, roleName)
+		if includeFullRoles {
+			roles = append(roles, &models.Role{
+				Name:        &roleName,
+				Permissions: perms,
+			})
+
+			if !ownUser {
+				if err := h.authorizeRoleScopes(principal, authorization.READ, nil, roleName); err != nil {
+					authErrs = append(authErrs, err)
+					continue
+				}
 			}
+
 		}
-
-		response = append(response, &models.Role{
-			Name:        &roleName,
-			Permissions: perms,
-		})
 	}
 
-	if len(existingRoles) != 0 && len(response) == 0 {
-		return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(authErr))
+	if len(authErrs) > 0 {
+		return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.Join(authErrs...)))
 	}
 
-	sortByName(response)
+	sortByName(roles)
+	sort.Strings(roleNames)
 
 	h.logger.WithFields(logrus.Fields{
 		"action":                "get_roles_for_user",
@@ -654,7 +662,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		"user_to_get_roles_for": params.ID,
 	}).Info("roles requested")
 
-	return authz.NewGetRolesForUserOK().WithPayload(response)
+	return authz.NewGetRolesForUserOK().WithPayload(&authz.GetRolesForUserOKBody{RoleNames: roleNames, Roles: roles})
 }
 
 func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {

@@ -20,17 +20,23 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // NewGetRolesForUserParams creates a new GetRolesForUserParams object
-//
-// There are no default values defined in the spec.
+// with the default values initialized.
 func NewGetRolesForUserParams() GetRolesForUserParams {
+	// initialize parameters with default values
 
-	return GetRolesForUserParams{}
+	includeFullRolesDefault := bool(false)
+
+	return GetRolesForUserParams{
+		IncludeFullRoles: &includeFullRolesDefault,
+	}
 }
 
 // GetRolesForUserParams contains all the bound params for the get roles for user operation
@@ -38,7 +44,6 @@ func NewGetRolesForUserParams() GetRolesForUserParams {
 //
 // swagger:parameters getRolesForUser
 type GetRolesForUserParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -47,6 +52,11 @@ type GetRolesForUserParams struct {
 	  In: path
 	*/
 	ID string
+	/*Whether to include detailed role information needed the roles permission
+	  In: query
+	  Default: false
+	*/
+	IncludeFullRoles *bool
 	/*The type of user
 	  Required: true
 	  In: path
@@ -63,8 +73,15 @@ func (o *GetRolesForUserParams) BindRequest(r *http.Request, route *middleware.M
 
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qIncludeFullRoles, qhkIncludeFullRoles, _ := qs.GetOK("includeFullRoles")
+	if err := o.bindIncludeFullRoles(qIncludeFullRoles, qhkIncludeFullRoles, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -92,6 +109,30 @@ func (o *GetRolesForUserParams) bindID(rawData []string, hasKey bool, formats st
 	return nil
 }
 
+// bindIncludeFullRoles binds and validates parameter IncludeFullRoles from query.
+func (o *GetRolesForUserParams) bindIncludeFullRoles(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		// Default values have been previously initialized by NewGetRolesForUserParams()
+		return nil
+	}
+
+	value, err := swag.ConvertBool(raw)
+	if err != nil {
+		return errors.InvalidType("includeFullRoles", "query", "bool", raw)
+	}
+	o.IncludeFullRoles = &value
+
+	return nil
+}
+
 // bindUserType binds and validates parameter UserType from path.
 func (o *GetRolesForUserParams) bindUserType(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
@@ -112,7 +153,6 @@ func (o *GetRolesForUserParams) bindUserType(rawData []string, hasKey bool, form
 
 // validateUserType carries on validations for parameter UserType
 func (o *GetRolesForUserParams) validateUserType(formats strfmt.Registry) error {
-
 	if err := validate.EnumCase("userType", "path", o.UserType, []interface{}{"oidc", "db"}, true); err != nil {
 		return err
 	}

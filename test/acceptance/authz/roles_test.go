@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -250,18 +249,8 @@ func TestAuthzRolesJourney(t *testing.T) {
 	t.Run("get roles for user after assignment", func(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser).WithUserType(string(models.UserTypeDb)), clientAuth)
 		require.Nil(t, err)
-		require.Equal(t, 2, len(res.Payload))
-
-		names := make([]string, 2)
-		for i, role := range res.Payload {
-			names[i] = *role.Name
-		}
-		sort.Strings(names)
-
-		roles := []string{existingRole, testRoleName}
-		sort.Strings(roles)
-
-		require.Equal(t, roles, names)
+		require.Equal(t, 2, len(res.Payload.RoleNames))
+		require.ElementsMatch(t, res.Payload.RoleNames, []string{existingRole, testRoleName})
 	})
 
 	t.Run("get users for role after assignment", func(t *testing.T) {
@@ -277,8 +266,8 @@ func TestAuthzRolesJourney(t *testing.T) {
 	t.Run("get roles for user after deletion", func(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser).WithUserType(string(models.UserTypeDb)), clientAuth)
 		require.Nil(t, err)
-		require.Equal(t, 1, len(res.Payload))
-		require.Equal(t, existingRole, *res.Payload[0].Name)
+		require.Equal(t, 1, len(res.Payload.RoleNames))
+		require.Equal(t, existingRole, res.Payload.RoleNames[0])
 	})
 
 	t.Run("get all roles after delete", func(t *testing.T) {
@@ -344,8 +333,9 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 	})
 
 	t.Run("get role assigned to user", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, testUser, adminKey)
+		roles, names := helper.GetRolesForUser(t, testUser, adminKey, true)
 		require.Equal(t, 1, len(roles))
+		require.Equal(t, 1, len(names))
 	})
 
 	t.Run("delete role", func(t *testing.T) {
@@ -357,8 +347,8 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 	})
 
 	t.Run("get role assigned to user expected none", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, testUser, adminKey)
-		require.Equal(t, 0, len(roles))
+		_, names := helper.GetRolesForUser(t, testUser, adminKey, false)
+		require.Equal(t, 0, len(names))
 	})
 }
 
@@ -763,9 +753,9 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, limitedRole, limitedUser)
 
 		// Verify role assignment and permissions
-		roles := helper.GetRolesForUser(t, limitedUser, adminKey)
-		require.Equal(t, 1, len(roles))
-		require.Equal(t, limitedRole, *roles[0].Name)
+		_, names := helper.GetRolesForUser(t, limitedUser, adminKey, false)
+		require.Equal(t, 1, len(names))
+		require.Equal(t, limitedRole, names[0])
 	})
 
 	t.Run("limited user can create role with equal permissions", func(t *testing.T) {
