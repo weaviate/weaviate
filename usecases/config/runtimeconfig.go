@@ -13,6 +13,8 @@ package config
 
 import (
 	"bytes"
+	"errors"
+	"io"
 
 	"gopkg.in/yaml.v2"
 )
@@ -65,7 +67,10 @@ func ParseYaml(buf []byte) (*WeaviateRuntimeConfig, error) {
 
 	dec := yaml.NewDecoder(bytes.NewReader(buf))
 	dec.SetStrict(true)
-	if err := dec.Decode(&conf); err != nil {
+
+	// Am empty runtime yaml file is still a valid file. So treating io.EOF as
+	// non-error case returning default values of conf.
+	if err := dec.Decode(&conf); err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	return &conf, nil

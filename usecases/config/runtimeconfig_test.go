@@ -61,6 +61,32 @@ func TestRuntimeConfig(t *testing.T) {
 	})
 }
 
+func TestParseYaml(t *testing.T) {
+	t.Run("empty bytes shouldn't return error", func(t *testing.T) {
+		b := []byte("")
+		v, err := ParseYaml(b)
+		require.NoError(t, err)
+		require.NotNil(t, v)
+	})
+	t.Run("strict parsing should fail for non-existing field", func(t *testing.T) {
+		val := `
+maximum_allowed_collections_count: 5
+`
+		b := []byte(val)
+		v, err := ParseYaml(b)
+		require.NoError(t, err)
+		require.NotNil(t, v)
+
+		val = `
+maximum_allowed_collections_count: 5
+non_exist_filed: 78
+`
+		b = []byte(val)
+		v, err = ParseYaml(b)
+		require.Error(t, err)
+	})
+}
+
 type mockManager struct {
 	c *WeaviateRuntimeConfig
 }
