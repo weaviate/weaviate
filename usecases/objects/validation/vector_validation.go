@@ -42,12 +42,18 @@ func (v *Validator) vector(ctx context.Context, class *models.Class,
 		return fmt.Errorf("collection %v configuration does not have single vector index", class.Class)
 	}
 
-	if len(class.VectorConfig) == 0 && len(incomingObject.Vectors) > 0 {
-		var targetVectors []string
-		for name := range incomingObject.Vectors {
-			targetVectors = append(targetVectors, name)
+	var incomingTargetVectors []string
+	for name := range incomingObject.Vectors {
+		_, ok := class.VectorConfig[name]
+		if !ok {
+			return fmt.Errorf("collection %v does not have configuration for vector %s", class.Class, name)
 		}
-		return fmt.Errorf("collection %v is configured without multiple named vectors, but received named vectors: %v", class.Class, targetVectors)
+
+		incomingTargetVectors = append(incomingTargetVectors, name)
+	}
+
+	if len(class.VectorConfig) == 0 && len(incomingTargetVectors) > 0 {
+		return fmt.Errorf("collection %v is configured without multiple named vectors, but received named vectors: %v", class.Class, incomingTargetVectors)
 	}
 
 	return nil
