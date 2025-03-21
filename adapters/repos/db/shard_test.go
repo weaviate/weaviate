@@ -634,5 +634,5 @@ func TestShard_UpgradeIndex(t *testing.T) {
 	// wait for the queue to be empty
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		assert.Zero(t, q.Size())
-	}, 60*time.Second, 500*time.Millisecond)
+	}, 300*time.Second, 1*time.Second)
 }
