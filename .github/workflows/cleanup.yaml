@@ -6,7 +6,7 @@ on:
 
 jobs:
   cleanup:
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     steps:
       - name: Cleanup
         run: |

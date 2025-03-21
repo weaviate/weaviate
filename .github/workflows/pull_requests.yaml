@@ -16,7 +16,7 @@ concurrency:
 jobs:
   Buf-Checks:
     name: buf-checks
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@v1
@@ -32,7 +32,7 @@ jobs:
           against: "https://github.com/${GITHUB_REPOSITORY}.git#branch=${{ github.event.pull_request.base.ref }},subdir=cluster/proto"
   Run-Swagger:
     name: run-swagger
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -55,7 +55,7 @@ jobs:
           fi
   Vulnerability-Scanning:
     name: vulnerability-scanning
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     env:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
@@ -80,7 +80,7 @@ jobs:
           sarif_file: results/image.sarif
   SAST-Scanning:
     name: sast-scanning
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     env:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
@@ -97,7 +97,7 @@ jobs:
             "."
   Unit-Tests:
     name: unit-tests
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -114,7 +114,7 @@ jobs:
           path: coverage-unit.txt
   Integration-Tests:
     name: integration-tests
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -131,7 +131,7 @@ jobs:
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
     name: modules-acceptance-tests
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -174,7 +174,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-On-Demand-Tests-Check:
     name: modules-on-demand-tests-check
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
@@ -232,7 +232,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
     name: modules-acceptance-tests-api
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     strategy:
@@ -312,7 +312,7 @@ jobs:
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance-tests
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -383,7 +383,7 @@ jobs:
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
     name: codecov
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
       - uses: actions/checkout@v4
@@ -539,7 +539,7 @@ jobs:
   Generate-Docker-Report:
     needs: [Push-Docker-Fast]
     name: generate-docker-report
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Combine tags
