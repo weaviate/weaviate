@@ -571,20 +571,22 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 		require.Nil(t, err)
 	}
 
+	vidx, q := getVectorIndexAndQueue(t, shard, "")
+
 	// wait until the queue is empty
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.Queue().Size() == 0 {
+		if q.Size() == 0 {
 			break
 		}
 	}
 
 	// wait for the in-flight indexing to finish
-	shard.Queue().Wait()
+	q.Wait()
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -595,17 +597,17 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 	// wait until the queue is empty
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.Queue().Size() == 0 {
+		if q.Size() == 0 {
 			break
 		}
 	}
 
 	// wait for the in-flight indexing to finish
-	shard.Queue().Wait()
+	q.Wait()
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -661,7 +663,8 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	q := shard.Queues()["foo"]
+	vidx, q := getVectorIndexAndQueue(t, shard, "foo")
+
 	// wait until the queue is empty
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
@@ -674,7 +677,6 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	q.Wait()
 
 	// make sure the new index contains all the objects
-	vidx := shard.VectorIndexes()["foo"]
 	for _, obj := range objs {
 		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
@@ -684,7 +686,6 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "foo")
 	require.Nil(t, err)
 
-	q = shard.Queues()["foo"]
 	// wait until the queue is empty
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
@@ -697,7 +698,6 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	q.Wait()
 
 	// make sure the new index contains all the objects
-	vidx = shard.VectorIndexes()["foo"]
 	for _, obj := range objs {
 		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
@@ -752,20 +752,22 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 		require.Nil(t, err)
 	}
 
+	vidx, q := getVectorIndexAndQueue(t, shard, "")
+
 	// wait until the queue is empty
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.Queue().Size() == 0 {
+		if q.Size() == 0 {
 			break
 		}
 	}
 
-	shard.Queue().Wait()
+	q.Wait()
 
 	// wait until the index is compressed
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.VectorIndex().Compressed() {
+		if vidx.Compressed() {
 			break
 		}
 	}
@@ -776,25 +778,25 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	// wait until the queue is empty
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.Queue().Size() == 0 {
+		if q.Size() == 0 {
 			break
 		}
 	}
 
 	// wait for the in-flight indexing to finish
-	shard.Queue().Wait()
+	q.Wait()
 
 	// wait until the index is compressed
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.VectorIndex().Compressed() {
+		if vidx.Compressed() {
 			break
 		}
 	}
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -862,8 +864,8 @@ func TestIndex_ConvertQueue(t *testing.T) {
 	}
 
 	// reset the queue
-	q := shard.Queue()
-	q.ResetWith(shard.VectorIndex())
+	vidx, q := getVectorIndexAndQueue(t, shard, "")
+	q.ResetWith(vidx)
 	q.Resume()
 
 	err := shard.ConvertQueue("")
@@ -882,7 +884,7 @@ func TestIndex_ConvertQueue(t *testing.T) {
 
 	// make sure the index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -924,8 +926,7 @@ func TestIndex_ConvertQueueTargetVector(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	q := shard.Queues()["foo"]
-	vectorIndex := shard.VectorIndexes()["foo"]
+	vectorIndex, q := getVectorIndexAndQueue(t, shard, "foo")
 
 	// reset the queue
 	q.Pause()

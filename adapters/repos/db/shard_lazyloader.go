@@ -439,16 +439,6 @@ func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDoc
 	return l.shard.MergeObject(ctx, object)
 }
 
-func (l *LazyLoadShard) Queue() *VectorIndexQueue {
-	l.mustLoad()
-	return l.shard.Queue()
-}
-
-func (l *LazyLoadShard) Queues() map[string]*VectorIndexQueue {
-	l.mustLoad()
-	return l.shard.Queues()
-}
-
 func (l *LazyLoadShard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
 	l.mustLoad()
 	return l.shard.GetVectorIndexQueue(targetVector)
@@ -528,16 +518,6 @@ func (l *LazyLoadShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, t
 		return false, time.Time{}, err
 	}
 	return l.shard.WasDeleted(ctx, id)
-}
-
-func (l *LazyLoadShard) VectorIndex() VectorIndex {
-	l.mustLoad()
-	return l.shard.VectorIndex()
-}
-
-func (l *LazyLoadShard) VectorIndexes() map[string]VectorIndex {
-	l.mustLoad()
-	return l.shard.VectorIndexes()
 }
 
 func (l *LazyLoadShard) Versioner() *shardVersioner {

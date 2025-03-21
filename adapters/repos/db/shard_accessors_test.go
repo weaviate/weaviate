@@ -89,3 +89,73 @@ func TestShared_GetVectorIndexAndQueue(t *testing.T) {
 		})
 	}
 }
+
+func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		setConfigs    func(idx *Index)
+		expectIndexes []string
+	}{
+		{
+			name: "only legacy vector",
+			setConfigs: func(idx *Index) {
+				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+			},
+			expectIndexes: []string{""},
+		},
+		{
+			name: "only named vector",
+			setConfigs: func(idx *Index) {
+				idx.vectorIndexUserConfig = nil
+				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+					"vector1": hnsw.NewDefaultUserConfig(),
+					"vector2": flat.NewDefaultUserConfig(),
+				}
+			},
+			expectIndexes: []string{"vector1", "vector2"},
+		},
+		{
+			name: "mixed vectors",
+			setConfigs: func(idx *Index) {
+				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+					"vector1": hnsw.NewDefaultUserConfig(),
+					"vector2": flat.NewDefaultUserConfig(),
+				}
+			},
+			expectIndexes: []string{"", "vector1", "vector2"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(), false, true, tt.setConfigs)
+
+			capturedIndexes := make(map[string]any)
+			err := shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+				require.NotNil(t, index)
+				capturedIndexes[targetVector] = index
+				return nil
+			})
+			require.NoError(t, err)
+
+			capturedQueues := make(map[string]any)
+			err = shard.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+				require.NotNil(t, queue)
+				capturedQueues[targetVector] = queue
+				return nil
+			})
+			require.NoError(t, err)
+
+			require.Len(t, capturedIndexes, len(tt.expectIndexes))
+			for _, name := range tt.expectIndexes {
+				_, ok := capturedIndexes[name]
+				require.True(t, ok)
+			}
+
+			require.Len(t, capturedQueues, len(tt.expectIndexes))
+			for _, name := range tt.expectIndexes {
+				_, ok := capturedQueues[name]
+				require.True(t, ok)
+			}
+		})
+	}
+}

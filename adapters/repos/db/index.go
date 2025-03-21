@@ -2785,30 +2785,13 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 	defer release()
 
 	// Get the vector index
-	var vidx VectorIndex
-	if targetVector == "" {
-		vidx = shard.VectorIndex()
-	} else {
-		vidx = shard.VectorIndexes()[targetVector]
-	}
-
-	if vidx == nil {
+	vidx, ok := shard.GetVectorIndex(targetVector)
+	if !ok {
 		return errors.New("vector index not found")
 	}
 
 	if !hnsw.IsHNSWIndex(vidx) {
 		return errors.New("vector index is not hnsw")
-	}
-
-	// Reset the queue
-	var q *VectorIndexQueue
-	if targetVector == "" {
-		q = shard.Queue()
-	} else {
-		q = shard.Queues()[targetVector]
-	}
-	if q == nil {
-		return errors.New("index queue not found")
 	}
 
 	// Reset the vector index

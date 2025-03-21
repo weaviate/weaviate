@@ -54,7 +54,9 @@ func TestVectorIndexQueueBatchSize(t *testing.T) {
 		})
 	}
 
-	q := shd.Queue()
+	q, ok := shd.GetVectorIndexQueue("")
+	require.True(t, ok)
+
 	// ensure the queue doesn't get scheduled
 	q.Pause()
 

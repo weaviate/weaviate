@@ -348,9 +348,8 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	}
 
 	distances := make([]float32, len(targetVectors))
-	indexes := s.VectorIndexes()
 	for j, target := range targetVectors {
-		index, ok := indexes[target]
+		index, ok := s.GetVectorIndex(target)
 		if !ok {
 			return nil, fmt.Errorf("index %s not found", target)
 		}
