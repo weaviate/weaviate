@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
@@ -52,8 +53,15 @@ func newShardReplicationEngine(logger *logrus.Logger, replicationFSM *ShardRepli
 }
 
 func (s *shardReplicationEngine) Start() {
-	go s.replicationFSMMonitor()
-	s.logger.Info("replication engine started")
+	eg := enterrors.NewErrorGroupWrapper(s.logger)
+	eg.Go(func() error {
+		s.replicationFSMMonitor()
+		return nil
+	})
+	err := eg.Wait()
+	if err != nil {
+		s.logger.WithError(err).Errorf("failed to start replication engine")
+	}
 }
 
 func (s *shardReplicationEngine) Stop() {
@@ -107,7 +115,8 @@ func (s *shardReplicationEngine) startShardReplication(op shardReplicationOp) {
 	s.ongoingReplications.Add(1)
 	s.registerStartShardReplication(op)
 
-	go func() {
+	eg := enterrors.NewErrorGroupWrapper(s.logger)
+	eg.Go(func() error {
 		defer s.ongoingReplications.Add(-1)
 		// TODO defer deleting the op from ongoing ops map and fsm maps as well? but only if it doesn't work?
 		if s.node == op.targetShard.nodeId {
@@ -116,21 +125,31 @@ func (s *shardReplicationEngine) startShardReplication(op shardReplicationOp) {
 			defer cancel()
 			err := s.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId)
 			if err != nil {
-				// TODO any other handling that needs to be done here?
-				s.logger.Errorf("failed to copy replica: %s", err)
+				return err
 			}
 		}
-	}()
+		return nil
+	})
+	err := eg.Wait()
+	if err != nil {
+		s.logger.WithError(err).Errorf("failed to start shard replication")
+		// TODO any other handling that needs to be done here?
+	}
 }
 
 func (s *shardReplicationEngine) recoverShardReplication(op shardReplicationOp) {
 	s.ongoingReplications.Add(1)
 	s.registerStartShardReplication(op)
 
-	go func() {
+	eg := enterrors.NewErrorGroupWrapper(s.logger)
+	eg.Go(func() error {
 		defer s.ongoingReplications.Add(-1)
-
-	}()
+		return nil
+	})
+	err := eg.Wait()
+	if err != nil {
+		s.logger.WithError(err).Errorf("failed to recover shard replication")
+	}
 }
 
 func (s *shardReplicationEngine) getShardReplicationOps() ([]shardReplicationOp, []shardReplicationOp) {
