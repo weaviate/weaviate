@@ -13,7 +13,7 @@ permissions:
 jobs:
   releases-matrix:
     name: Release precompiled binaries
-    runs-on: DB-ubuntu-24.04-2-cores
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         goos: [linux, windows]
