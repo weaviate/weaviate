@@ -138,6 +138,7 @@ func (o *GetRolesForUserOK) GetPayload() models.RolesListResponse {
 }
 
 func (o *GetRolesForUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -203,6 +204,7 @@ func (o *GetRolesForUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -223,7 +225,8 @@ GetRolesForUserUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type GetRolesForUserUnauthorized struct{}
+type GetRolesForUserUnauthorized struct {
+}
 
 // IsSuccess returns true when this get roles for user unauthorized response has a 2xx status code
 func (o *GetRolesForUserUnauthorized) IsSuccess() bool {
@@ -264,6 +267,7 @@ func (o *GetRolesForUserUnauthorized) String() string {
 }
 
 func (o *GetRolesForUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -324,6 +328,7 @@ func (o *GetRolesForUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -344,7 +349,8 @@ GetRolesForUserNotFound describes a response with status code 404, with default 
 
 no role found for user
 */
-type GetRolesForUserNotFound struct{}
+type GetRolesForUserNotFound struct {
+}
 
 // IsSuccess returns true when this get roles for user not found response has a 2xx status code
 func (o *GetRolesForUserNotFound) IsSuccess() bool {
@@ -385,6 +391,7 @@ func (o *GetRolesForUserNotFound) String() string {
 }
 
 func (o *GetRolesForUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -445,6 +452,7 @@ func (o *GetRolesForUserUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetRolesForUserUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -512,6 +520,7 @@ func (o *GetRolesForUserInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetRolesForUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
