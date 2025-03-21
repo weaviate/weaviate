@@ -161,9 +161,9 @@ type shards interface {
 		filePath string) (io.WriteCloser, error)
 	CreateShard(ctx context.Context, indexName, shardName string) error
 	ReInitShard(ctx context.Context, indexName, shardName string) error
-	// See adapters/clients.RemoteIndex.PauseAndListFiles
+	// PauseAndListFiles See adapters/clients.RemoteIndex.PauseAndListFiles
 	PauseAndListFiles(ctx context.Context, indexName, shardName string) ([]string, error)
-	// See adapters/clients.RemoteIndex.GetFile
+	// GetFile See adapters/clients.RemoteIndex.GetFile
 	GetFile(ctx context.Context, indexName, shardName,
 		relativeFilePath string) (io.ReadCloser, error)
 }

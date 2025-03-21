@@ -91,9 +91,9 @@ type RemoteIndexIncomingRepo interface {
 		filePath string) (io.WriteCloser, error)
 	IncomingCreateShard(ctx context.Context, className string, shardName string) error
 	IncomingReinitShard(ctx context.Context, shardName string) error
-	// See adapters/clients.RemoteIndex.PauseAndListFiles
+	// IncomingPauseAndListFiles See adapters/clients.RemoteIndex.PauseAndListFiles
 	IncomingPauseAndListFiles(ctx context.Context, shardName string) ([]string, error)
-	// See adapters/clients.RemoteIndex.GetFile
+	// IncomingGetFile See adapters/clients.RemoteIndex.GetFile
 	IncomingGetFile(ctx context.Context, shardName, relativeFilePath string) (io.ReadCloser, error)
 }
 

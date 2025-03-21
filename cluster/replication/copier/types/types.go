@@ -11,6 +11,7 @@ import (
 // IndexGetter is a type that can get an index, this is used to avoid a circular
 // dependency between the copier and the db package.
 type IndexGetter interface {
+	// GetIndex See adapters/repos/db.Index.GetIndex
 	GetIndex(name schema.ClassName) *db.Index
 }
 
