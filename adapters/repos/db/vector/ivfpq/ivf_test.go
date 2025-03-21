@@ -15,6 +15,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"runtime"
+	"runtime/pprof"
 	"sync"
 	"testing"
 	"time"
@@ -131,15 +134,64 @@ func loadHdf5Neighbors(file *hdf5.File, name string) [][]uint64 {
 	return chunkData
 }
 
+func captureMemoryProfile(name string) {
+	// Create the file
+	f, err := os.Create(fmt.Sprintf("%s.mem_profile.pprof", name))
+	if err != nil {
+		log.Fatalf("Failed to create memory profile file: %v", err)
+	}
+	defer f.Close()
+
+	// Write heap profile directly to the file
+	if err := pprof.WriteHeapProfile(f); err != nil {
+		log.Fatalf("Failed to write memory profile: %v", err)
+	}
+
+	// Log memory usage statistics
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	log.Printf("Memory at %s: %d MB", name, memStats.Alloc/1024/1024)
+}
+
+func startCPUProfile(name string) func() {
+	// Create the CPU profile file
+	cpuFile, err := os.Create(fmt.Sprintf("%s.cpu_profile.pprof", name))
+	if err != nil {
+		log.Fatalf("Failed to create CPU profile file: %v", err)
+	}
+
+	// Start CPU profiling
+	if err := pprof.StartCPUProfile(cpuFile); err != nil {
+		cpuFile.Close()
+		log.Fatalf("Failed to start CPU profile: %v", err)
+	}
+
+	log.Printf("CPU profiling started...")
+
+	// Return a function that will stop profiling
+	return func() {
+		pprof.StopCPUProfile()
+		cpuFile.Close()
+		log.Printf("CPU profiling completed and saved to %s.cpu_profile.pprof", name)
+	}
+}
+
+func reverseFloat32Slice(slice []float32) []float32 {
+	for i, j := 0, len(slice)-1; i < j; i, j = i+1, j-1 {
+		slice[i], slice[j] = slice[j], slice[i]
+	}
+	return slice
+}
+
 func TestIVF(t *testing.T) {
 	log.Println("Starting...")
 	var ivf *ivfpq.FlatPQ
 	//file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-100k-openai-ada002.hdf5", hdf5.F_ACC_RDONLY)
 	file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
 	assert.Nil(t, err)
-	defer file.Close()
+	// defer file.Close()
 	dataset, err := file.OpenDataset("train")
-	defer dataset.Close()
+	// defer dataset.Close()
 	vectors := make([][]float32, 1_000_000)
 	batchSize := uint(1_000)
 	dataspace := dataset.Space()
@@ -213,7 +265,7 @@ func TestIVF(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for current := id * (int(rows) / 10); current < (id+1)*(int(rows)/10); current++ {
-				ivf.Add(uint64(current), vectors[current])
+				ivf.Add(uint64(current), reverseFloat32Slice(vectors[current]))
 			}
 		}(i)
 	}
@@ -227,6 +279,14 @@ func TestIVF(t *testing.T) {
 	ellapsed := time.Since(before)
 	fmt.Println("Storing... ", ellapsed)
 
+	file.Close()
+	dataset.Close()
+	vectors = nil
+	runtime.GC()
+
+	captureMemoryProfile("after_loading_data")
+
+	stopProfiling := startCPUProfile("querying")
 	var wg2 sync.WaitGroup
 	rows = 100
 	recall := float32(0)
@@ -241,7 +301,7 @@ func TestIVF(t *testing.T) {
 			defer wg2.Done()
 			for current := id * (int(rows) / concurrencyLevel); current < (id+1)*(int(rows)/concurrencyLevel); current++ {
 				before := time.Now()
-				ids, _, _ := ivf.SearchByVector(context.Background(), testData[current], 10)
+				ids, _, _ := ivf.SearchByVector(context.Background(), reverseFloat32Slice(testData[current]), 10)
 				ellapsed := time.Since(before)
 				rec := float32(testinghelpers.MatchesInLists(neighbors[current][:10], ids)) / 10
 
@@ -255,6 +315,10 @@ func TestIVF(t *testing.T) {
 	}
 	wg2.Wait()
 	ellapsed = time.Since(before)
+	stopProfiling()
+
+	captureMemoryProfile("after_querying")
+
 	log.Println("Latency: ", totaEllapsed.Milliseconds()/int64(rows), "ms")
 	log.Println("QPS: ", int64(rows)*1000/ellapsed.Milliseconds(), "QPS")
 	log.Println("Recall: ", recall)
