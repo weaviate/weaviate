@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -308,6 +309,9 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 				params.Hybrid.NearTextParams = &searchparams.NearTextParams{
 					Values:        nearTxt.Values,
 					Limit:         nearTxt.Limit,
+					Certainty:     nearTxt.Certainty,
+					Distance:      nearTxt.Distance,
+					WithDistance:  nearTxt.WithDistance,
 					MoveAwayFrom:  searchparams.ExploreMove{Force: nearTxt.MoveAwayFrom.Force, Values: nearTxt.MoveAwayFrom.Values},
 					MoveTo:        searchparams.ExploreMove{Force: nearTxt.MoveTo.Force, Values: nearTxt.MoveTo.Values},
 					TargetVectors: targetVectors,
@@ -506,7 +510,7 @@ func extractTargetVectorsForAggregate(req *pb.AggregateRequest, class *models.Cl
 		combination = &dto.TargetCombination{Type: dto.DefaultTargetCombinationType}
 	}
 
-	if vectorSearch && len(targetVectors) == 0 {
+	if vectorSearch && len(targetVectors) == 0 && !schemachecks.HasLegacyVectorIndex(class) {
 		if len(class.VectorConfig) > 1 {
 			return nil, nil, false, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 		} else if len(class.VectorConfig) == 1 {

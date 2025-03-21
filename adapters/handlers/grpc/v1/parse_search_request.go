@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"slices"
 
+	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/usecases/config"
 
@@ -485,10 +486,12 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 		combination = &dto.TargetCombination{Type: dto.DefaultTargetCombinationType}
 	}
 
-	if vectorSearch && len(targetVectors) == 0 {
+	if vectorSearch && len(targetVectors) == 0 && !schemachecks.HasLegacyVectorIndex(class) {
 		if len(class.VectorConfig) > 1 {
 			return nil, nil, false, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
-		} else if len(class.VectorConfig) == 1 {
+		}
+
+		if len(class.VectorConfig) == 1 {
 			for targetVector := range class.VectorConfig {
 				targetVectors = append(targetVectors, targetVector)
 			}
