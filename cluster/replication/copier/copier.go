@@ -73,8 +73,6 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 		}
 	}
 
-	// TODO need to understand more about hwo to create/add shard, do i need to coordinate with the
-	// fsm changes to sharding state stuff too here? do i need the shard transfer locks/etc?
 	err = c.indexGetter.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
 	if err != nil {
 		return err
