@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"time"
 
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -40,9 +39,7 @@ func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string
 }
 
 // CopyReplica copies a shard replica from the source node to this node.
-func (c *Copier) CopyReplica(srcNodeId, collectionName, shardName string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour)
-	defer cancel()
+func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, shardName string) error {
 	sourceNodeHostname, ok := c.nodeSelector.NodeHostname(srcNodeId)
 	if !ok {
 		return fmt.Errorf("sourceNodeName not found for node %s", srcNodeId)

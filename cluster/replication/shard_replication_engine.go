@@ -12,6 +12,7 @@
 package replication
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -110,7 +111,14 @@ func (s *shardReplicationEngine) startShardReplication(op shardReplicationOp) {
 		defer s.ongoingReplications.Add(-1)
 		// TODO defer deleting the op from ongoing ops map and fsm maps as well? but only if it doesn't work?
 		if s.node == op.targetShard.nodeId {
-			s.replicaCopier.CopyReplica(op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId)
+			// TODO how to cancel this context if we need to stop (eg hook it up to stopChan?)
+			ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour)
+			defer cancel()
+			err := s.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId)
+			if err != nil {
+				// TODO any other handling that needs to be done here?
+				s.logger.Errorf("failed to copy replica: %s", err)
+			}
 		}
 	}()
 }
