@@ -33,6 +33,7 @@ GetRolesForUserOK Role assigned users
 swagger:response getRolesForUserOK
 */
 type GetRolesForUserOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type GetRolesForUserOK struct {
 
 // NewGetRolesForUserOK creates GetRolesForUserOK with default headers values
 func NewGetRolesForUserOK() *GetRolesForUserOK {
+
 	return &GetRolesForUserOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *GetRolesForUserOK) SetPayload(payload *GetRolesForUserOKBody) {
 
 // WriteResponse to the client
 func (o *GetRolesForUserOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -75,6 +78,7 @@ GetRolesForUserBadRequest Bad request
 swagger:response getRolesForUserBadRequest
 */
 type GetRolesForUserBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -83,6 +87,7 @@ type GetRolesForUserBadRequest struct {
 
 // NewGetRolesForUserBadRequest creates GetRolesForUserBadRequest with default headers values
 func NewGetRolesForUserBadRequest() *GetRolesForUserBadRequest {
+
 	return &GetRolesForUserBadRequest{}
 }
 
@@ -99,6 +104,7 @@ func (o *GetRolesForUserBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetRolesForUserBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -116,16 +122,19 @@ GetRolesForUserUnauthorized Unauthorized or invalid credentials.
 
 swagger:response getRolesForUserUnauthorized
 */
-type GetRolesForUserUnauthorized struct{}
+type GetRolesForUserUnauthorized struct {
+}
 
 // NewGetRolesForUserUnauthorized creates GetRolesForUserUnauthorized with default headers values
 func NewGetRolesForUserUnauthorized() *GetRolesForUserUnauthorized {
+
 	return &GetRolesForUserUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GetRolesForUserUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -139,6 +148,7 @@ GetRolesForUserForbidden Forbidden
 swagger:response getRolesForUserForbidden
 */
 type GetRolesForUserForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type GetRolesForUserForbidden struct {
 
 // NewGetRolesForUserForbidden creates GetRolesForUserForbidden with default headers values
 func NewGetRolesForUserForbidden() *GetRolesForUserForbidden {
+
 	return &GetRolesForUserForbidden{}
 }
 
@@ -163,6 +174,7 @@ func (o *GetRolesForUserForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetRolesForUserForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -180,16 +192,19 @@ GetRolesForUserNotFound no role found for user
 
 swagger:response getRolesForUserNotFound
 */
-type GetRolesForUserNotFound struct{}
+type GetRolesForUserNotFound struct {
+}
 
 // NewGetRolesForUserNotFound creates GetRolesForUserNotFound with default headers values
 func NewGetRolesForUserNotFound() *GetRolesForUserNotFound {
+
 	return &GetRolesForUserNotFound{}
 }
 
 // WriteResponse to the client
 func (o *GetRolesForUserNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -203,6 +218,7 @@ GetRolesForUserUnprocessableEntity Request body is well-formed (i.e., syntactica
 swagger:response getRolesForUserUnprocessableEntity
 */
 type GetRolesForUserUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -211,6 +227,7 @@ type GetRolesForUserUnprocessableEntity struct {
 
 // NewGetRolesForUserUnprocessableEntity creates GetRolesForUserUnprocessableEntity with default headers values
 func NewGetRolesForUserUnprocessableEntity() *GetRolesForUserUnprocessableEntity {
+
 	return &GetRolesForUserUnprocessableEntity{}
 }
 
@@ -227,6 +244,7 @@ func (o *GetRolesForUserUnprocessableEntity) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *GetRolesForUserUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -245,6 +263,7 @@ GetRolesForUserInternalServerError An error has occurred while trying to fulfill
 swagger:response getRolesForUserInternalServerError
 */
 type GetRolesForUserInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -253,6 +272,7 @@ type GetRolesForUserInternalServerError struct {
 
 // NewGetRolesForUserInternalServerError creates GetRolesForUserInternalServerError with default headers values
 func NewGetRolesForUserInternalServerError() *GetRolesForUserInternalServerError {
+
 	return &GetRolesForUserInternalServerError{}
 }
 
@@ -269,6 +289,7 @@ func (o *GetRolesForUserInternalServerError) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *GetRolesForUserInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

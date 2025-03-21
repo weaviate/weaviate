@@ -62,7 +62,7 @@ func (o *GetRolesForUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewGetRolesForUserParams()
+	var Params = NewGetRolesForUserParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -83,12 +83,14 @@ func (o *GetRolesForUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }
 
 // GetRolesForUserOKBody get roles for user o k body
 //
 // swagger:model GetRolesForUserOKBody
 type GetRolesForUserOKBody struct {
+
 	// List of role names
 	// Required: true
 	RoleNames []string `json:"role_names" yaml:"role_names"`
@@ -116,6 +118,7 @@ func (o *GetRolesForUserOKBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *GetRolesForUserOKBody) validateRoleNames(formats strfmt.Registry) error {
+
 	if err := validate.Required("getRolesForUserOK"+"."+"role_names", "body", o.RoleNames); err != nil {
 		return err
 	}
@@ -155,6 +158,7 @@ func (o *GetRolesForUserOKBody) ContextValidate(ctx context.Context, formats str
 }
 
 func (o *GetRolesForUserOKBody) contextValidateRoles(ctx context.Context, formats strfmt.Registry) error {
+
 	if err := o.Roles.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("getRolesForUserOK" + "." + "roles")

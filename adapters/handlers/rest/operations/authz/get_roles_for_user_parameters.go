@@ -30,9 +30,12 @@ import (
 // NewGetRolesForUserParams creates a new GetRolesForUserParams object
 // with the default values initialized.
 func NewGetRolesForUserParams() GetRolesForUserParams {
-	// initialize parameters with default values
 
-	includeFullRolesDefault := bool(false)
+	var (
+		// initialize parameters with default values
+
+		includeFullRolesDefault = bool(false)
+	)
 
 	return GetRolesForUserParams{
 		IncludeFullRoles: &includeFullRolesDefault,
@@ -44,6 +47,7 @@ func NewGetRolesForUserParams() GetRolesForUserParams {
 //
 // swagger:parameters getRolesForUser
 type GetRolesForUserParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -153,6 +157,7 @@ func (o *GetRolesForUserParams) bindUserType(rawData []string, hasKey bool, form
 
 // validateUserType carries on validations for parameter UserType
 func (o *GetRolesForUserParams) validateUserType(formats strfmt.Registry) error {
+
 	if err := validate.EnumCase("userType", "path", o.UserType, []interface{}{"oidc", "db"}, true); err != nil {
 		return err
 	}

@@ -142,6 +142,7 @@ func (o *GetRolesForUserOK) GetPayload() *GetRolesForUserOKBody {
 }
 
 func (o *GetRolesForUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(GetRolesForUserOKBody)
 
 	// response payload
@@ -209,6 +210,7 @@ func (o *GetRolesForUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -229,7 +231,8 @@ GetRolesForUserUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type GetRolesForUserUnauthorized struct{}
+type GetRolesForUserUnauthorized struct {
+}
 
 // IsSuccess returns true when this get roles for user unauthorized response has a 2xx status code
 func (o *GetRolesForUserUnauthorized) IsSuccess() bool {
@@ -270,6 +273,7 @@ func (o *GetRolesForUserUnauthorized) String() string {
 }
 
 func (o *GetRolesForUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -330,6 +334,7 @@ func (o *GetRolesForUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -350,7 +355,8 @@ GetRolesForUserNotFound describes a response with status code 404, with default 
 
 no role found for user
 */
-type GetRolesForUserNotFound struct{}
+type GetRolesForUserNotFound struct {
+}
 
 // IsSuccess returns true when this get roles for user not found response has a 2xx status code
 func (o *GetRolesForUserNotFound) IsSuccess() bool {
@@ -391,6 +397,7 @@ func (o *GetRolesForUserNotFound) String() string {
 }
 
 func (o *GetRolesForUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -451,6 +458,7 @@ func (o *GetRolesForUserUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetRolesForUserUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -518,6 +526,7 @@ func (o *GetRolesForUserInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetRolesForUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -533,6 +542,7 @@ GetRolesForUserOKBody get roles for user o k body
 swagger:model GetRolesForUserOKBody
 */
 type GetRolesForUserOKBody struct {
+
 	// List of role names
 	// Required: true
 	RoleNames []string `json:"role_names"`
@@ -560,6 +570,7 @@ func (o *GetRolesForUserOKBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *GetRolesForUserOKBody) validateRoleNames(formats strfmt.Registry) error {
+
 	if err := validate.Required("getRolesForUserOK"+"."+"role_names", "body", o.RoleNames); err != nil {
 		return err
 	}
@@ -599,6 +610,7 @@ func (o *GetRolesForUserOKBody) ContextValidate(ctx context.Context, formats str
 }
 
 func (o *GetRolesForUserOKBody) contextValidateRoles(ctx context.Context, formats strfmt.Registry) error {
+
 	if err := o.Roles.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("getRolesForUserOK" + "." + "roles")
