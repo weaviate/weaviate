@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -778,10 +779,10 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 
 func TestShard_UpgradeIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
-	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "10ms")
+	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "1ms")
 
 	cfg := dynamic.NewDefaultUserConfig()
-	cfg.Threshold = 500
+	cfg.Threshold = 1000
 
 	ctx := context.Background()
 	className := "SomeClass"
@@ -799,11 +800,18 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		}
 	}(shd.Index().Config.RootPath)
 
-	amount := 5000
-	for i := 0; i < 5; i++ {
+	amount := 1000
+	for i := 0; i < 3; i++ {
 		objs := make([]*storobj.Object, 0, amount)
 		for j := 0; j < amount; j++ {
-			objs = append(objs, testObject(className))
+			objs = append(objs, &storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID:    strfmt.UUID(uuid.NewString()),
+					Class: className,
+				},
+				Vector: make([]float32, 1536),
+			})
 		}
 
 		errs := shd.PutObjectBatch(ctx, objs)
