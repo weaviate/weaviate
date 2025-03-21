@@ -36,16 +36,10 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		if err := s.initLegacyVector(ctx); err != nil {
 			return err
 		}
-		if err := s.initLegacyQueue(); err != nil {
-			return err
-		}
 	}
 
 	if len(s.index.vectorIndexUserConfigs) > 0 {
 		if err := s.initTargetVectors(ctx); err != nil {
-			return err
-		}
-		if err := s.initTargetQueues(); err != nil {
 			return err
 		}
 	}
@@ -223,29 +217,21 @@ func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 	return s.dynamicVectorIndexDB, nil
 }
 
-func (s *Shard) hasLegacyVectorIndex() bool {
-	return s.vectorIndex != nil
-}
-
 func (s *Shard) initTargetVectors(ctx context.Context) error {
 	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
+	s.queues = make(map[string]*VectorIndexQueue, len(s.index.vectorIndexUserConfigs))
+
 	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
 		vectorIndex, err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
 		if err != nil {
 			return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 		}
-		s.vectorIndexes[targetVector] = vectorIndex
-	}
-	return nil
-}
-
-func (s *Shard) initTargetQueues() error {
-	s.queues = make(map[string]*VectorIndexQueue, len(s.vectorIndexes))
-	for targetVector, vectorIndex := range s.vectorIndexes {
 		queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
 		if err != nil {
 			return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
 		}
+
+		s.vectorIndexes[targetVector] = vectorIndex
 		s.queues[targetVector] = queue
 	}
 	return nil
@@ -256,15 +242,12 @@ func (s *Shard) initLegacyVector(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	s.vectorIndex = vectorIndex
-	return nil
-}
 
-func (s *Shard) initLegacyQueue() error {
-	queue, err := NewVectorIndexQueue(s, "", s.vectorIndex)
+	queue, err := NewVectorIndexQueue(s, "", vectorIndex)
 	if err != nil {
 		return err
 	}
+	s.vectorIndex = vectorIndex
 	s.queue = queue
 	return nil
 }

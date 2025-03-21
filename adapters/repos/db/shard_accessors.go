@@ -20,12 +20,44 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (s *Shard) Queue() *VectorIndexQueue {
-	return s.queue
+// ForEachVectorIndex iterates through each vector index initialized in the shard (named and legacy).
+// Iteration stops at the first return of non-nil error.
+func (s *Shard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
+	for targetVector, idx := range s.vectorIndexes {
+		if idx == nil {
+			continue
+		}
+
+		if err := f(targetVector, idx); err != nil {
+			return err
+		}
+	}
+	if s.vectorIndex != nil {
+		if err := f("", s.vectorIndex); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (s *Shard) Queues() map[string]*VectorIndexQueue {
-	return s.queues
+// ForEachVectorQueue iterates through each vector index queue initialized in the shard (named and legacy).
+// Iteration stops at the first return of non-nil error.
+func (s *Shard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
+	for targetVector, q := range s.queues {
+		if q == nil {
+			continue
+		}
+
+		if err := f(targetVector, q); err != nil {
+			return err
+		}
+	}
+	if s.queue != nil {
+		if err := f("", s.queue); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // GetVectorIndexQueue retrieves a vector index queue associated with the targetVector.
@@ -50,20 +82,13 @@ func (s *Shard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
 	return index, ok
 }
 
-func (s *Shard) QueueForName(targetVector string) *VectorIndexQueue {
-	return s.queues[targetVector]
+func (s *Shard) hasLegacyVectorIndex() bool {
+	_, ok := s.GetVectorIndex("")
+	return ok
 }
 
-func (s *Shard) VectorIndex() VectorIndex {
-	return s.vectorIndex
-}
-
-func (s *Shard) VectorIndexes() map[string]VectorIndex {
-	return s.vectorIndexes
-}
-
-func (s *Shard) VectorIndexForName(targetVector string) VectorIndex {
-	return s.vectorIndexes[targetVector]
+func (s *Shard) hasAnyVectorIndex() bool {
+	return len(s.vectorIndexes) > 0 || s.vectorIndex != nil
 }
 
 func (s *Shard) Versioner() *shardVersioner {
