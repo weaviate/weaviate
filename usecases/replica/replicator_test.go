@@ -22,6 +22,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	replaceRouter "github.com/weaviate/weaviate/cluster/router"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -38,58 +40,52 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	t.Run("PutObject", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		err := rep.PutObject(ctx, "S", nil, All, 0)
+		err := rep.PutObject(ctx, "S", nil, types.ConsistencyLevelAll, 0)
 		assert.ErrorIs(t, err, errReplicas)
-		f.assertLogErrorContains(t, errNoReplicaFound.Error())
 	})
 
 	t.Run("MergeObject", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		err := rep.MergeObject(ctx, "S", nil, All, 0)
+		err := rep.MergeObject(ctx, "S", nil, types.ConsistencyLevelAll, 0)
 		assert.ErrorIs(t, err, errReplicas)
-		f.assertLogErrorContains(t, errNoReplicaFound.Error())
 	})
 
 	t.Run("DeleteObject", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		err := rep.DeleteObject(ctx, "S", "id", time.Now(), All, 0)
+		err := rep.DeleteObject(ctx, "S", "id", time.Now(), types.ConsistencyLevelAll, 0)
 		assert.ErrorIs(t, err, errReplicas)
-		f.assertLogErrorContains(t, errNoReplicaFound.Error())
 	})
 
 	t.Run("PutObjects", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		errs := rep.PutObjects(ctx, "S", []*storobj.Object{{}, {}}, All, 0)
+		errs := rep.PutObjects(ctx, "S", []*storobj.Object{{}, {}}, types.ConsistencyLevelAll, 0)
 		assert.Equal(t, 2, len(errs))
 		for _, err := range errs {
 			assert.ErrorIs(t, err, errReplicas)
 		}
-		f.assertLogErrorContains(t, errNoReplicaFound.Error())
 	})
 
 	t.Run("DeleteObjects", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		xs := rep.DeleteObjects(ctx, "S", []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2"), strfmt.UUID("3")}, time.Now(), false, All, 0)
+		xs := rep.DeleteObjects(ctx, "S", []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2"), strfmt.UUID("3")}, time.Now(), false, types.ConsistencyLevelAll, 0)
 		assert.Equal(t, 3, len(xs))
 		for _, x := range xs {
 			assert.ErrorIs(t, x.Err, errReplicas)
 		}
-		f.assertLogErrorContains(t, errNoReplicaFound.Error())
 	})
 
 	t.Run("AddReferences", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		errs := rep.AddReferences(ctx, "S", []objects.BatchReference{{}, {}}, All, 0)
+		errs := rep.AddReferences(ctx, "S", []objects.BatchReference{{}, {}}, types.ConsistencyLevelAll, 0)
 		assert.Equal(t, 2, len(errs))
 		for _, err := range errs {
 			assert.ErrorIs(t, err, errReplicas)
 		}
-		f.assertLogErrorContains(t, errNoReplicaFound.Error())
 	})
 }
 
@@ -110,7 +106,7 @@ func TestReplicatorPutObject(t *testing.T) {
 			f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
 			f.WClient.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 		}
-		err := rep.PutObject(ctx, shard, obj, All, 123)
+		err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelAll, 123)
 		assert.Nil(t, err)
 	})
 	t.Run("SuccessWithConsistencyLevelOne", func(t *testing.T) {
@@ -127,7 +123,7 @@ func TestReplicatorPutObject(t *testing.T) {
 
 		f.WClient.On("PutObject", mock.Anything, "C", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
 		f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil)
-		err := rep.PutObject(ctx, shard, obj, One, 123)
+		err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelOne, 123)
 		assert.Nil(t, err)
 	})
 	t.Run("SuccessWithConsistencyLevelQuorum", func(t *testing.T) {
@@ -144,7 +140,7 @@ func TestReplicatorPutObject(t *testing.T) {
 			resp := a[5].(*SimpleResponse)
 			*resp = SimpleResponse{Errors: []Error{{Msg: "e3"}}}
 		}
-		err := rep.PutObject(ctx, shard, obj, Quorum, 123)
+		err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 123)
 		assert.Nil(t, err)
 	})
 
@@ -157,7 +153,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		f.WClient.On("Abort", mock.Anything, nodes[0], "C1", shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
-		err := rep.PutObject(ctx, shard, obj, All, 123)
+		err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelAll, 123)
 		assert.ErrorIs(t, err, errReplicas)
 	})
 
@@ -171,7 +167,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		f.WClient.On("Abort", mock.Anything, nodes[0], "C1", shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
-		err := rep.PutObject(ctx, shard, obj, All, 123)
+		err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelAll, 123)
 		assert.ErrorIs(t, err, errReplicas)
 	})
 
@@ -185,7 +181,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		f.WClient.On("Commit", ctx, nodes[0], "C1", shard, anyVal, anyVal).Return(nil)
 		f.WClient.On("Commit", ctx, nodes[1], "C1", shard, anyVal, anyVal).Return(errAny)
 
-		err := rep.PutObject(ctx, shard, obj, All, 123)
+		err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelAll, 123)
 		assert.ErrorIs(t, err, errAny)
 	})
 }
@@ -207,7 +203,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 			f.WClient.On("MergeObject", mock.Anything, n, cls, shard, anyVal, merge, uint64(123)).Return(resp, nil)
 			f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
 		}
-		err := rep.MergeObject(ctx, shard, merge, All, 123)
+		err := rep.MergeObject(ctx, shard, merge, types.ConsistencyLevelAll, 123)
 		assert.Nil(t, err)
 	})
 
@@ -220,7 +216,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 		f.WClient.On("Abort", mock.Anything, nodes[0], cls, shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
-		err := rep.MergeObject(ctx, shard, merge, All, 123)
+		err := rep.MergeObject(ctx, shard, merge, types.ConsistencyLevelAll, 123)
 		assert.ErrorIs(t, err, errReplicas)
 	})
 
@@ -234,7 +230,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 		f.WClient.On("Abort", mock.Anything, nodes[0], cls, shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
-		err := rep.MergeObject(ctx, shard, merge, All, 123)
+		err := rep.MergeObject(ctx, shard, merge, types.ConsistencyLevelAll, 123)
 		assert.ErrorIs(t, err, errReplicas)
 	})
 
@@ -248,7 +244,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 		f.WClient.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil)
 		f.WClient.On("Commit", ctx, nodes[1], cls, shard, anyVal, anyVal).Return(errAny)
 
-		err := rep.MergeObject(ctx, shard, merge, All, 123)
+		err := rep.MergeObject(ctx, shard, merge, types.ConsistencyLevelAll, 123)
 		assert.ErrorIs(t, err, errAny)
 	})
 }
@@ -275,7 +271,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			client.On("Abort", mock.Anything, n, "C1", shard, anyVal).Return(resp, nil)
 		}
 
-		err := rep.DeleteObject(ctx, shard, uuid, time.Now(), All, 123)
+		err := rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelAll, 123)
 		assert.NotNil(t, err)
 		assert.ErrorIs(t, err, errReplicas)
 	})
@@ -289,9 +285,9 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid, anyVal, uint64(123)).Return(resp, nil)
 			client.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 		}
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), All, 123))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), Quorum, 123))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), One, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelAll, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelQuorum, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelOne, 123))
 	})
 	t.Run("SuccessWithConsistencyQuorum", func(t *testing.T) {
 		factory := newFakeFactory("C1", shard, nodes)
@@ -315,9 +311,9 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			}
 		}
 
-		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), All, 123))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), Quorum, 123))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), One, 123))
+		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelAll, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelQuorum, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelOne, 123))
 	})
 
 	t.Run("SuccessWithConsistencyQuorum", func(t *testing.T) {
@@ -342,9 +338,9 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			}
 		}
 
-		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), All, 123))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), Quorum, 123))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), One, 123))
+		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelAll, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelQuorum, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelOne, 123))
 	})
 }
 
@@ -365,7 +361,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		for _, n := range nodes {
 			client.On("Abort", mock.Anything, n, "C1", shard, anyVal).Return(SimpleResponse{}, nil)
 		}
-		result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, All, 123)
+		result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelAll, 123)
 		assert.Equal(t, len(result), 2)
 		for _, r := range result {
 			assert.ErrorIs(t, r.Err, errReplicas)
@@ -380,7 +376,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(SimpleResponse{}, nil)
 			client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(errAny)
 		}
-		result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, All, 123)
+		result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelAll, 123)
 		assert.Equal(t, len(result), 2)
 	})
 	t.Run("PartialSuccess", func(t *testing.T) {
@@ -398,7 +394,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 				}
 			}
 		}
-		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, All, 123)
+		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelAll, 123)
 		assert.Equal(t, len(result), 2)
 		assert.Equal(t, objects.BatchSimpleObject{UUID: "1", Err: nil}, result[0])
 		assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: &Error{Msg: "e1"}}, result[1])
@@ -418,7 +414,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 				}
 			}
 		}
-		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, All, 123)
+		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelAll, 123)
 		assert.Equal(t, len(result), 2)
 		assert.Equal(t, objects.BatchSimpleObject{UUID: "1", Err: nil}, result[0])
 		assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: nil}, result[1])
@@ -438,7 +434,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 				Batch: []UUID2Error{{UUID: "1"}, {UUID: "2"}},
 			}
 		}
-		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, One, 123)
+		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelOne, 123)
 		assert.Equal(t, len(result), 2)
 		assert.Equal(t, []objects.BatchSimpleObject{{UUID: "1"}, {UUID: "2"}}, result)
 	})
@@ -466,7 +462,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 				Batch: []UUID2Error{{UUID: "1"}, {UUID: "2", Error: Error{Msg: "e2"}}},
 			}
 		}
-		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, Quorum, 123)
+		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelQuorum, 123)
 		assert.Equal(t, len(result), 2)
 		assert.Equal(t, []objects.BatchSimpleObject{{UUID: "1"}, {UUID: "2"}}, result)
 	})
@@ -489,7 +485,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 			f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(123)).Return(resp, nil)
 			f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
 		}
-		errs := rep.PutObjects(ctx, shard, objs, All, 123)
+		errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelAll, 123)
 		assert.Equal(t, []error{nil, nil, nil}, errs)
 	})
 	t.Run("SuccessWithConsistencyLevelOne", func(t *testing.T) {
@@ -508,7 +504,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 			resp := a[5].(*SimpleResponse)
 			*resp = SimpleResponse{Errors: make([]Error, 3)}
 		}
-		errs := rep.PutObjects(ctx, shard, objs, One, 0)
+		errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelOne, 0)
 		assert.Equal(t, []error{nil, nil, nil}, errs)
 	})
 
@@ -528,7 +524,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 			resp := a[5].(*SimpleResponse)
 			*resp = SimpleResponse{Errors: []Error{{Msg: "e3"}}}
 		}
-		errs := rep.PutObjects(ctx, shard, objs, Quorum, 0)
+		errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelQuorum, 0)
 		assert.Equal(t, []error{nil, nil, nil}, errs)
 	})
 
@@ -540,7 +536,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 		f.WClient.On("Abort", mock.Anything, nodes[0], "C1", shard, anyVal).Return(resp1, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp1, nil)
 
-		errs := rep.PutObjects(ctx, shard, objs, All, 0)
+		errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelAll, 0)
 		assert.Equal(t, 3, len(errs))
 		assert.ErrorIs(t, errs[0], errReplicas)
 	})
@@ -554,7 +550,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 		f.WClient.On("Abort", mock.Anything, nodes[0], "C1", shard, anyVal).Return(resp1, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp1, nil)
 
-		errs := rep.PutObjects(ctx, shard, objs, All, 0)
+		errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelAll, 0)
 		assert.Equal(t, 3, len(errs))
 		for _, err := range errs {
 			assert.ErrorIs(t, err, errReplicas)
@@ -573,7 +569,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 		}
 		f.WClient.On("Commit", ctx, nodes[1], cls, shard, anyVal, anyVal).Return(errAny)
 
-		errs := rep.PutObjects(ctx, shard, objs, All, 0)
+		errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelAll, 0)
 		assert.Equal(t, len(errs), 3)
 		assert.ErrorIs(t, errs[0], errAny)
 		assert.ErrorIs(t, errs[1], errAny)
@@ -596,7 +592,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 			*resp = SimpleResponse{Errors: node2Errs}
 		}
 
-		errs := rep.PutObjects(ctx, shard, objs, All, 0)
+		errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelAll, 0)
 		assert.Equal(t, len(errs), len(objs))
 
 		wantError := []error{&node2Errs[0], nil, &node2Errs[2]}
@@ -620,7 +616,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 			f.WClient.On("AddReferences", mock.Anything, n, cls, shard, anyVal, refs, uint64(123)).Return(resp, nil)
 			f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
 		}
-		errs := rep.AddReferences(ctx, shard, refs, All, 123)
+		errs := rep.AddReferences(ctx, shard, refs, types.ConsistencyLevelAll, 123)
 		assert.Equal(t, []error{nil, nil}, errs)
 	})
 
@@ -633,7 +629,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 		f.WClient.On("Abort", mock.Anything, nodes[0], "C1", shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
-		errs := rep.AddReferences(ctx, shard, refs, All, 123)
+		errs := rep.AddReferences(ctx, shard, refs, types.ConsistencyLevelAll, 123)
 		assert.Equal(t, 2, len(errs))
 		assert.ErrorIs(t, errs[0], errReplicas)
 	})
@@ -648,7 +644,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 		f.WClient.On("Abort", mock.Anything, nodes[0], "C1", shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
-		errs := rep.AddReferences(ctx, shard, refs, All, 123)
+		errs := rep.AddReferences(ctx, shard, refs, types.ConsistencyLevelAll, 123)
 		assert.Equal(t, 2, len(errs))
 		for _, err := range errs {
 			assert.ErrorIs(t, err, errReplicas)
@@ -665,7 +661,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 		f.WClient.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil)
 		f.WClient.On("Commit", ctx, nodes[1], cls, shard, anyVal, anyVal).Return(errAny)
 
-		errs := rep.AddReferences(ctx, shard, refs, All, 123)
+		errs := rep.AddReferences(ctx, shard, refs, types.ConsistencyLevelAll, 123)
 		assert.Equal(t, len(errs), 2)
 		assert.ErrorIs(t, errs[0], errAny)
 		assert.ErrorIs(t, errs[1], errAny)
@@ -703,13 +699,14 @@ func (f fakeFactory) AddShard(shard string, nodes []string) {
 func (f fakeFactory) newReplicator() *Replicator {
 	nodeResolver := newFakeNodeResolver(f.Nodes)
 	shardingState := newFakeShardingState("A", f.Shard2replicas, nodeResolver)
+	router := replaceRouter.New(f.log, nodeResolver, shardingState, nil)
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 	return NewReplicator(
 		f.CLS,
-		shardingState,
-		nodeResolver,
+		router,
+		"A",
 		getDeletionStrategy,
 		struct {
 			rClient
@@ -719,17 +716,12 @@ func (f fakeFactory) newReplicator() *Replicator {
 
 func (f fakeFactory) newFinder(thisNode string) *Finder {
 	nodeResolver := newFakeNodeResolver(f.Nodes)
-	resolver := &resolver{
-		Schema:       newFakeShardingState(thisNode, f.Shard2replicas, nodeResolver),
-		nodeResolver: nodeResolver,
-		Class:        f.CLS,
-		NodeName:     thisNode,
-	}
+	shardingState := newFakeShardingState(thisNode, f.Shard2replicas, nodeResolver)
+	router := replaceRouter.New(f.log, nodeResolver, shardingState, nil)
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
-	return NewFinder(f.CLS, resolver, f.RClient, f.log,
-		time.Microsecond*1, time.Millisecond*128, getDeletionStrategy)
+	return NewFinder(f.CLS, router, thisNode, f.RClient, f.log, time.Microsecond*1, time.Millisecond*128, getDeletionStrategy)
 }
 
 func (f fakeFactory) assertLogContains(t *testing.T, key string, xs ...string) {

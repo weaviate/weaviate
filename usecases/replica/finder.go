@@ -55,7 +55,7 @@ type (
 	findOneReply senderReply[objects.Replica]
 	existReply   struct {
 		Sender string
-		RepairResponse
+		types.RepairResponse
 	}
 )
 
@@ -114,7 +114,7 @@ func (f *Finder) GetOne(ctx context.Context,
 		} else {
 			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 
-			var x RepairResponse
+			var x types.RepairResponse
 
 			if len(xs) == 1 {
 				x = xs[0]
@@ -237,7 +237,7 @@ func (f *Finder) Exists(ctx context.Context,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
 		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
-		var x RepairResponse
+		var x types.RepairResponse
 		if len(xs) == 1 {
 			x = xs[0]
 		}
@@ -390,13 +390,13 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,
 	shardName string, host string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (ds []RepairResponse, err error) {
+) (ds []types.RepairResponse, err error) {
 	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
 }
 
 // Overwrite specified object with most recent contents
 func (f *Finder) Overwrite(ctx context.Context,
 	host, index, shard string, xs []*objects.VObject,
-) ([]RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	return f.client.Overwrite(ctx, host, index, shard, xs)
 }
