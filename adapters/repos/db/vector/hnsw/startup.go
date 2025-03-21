@@ -37,12 +37,6 @@ func (h *hnsw) init(cfg Config) error {
 	if err := h.restoreFromDisk(); err != nil {
 		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
-	if h.multivector.Load() {
-		if err := h.restoreDocMappings(); err != nil {
-			return errors.Wrapf(err, "restore doc mappings %q", cfg.ID)
-		}
-	}
-
 	// init commit logger for future writes
 	cl, err := cfg.MakeCommitLoggerThunk()
 	if err != nil {
@@ -134,6 +128,12 @@ func (h *hnsw) restoreFromDisk() error {
 	h.tombstoneLock.Lock()
 	h.tombstones = state.Tombstones
 	h.tombstoneLock.Unlock()
+
+	if h.multivector.Load() {
+		if err := h.restoreDocMappings(); err != nil {
+			return errors.Wrapf(err, "restore doc mappings ")
+		}
+	}
 
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
