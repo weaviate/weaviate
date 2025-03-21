@@ -82,7 +82,7 @@ maximum_allowed_collections_count: 5
 non_exist_filed: 78
 `
 		b = []byte(val)
-		v, err = ParseYaml(b)
+		_, err = ParseYaml(b)
 		require.Error(t, err)
 	})
 }
