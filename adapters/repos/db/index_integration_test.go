@@ -663,7 +663,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	vidx, q := getVectorIndexAndQueue(t, shard, "")
+	vidx, q := getVectorIndexAndQueue(t, shard, "foo")
 
 	// wait until the queue is empty
 	for i := 0; i < 10; i++ {
