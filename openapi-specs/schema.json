@@ -3749,7 +3749,7 @@
                   "description": "Detailed role information",
                   "$ref": "#/definitions/RolesListResponse"
                 },
-                "role_names": {
+                "roleNames": {
                   "type": "array",
                   "description": "List of role names",
                   "items": {

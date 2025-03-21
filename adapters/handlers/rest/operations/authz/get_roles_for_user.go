@@ -24,7 +24,6 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -92,8 +91,7 @@ func (o *GetRolesForUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 type GetRolesForUserOKBody struct {
 
 	// List of role names
-	// Required: true
-	RoleNames []string `json:"role_names" yaml:"role_names"`
+	RoleNames []string `json:"roleNames" yaml:"roleNames"`
 
 	// Detailed role information
 	Roles models.RolesListResponse `json:"roles" yaml:"roles"`
@@ -103,10 +101,6 @@ type GetRolesForUserOKBody struct {
 func (o *GetRolesForUserOKBody) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.validateRoleNames(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := o.validateRoles(formats); err != nil {
 		res = append(res, err)
 	}
@@ -114,15 +108,6 @@ func (o *GetRolesForUserOKBody) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (o *GetRolesForUserOKBody) validateRoleNames(formats strfmt.Registry) error {
-
-	if err := validate.Required("getRolesForUserOK"+"."+"role_names", "body", o.RoleNames); err != nil {
-		return err
-	}
-
 	return nil
 }
 

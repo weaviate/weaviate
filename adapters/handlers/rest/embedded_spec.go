@@ -1072,7 +1072,7 @@ func init() {
                 "role_names"
               ],
               "properties": {
-                "role_names": {
+                "roleNames": {
                   "description": "List of role names",
                   "type": "array",
                   "items": {
@@ -8332,7 +8332,7 @@ func init() {
                 "role_names"
               ],
               "properties": {
-                "role_names": {
+                "roleNames": {
                   "description": "List of role names",
                   "type": "array",
                   "items": {
