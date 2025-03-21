@@ -232,7 +232,6 @@ func (iq *VectorIndexQueue) checkCompressionSettings() (skip bool) {
 
 	if iq.vectorIndex.AlreadyIndexed() > uint64(shouldUpgradeAt) {
 		iq.scheduler.PauseQueue(iq.DiskQueue.ID())
-		// iq.scheduler.Wait(iq.DiskQueue.ID())
 
 		err := ci.Upgrade(func() {
 			iq.scheduler.ResumeQueue(iq.DiskQueue.ID())

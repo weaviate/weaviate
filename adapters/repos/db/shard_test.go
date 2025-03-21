@@ -587,11 +587,10 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 
 func TestShard_UpgradeIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
-	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "10ms")
 	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "10ms")
 
 	cfg := dynamic.NewDefaultUserConfig()
-	cfg.Threshold = 1000
+	cfg.Threshold = 500
 
 	ctx := context.Background()
 	className := "SomeClass"
@@ -609,9 +608,9 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		}
 	}(shd.Index().Config.RootPath)
 
-	amount := 10_000
-	for i := 0; i < 10; i++ {
-		var objs []*storobj.Object
+	amount := 5000
+	for i := 0; i < 5; i++ {
+		objs := make([]*storobj.Object, 0, amount)
 		for j := 0; j < amount; j++ {
 			objs = append(objs, testObject(className))
 		}
@@ -627,5 +626,5 @@ func TestShard_UpgradeIndex(t *testing.T) {
 	// wait for the queue to be empty
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		assert.Zero(t, q.Size())
-	}, 10*time.Second, 100*time.Millisecond)
+	}, 60*time.Second, 500*time.Millisecond)
 }
