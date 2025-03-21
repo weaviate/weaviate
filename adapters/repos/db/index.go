@@ -1979,7 +1979,7 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false)
 }
 
-func (i *Index) loadLocalShard(ctx context.Context, shardName string) error {
+func (i *Index) LoadLocalShard(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true)
 }
 

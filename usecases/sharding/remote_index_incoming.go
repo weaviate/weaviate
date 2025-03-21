@@ -91,6 +91,10 @@ type RemoteIndexIncomingRepo interface {
 		filePath string) (io.WriteCloser, error)
 	IncomingCreateShard(ctx context.Context, className string, shardName string) error
 	IncomingReinitShard(ctx context.Context, shardName string) error
+	// IncomingPauseAndListFiles See adapters/clients.RemoteIndex.PauseAndListFiles
+	IncomingPauseAndListFiles(ctx context.Context, shardName string) ([]string, error)
+	// IncomingGetFile See adapters/clients.RemoteIndex.GetFile
+	IncomingGetFile(ctx context.Context, shardName, relativeFilePath string) (io.ReadCloser, error)
 }
 
 type RemoteIndexIncoming struct {
@@ -308,6 +312,30 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 	}
 
 	return index.IncomingReinitShard(ctx, shardName)
+}
+
+// PauseAndListFiles see adapters/clients.RemoteIndex.PauseAndListFiles
+func (rii *RemoteIndexIncoming) PauseAndListFiles(ctx context.Context,
+	indexName, shardName string,
+) ([]string, error) {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return nil, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingPauseAndListFiles(ctx, shardName)
+}
+
+// GetFile see adapters/clients.RemoteIndex.GetFile
+func (rii *RemoteIndexIncoming) GetFile(ctx context.Context,
+	indexName, shardName, relativeFilePath string,
+) (io.ReadCloser, error) {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return nil, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingGetFile(ctx, shardName, relativeFilePath)
 }
 
 func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,

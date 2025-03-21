@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -147,6 +148,9 @@ type Config struct {
 	AuthzController authorization.Controller
 
 	DynamicUserController apikey.DynamicUser
+
+	// ReplicaCopier copies shard replicas between nodes
+	ReplicaCopier replicationTypes.ReplicaCopier
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -222,7 +226,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		schemaManager:      schemaManager,
 		authZManager:       rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
-		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader()),
+		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader(), cfg.ReplicaCopier),
 	}
 }
 

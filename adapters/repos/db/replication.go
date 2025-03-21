@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -318,6 +319,60 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 	}
 
 	return i.initLocalShard(ctx, shardName)
+}
+
+// IncomingPauseAndListFiles pauses the background processes of the specified shard
+// and returns a list of files that can be used to get the shard data at the time the pause was requested.
+// You should explicitly call resumeMaintenanceCycles to resume the background processes after you don't
+// need the returned files to stay immutable anymore.
+func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
+	shardName string,
+) ([]string, error) {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q could not be found locally", shardName)
+	}
+	defer release()
+
+	err = localShard.HaltForTransfer(ctx, false)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q could not be halted for transfer: %w", shardName, err)
+	}
+
+	sd := backup.ShardDescriptor{Name: shardName}
+	if err := localShard.ListBackupFiles(ctx, &sd); err != nil {
+		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
+	}
+
+	files := []string{
+		sd.DocIDCounterPath,
+		sd.PropLengthTrackerPath,
+		sd.ShardVersionPath,
+	}
+	files = append(files, sd.Files...)
+
+	return files, nil
+}
+
+// IncomingGetFile returns a reader for the file at the given path in the specified shard's root
+// directory. The caller must close the returned io.ReadCloser if no error is returned.
+func (i *Index) IncomingGetFile(ctx context.Context, shardName,
+	relativeFilePath string,
+) (io.ReadCloser, error) {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+	defer release()
+
+	finalPath := filepath.Join(localShard.Index().Config.RootPath, relativeFilePath)
+
+	reader, err := os.Open(finalPath)
+	if err != nil {
+		return nil, fmt.Errorf("open file %q for reading: %w", relativeFilePath, err)
+	}
+
+	return reader, nil
 }
 
 func (s *Shard) filePutter(ctx context.Context,

@@ -64,6 +64,25 @@ type indicesPayloads struct {
 	UpdateShardsStatusResults updateShardsStatusResultsPayload
 	ShardFiles                shardFilesPayload
 	IncreaseReplicationFactor increaseReplicationFactorPayload
+	ShardFilesResults         shardFilesResultsPayload
+}
+
+type shardFilesResultsPayload struct{}
+
+func (p shardFilesResultsPayload) MIME() string {
+	return "application/vnd.weaviate.shardfilesresults+json"
+}
+
+func (p shardFilesResultsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p shardFilesResultsPayload) Unmarshal(in []byte) ([]string, error) {
+	var shardFiles []string
+	if err := json.Unmarshal(in, &shardFiles); err != nil {
+		return nil, fmt.Errorf("unmarshal shard files: %w", err)
+	}
+	return shardFiles, nil
 }
 
 type increaseReplicationFactorPayload struct{}
