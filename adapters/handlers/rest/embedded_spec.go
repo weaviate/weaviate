@@ -1067,24 +1067,7 @@ func init() {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "object",
-              "required": [
-                "role_names"
-              ],
-              "properties": {
-                "roleNames": {
-                  "description": "List of role names",
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "roles": {
-                  "description": "Detailed role information",
-                  "type": "object",
-                  "$ref": "#/definitions/RolesListResponse"
-                }
-              }
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
@@ -8327,24 +8310,7 @@ func init() {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "object",
-              "required": [
-                "role_names"
-              ],
-              "properties": {
-                "roleNames": {
-                  "description": "List of role names",
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "roles": {
-                  "description": "Detailed role information",
-                  "type": "object",
-                  "$ref": "#/definitions/RolesListResponse"
-                }
-              }
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {

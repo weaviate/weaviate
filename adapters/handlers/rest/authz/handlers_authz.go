@@ -623,7 +623,6 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 	}
 
 	var roles []*models.Role
-	var roleNames []string
 	var authErrs []error
 	for roleName, policies := range existingRoles {
 		perms, err := conv.PoliciesToPermission(policies...)
@@ -631,21 +630,17 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %w", err)))
 		}
 
-		roleNames = append(roleNames, roleName)
+		role := &models.Role{Name: &roleName}
 		if includeFullRoles {
-			roles = append(roles, &models.Role{
-				Name:        &roleName,
-				Permissions: perms,
-			})
-
 			if !ownUser {
 				if err := h.authorizeRoleScopes(principal, authorization.READ, nil, roleName); err != nil {
 					authErrs = append(authErrs, err)
 					continue
 				}
 			}
-
+			role.Permissions = perms
 		}
+		roles = append(roles, role)
 	}
 
 	if len(authErrs) > 0 {
@@ -653,7 +648,6 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 	}
 
 	sortByName(roles)
-	sort.Strings(roleNames)
 
 	h.logger.WithFields(logrus.Fields{
 		"action":                "get_roles_for_user",
@@ -662,7 +656,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		"user_to_get_roles_for": params.ID,
 	}).Info("roles requested")
 
-	return authz.NewGetRolesForUserOK().WithPayload(&authz.GetRolesForUserOKBody{RoleNames: roleNames, Roles: roles})
+	return authz.NewGetRolesForUserOK().WithPayload(roles)
 }
 
 func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {

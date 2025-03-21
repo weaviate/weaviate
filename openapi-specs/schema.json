@@ -3742,22 +3742,7 @@
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "object",
-              "properties": {
-                "roles": {
-                  "type": "object",
-                  "description": "Detailed role information",
-                  "$ref": "#/definitions/RolesListResponse"
-                },
-                "roleNames": {
-                  "type": "array",
-                  "description": "List of role names",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              },
-              "required": ["role_names"]
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {

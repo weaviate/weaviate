@@ -249,8 +249,8 @@ func TestAuthzRolesJourney(t *testing.T) {
 	t.Run("get roles for user after assignment", func(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser).WithUserType(string(models.UserTypeDb)), clientAuth)
 		require.Nil(t, err)
-		require.Equal(t, 2, len(res.Payload.RoleNames))
-		require.ElementsMatch(t, res.Payload.RoleNames, []string{existingRole, testRoleName})
+		require.Equal(t, 2, len(res.Payload))
+		require.ElementsMatch(t, res.Payload, []string{existingRole, testRoleName})
 	})
 
 	t.Run("get users for role after assignment", func(t *testing.T) {
@@ -266,8 +266,8 @@ func TestAuthzRolesJourney(t *testing.T) {
 	t.Run("get roles for user after deletion", func(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser).WithUserType(string(models.UserTypeDb)), clientAuth)
 		require.Nil(t, err)
-		require.Equal(t, 1, len(res.Payload.RoleNames))
-		require.Equal(t, existingRole, res.Payload.RoleNames[0])
+		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, existingRole, res.Payload[0])
 	})
 
 	t.Run("get all roles after delete", func(t *testing.T) {
@@ -333,9 +333,8 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 	})
 
 	t.Run("get role assigned to user", func(t *testing.T) {
-		roles, names := helper.GetRolesForUser(t, testUser, adminKey, true)
+		roles := helper.GetRolesForUser(t, testUser, adminKey, true)
 		require.Equal(t, 1, len(roles))
-		require.Equal(t, 1, len(names))
 	})
 
 	t.Run("delete role", func(t *testing.T) {
@@ -347,8 +346,8 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 	})
 
 	t.Run("get role assigned to user expected none", func(t *testing.T) {
-		_, names := helper.GetRolesForUser(t, testUser, adminKey, false)
-		require.Equal(t, 0, len(names))
+		roles := helper.GetRolesForUser(t, testUser, adminKey, false)
+		require.Equal(t, 0, len(roles))
 	})
 }
 
@@ -753,9 +752,9 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, limitedRole, limitedUser)
 
 		// Verify role assignment and permissions
-		_, names := helper.GetRolesForUser(t, limitedUser, adminKey, false)
-		require.Equal(t, 1, len(names))
-		require.Equal(t, limitedRole, names[0])
+		roles := helper.GetRolesForUser(t, limitedUser, adminKey, false)
+		require.Equal(t, 1, len(roles))
+		require.Equal(t, limitedRole, roles[0])
 	})
 
 	t.Run("limited user can create role with equal permissions", func(t *testing.T) {
@@ -1190,8 +1189,9 @@ func TestGetRolesForUserPermission(t *testing.T) {
 		resp, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)).WithIncludeFullRoles(&falsep), helper.CreateAuth(userKey))
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.Nil(t, resp.Payload.Roles)
-		require.Equal(t, []string{userRoleName}, resp.Payload.RoleNames)
+		require.Len(t, resp.Payload, 1)
+		require.Equal(t, userRoleName, *resp.Payload[0].Name)
+		require.Nil(t, resp.Payload[0].Permissions)
 
 		// cannot get all roles
 		_, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)).WithIncludeFullRoles(&truep), helper.CreateAuth(userKey))
@@ -1208,14 +1208,16 @@ func TestGetRolesForUserPermission(t *testing.T) {
 		resp, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)).WithIncludeFullRoles(&falsep), helper.CreateAuth(userKey))
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.Nil(t, resp.Payload.Roles)
-		require.Equal(t, []string{userRoleName}, resp.Payload.RoleNames)
+		require.Len(t, resp.Payload, 1)
+		require.Equal(t, userRoleName, *resp.Payload[0].Name)
+		require.Nil(t, resp.Payload[0].Permissions)
 
 		// can get all roles
 		resp, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)).WithIncludeFullRoles(&truep), helper.CreateAuth(userKey))
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.Equal(t, userRoleName, *resp.Payload.Roles[0].Name)
-		require.Equal(t, []string{userRoleName}, resp.Payload.RoleNames)
+		require.Len(t, resp.Payload, 1)
+		require.Equal(t, userRoleName, *resp.Payload[0].Name)
+		require.NotNil(t, resp.Payload[0].Permissions)
 	})
 }

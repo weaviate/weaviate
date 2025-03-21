@@ -71,7 +71,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		RolesDbUser, _ := helper.GetRolesForUser(t, customUser, adminKey, true)
+		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey, true)
 		require.Len(t, RolesDbUser, 1)
 		require.Equal(t, testRoleName, *RolesDbUser[0].Name)
 	})
@@ -85,7 +85,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 		helper.AssignRoleToUserOIDC(t, adminKey, testRoleName, customUser)
 
-		RolesDbUser, _ := helper.GetRolesForUser(t, customUser, adminKey, true)
+		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey, true)
 		require.Len(t, RolesDbUser, 1)
 		require.Equal(t, testRoleName, *RolesDbUser[0].Name)
 

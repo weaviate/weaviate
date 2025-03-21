@@ -116,10 +116,11 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 			}
 			expectedRoles := models.RolesListResponse(roles)
 			if *tt.params.IncludeFullRoles {
-				assert.Equal(t, len(parsed.Payload.Roles), len(parsed.Payload.RoleNames))
-				assert.Equal(t, expectedRoles, parsed.Payload.Roles)
+				assert.Equal(t, expectedRoles, parsed.Payload)
+			} else {
+				assert.Nil(t, parsed.Payload[0].Permissions)
 			}
-			assert.Equal(t, *roles[0].Name, parsed.Payload.RoleNames[0])
+			assert.Equal(t, *roles[0].Name, *parsed.Payload[0].Name)
 		})
 	}
 }
