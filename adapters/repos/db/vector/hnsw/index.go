@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
@@ -327,15 +328,17 @@ func New(cfg Config, uc ent.UserConfig,
 		index.encoder = encoder
 	}
 
-	if uc.Multivector.Enabled && (uc.PQ.Enabled || uc.SQ.Enabled || uc.BQ.Enabled) {
-		return nil, errors.New("compression is not supported in multivector mode")
-	}
-
 	if uc.BQ.Enabled {
 		var err error
-		index.compressor, err = compressionhelpers.NewBQCompressor(
-			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-			cfg.AllocChecker)
+		if !uc.Multivector.Enabled {
+			index.compressor, err = compressionhelpers.NewBQCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		} else {
+			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -369,7 +372,39 @@ func New(cfg Config, uc ent.UserConfig,
 	return index, nil
 }
 
+func Float32FromCompressedBytes(muveraBytes []byte) []float32 {
+	slice := make([]float32, len(muveraBytes)/4)
+	for i := range slice {
+		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(muveraBytes[i*4:]))
+	}
+	return slice
+}
+
+func (h *hnsw) getMuveraVectorForID(ctx context.Context, docID uint64) ([]float32, error) {
+	docIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(docIDBytes, docID)
+	muveraVector, err := h.store.Bucket("muvera_vectors").Get(docIDBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "Getting vector for id")
+	}
+	if len(muveraVector) == 0 {
+		return nil, storobj.NewErrNotFoundf(docID, "getCompressedVectorForID")
+	}
+
+	return Float32FromCompressedBytes(muveraVector), nil
+}
+
 func (h *hnsw) encodeMultiVector() error {
+	if h.encoder == nil {
+		config := multivector.DefaultMuveraConfig()
+		h.encoder = multivector.NewMuveraEncoder(config)
+	}
+	fmt.Println("Creating muvera vectors bucket")
+	err := h.store.CreateOrLoadBucket(context.Background(), "muvera_vectors", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	if err != nil {
+		return errors.Wrapf(err, "Create or load bucket (muvera store)")
+	}
+
 	vectors := h.cache.All()
 	filteredVectors := make([][]float32, 0, len(vectors))
 	for _, v := range vectors {
@@ -384,7 +419,6 @@ func (h *hnsw) encodeMultiVector() error {
 	// Iterate over all the keys of the docIDVectors map
 	muveraVectors := make([][]float32, 0, len(h.docIDVectors))
 	var vecs [][]float32
-	var err error
 	var muveraVec []float32
 	docIDs := make([]uint64, 0, len(h.docIDVectors))
 	for docID := range h.docIDVectors {
@@ -398,9 +432,12 @@ func (h *hnsw) encodeMultiVector() error {
 	}
 	h.cache.Drop()
 	fmt.Println("dropped cache")
-	h.cache = cache.NewShardedFloat32LockCache(h.VectorForIDThunk, h.MultiVectorForIDThunk, 1e12, 1, h.logger,
+	h.cache = cache.NewShardedFloat32LockCache(h.getMuveraVectorForID, h.MultiVectorForIDThunk, 1e12, 1, h.logger,
 		true, cache.DefaultDeletionInterval, h.allocChecker)
+	h.vectorForID = h.cache.Get
+	h.multiVectorForID = h.cache.MultiGet
 	fmt.Println("created new cache")
+	h.cache.Grow(uint64(h.nodes.Len()))
 	compressionhelpers.Concurrently(h.logger, uint64(len(muveraVectors)),
 		func(index uint64) {
 			if muveraVectors[index] == nil {
@@ -644,7 +681,6 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 		return 0, fmt.Errorf(
 			"got a nil or zero-length vector as search vector")
 	}
-
 	return h.distancerProvider.SingleDist(vecA, vecB)
 }
 

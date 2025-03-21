@@ -55,7 +55,7 @@ func (e *MuveraEncoder) Fit(vecs [][][]float32) error {
 			allVectors = append(allVectors, vec)
 		}
 	}
-
+	fmt.Println("config", e.config)
 	// Train k-means for each repetition
 	for i := 0; i < e.config.Repetitions; i++ {
 		kmeans := compressionhelpers.NewKMeans(e.config.NumClusters, e.config.Dimensions, 0) // TODO: check segments is correct to be 1

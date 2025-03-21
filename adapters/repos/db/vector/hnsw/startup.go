@@ -147,17 +147,30 @@ func (h *hnsw) restoreFromDisk() error {
 				if h.pqConfig.Segments == 0 {
 					h.pqConfig.Segments = int(data.Dimensions)
 				}
-				h.compressor, err = compressionhelpers.RestoreHNSWPQCompressor(
-					h.pqConfig,
-					h.distancerProvider,
-					int(data.Dimensions),
-					// ToDo: we need to read this value from somewhere
-					1e12,
-					h.logger,
-					data.Encoders,
-					h.store,
-					h.allocChecker,
-				)
+				if !h.multivector.Load() {
+					h.compressor, err = compressionhelpers.RestoreHNSWPQCompressor(
+						h.pqConfig,
+						h.distancerProvider,
+						int(data.Dimensions),
+						// ToDo: we need to read this value from somewhere
+						1e12,
+						h.logger,
+						data.Encoders,
+						h.store,
+						h.allocChecker,
+					)
+				} else {
+					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
+						h.pqConfig,
+						h.distancerProvider,
+						int(data.Dimensions),
+						1e12,
+						h.logger,
+						data.Encoders,
+						h.store,
+						h.allocChecker,
+					)
+				}
 				if err != nil {
 					return errors.Wrap(err, "Restoring compressed data.")
 				}
@@ -165,16 +178,29 @@ func (h *hnsw) restoreFromDisk() error {
 		} else if state.CompressionSQData != nil {
 			data := state.CompressionSQData
 			h.dims = int32(data.Dimensions)
-			h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
-				h.distancerProvider,
-				1e12,
-				h.logger,
-				data.A,
-				data.B,
-				data.Dimensions,
-				h.store,
-				h.allocChecker,
-			)
+			if !h.multivector.Load() {
+				h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
+					h.distancerProvider,
+					1e12,
+					h.logger,
+					data.A,
+					data.B,
+					data.Dimensions,
+					h.store,
+					h.allocChecker,
+				)
+			} else {
+				h.compressor, err = compressionhelpers.RestoreHNSWSQMultiCompressor(
+					h.distancerProvider,
+					1e12,
+					h.logger,
+					data.A,
+					data.B,
+					data.Dimensions,
+					h.store,
+					h.allocChecker,
+				)
+			}
 			if err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
 			}
@@ -219,9 +245,7 @@ func (h *hnsw) restoreDocMappings() error {
 			relativeID = 0
 			prevDocID = docID
 		}
-		if h.compressed.Load() {
-			h.compressor.SetKeys(node.ID(), docID, relativeID)
-		} else {
+		if !h.compressed.Load() {
 			h.cache.SetKeys(node.ID(), docID, relativeID)
 		}
 		h.Lock()
@@ -245,11 +269,6 @@ func (h *hnsw) restoreDocMappings() error {
 	h.vecIDcounter = maxNodeID + 1
 	h.maxDocID = maxDocID
 	h.Unlock()
-	if h.compressed.Load() {
-		h.compressor.GrowMultiCache(maxDocID)
-	} else {
-		h.cache.GrowMultiCache(maxDocID)
-	}
 	return nil
 }
 
@@ -313,7 +332,11 @@ func (h *hnsw) prefillCache() {
 
 		var err error
 		if h.compressed.Load() {
-			h.compressor.PrefillCache()
+			if !h.multivector.Load() {
+				h.compressor.PrefillCache()
+			} else {
+				h.compressor.PrefillMultiCache(h.docIDVectors)
+			}
 		} else {
 			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
 		}

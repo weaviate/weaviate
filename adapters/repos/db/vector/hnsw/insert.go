@@ -144,6 +144,14 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	return nil
 }
 
+func MuveraBytesFromFloat32(vec []float32) []byte {
+	slice := make([]byte, len(vec)*4)
+	for i := range vec {
+		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vec[i]))
+	}
+	return slice
+}
+
 func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -163,6 +171,11 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		processedVectors := make([][]float32, len(vectors))
 		for i, v := range vectors {
 			processedVectors[i] = h.encoder.EncodeDoc(v)
+			docIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(docIDBytes, docIDs[i])
+			muveraBytes := MuveraBytesFromFloat32(processedVectors[i])
+			h.store.Bucket("muvera_vectors").Put(docIDBytes, muveraBytes)
+
 		}
 		// Replace original vectors with processed ones
 		return h.AddBatch(ctx, docIDs, processedVectors)
@@ -212,23 +225,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 				}
 			}
 			h.Unlock()
-		}
-
-		h.RLock()
-		if docID >= h.maxDocID {
-			h.RUnlock()
-			h.Lock()
-			if docID >= h.maxDocID {
-				h.maxDocID = docID
-				if h.compressed.Load() {
-					h.compressor.GrowMultiCache(docID)
-				} else {
-					h.cache.GrowMultiCache(docID)
-				}
-			}
-			h.Unlock()
-		} else {
-			h.RUnlock()
 		}
 
 		ids := make([]uint64, numVectors)

@@ -11,7 +11,10 @@
 
 package compressionhelpers
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"math"
+)
 
 type quantizerDistancer[T byte | uint64] interface {
 	Distance(x []T) (float32, error)
@@ -156,3 +159,19 @@ func (bq *BinaryQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistanc
 }
 
 func (bq *BinaryQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[uint64]) {}
+
+func CompressedBytesFromFloat32(vec []float32) []byte {
+	slice := make([]byte, len(vec)*4)
+	for i := range vec {
+		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vec[i]))
+	}
+	return slice
+}
+
+func Float32FromCompressedBytes(compressed []byte) []float32 {
+	slice := make([]float32, len(compressed)/4)
+	for i := range slice {
+		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(compressed[i*4:]))
+	}
+	return slice
+}
