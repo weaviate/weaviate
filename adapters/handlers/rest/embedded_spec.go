@@ -1054,6 +1054,13 @@ func init() {
             "name": "userType",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission",
+            "name": "includeFullRoles",
+            "in": "query"
           }
         ],
         "responses": {
@@ -8290,6 +8297,13 @@ func init() {
             "name": "userType",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission",
+            "name": "includeFullRoles",
+            "in": "query"
           }
         ],
         "responses": {

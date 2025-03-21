@@ -3728,6 +3728,14 @@
             "type": "string",
             "enum": ["oidc", "db"],
             "description": "The type of user"
+          },
+          {
+            "in": "query",
+            "name": "includeFullRoles",
+            "required": false,
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission"
           }
         ],
         "responses": {
