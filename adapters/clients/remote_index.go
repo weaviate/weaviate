@@ -853,7 +853,7 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 func (c *RemoteIndex) PauseAndListFiles(ctx context.Context,
 	hostName, indexName, shardName string,
 ) ([]string, error) {
-	path := fmt.Sprintf("/indices/%s/shards/%s/background:pauselist", indexName, shardName)
+	path := fmt.Sprintf("/indices/%s/shards/%s/background/pauselist", indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 

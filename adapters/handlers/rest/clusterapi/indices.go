@@ -108,7 +108,7 @@ const (
 	urlPatternShardReinit = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `):reinit`
 	urlPatternPauseAndListFiles = `\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/background:pauselist`
+		`\/shards\/(` + sh + `)\/background/pauselist`
 )
 
 type shards interface {
@@ -1413,11 +1413,12 @@ func (i *indices) getShardFile() http.Handler {
 		}
 
 		i.logger.WithFields(logrus.Fields{
-			"index":    indexName,
-			"shard":    shardName,
-			"fileName": relativeFilePath,
-			"n":        n,
-		}).Debug()
+			"action":        "replica_movement",
+			"index":         indexName,
+			"shard":         shardName,
+			"fileName":      relativeFilePath,
+			"fileSizeBytes": n,
+		}).Debug("Copied replica file")
 
 		w.WriteHeader(http.StatusOK)
 	})
@@ -1446,10 +1447,11 @@ func (i *indices) postPauseAndListFiles() http.Handler {
 		}
 
 		i.logger.WithFields(logrus.Fields{
+			"action":   "replica_movement",
 			"index":    indexName,
 			"shard":    shardName,
 			"numFiles": len(relativeFilePaths),
-		}).Debug()
+		}).Debug("Paused and listed replica files")
 
 		w.Write(resBytes)
 		w.WriteHeader(http.StatusOK)
