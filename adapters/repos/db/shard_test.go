@@ -35,6 +35,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -582,4 +583,49 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+func TestShard_UpgradeIndex(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "10ms")
+	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "10ms")
+
+	cfg := dynamic.NewDefaultUserConfig()
+	cfg.Threshold = 1000
+
+	ctx := context.Background()
+	className := "SomeClass"
+	var opts []func(*Index)
+	opts = append(opts, func(i *Index) {
+		i.vectorIndexUserConfig = cfg
+	})
+
+	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, cfg, false, true /* withCheckpoints */, opts...)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	amount := 10_000
+	for i := 0; i < 10; i++ {
+		var objs []*storobj.Object
+		for j := 0; j < amount; j++ {
+			objs = append(objs, testObject(className))
+		}
+
+		errs := shd.PutObjectBatch(ctx, objs)
+		for _, err := range errs {
+			require.Nil(t, err)
+		}
+	}
+
+	q := shd.Queue()
+
+	// wait for the queue to be empty
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.Zero(t, q.Size())
+	}, 10*time.Second, 100*time.Millisecond)
 }
