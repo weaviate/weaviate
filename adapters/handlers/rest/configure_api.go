@@ -209,6 +209,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	appState := startupRoutine(ctx, options)
 
+	// initializing at the top to reflect the config changes before we pass on to different components.
+	initRuntimeOverrides(appState)
+
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.HTTPServerMetrics = monitoring.NewHTTPServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
 		appState.GRPCServerMetrics = monitoring.NewGRPCServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
@@ -524,35 +527,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		configRuntime.CollectionRetrievalStrategyEnvVariable,
 		appState.Logger,
 	)
-
-	// Enable runtime config manager
-	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
-		cm, err := configRuntime.NewConfigManager(
-			appState.ServerConfig.Config.RuntimeOverrides.Path,
-			config.ParseYaml,
-			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
-			appState.Logger,
-			prometheus.DefaultRegisterer)
-		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
-			os.Exit(1)
-		}
-
-		enterrors.GoWrapper(func() {
-			// NOTE: Not using parent `ctx` because that is getting cancelled in the caller even during startup.
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			if err := cm.Run(ctx); err != nil {
-				appState.Logger.WithField("action", "runtime config manager startup ").WithError(err).
-					Fatal("runtime config manager stopped")
-			}
-		}, appState.Logger)
-		rc := config.NewWeaviateRuntimeConfig(cm)
-		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCountFn = rc.GetMaximumAllowedCollectionsCount
-		appState.ServerConfig.Config.AutoSchema.EnabledFn = rc.GetAutoSchemaEnabled
-		appState.ServerConfig.Config.Replication.AsyncReplicationDisabledFn = rc.GetAsyncReplicationDisabled
-	}
 
 	schemaManager, err := schemaUC.NewManager(migrator,
 		appState.ClusterService.Raft,
@@ -1653,4 +1627,35 @@ type membership struct {
 func (m membership) LeaderID() string {
 	_, id := m.raft.LeaderWithID()
 	return id
+}
+
+func initRuntimeOverrides(appState *state.State) {
+	// Enable runtime config manager
+	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
+		cm, err := configRuntime.NewConfigManager(
+			appState.ServerConfig.Config.RuntimeOverrides.Path,
+			config.ParseYaml,
+			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
+			appState.Logger,
+			prometheus.DefaultRegisterer)
+		if err != nil {
+			appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
+			os.Exit(1)
+		}
+
+		enterrors.GoWrapper(func() {
+			// NOTE: Not using parent `ctx` because that is getting cancelled in the caller even during startup.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			if err := cm.Run(ctx); err != nil {
+				appState.Logger.WithField("action", "runtime config manager startup ").WithError(err).
+					Fatal("runtime config manager stopped")
+			}
+		}, appState.Logger)
+		rc := config.NewWeaviateRuntimeConfig(cm)
+		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCountFn = rc.GetMaximumAllowedCollectionsCount
+		appState.ServerConfig.Config.AutoSchema.EnabledFn = rc.GetAutoSchemaEnabled
+		appState.ServerConfig.Config.Replication.AsyncReplicationDisabledFn = rc.GetAsyncReplicationDisabled
+	}
 }

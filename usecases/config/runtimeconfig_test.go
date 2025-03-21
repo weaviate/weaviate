@@ -53,6 +53,12 @@ func TestRuntimeConfig(t *testing.T) {
 		val := rm.GetMaximumAllowedCollectionsCount()
 		require.Nil(t, val)
 	})
+
+	t.Run("async replicsation disabled not being set should return nil", func(t *testing.T) {
+		cm.c.AsyncReplicationDisabled = nil
+		val := rm.GetAsyncReplicationDisabled()
+		require.Nil(t, val)
+	})
 }
 
 type mockManager struct {
