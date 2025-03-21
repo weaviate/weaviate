@@ -98,7 +98,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 
 	if h.muvera.Load() {
 		muvera_query := h.encoder.EncodeQuery(vectors)
-		overfetch := 10
+		overfetch := 20
 		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
 		if err != nil {
 			return nil, nil, err
