@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -361,30 +360,16 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	if sg.strategy == StrategyInverted {
-		// start at  len(sg.segments) - 2 as the last segment doesn't need any tombstones for now
+		// start with last but one segment, as the last one doesn't need tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
 			// avoid crashing if segment has no tombstones
-			tombstonesNext, err := sg.segments[i+1].GetTombstones()
+			tombstonesNext, err := sg.segments[i+1].ReadOnlyTombstones()
 			if err != nil {
 				return nil, fmt.Errorf("init segment %s: load tombstones %w", sg.segments[i+1].path, err)
 			}
-
-			tombstonesCurrent, err := sg.segments[i].GetTombstones()
-			if err != nil {
-				return nil, fmt.Errorf("init segment %s: load tombstones %w", sg.segments[i].path, err)
+			if _, err := sg.segments[i].MergeTombstones(tombstonesNext); err != nil {
+				return nil, fmt.Errorf("init segment %s: merge tombstones %w", sg.segments[i].path, err)
 			}
-
-			if tombstonesNext == nil {
-				continue
-			}
-			// init new sroar bitmap if segment had no tombstones
-			if tombstonesCurrent == nil {
-				tombstonesCurrent = sroar.NewBitmap()
-			}
-			if tombstonesNext.IsEmpty() {
-				continue
-			}
-			tombstonesCurrent.Or(tombstonesNext)
 		}
 	}
 

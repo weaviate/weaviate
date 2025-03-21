@@ -66,6 +66,12 @@ func (o *DeactivateUserReader) ReadResponse(response runtime.ClientResponse, con
 			return nil, err
 		}
 		return nil, result
+	case 409:
+		result := NewDeactivateUserConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewDeactivateUserUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -383,6 +389,62 @@ func (o *DeactivateUserNotFound) String() string {
 }
 
 func (o *DeactivateUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewDeactivateUserConflict creates a DeactivateUserConflict with default headers values
+func NewDeactivateUserConflict() *DeactivateUserConflict {
+	return &DeactivateUserConflict{}
+}
+
+/*
+DeactivateUserConflict describes a response with status code 409, with default header values.
+
+user already deactivated
+*/
+type DeactivateUserConflict struct {
+}
+
+// IsSuccess returns true when this deactivate user conflict response has a 2xx status code
+func (o *DeactivateUserConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this deactivate user conflict response has a 3xx status code
+func (o *DeactivateUserConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this deactivate user conflict response has a 4xx status code
+func (o *DeactivateUserConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this deactivate user conflict response has a 5xx status code
+func (o *DeactivateUserConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this deactivate user conflict response a status code equal to that given
+func (o *DeactivateUserConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the deactivate user conflict response
+func (o *DeactivateUserConflict) Code() int {
+	return 409
+}
+
+func (o *DeactivateUserConflict) Error() string {
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserConflict ", 409)
+}
+
+func (o *DeactivateUserConflict) String() string {
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserConflict ", 409)
+}
+
+func (o *DeactivateUserConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

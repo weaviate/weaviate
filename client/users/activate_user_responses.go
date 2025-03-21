@@ -64,6 +64,12 @@ func (o *ActivateUserReader) ReadResponse(response runtime.ClientResponse, consu
 			return nil, err
 		}
 		return nil, result
+	case 409:
+		result := NewActivateUserConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewActivateUserUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -381,6 +387,62 @@ func (o *ActivateUserNotFound) String() string {
 }
 
 func (o *ActivateUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewActivateUserConflict creates a ActivateUserConflict with default headers values
+func NewActivateUserConflict() *ActivateUserConflict {
+	return &ActivateUserConflict{}
+}
+
+/*
+ActivateUserConflict describes a response with status code 409, with default header values.
+
+user already activated
+*/
+type ActivateUserConflict struct {
+}
+
+// IsSuccess returns true when this activate user conflict response has a 2xx status code
+func (o *ActivateUserConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this activate user conflict response has a 3xx status code
+func (o *ActivateUserConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this activate user conflict response has a 4xx status code
+func (o *ActivateUserConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this activate user conflict response has a 5xx status code
+func (o *ActivateUserConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this activate user conflict response a status code equal to that given
+func (o *ActivateUserConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the activate user conflict response
+func (o *ActivateUserConflict) Code() int {
+	return 409
+}
+
+func (o *ActivateUserConflict) Error() string {
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserConflict ", 409)
+}
+
+func (o *ActivateUserConflict) String() string {
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserConflict ", 409)
+}
+
+func (o *ActivateUserConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }
