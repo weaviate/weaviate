@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -19,42 +20,17 @@ type Copier struct {
 	nodeSelector cluster.NodeSelector
 	// remoteIndex allows you to "call" methods on other nodes, in this case, we'll be "calling"
 	// methods on the source node to perform the copy
-	remoteIndex remoteIndex
+	remoteIndex types.RemoteIndex
 	// rootDataPath is the local path to the root data directory for the shard, we'll copy files
 	// to this path
 	rootDataPath string
 	// indexGetter is used to load the index for the collection so that we can create/interact
 	// with the shard on this node
-	indexGetter ShardLoaderAdapter
-}
-
-// remoteIndex interface here is just to avoid a circular dependency introduced by
-// adapters/clients.RemoteIndex
-type remoteIndex interface {
-	// See adapters/clients.RemoteIndex.PauseAndListFiles
-	PauseAndListFiles(ctx context.Context,
-		hostName, indexName, shardName string) ([]string, error)
-	// See adapters/clients.RemoteIndex.GetFile
-	GetFile(ctx context.Context,
-		hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
-}
-
-// ShardLoaderAdapter is a type that can get an index as a ShardLoader, this is used to avoid a circular
-// dependency between the copier and the db package.
-type ShardLoaderAdapter interface {
-	// See adapters/repos/db.DB.GetIndexAsShardLoader
-	GetAsShardLoader(name schema.ClassName) ShardLoader
-}
-
-// ShardLoader is a type that can load a shard from disk files, this is used to avoid a circular
-// dependency between the copier and the db package.
-type ShardLoader interface {
-	// See adapters/repos/db.Index.LoadShard
-	LoadShard(ctx context.Context, name string) error
+	indexGetter types.IndexGetter
 }
 
 // New creates a new shard replica Copier.
-func New(t remoteIndex, nodeSelector cluster.NodeSelector, rootPath string, indexGetter ShardLoaderAdapter) *Copier {
+func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string, indexGetter types.IndexGetter) *Copier {
 	return &Copier{
 		remoteIndex:  t,
 		nodeSelector: nodeSelector,
@@ -102,7 +78,7 @@ func (c *Copier) CopyReplica(srcNodeId, collectionName, shardName string) error 
 
 	// TODO need to understand more about hwo to create/add shard, do i need to coordinate with the
 	// fsm changes to sharding state stuff too here? do i need the shard transfer locks/etc?
-	err = c.indexGetter.GetAsShardLoader(schema.ClassName(collectionName)).LoadShard(ctx, shardName)
+	err = c.indexGetter.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
 	if err != nil {
 		return err
 	}

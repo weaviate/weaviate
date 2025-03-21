@@ -18,7 +18,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/usecases/replica/copier"
+	"github.com/weaviate/weaviate/cluster/replication/types"
 )
 
 const (
@@ -37,10 +37,10 @@ type shardReplicationEngine struct {
 	opChan                 chan shardReplicationOp
 	stopChan               chan bool
 	// replicaCopier does the "data tranfer" work
-	replicaCopier *copier.Copier
+	replicaCopier types.ReplicaCopier
 }
 
-func newShardReplicationEngine(logger *logrus.Logger, replicationFSM *ShardReplicationFSM, replicaCopier *copier.Copier) *shardReplicationEngine {
+func newShardReplicationEngine(logger *logrus.Logger, replicationFSM *ShardReplicationFSM, replicaCopier types.ReplicaCopier) *shardReplicationEngine {
 	return &shardReplicationEngine{
 		logger:                logger.WithFields(logrus.Fields{"action": replicationEngineLogAction}),
 		ongoingReplicationOps: make(map[shardReplicationOp]struct{}),

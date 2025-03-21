@@ -18,8 +18,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/usecases/replica/copier"
 )
 
 var ErrBadRequest = errors.New("bad request")
@@ -30,7 +30,7 @@ type Manager struct {
 	schemaReader      schema.SchemaReader
 }
 
-func NewManager(logger *logrus.Logger, schemaReader schema.SchemaReader, replicaCopier *copier.Copier) *Manager {
+func NewManager(logger *logrus.Logger, schemaReader schema.SchemaReader, replicaCopier types.ReplicaCopier) *Manager {
 	replicationFSM := newShardReplicationFSM()
 	return &Manager{
 		replicationFSM:    replicationFSM,

@@ -36,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/replica/copier"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -376,12 +375,4 @@ func (db *DB) batchWorker(first bool) {
 			checkTime = time.Now().Add(time.Second)
 		}
 	}
-}
-
-func (db *DB) IndexAsIndexGetter(name schema.ClassName) copier.ShardLoaderAdapter {
-	return db
-}
-
-func (db *DB) GetAsShardLoader(name schema.ClassName) copier.ShardLoader {
-	return db.GetIndex(name)
 }

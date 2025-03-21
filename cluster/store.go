@@ -23,9 +23,9 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/dynusers"
+	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/replica/copier"
 
 	"github.com/prometheus/client_golang/prometheus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"

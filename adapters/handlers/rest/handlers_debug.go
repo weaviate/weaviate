@@ -21,15 +21,15 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/replica/copier"
 )
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
 
-	// NOTE this should be removed before merging, just here for testing until we have the API code
+	// TODO this should be removed before merging, just here for testing until we have the API code
 	http.HandleFunc("/debug/index/copy/files", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sourceNodeName := r.URL.Query().Get("sourceNodeName")
 		collectionName := r.URL.Query().Get("collectionName")
