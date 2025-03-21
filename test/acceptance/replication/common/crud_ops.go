@@ -24,13 +24,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 // stopNodeAt stops the node container at the given index.
@@ -71,7 +71,7 @@ func UpdateClass(t *testing.T, host string, class *models.Class) {
 	helper.UpdateClass(t, class)
 }
 
-func CreateObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) error {
+func CreateObjectCL(t *testing.T, host string, obj *models.Object, cl types.ConsistencyLevel) error {
 	t.Helper()
 	helper.SetupClient(host)
 	return helper.CreateObjectCL(t, obj, cl)
@@ -83,7 +83,7 @@ func CreateObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.CreateObjectsBatch(t, batch)
 }
 
-func CreateObjectsCL(t *testing.T, host string, batch []*models.Object, cl replica.ConsistencyLevel) {
+func CreateObjectsCL(t *testing.T, host string, batch []*models.Object, cl types.ConsistencyLevel) {
 	helper.SetupClient(host)
 	helper.CreateObjectsBatchCL(t, batch, cl)
 }
@@ -110,13 +110,13 @@ func GetTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant st
 	return helper.TenantObject(t, class, id, tenant)
 }
 
-func ObjectExistsCL(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (bool, error) {
+func ObjectExistsCL(t *testing.T, host, class string, id strfmt.UUID, cl types.ConsistencyLevel) (bool, error) {
 	t.Helper()
 	helper.SetupClient(host)
 	return helper.ObjectExistsCL(t, class, id, cl)
 }
 
-func GetObjectCL(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (*models.Object, error) {
+func GetObjectCL(t *testing.T, host, class string, id strfmt.UUID, cl types.ConsistencyLevel) (*models.Object, error) {
 	t.Helper()
 	helper.SetupClient(host)
 	return helper.GetObjectCL(t, class, id, cl)
@@ -140,7 +140,7 @@ func PatchObject(t *testing.T, host string, patch *models.Object) {
 	helper.PatchObject(t, patch)
 }
 
-func UpdateObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) error {
+func UpdateObjectCL(t *testing.T, host string, obj *models.Object, cl types.ConsistencyLevel) error {
 	t.Helper()
 	helper.SetupClient(host)
 	return helper.UpdateObjectCL(t, obj, cl)
@@ -160,7 +160,7 @@ func AddTenantReferences(t *testing.T, host string, refs []*models.BatchReferenc
 	helper.CheckReferencesBatchResponse(t, resp, err)
 }
 
-func DeleteObject(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) {
+func DeleteObject(t *testing.T, host, class string, id strfmt.UUID, cl types.ConsistencyLevel) {
 	t.Helper()
 	helper.SetupClient(host)
 
@@ -173,7 +173,7 @@ func DeleteObject(t *testing.T, host, class string, id strfmt.UUID, cl replica.C
 	require.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 }
 
-func DeleteTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant string, cl replica.ConsistencyLevel) {
+func DeleteTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant string, cl types.ConsistencyLevel) {
 	helper.SetupClient(host)
 	helper.DeleteTenantObject(t, class, id, tenant, cl)
 
@@ -181,7 +181,7 @@ func DeleteTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant
 	assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 }
 
-func DeleteObjects(t *testing.T, host, class string, path []string, valueText string, cl replica.ConsistencyLevel) {
+func DeleteObjects(t *testing.T, host, class string, path []string, valueText string, cl types.ConsistencyLevel) {
 	t.Helper()
 	helper.SetupClient(host)
 
@@ -197,11 +197,11 @@ func DeleteObjects(t *testing.T, host, class string, path []string, valueText st
 	}
 	helper.DeleteObjectsBatch(t, batchDelete, cl)
 
-	resp := GQLGet(t, host, class, replica.All)
+	resp := GQLGet(t, host, class, types.ConsistencyLevelAll)
 	assert.Empty(t, resp)
 }
 
-func DeleteTenantObjects(t *testing.T, host, class string, path []string, valueText, tenant string, cl replica.ConsistencyLevel) {
+func DeleteTenantObjects(t *testing.T, host, class string, path []string, valueText, tenant string, cl types.ConsistencyLevel) {
 	t.Helper()
 	helper.SetupClient(host)
 
@@ -218,16 +218,16 @@ func DeleteTenantObjects(t *testing.T, host, class string, path []string, valueT
 	resp, err := helper.DeleteTenantObjectsBatchCL(t, batchDelete, tenant, cl)
 	helper.AssertRequestOk(t, resp, err, nil)
 
-	deleted := GQLTenantGet(t, host, class, replica.All, tenant)
+	deleted := GQLTenantGet(t, host, class, types.ConsistencyLevelAll, tenant)
 	assert.Empty(t, deleted)
 }
 
-func GQLGet(t *testing.T, host, class string, cl replica.ConsistencyLevel, fields ...string) []interface{} {
+func GQLGet(t *testing.T, host, class string, cl types.ConsistencyLevel, fields ...string) []interface{} {
 	t.Helper()
 	helper.SetupClient(host)
 
 	if cl == "" {
-		cl = replica.Quorum
+		cl = types.ConsistencyLevelQuorum
 	}
 
 	q := fmt.Sprintf("{Get {%s (consistencyLevel: %s)", class, cl) + " {%s}}}"
@@ -239,12 +239,12 @@ func GQLGet(t *testing.T, host, class string, cl replica.ConsistencyLevel, field
 	return GQLDo(t, class, q)
 }
 
-func GQLGetNearVec(t *testing.T, host, class string, vec []interface{}, cl replica.ConsistencyLevel, fields ...string) []interface{} {
+func GQLGetNearVec(t *testing.T, host, class string, vec []interface{}, cl types.ConsistencyLevel, fields ...string) []interface{} {
 	t.Helper()
 	helper.SetupClient(host)
 
 	if cl == "" {
-		cl = replica.Quorum
+		cl = types.ConsistencyLevelQuorum
 	}
 
 	q := fmt.Sprintf("{Get {%s (consistencyLevel: %s, nearVector: {vector: %s, certainty: 0.8})",
@@ -265,14 +265,14 @@ func GQLDo(t *testing.T, class, query string) []interface{} {
 	return result.Result.([]interface{})
 }
 
-func GQLTenantGet(t *testing.T, host, class string, cl replica.ConsistencyLevel,
+func GQLTenantGet(t *testing.T, host, class string, cl types.ConsistencyLevel,
 	tenant string, fields ...string,
 ) []interface{} {
 	t.Helper()
 	helper.SetupClient(host)
 
 	if cl == "" {
-		cl = replica.Quorum
+		cl = types.ConsistencyLevelQuorum
 	}
 
 	q := fmt.Sprintf("{Get {%s (tenant: %q, consistencyLevel: %s, limit: 1000)", class, tenant, cl) + " {%s}}}"

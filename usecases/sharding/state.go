@@ -196,6 +196,14 @@ func (s *State) AllPhysicalShards() []string {
 	return names
 }
 
+func (s *State) AllPhysicalShardsAndReplicas() map[string][]string {
+	shardsToReplicas := make(map[string][]string, len(s.Physical))
+	for _, physical := range s.Physical {
+		shardsToReplicas[physical.Name] = physical.BelongsToNodes
+	}
+	return shardsToReplicas
+}
+
 func (s *State) AllLocalPhysicalShards() []string {
 	var names []string
 	for _, physical := range s.Physical {

@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -506,7 +507,7 @@ func TestReplicationDigestObjects(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	expected := []replica.RepairResponse{
+	expected := []types.RepairResponse{
 		{
 			ID:         UUID1.String(),
 			UpdateTime: now.UnixMilli(),
@@ -562,7 +563,7 @@ func TestReplicationOverwriteObjects(t *testing.T) {
 			Version:         0,
 		},
 	}
-	expected := []replica.RepairResponse{
+	expected := []types.RepairResponse{
 		{
 			ID:         UUID1.String(),
 			Version:    1,

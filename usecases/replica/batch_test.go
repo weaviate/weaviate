@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -64,9 +65,9 @@ func TestBatchInput(t *testing.T) {
 	assert.Equal(t, parts[1].Node, "N1")
 }
 
-func genInputs(node, shard string, updateTime int64, ids []strfmt.UUID) ([]*storobj.Object, []RepairResponse) {
+func genInputs(node, shard string, updateTime int64, ids []strfmt.UUID) ([]*storobj.Object, []types.RepairResponse) {
 	xs := make([]*storobj.Object, len(ids))
-	digestR := make([]RepairResponse, len(ids))
+	digestR := make([]types.RepairResponse, len(ids))
 	for i, id := range ids {
 		xs[i] = &storobj.Object{
 			Object: models.Object{
@@ -76,7 +77,7 @@ func genInputs(node, shard string, updateTime int64, ids []strfmt.UUID) ([]*stor
 			BelongsToShard: shard,
 			BelongsToNode:  node,
 		}
-		digestR[i] = RepairResponse{ID: ids[i].String(), UpdateTime: updateTime}
+		digestR[i] = types.RepairResponse{ID: ids[i].String(), UpdateTime: updateTime}
 	}
 	return xs, digestR
 }

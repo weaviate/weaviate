@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
@@ -154,14 +155,6 @@ func (r *DeleteBatchResponse) FirstError() error {
 	return nil
 }
 
-type RepairResponse struct {
-	ID         string // object id
-	Version    int64  // sender's current version of the object
-	UpdateTime int64  // sender's current update time
-	Err        string
-	Deleted    bool
-}
-
 func fromReplicas(xs []objects.Replica) []*storobj.Object {
 	rs := make([]*storobj.Object, len(xs))
 	for i := range xs {
@@ -177,7 +170,7 @@ type DigestObjectsInRangeReq struct {
 }
 
 type DigestObjectsInRangeResp struct {
-	Digests []RepairResponse `json:"digests,omitempty"`
+	Digests []types.RepairResponse `json:"digests,omitempty"`
 }
 
 // wClient is the client used to write to replicas
@@ -211,20 +204,20 @@ type rClient interface {
 
 	// OverwriteObjects conditionally updates existing objects.
 	OverwriteObjects(_ context.Context, host, index, shard string,
-		_ []*objects.VObject) ([]RepairResponse, error)
+		_ []*objects.VObject) ([]types.RepairResponse, error)
 
 	// DigestObjects finds a list of objects and returns a compact representation
 	// of a list of the objects. This is used by the replicator to optimize the
 	// number of bytes transferred over the network when fetching a replicated
 	// object
 	DigestObjects(ctx context.Context, host, index, shard string,
-		ids []strfmt.UUID, numRetries int) ([]RepairResponse, error)
+		ids []strfmt.UUID, numRetries int) ([]types.RepairResponse, error)
 
 	FindUUIDs(ctx context.Context, host, index, shard string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 
 	DigestObjectsInRange(ctx context.Context, host, index, shard string,
-		initialUUID, finalUUID strfmt.UUID, limit int) ([]RepairResponse, error)
+		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error)
 
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
@@ -256,7 +249,7 @@ func (fc finderClient) HashTreeLevel(ctx context.Context,
 func (fc finderClient) DigestReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID, numRetries int,
-) ([]RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	n := len(ids)
 	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids, numRetries)
 	if err == nil && len(rs) != n {
@@ -268,7 +261,7 @@ func (fc finderClient) DigestReads(ctx context.Context,
 func (fc finderClient) DigestObjectsInRange(ctx context.Context,
 	host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	return fc.cl.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
 }
 
@@ -289,7 +282,7 @@ func (fc finderClient) FullReads(ctx context.Context,
 func (fc finderClient) Overwrite(ctx context.Context,
 	host, index, shard string,
 	xs []*objects.VObject,
-) ([]RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	return fc.cl.OverwriteObjects(ctx, host, index, shard, xs)
 }
 

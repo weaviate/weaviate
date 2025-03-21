@@ -20,13 +20,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
@@ -74,7 +74,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 				Object()
 		}
 
-		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, replica.All)
+		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelAll)
 	})
 
 	node := 2
@@ -88,10 +88,10 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 
 		helper.SetupClient(host)
 
-		toDelete, err := helper.GetObjectCL(t, paragraphClass.Class, id, replica.One)
+		toDelete, err := helper.GetObjectCL(t, paragraphClass.Class, id, types.ConsistencyLevelOne)
 		require.NoError(t, err)
 
-		helper.DeleteObjectCL(t, toDelete.Class, toDelete.ID, replica.Quorum)
+		helper.DeleteObjectCL(t, toDelete.Class, toDelete.ID, types.ConsistencyLevelQuorum)
 	}
 
 	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
@@ -117,7 +117,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 
 	t.Run("assert node has objects already deleted", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", types.ConsistencyLevelOne)
 			assert.Len(ct, resp, 0)
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})

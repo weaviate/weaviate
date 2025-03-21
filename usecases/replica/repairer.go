@@ -53,7 +53,7 @@ type repairer struct {
 func (r *repairer) repairOne(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
-	votes []objTuple, st rState,
+	votes []objTuple,
 	contentIdx int,
 ) (_ *storobj.Object, err error) {
 	var (
@@ -196,7 +196,6 @@ func (r *repairer) repairExist(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 	votes []boolTuple,
-	st rState,
 ) (_ bool, err error) {
 	var (
 		deleted          bool
@@ -329,7 +328,6 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	shard string,
 	ids []strfmt.UUID,
 	votes []vote,
-	st rState,
 	contentIdx int,
 ) ([]*storobj.Object, error) {
 	var (

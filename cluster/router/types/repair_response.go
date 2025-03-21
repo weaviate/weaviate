@@ -9,19 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package fakes
+package types
 
-type MockAddressResolver struct {
-	f func(id string) string
-}
-
-func NewMockAddressResolver(f func(id string) string) *MockAddressResolver {
-	return &MockAddressResolver{f: f}
-}
-
-func (m *MockAddressResolver) NodeAddress(id string) string {
-	if m.f != nil {
-		return m.f(id)
-	}
-	return "127.0.0.1"
+type RepairResponse struct {
+	ID         string // object id
+	Version    int64  // sender's current version of the object
+	UpdateTime int64  // sender's current update time
+	Err        string
+	Deleted    bool
 }

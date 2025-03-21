@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
@@ -47,16 +48,16 @@ func (f *fakeRClient) FetchObjects(ctx context.Context, host, index,
 
 func (f *fakeRClient) OverwriteObjects(ctx context.Context, host, index, shard string,
 	xs []*objects.VObject,
-) ([]RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	args := f.Called(ctx, host, index, shard, xs)
-	return args.Get(0).([]RepairResponse), args.Error(1)
+	return args.Get(0).([]types.RepairResponse), args.Error(1)
 }
 
 func (f *fakeRClient) DigestObjects(ctx context.Context, host, index, shard string,
 	ids []strfmt.UUID, numRetries int,
-) ([]RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	args := f.Called(ctx, host, index, shard, ids)
-	return args.Get(0).([]RepairResponse), args.Error(1)
+	return args.Get(0).([]types.RepairResponse), args.Error(1)
 }
 
 func (f *fakeRClient) FindUUIDs(ctx context.Context, host, index, shard string,
@@ -68,9 +69,9 @@ func (f *fakeRClient) FindUUIDs(ctx context.Context, host, index, shard string,
 
 func (f *fakeRClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	args := f.Called(ctx, host, index, shard, initialUUID, finalUUID, limit)
-	return args.Get(0).([]RepairResponse), args.Error(1)
+	return args.Get(0).([]types.RepairResponse), args.Error(1)
 }
 
 func (f *fakeRClient) HashTreeLevel(ctx context.Context,

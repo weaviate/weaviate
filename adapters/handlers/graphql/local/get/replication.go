@@ -16,8 +16,8 @@ import (
 
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func replicationEnabled(class *models.Class) bool {
@@ -30,9 +30,9 @@ func consistencyLevelArgument(class *models.Class) *graphql.ArgumentConfig {
 		Type: graphql.NewEnum(graphql.EnumConfig{
 			Name: fmt.Sprintf("%sConsistencyLevelEnum", class.Class),
 			Values: graphql.EnumValueConfigMap{
-				string(replica.One):    &graphql.EnumValueConfig{},
-				string(replica.Quorum): &graphql.EnumValueConfig{},
-				string(replica.All):    &graphql.EnumValueConfig{},
+				string(types.ConsistencyLevelOne):    &graphql.EnumValueConfig{},
+				string(types.ConsistencyLevelQuorum): &graphql.EnumValueConfig{},
+				string(types.ConsistencyLevelAll):    &graphql.EnumValueConfig{},
 			},
 		}),
 	}
