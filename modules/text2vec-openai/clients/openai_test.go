@@ -46,6 +46,7 @@ func TestBuildUrlFn(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, "https://api.openai.com/v1/embeddings", url)
 	})
+
 	t.Run("buildUrlFn returns Azure Client", func(t *testing.T) {
 		config := ent.VectorizationConfig{
 			Type:         "",
@@ -108,6 +109,70 @@ func TestBuildUrlFn(t *testing.T) {
 		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://foobar.some.proxy/v1/embeddings", url)
+	})
+
+	t.Run("buildUrlFn handles third-party provider with custom path", func(t *testing.T) {
+		config := ent.VectorizationConfig{
+			Type:         "",
+			Model:        "",
+			ModelVersion: "",
+			ResourceName: "",
+			DeploymentID: "",
+			ApiVersion:   "",
+			BaseURL:      "https://ark.cn-beijing.volces.com/api/v3",
+			IsAzure:      false,
+		}
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure)
+		assert.Nil(t, err)
+		assert.Equal(t, "https://ark.cn-beijing.volces.com/api/v3/embeddings", url)
+	})
+
+	t.Run("buildUrlFn handles third-party provider with path in baseURL", func(t *testing.T) {
+		config := ent.VectorizationConfig{
+			Type:         "",
+			Model:        "",
+			ModelVersion: "",
+			ResourceName: "",
+			DeploymentID: "",
+			ApiVersion:   "",
+			BaseURL:      "https://ark.cn-beijing.volces.com/api/v3",
+			IsAzure:      false,
+		}
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure)
+		assert.Nil(t, err)
+		assert.Equal(t, "https://ark.cn-beijing.volces.com/api/v3/embeddings", url)
+	})
+
+	t.Run("buildUrlFn handles third-party provider without path in baseURL", func(t *testing.T) {
+		config := ent.VectorizationConfig{
+			Type:         "",
+			Model:        "",
+			ModelVersion: "",
+			ResourceName: "",
+			DeploymentID: "",
+			ApiVersion:   "",
+			BaseURL:      "https://custom-api.com",
+			IsAzure:      false,
+		}
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure)
+		assert.Nil(t, err)
+		assert.Equal(t, "https://custom-api.com/v1/embeddings", url)
+	})
+
+	t.Run("buildUrlFn handles invalid URL", func(t *testing.T) {
+		config := ent.VectorizationConfig{
+			Type:         "",
+			Model:        "",
+			ModelVersion: "",
+			ResourceName: "",
+			DeploymentID: "",
+			ApiVersion:   "",
+			BaseURL:      "not a valid url",
+			IsAzure:      false,
+		}
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure)
+		assert.NotNil(t, err)
+		assert.Empty(t, url)
 	})
 }
 
