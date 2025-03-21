@@ -13,6 +13,8 @@ package config
 
 import (
 	"bytes"
+	"errors"
+	"io"
 
 	"gopkg.in/yaml.v2"
 )
@@ -27,7 +29,7 @@ type WeaviateRuntimeConfig struct {
 	// AutoSchemaEnabled marking it as pointer type to differentiate default values.
 	AutoSchemaEnabled *bool `json:"auto_schema_enabled" yaml:"auto_schema_enabled"`
 
-	AsyncReplicationDisabled bool `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	AsyncReplicationDisabled *bool `json:"async_replication_disabled" yaml:"async_replication_disabled"`
 
 	// config manager that keep the runtime config up to date
 	cm ConfigManager
@@ -55,7 +57,7 @@ func (rc *WeaviateRuntimeConfig) GetAutoSchemaEnabled() *bool {
 
 func (rc *WeaviateRuntimeConfig) GetAsyncReplicationDisabled() *bool {
 	if cfg, err := rc.cm.Config(); err == nil {
-		return &cfg.AsyncReplicationDisabled
+		return cfg.AsyncReplicationDisabled
 	}
 	return nil
 }
@@ -65,7 +67,10 @@ func ParseYaml(buf []byte) (*WeaviateRuntimeConfig, error) {
 
 	dec := yaml.NewDecoder(bytes.NewReader(buf))
 	dec.SetStrict(true)
-	if err := dec.Decode(&conf); err != nil {
+
+	// Am empty runtime yaml file is still a valid file. So treating io.EOF as
+	// non-error case returning default values of conf.
+	if err := dec.Decode(&conf); err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	return &conf, nil
