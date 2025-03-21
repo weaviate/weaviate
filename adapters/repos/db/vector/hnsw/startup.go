@@ -37,6 +37,7 @@ func (h *hnsw) init(cfg Config) error {
 	if err := h.restoreFromDisk(); err != nil {
 		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
+
 	// init commit logger for future writes
 	cl, err := cfg.MakeCommitLoggerThunk()
 	if err != nil {
@@ -129,12 +130,6 @@ func (h *hnsw) restoreFromDisk() error {
 	h.tombstones = state.Tombstones
 	h.tombstoneLock.Unlock()
 
-	if h.multivector.Load() {
-		if err := h.restoreDocMappings(); err != nil {
-			return errors.Wrapf(err, "restore doc mappings ")
-		}
-	}
-
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
 		h.cache.Drop()
@@ -209,9 +204,22 @@ func (h *hnsw) restoreFromDisk() error {
 		}
 		// make sure the compressed cache fits the current size
 		h.compressor.GrowCache(uint64(h.nodes.Len()))
+
+		if h.multivector.Load() {
+			if err := h.restoreDocMappings(false); err != nil {
+				return errors.Wrapf(err, "restore doc mappings ")
+			}
+		}
+
 	} else if !h.compressed.Load() {
 		// make sure the cache fits the current size
 		h.cache.Grow(uint64(h.nodes.Len()))
+
+		if h.multivector.Load() {
+			if err := h.restoreDocMappings(true); err != nil {
+				return errors.Wrapf(err, "restore doc mappings ")
+			}
+		}
 
 		if h.nodes.Len() > 0 {
 			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
@@ -228,7 +236,7 @@ func (h *hnsw) restoreFromDisk() error {
 	return nil
 }
 
-func (h *hnsw) restoreDocMappings() error {
+func (h *hnsw) restoreDocMappings(populateKeys bool) error {
 	prevDocID := uint64(0)
 	relativeID := uint64(0)
 	maxNodeID := uint64(0)
@@ -245,7 +253,7 @@ func (h *hnsw) restoreDocMappings() error {
 			relativeID = 0
 			prevDocID = docID
 		}
-		if !h.compressed.Load() {
+		if populateKeys {
 			h.cache.SetKeys(node.ID(), docID, relativeID)
 		}
 		h.Lock()
