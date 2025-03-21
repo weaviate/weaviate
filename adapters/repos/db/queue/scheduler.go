@@ -441,8 +441,9 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 
 				q.m.Lock()
 				counter--
-				if counter == 0 {
-					q.m.Unlock()
+				c := counter
+				q.m.Unlock()
+				if c == 0 {
 					// It is important to unlock the queue here
 					// to avoid a deadlock when the last worker calls Done.
 					batch.Done()
@@ -451,8 +452,6 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 						WithField("queue_size", q.q.Size()).
 						WithField("count", taskCount).
 						Debug("tasks processed")
-				} else {
-					q.m.Unlock()
 				}
 			},
 			onCanceled: func() {
