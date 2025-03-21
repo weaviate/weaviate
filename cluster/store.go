@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/dynusers"
-	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
@@ -37,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -150,7 +150,7 @@ type Config struct {
 	DynamicUserController apikey.DynamicUser
 
 	// ReplicaCopier copies shard replicas between nodes
-	ReplicaCopier *copier.Copier
+	ReplicaCopier replicationTypes.ReplicaCopier
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
