@@ -130,6 +130,12 @@ func (h *hnsw) restoreFromDisk() error {
 	h.tombstones = state.Tombstones
 	h.tombstoneLock.Unlock()
 
+	if h.multivector.Load() {
+		if err := h.restoreDocMappings(); err != nil {
+			return errors.Wrapf(err, "restore doc mappings")
+		}
+	}
+
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
 		h.cache.Drop()
@@ -205,20 +211,16 @@ func (h *hnsw) restoreFromDisk() error {
 		// make sure the compressed cache fits the current size
 		h.compressor.GrowCache(uint64(h.nodes.Len()))
 
-		if h.multivector.Load() {
-			if err := h.restoreDocMappings(false); err != nil {
-				return errors.Wrapf(err, "restore doc mappings ")
-			}
-		}
+		/*if h.multivector.Load() {
+			h.populateKeys()
+		}*/
 
 	} else if !h.compressed.Load() {
 		// make sure the cache fits the current size
 		h.cache.Grow(uint64(h.nodes.Len()))
 
 		if h.multivector.Load() {
-			if err := h.restoreDocMappings(true); err != nil {
-				return errors.Wrapf(err, "restore doc mappings ")
-			}
+			h.populateKeys()
 		}
 
 		if h.nodes.Len() > 0 {
@@ -236,7 +238,7 @@ func (h *hnsw) restoreFromDisk() error {
 	return nil
 }
 
-func (h *hnsw) restoreDocMappings(populateKeys bool) error {
+func (h *hnsw) restoreDocMappings() error {
 	prevDocID := uint64(0)
 	relativeID := uint64(0)
 	maxNodeID := uint64(0)
@@ -253,9 +255,9 @@ func (h *hnsw) restoreDocMappings(populateKeys bool) error {
 			relativeID = 0
 			prevDocID = docID
 		}
-		if populateKeys {
+		/*if !h.compressed.Load() {
 			h.cache.SetKeys(node.ID(), docID, relativeID)
-		}
+		}*/
 		h.Lock()
 		h.docIDVectors[docID] = append(h.docIDVectors[docID], node.ID())
 		h.Unlock()
@@ -278,6 +280,14 @@ func (h *hnsw) restoreDocMappings(populateKeys bool) error {
 	h.maxDocID = maxDocID
 	h.Unlock()
 	return nil
+}
+
+func (h *hnsw) populateKeys() {
+	for docID, nodeIDs := range h.docIDVectors {
+		for relativeID, nodeID := range nodeIDs {
+			h.cache.SetKeys(nodeID, docID, uint64(relativeID))
+		}
+	}
 }
 
 func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
