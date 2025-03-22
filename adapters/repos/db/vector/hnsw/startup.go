@@ -211,10 +211,6 @@ func (h *hnsw) restoreFromDisk() error {
 		// make sure the compressed cache fits the current size
 		h.compressor.GrowCache(uint64(h.nodes.Len()))
 
-		/*if h.multivector.Load() {
-			h.populateKeys()
-		}*/
-
 	} else if !h.compressed.Load() {
 		// make sure the cache fits the current size
 		h.cache.Grow(uint64(h.nodes.Len()))
@@ -255,9 +251,6 @@ func (h *hnsw) restoreDocMappings() error {
 			relativeID = 0
 			prevDocID = docID
 		}
-		/*if !h.compressed.Load() {
-			h.cache.SetKeys(node.ID(), docID, relativeID)
-		}*/
 		h.Lock()
 		h.docIDVectors[docID] = append(h.docIDVectors[docID], node.ID())
 		h.Unlock()
