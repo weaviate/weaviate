@@ -89,10 +89,11 @@ func TestMultiVectorHnsw(t *testing.T) {
 				return multiVectors[id], nil
 			},
 		}, ent.UserConfig{
-			MaxConnections: maxConnections,
-			EFConstruction: efConstruction,
-			EF:             ef,
-			Multivector:    ent.MultivectorConfig{Enabled: true},
+			MaxConnections:        maxConnections,
+			EFConstruction:        efConstruction,
+			EF:                    ef,
+			Multivector:           ent.MultivectorConfig{Enabled: true},
+			VectorCacheMaxObjects: 1e12,
 		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		vectorIndex = index
