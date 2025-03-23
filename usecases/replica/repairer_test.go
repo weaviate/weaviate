@@ -40,7 +40,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 	t.Run("GetContentFromDirectRead", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -69,7 +69,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 	t.Run("ChangedObject", func(t *testing.T) {
 		vectors := map[string][]float32{"test": {1, 2, 3}}
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: objectWithVectors(id, 3, vectors)}
@@ -103,7 +103,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 	t.Run("GetContentFromIndirectRead", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item2     = objects.Replica{ID: id, Object: object(id, 2)}
@@ -132,7 +132,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 	t.Run("OverwriteError", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -161,7 +161,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 	t.Run("CannotGetMostRecentObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item1     = objects.Replica{ID: id, Object: object(id, 1)}
@@ -182,7 +182,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 	})
 	t.Run("MostRecentObjectChanged", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item1     = objects.Replica{ID: id, Object: object(id, 1)}
@@ -206,7 +206,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 	t.Run("CreateMissingObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -230,7 +230,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 	})
 	t.Run("ConflictDeletedObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: nil, Deleted: true}
@@ -248,7 +248,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 	})
 	t.Run("NoConflictDeletedObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: nil, LastUpdateTimeUnixMilli: 3, Deleted: true}
@@ -279,7 +279,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 
 	t.Run("ChangedObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -319,7 +319,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item3     = objects.Replica{ID: id, Object: object(id, 3)}
@@ -349,7 +349,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 
 	t.Run("OverwriteError", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -385,7 +385,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 
 	t.Run("CannotGetMostRecentObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			digestR1  = []types.RepairResponse{{ID: id.String(), UpdateTime: 1}}
@@ -409,7 +409,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 	})
 	t.Run("MostRecentObjectChanged", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item1     = objects.Replica{ID: id, Object: object(id, 1)}
@@ -434,7 +434,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 
 	t.Run("CreateMissingObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -463,7 +463,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 
 	t.Run("ConflictDeletedObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 
@@ -497,7 +497,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("ChangedObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -536,7 +536,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes[:2])
+			f         = newFakeFactory(t, "C1", shard, nodes[:2])
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item3     = objects.Replica{ID: id, Object: object(id, 3)}
@@ -565,7 +565,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("OverwriteError", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes[:2])
+			f         = newFakeFactory(t, "C1", shard, nodes[:2])
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -599,7 +599,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("CannotGetMostRecentObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			digestR1  = []types.RepairResponse{{ID: id.String(), UpdateTime: 1}}
@@ -622,7 +622,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 	})
 	t.Run("MostRecentObjectChanged", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item1     = objects.Replica{ID: id, Object: object(id, 1)}
@@ -647,7 +647,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("CreateMissingObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes[:2])
+			f         = newFakeFactory(t, "C1", shard, nodes[:2])
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -674,7 +674,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("ConflictDeletedObject", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes[:2])
+			f         = newFakeFactory(t, "C1", shard, nodes[:2])
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 
@@ -702,7 +702,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 	)
 	t.Run("GetMostRecentContent1", func(t *testing.T) {
 		var (
-			f       = newFakeFactory("C1", shard, nodes)
+			f       = newFakeFactory(t, "C1", shard, nodes)
 			finder  = f.newFinder("A")
 			directR = []*storobj.Object{
 				objectEx(ids[0], 4, shard, "A"),
@@ -789,7 +789,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 	t.Run("GetMostRecentContent2", func(t *testing.T) {
 		var (
-			f      = newFakeFactory(cls, shard, nodes)
+			f      = newFakeFactory(t, cls, shard, nodes)
 			finder = f.newFinder("A")
 			ids    = []strfmt.UUID{"1", "2", "3", "4", "5"}
 			result = []*storobj.Object{
@@ -977,7 +977,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 	t.Run("OverwriteChangedObject", func(t *testing.T) {
 		var (
-			f      = newFakeFactory("C1", shard, nodes)
+			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder("A")
 			xs     = []*storobj.Object{
 				objectEx(ids[0], 4, shard, "A"),
@@ -1074,7 +1074,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 	t.Run("OverwriteError", func(t *testing.T) {
 		var (
-			f      = newFakeFactory("C1", shard, nodes)
+			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder("A")
 			ids    = []strfmt.UUID{"1", "2", "3"}
 			xs     = []*storobj.Object{
@@ -1167,7 +1167,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 	t.Run("DirectReadEmptyResponse", func(t *testing.T) {
 		var (
-			f      = newFakeFactory("C1", shard, nodes)
+			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder("A")
 			ids    = []strfmt.UUID{"1", "2", "3"}
 			xs     = []*storobj.Object{
@@ -1236,7 +1236,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 	t.Run("DirectReadEUnexpectedResponse", func(t *testing.T) {
 		var (
-			f      = newFakeFactory("C1", shard, nodes)
+			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder("A")
 			ids    = []strfmt.UUID{"1", "2", "3"}
 			xs     = []*storobj.Object{
@@ -1317,7 +1317,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 	t.Run("OrphanObject", func(t *testing.T) {
 		var (
-			f      = newFakeFactory("C1", shard, nodes)
+			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder("A")
 			ids    = []strfmt.UUID{"1", "2", "3"}
 			xs     = []*storobj.Object{
@@ -1400,7 +1400,7 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 		shard  = "SH1"
 		nodes  = []string{"A", "B", "C"}
 		ctx    = context.Background()
-		f      = newFakeFactory("C1", shard, nodes)
+		f      = newFakeFactory(t, "C1", shard, nodes)
 		finder = f.newFinder("A")
 		xs     = []*storobj.Object{
 			objectEx(ids[0], 4, shard, "A"),
