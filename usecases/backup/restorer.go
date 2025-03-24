@@ -33,10 +33,11 @@ import (
 )
 
 type restorer struct {
-	node     string // node name
-	logger   logrus.FieldLogger
-	sourcer  Sourcer
-	backends BackupBackendProvider
+	node        string // node name
+	logger      logrus.FieldLogger
+	sourcer     Sourcer
+	rbacSourcer SourcerNonClass
+	backends    BackupBackendProvider
 	shardSyncChan
 
 	// TODO: keeping status in memory after restore has been done
@@ -47,13 +48,14 @@ type restorer struct {
 }
 
 func newRestorer(node string, logger logrus.FieldLogger,
-	sourcer Sourcer,
+	sourcer Sourcer, rbacSourcer SourcerNonClass,
 	backends BackupBackendProvider,
 ) *restorer {
 	return &restorer{
 		node:          node,
 		logger:        logger,
 		sourcer:       sourcer,
+		rbacSourcer:   rbacSourcer,
 		backends:      backends,
 		shardSyncChan: shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
@@ -130,9 +132,16 @@ func (r *restorer) restore(
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath string,
-) (err error) {
+) error {
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
+
+	if len(desc.RbacBackups) > 0 {
+		if err := r.rbacSourcer.WriteDescriptors(ctx, desc.RbacBackups); err != nil {
+			return fmt.Errorf("restore rbac: %w", err)
+		}
+	}
+
 	for _, cdesc := range desc.Classes {
 		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)

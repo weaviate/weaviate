@@ -26,20 +26,22 @@ import (
 )
 
 type backupper struct {
-	node     string
-	logger   logrus.FieldLogger
-	sourcer  Sourcer
-	backends BackupBackendProvider
+	node        string
+	logger      logrus.FieldLogger
+	sourcer     Sourcer
+	rbacSourcer SourcerNonClass
+	backends    BackupBackendProvider
 	// shardCoordinationChan is sync and coordinate operations
 	shardSyncChan
 }
 
-func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, backends BackupBackendProvider,
+func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, rbacSourcer SourcerNonClass, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
 		node:          node,
 		logger:        logger,
 		sourcer:       sourcer,
+		rbacSourcer:   rbacSourcer,
 		backends:      backends,
 		shardSyncChan: shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
@@ -109,7 +111,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
 		return reqState{}, fmt.Errorf("cannot get status while backing up: %w: %q: %w", errMetaNotFound, path, err)
 	}
-	if err != nil || meta.Error != "" {
+	if meta.Error != "" {
 		return reqState{}, errors.New(meta.Error)
 	}
 
@@ -153,7 +155,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 
 		}
-		provider := newUploader(b.sourcer, store, req.ID, b.lastOp.set, b.logger).
+		provider := newUploader(b.sourcer, b.rbacSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
 		result := backup.BackupDescriptor{
