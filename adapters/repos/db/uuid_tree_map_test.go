@@ -24,10 +24,12 @@ import (
 )
 
 const (
-	expectedLeafIdErrMsg = "expected leaf to be %v, got %v"
-	expectedStartErrMsg  = "expected start to be %v, got %v"
-	expectedEndErrMsg    = "expected end to be %v, got %v"
-	unexpectedLeafErrMsg = "unexpected error for leaf %d: %v"
+	expectedLeafIdErrMsg       = "expected leaf to be %v, got %v"
+	expectedStartErrMsg        = "expected start to be %v, got %v"
+	expectedEndErrMsg          = "expected end to be %v, got %v"
+	unexpectedLeafErrMsg       = "unexpected error for leaf %d: %v"
+	expectedLeafRangeErrMsg    = "expected leaf %v to be in range %v"
+	notExpectedLeafToBeInRange = "expected leaf %v not to be in range %v"
 )
 
 // incrementUUID returns the next UUID in lexicographic (big-endian) order.
@@ -52,6 +54,33 @@ func incrementUUID(u UUID) UUID {
 			break
 		}
 		// If overflow (was 0xFF), continue carry to next more significant byte
+	}
+
+	return res
+}
+
+// decrementUUID returns the previous UUID in lexicographic (big-endian) order.
+// It treats the UUID as a 128-bit unsigned integer and subtracts 1 from it.
+//
+// This is equivalent to decrementing a big-endian 16-byte integer, propagating borrow
+// from the least significant byte (end of the array) to the most significant byte
+// (beginning of the array).
+//
+// Example:
+//
+//	Input:  UUID{0x00, 0x00, ..., 0x02, 0x00}
+//	Output: UUID{0x00, 0x00, ..., 0x01, 0xFF}
+func decrementUUID(u UUID) UUID {
+	res := u
+
+	// Iterate from least significant byte (LSB) to most significant byte (MSB)
+	// because UUIDs are big-endian: most significant byte is at index 0
+	for i := uuidLen - 1; i >= 0; i-- {
+		if res[i] != 0 {
+			res[i]--
+			break
+		}
+		res[i] = 0xFF
 	}
 
 	return res
@@ -250,6 +279,87 @@ func TestUUIDRangeLeafOutOfBounds(t *testing.T) {
 	m := NewUUIDTreeMap(2)
 	_, err := m.Range(4)
 	require.Errorf(t, err, "expected error for leaf 4 to be in range %v", m)
+}
+
+func TestUUIDTreeMapLeafInRange(t *testing.T) {
+	m := NewUUIDTreeMap(3)
+
+	for leaf := LeafID(0); leaf < 8; leaf++ {
+		r, err := m.Range(leaf)
+		require.NoError(t, err)
+		require.Equal(t, leaf, r.Leaf)
+
+		require.Equal(t, leaf, m.LeafID(r.Start), expectedLeafRangeErrMsg, leaf, r)
+		require.Equal(t, leaf, m.LeafID(r.End), expectedLeafRangeErrMsg, leaf, r)
+
+		afterStart := incrementUUID(r.Start)
+		require.Equal(t, leaf, m.LeafID(afterStart), expectedLeafRangeErrMsg, leaf, afterStart)
+
+		beforeEnd := decrementUUID(r.End)
+		require.Equal(t, leaf, m.LeafID(beforeEnd), expectedLeafRangeErrMsg, leaf, beforeEnd)
+
+		beforeStart := decrementUUID(r.Start)
+		require.NotEqualf(t, leaf, m.LeafID(beforeStart), notExpectedLeafToBeInRange, leaf, beforeStart)
+
+		afterEnd := incrementUUID(r.End)
+		require.NotEqualf(t, leaf, m.LeafID(afterEnd), notExpectedLeafToBeInRange, leaf, afterEnd)
+	}
+}
+
+// randInt returns a cryptographically secure random int in range [min, max]
+func randInt(min, max int) (int, error) {
+	if min > max {
+		return 0, fmt.Errorf("invalid range: min %v max %v", min, max)
+	}
+	var b [8]byte
+	_, err := rand.Read(b[:])
+	if err != nil {
+		return 0, fmt.Errorf("failed to generate random int: %w", err)
+	}
+	n := binary.BigEndian.Uint64(b[:])
+	return int(n%(uint64(max-min+1))) + min, nil
+}
+
+func TestUUIDTreeMapLeafAssignmentFuzz(t *testing.T) {
+	treeHeight, err := randInt(5, 16)
+	require.NoError(t, err, "failed to generate random tree height")
+
+	numUUIDs, err := randInt(1000, 2000)
+	require.NoError(t, err, "failed to generate random UUIDs count")
+
+	defer func() {
+		// Log in case of failure
+		if t.Failed() {
+			t.Logf("test failed with treeHeight: %d, numUUIDs: %d", treeHeight, numUUIDs)
+		}
+	}()
+
+	leafCount := 1 << treeHeight
+	m := NewUUIDTreeMap(treeHeight)
+
+	ranges := make(map[LeafID]UUIDRange, leafCount)
+	for i := LeafID(0); i < LeafID(leafCount); i++ {
+		r, err := m.Range(i)
+		require.NoErrorf(t, err, "could not get range for leaf %d", i)
+		ranges[i] = r
+	}
+
+	randomUUIDs := generateRandomUUIDs(numUUIDs)
+	for _, randomUUID := range randomUUIDs {
+		leaf := m.LeafID(randomUUID)
+		require.Contains(t, ranges, leaf, "missing range for leaf %v", leaf)
+
+		for otherLeaf, otherRange := range ranges {
+			contained := otherRange.Contains(randomUUID)
+			if otherLeaf == leaf {
+				require.Truef(t, contained,
+					"UUID %v should be contained in its correct range for leaf %v", randomUUID, leaf)
+			} else {
+				require.Falsef(t, contained,
+					"UUID %v should NOT be contained in range of leaf %v (expected leaf: %v)", randomUUID, otherLeaf, leaf)
+			}
+		}
+	}
 }
 
 // generateRandomUUIDs generates n random UUIDs

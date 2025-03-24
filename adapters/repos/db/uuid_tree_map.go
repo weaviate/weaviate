@@ -144,6 +144,11 @@ func (m *UUIDTreeMap) rangeEnd(leaf LeafID) UUID {
 	return uuidBytes
 }
 
+func (m *UUIDTreeMap) LeafID(uuid UUID) LeafID {
+	prefix := binary.BigEndian.Uint64(uuid[:8])
+	return LeafID(prefix >> (64 - m.treeHeight))
+}
+
 func (m *UUIDTreeMap) prefix(leaf LeafID) uint64 {
 	return leaf.Uint64() << (64 - m.treeHeight)
 }
