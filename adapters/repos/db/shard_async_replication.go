@@ -306,9 +306,9 @@ func (s *Shard) initAsyncReplication() error {
 		return err
 	}
 
-	err := s.store.PauseCompaction(ctx)
+	err = s.store.PauseCompaction(ctx)
 	if err != nil {
-			return err
+		return err
 	}
 	defer s.store.ResumeCompaction(ctx)
 
@@ -318,7 +318,7 @@ func (s *Shard) initAsyncReplication() error {
 		objCount := 0
 		prevProgressLogging := time.Now()
 
-		err = bucket.ApplyToObjectDigests(ctx, func(object *storobj.Object) error {
+		err := bucket.ApplyToObjectDigests(ctx, func(object *storobj.Object) error {
 			if time.Since(prevProgressLogging) >= config.loggingFrequency {
 				s.index.logger.
 					WithField("action", "async_replication").
