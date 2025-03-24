@@ -154,37 +154,24 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 		return errs
 	}
 
-	wg := &sync.WaitGroup{}
-	concurrencyLimit := make(chan struct{}, _NUMCPU)
+	eg := enterrors.NewErrorGroupWrapper(ob.shard.Index().logger)
+	eg.SetLimit(_NUMCPU)
 
 	for j, object := range batch {
-		wg.Add(1)
 		object := object
 		index := j
-		f := func() {
-			defer wg.Done()
-
-			// Acquire a semaphore to control the concurrency. Otherwise we would
-			// spawn one routine per object here. With very large batch sizes (e.g.
-			// 1000 or 10000+), this isn't helpuful and just leads to more lock
-			// contention down the line – especially when there's lots of text to be
-			// indexed in the inverted index.
-			concurrencyLimit <- struct{}{}
-			defer func() {
-				// Release the semaphore when the goroutine is done.
-				<-concurrencyLimit
-			}()
-
+		f := func() error {
 			if err := ob.storeObjectOfBatchInLSM(ctx, index, object); err != nil {
 				errLock.Lock()
 				errs[index] = err
 				errLock.Unlock()
 			}
+			return nil
 		}
-		enterrors.GoWrapper(f, ob.shard.Index().logger)
+		eg.Go(f)
 
 	}
-	wg.Wait()
+	_ = eg.Wait() // no errors can happen here, this is just for concurrency control
 
 	return errs
 }
