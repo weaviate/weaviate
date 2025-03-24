@@ -175,19 +175,29 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 ) middleware.Responder {
 	bucket := ""
 	path := ""
+	roleOption := models.RestoreConfigRolesOptionsNoRestore
+	userOption := models.RestoreConfigUsersOptionsNoRestore
 	if params.Body.Config != nil {
 		bucket = params.Body.Config.Bucket
 		path = params.Body.Config.Path
+		if params.Body.Config.RolesOptions != nil {
+			roleOption = *params.Body.Config.RolesOptions
+		}
+		if params.Body.Config.UsersOptions != nil {
+			userOption = *params.Body.Config.UsersOptions
+		}
 	}
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
-		ID:          params.ID,
-		Backend:     params.Backend,
-		Include:     params.Body.Include,
-		Exclude:     params.Body.Exclude,
-		NodeMapping: params.Body.NodeMapping,
-		Compression: compressionFromRCfg(params.Body.Config),
-		Bucket:      bucket,
-		Path:        path,
+		ID:                params.ID,
+		Backend:           params.Backend,
+		Include:           params.Body.Include,
+		Exclude:           params.Body.Exclude,
+		NodeMapping:       params.Body.NodeMapping,
+		Compression:       compressionFromRCfg(params.Body.Config),
+		Bucket:            bucket,
+		Path:              path,
+		RbacRestoreOption: roleOption,
+		UserRestoreOption: userOption,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)

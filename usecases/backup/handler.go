@@ -144,6 +144,9 @@ type BackupRequest struct {
 
 	// Override path (optional) - replaces environement variable for one call
 	Path string
+
+	RbacRestoreOption string
+	UserRestoreOption string
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
