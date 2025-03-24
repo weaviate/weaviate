@@ -71,7 +71,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey)
+		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey, true)
 		require.Len(t, RolesDbUser, 1)
 		require.Equal(t, testRoleName, *RolesDbUser[0].Name)
 	})
@@ -85,7 +85,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 		helper.AssignRoleToUserOIDC(t, adminKey, testRoleName, customUser)
 
-		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey)
+		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey, true)
 		require.Len(t, RolesDbUser, 1)
 		require.Equal(t, testRoleName, *RolesDbUser[0].Name)
 
@@ -107,7 +107,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
-		resp, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser), clientAuth)
+		resp, err := helper.Client(t).Authz.GetRolesForUserDeprecated(authz.NewGetRolesForUserDeprecatedParams().WithID(customUser), clientAuth)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)
@@ -120,7 +120,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 
 		// no duplicates after also assigning to OIDC
 		helper.AssignRoleToUserOIDC(t, adminKey, testRoleName, customUser)
-		resp, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser), clientAuth)
+		resp, err = helper.Client(t).Authz.GetRolesForUserDeprecated(authz.NewGetRolesForUserDeprecatedParams().WithID(customUser), clientAuth)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)
@@ -133,7 +133,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 
 		// remove from DB user, OIDC still has role
 		helper.RevokeRoleFromUser(t, adminKey, testRoleName, customUser)
-		resp, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser), clientAuth)
+		resp, err = helper.Client(t).Authz.GetRolesForUserDeprecated(authz.NewGetRolesForUserDeprecatedParams().WithID(customUser), clientAuth)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)
