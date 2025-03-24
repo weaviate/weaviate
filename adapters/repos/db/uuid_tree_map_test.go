@@ -23,6 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const expectedVsActualErrMsg = "expected start to be %v, got %v"
+
 // incrementUUID returns the next UUID in lexicographic (big-endian) order.
 // It treats the UUID as a 128-bit unsigned integer and adds 1 to it.
 //
@@ -85,13 +87,13 @@ func TestUUIDTreeMapRangeHeight0(t *testing.T) {
 	}
 
 	expectedStart := UUID{}
-	require.Equal(t, expectedStart, r.Start, "expected start to be %v, got %v", expectedStart, r.Start)
+	require.Equal(t, expectedStart, r.Start, expectedVsActualErrMsg, expectedStart, r.Start)
 
 	expectedEnd := UUID{}
 	for i := range expectedEnd {
 		expectedEnd[i] = 0xFF
 	}
-	require.Equal(t, expectedEnd, r.End, "expected end to be %v, got %v", expectedEnd, r.End)
+	require.Equal(t, expectedEnd, r.End, expectedVsActualErrMsg, expectedEnd, r.End)
 }
 
 func TestUUIDTreeMapRangeHeight1(t *testing.T) {
@@ -101,14 +103,14 @@ func TestUUIDTreeMapRangeHeight1(t *testing.T) {
 	// Leaf 0 - first bit must be 0
 	r0, _ := m.Range(0)
 	expected = byte(0x00)
-	require.Equal(t, expected, r0.Start[0]&0x80, "expected start to be %v, got %v", expected, r0.Start[0]&0x80)
-	require.Equal(t, expected, r0.End[0]&0x80, "expected end to be %v, got %v", expected, r0.End[0]&0x80)
+	require.Equal(t, expected, r0.Start[0]&0x80, expectedVsActualErrMsg, expected, r0.Start[0]&0x80)
+	require.Equal(t, expected, r0.End[0]&0x80, expectedVsActualErrMsg, expected, r0.End[0]&0x80)
 
 	// Leaf 1 - first bit must be 1
 	r1, _ := m.Range(1)
 	expected = byte(0x80)
-	require.Equal(t, expected, r1.Start[0]&0x80, "expected start to be %v, got %v", expected, r1.Start[0]&0x80)
-	require.Equal(t, expected, r1.End[0]&0x80, "expected end to be %v, got %v", expected, r1.End[0]&0x80)
+	require.Equal(t, expected, r1.Start[0]&0x80, expectedVsActualErrMsg, expected, r1.Start[0]&0x80)
+	require.Equal(t, expected, r1.End[0]&0x80, expectedVsActualErrMsg, expected, r1.End[0]&0x80)
 }
 
 func TestUUIDTreeMapRangeHeight64(t *testing.T) {
