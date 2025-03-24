@@ -138,14 +138,14 @@ func (r *restorer) restoreAll(ctx context.Context,
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 
-	if len(desc.RbacBackups) > 0 && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
-		if err := r.rbacSourcer.WriteDescriptors(ctx, desc.RbacBackups); err != nil {
+	if len(desc.DynUserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
+		if err := r.dynUserSourcer.WriteDescriptors(ctx, desc.DynUserBackups); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
 		}
 	}
 
-	if len(desc.DynUserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
-		if err := r.dynUserSourcer.WriteDescriptors(ctx, desc.DynUserBackups); err != nil {
+	if len(desc.RbacBackups) > 0 && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
+		if err := r.rbacSourcer.WriteDescriptors(ctx, desc.RbacBackups); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
 		}
 	}
