@@ -691,7 +691,7 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewHandler(logger, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{})
+	return NewHandler(logger, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{})
 }
 
 type fakeRbacBackupWrapper struct{}

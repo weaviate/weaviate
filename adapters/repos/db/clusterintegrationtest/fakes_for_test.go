@@ -102,7 +102,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
 	n.backupManager = ubak.NewHandler(
-		logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{},
+		logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{},
 	)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
