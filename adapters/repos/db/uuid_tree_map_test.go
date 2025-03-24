@@ -323,13 +323,13 @@ func TestUUIDTreeMapLeafAssignmentFuzz(t *testing.T) {
 	treeHeight, err := randInt(5, 16)
 	require.NoError(t, err, "failed to generate random tree height")
 
-	numUUIDs, err := randInt(1000, 2000)
+	uuidCount, err := randInt(1000, 2000)
 	require.NoError(t, err, "failed to generate random UUIDs count")
 
 	defer func() {
 		// Log in case of failure
 		if t.Failed() {
-			t.Logf("test failed with treeHeight: %d, numUUIDs: %d", treeHeight, numUUIDs)
+			t.Logf("test failed with treeHeight: %d, uuidCount: %d", treeHeight, uuidCount)
 		}
 	}()
 
@@ -343,7 +343,7 @@ func TestUUIDTreeMapLeafAssignmentFuzz(t *testing.T) {
 		ranges[i] = r
 	}
 
-	randomUUIDs := generateRandomUUIDs(numUUIDs)
+	randomUUIDs := generateRandomUUIDs(uuidCount)
 	for _, randomUUID := range randomUUIDs {
 		leaf := m.LeafID(randomUUID)
 		require.Contains(t, ranges, leaf, "missing range for leaf %v", leaf)
