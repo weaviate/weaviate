@@ -153,10 +153,10 @@ func (m *UUIDTreeMap) LeafID(uuid UUID) LeafID {
 }
 
 func (m *UUIDTreeMap) prefix(leaf LeafID) uint64 {
-	return leaf.Uint64() << (maxTreeHeight - m.treeHeight)
+	return leaf.uint64() << (maxTreeHeight - m.treeHeight)
 }
 
-func (id LeafID) Uint64() uint64 {
+func (id LeafID) uint64() uint64 {
 	return uint64(id)
 }
 
@@ -185,7 +185,7 @@ func (r UUIDRange) String() string {
 
 // String returns a LeafID string representation
 func (id LeafID) String() string {
-	return fmt.Sprintf("%d", id.Uint64())
+	return fmt.Sprintf("%d", id.uint64())
 }
 
 // String returns a standard UUID string representation of the 128-bit UUID.
