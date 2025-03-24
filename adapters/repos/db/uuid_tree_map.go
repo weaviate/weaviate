@@ -162,7 +162,6 @@ func (id LeafID) uint64() uint64 {
 
 // Contains returns true if the given UUID u is within the range r (inclusive).
 func (r UUIDRange) Contains(u UUID) bool {
-	// Check against start bound
 	for i := 0; i < uuidLen; i++ {
 		if u[i] < r.Start[i] {
 			return false
