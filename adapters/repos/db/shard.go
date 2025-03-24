@@ -196,7 +196,6 @@ type Shard struct {
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
 
-	// invariant: if vector index is present, then corresponding queue is also present and initialized
 	vectorIndex   VectorIndex
 	queue         *VectorIndexQueue
 	vectorIndexes map[string]VectorIndex
