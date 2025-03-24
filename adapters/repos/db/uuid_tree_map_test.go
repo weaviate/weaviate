@@ -25,6 +25,7 @@ import (
 
 const (
 	expectedStartErrMsg  = "expected start to be %v, got %v"
+	expectedEndErrMsg    = "expected end to be %v, got %v"
 	unexpectedLeafErrMsg = "unexpected error for leaf %d: %v"
 )
 
@@ -148,13 +149,13 @@ func TestUUIDTreeMapRangeMaxLeaf64(t *testing.T) {
 	require.NoErrorf(t, err, "unexpected error for max leaf %d: %v", maxLeaf, err)
 
 	startPrefix := binary.BigEndian.Uint64(r.Start[:8])
-	require.Equal(t, maxLeaf, startPrefix, "expected start to be %v, got %v", maxLeaf, startPrefix)
+	require.Equal(t, maxLeaf, startPrefix, expectedStartErrMsg, maxLeaf, startPrefix)
 
 	endPrefix := binary.BigEndian.Uint64(r.End[:8])
-	require.Equal(t, maxLeaf, endPrefix, "expected end to be %v, got %v", maxLeaf, endPrefix)
+	require.Equal(t, maxLeaf, endPrefix, expectedEndErrMsg, maxLeaf, endPrefix)
 
 	for i := 8; i < 16; i++ {
-		require.Equal(t, byte(0xFF), r.End[i], "expected end to be %v, got %v", 0xFF, r.End[i])
+		require.Equal(t, byte(0xFF), r.End[i], expectedEndErrMsg, 0xFF, r.End[i])
 	}
 }
 
@@ -169,11 +170,11 @@ func TestUUIDTreeMapRangeHeight5(t *testing.T) {
 	// Check that prefix bits match expected range
 	prefix := leaf << (64 - 5)
 	startPrefix := binary.BigEndian.Uint64(r.Start[:8])
-	require.Equal(t, prefix, startPrefix, "expected start to be %v, got %v", prefix, startPrefix)
+	require.Equal(t, prefix, startPrefix, expectedStartErrMsg, prefix, startPrefix)
 
 	expectedSuffix := (uint64(1) << (64 - 5)) - 1
 	endPrefix := binary.BigEndian.Uint64(r.End[:8])
-	require.Equal(t, prefix|expectedSuffix, endPrefix, "expected end to be %v, got %v", prefix|expectedSuffix, endPrefix)
+	require.Equal(t, prefix|expectedSuffix, endPrefix, expectedEndErrMsg, prefix|expectedSuffix, endPrefix)
 }
 
 func TestUUIDTreeMapRangeExhaustiveHeight3(t *testing.T) {
@@ -187,7 +188,7 @@ func TestUUIDTreeMapRangeExhaustiveHeight3(t *testing.T) {
 	}
 
 	expectedStart := UUID{}
-	require.Equal(t, expectedStart, ranges[0].Start, "expected start to be %v, got %v", expectedStart, ranges[0].Start)
+	require.Equal(t, expectedStart, ranges[0].Start, expectedStart, expectedStart, ranges[0].Start)
 
 	expectedEnd := UUID{}
 	for i := range expectedEnd {
