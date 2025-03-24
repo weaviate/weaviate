@@ -344,9 +344,6 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 }
 
 func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storobj.Object) error) error {
-	b.disk.flushVsCompactLock.Lock()
-	defer b.disk.flushVsCompactLock.Unlock()
-
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
 	onDiskCursor := b.CursorOnDisk()
 	defer onDiskCursor.Close()
