@@ -98,7 +98,7 @@ type UUIDRange struct {
 // of a UUID are used to determine partitioning.
 func NewUUIDTreeMap(treeHeight int) *UUIDTreeMap {
 	if treeHeight < 0 || treeHeight > maxTreeHeight {
-		panic(fmt.Sprintf("invalid tree height: %d (must be between 0 and 64)", treeHeight))
+		panic(fmt.Sprintf("invalid tree height: %d (must be between 0 and %d)", treeHeight, maxTreeHeight))
 	}
 	return &UUIDTreeMap{
 		treeHeight: treeHeight,
