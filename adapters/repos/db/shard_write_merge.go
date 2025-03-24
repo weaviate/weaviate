@@ -35,34 +35,34 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
 		vectorIndex, ok := s.GetVectorIndex(targetVector)
 		if !ok {
-			return errors.Errorf("Validate vector index for update of %v for target vector %s: vector index not found", merge.ID, targetVector)
+			return errors.Errorf("validate vector index for update of %v for target vector %s: vector index not found", merge.ID, targetVector)
 		}
 		switch v := vector.(type) {
 		case []float32:
 			err := vectorIndex.ValidateBeforeInsert(v)
 			if err != nil {
-				return errors.Wrapf(err, "Validate vector index for update of %v for target vector %s", merge.ID, targetVector)
+				return errors.Wrapf(err, "validate vector index for update of %v for target vector %s", merge.ID, targetVector)
 			}
 		case [][]float32:
 			err := vectorIndex.ValidateMultiBeforeInsert(v)
 			if err != nil {
-				return errors.Wrapf(err, "Validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
+				return errors.Wrapf(err, "validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
 			}
 		default:
-			return errors.Errorf("Validate vector index for update of %v for target vector %s: unrecongnized vector type: %T", merge.ID, targetVector, vector)
+			return errors.Errorf("validate vector index for update of %v for target vector %s: unrecongnized vector type: %T", merge.ID, targetVector, vector)
 		}
 	}
 
 	if len(merge.Vector) > 0 {
 		vectorIndex, ok := s.GetVectorIndex("")
 		if !ok {
-			return errors.Errorf("Validate vector index for update of %v for vector: vector index not found", merge.ID)
+			return errors.Errorf("validate vector index for update of %v for vector: vector index not found", merge.ID)
 		}
 
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
 		err := vectorIndex.ValidateBeforeInsert(merge.Vector)
 		if err != nil {
-			return errors.Wrapf(err, "Validate vector index for update of %v", merge.ID)
+			return errors.Wrapf(err, "validate vector index for update of %v", merge.ID)
 		}
 	}
 
