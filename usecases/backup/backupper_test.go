@@ -691,5 +691,15 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewHandler(logger, mocks.NewMockAuthorizer(), schema, sourcer, backends)
+	return NewHandler(logger, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{})
+}
+
+type fakeRbacBackupWrapper struct{}
+
+func (r fakeRbacBackupWrapper) GetDescriptors(context.Context) (map[string]backup.OtherDescriptors, error) {
+	return nil, nil
+}
+
+func (r fakeRbacBackupWrapper) WriteDescriptors(context.Context, map[string]backup.OtherDescriptors) error {
+	return nil
 }
