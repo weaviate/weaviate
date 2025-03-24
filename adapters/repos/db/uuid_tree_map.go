@@ -75,7 +75,10 @@ type UUIDTreeMap struct {
 	treeHeight int
 }
 
-const uuidLen = 16
+const (
+	uuidLen       = 16
+	maxTreeHeight = 64
+)
 
 // UUID represents a UUID as 8 bytes (128-bit) identifier.
 type UUID [uuidLen]byte
@@ -94,7 +97,7 @@ type UUIDRange struct {
 // Panics if treeHeight is negative or greater than 64, since only the first 64 bits
 // of a UUID are used to determine partitioning.
 func NewUUIDTreeMap(treeHeight int) *UUIDTreeMap {
-	if treeHeight < 0 || treeHeight > 64 {
+	if treeHeight < 0 || treeHeight > maxTreeHeight {
 		panic(fmt.Sprintf("invalid tree height: %d (must be between 0 and 64)", treeHeight))
 	}
 	return &UUIDTreeMap{
@@ -108,7 +111,7 @@ func NewUUIDTreeMap(treeHeight int) *UUIDTreeMap {
 //
 // Returns an error if the leaf index is greater than or equal to 2^N.
 func (m *UUIDTreeMap) Range(leaf LeafID) (UUIDRange, error) {
-	if m.treeHeight < 64 && leaf >= (LeafID(1)<<m.treeHeight) {
+	if m.treeHeight < maxTreeHeight && leaf >= (LeafID(1)<<m.treeHeight) {
 		return UUIDRange{}, fmt.Errorf("leaf index out of range: %d (max: %d)", leaf, (uint64(1)<<m.treeHeight)-1)
 	}
 	// When treeHeight == 64, leaf is uint64 we do not shift by `treeHeight` to avoid getting a 0
@@ -123,15 +126,15 @@ func (m *UUIDTreeMap) Range(leaf LeafID) (UUIDRange, error) {
 }
 
 func (m *UUIDTreeMap) rangeStart(leaf LeafID) UUID {
-	var uuidBytes [16]byte
+	var uuidBytes [uuidLen]byte
 	binary.BigEndian.PutUint64(uuidBytes[:], m.prefix(leaf))
 	return uuidBytes
 }
 
 func (m *UUIDTreeMap) rangeEnd(leaf LeafID) UUID {
-	var uuidBytes [16]byte
+	var uuidBytes [uuidLen]byte
 	prefix := m.prefix(leaf)
-	suffix := (uint64(1) << (64 - m.treeHeight)) - 1
+	suffix := (uint64(1) << (maxTreeHeight - m.treeHeight)) - 1
 	binary.BigEndian.PutUint64(uuidBytes[:], prefix|suffix)
 
 	// A UUID is 16 bytes (128 bits) while we only set 8 bytes (64 bits) above.
@@ -146,11 +149,11 @@ func (m *UUIDTreeMap) rangeEnd(leaf LeafID) UUID {
 
 func (m *UUIDTreeMap) LeafID(uuid UUID) LeafID {
 	prefix := binary.BigEndian.Uint64(uuid[:8])
-	return LeafID(prefix >> (64 - m.treeHeight))
+	return LeafID(prefix >> (maxTreeHeight - m.treeHeight))
 }
 
 func (m *UUIDTreeMap) prefix(leaf LeafID) uint64 {
-	return leaf.Uint64() << (64 - m.treeHeight)
+	return leaf.Uint64() << (maxTreeHeight - m.treeHeight)
 }
 
 func (id LeafID) Uint64() uint64 {
