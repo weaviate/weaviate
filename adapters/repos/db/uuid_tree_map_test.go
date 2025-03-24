@@ -286,6 +286,7 @@ func containsBenchmarkFn(treeHeight, uuidCount int) func(b *testing.B) {
 		require.NoErrorf(b, err, "error generating range for tree height %d", treeHeight)
 
 		uuids := generateRandomUUIDs(uuidCount)
+		uuids = append(uuids, r.Start) // ensure at least one UUID is in the range
 		b.ResetTimer()
 
 		count := 0
@@ -297,7 +298,7 @@ func containsBenchmarkFn(treeHeight, uuidCount int) func(b *testing.B) {
 			}
 		}
 
-		require.GreaterOrEqual(b, count, 0, "count should never be negative")
+		require.Greater(b, count, 0, "expected at least one UUID to match the range")
 	}
 }
 
