@@ -25,27 +25,20 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	replicationFSM    *ShardReplicationFSM
-	replicationEngine *shardReplicationEngine
-	schemaReader      schema.SchemaReader
+	replicationFSM *ShardReplicationFSM
+	schemaReader   schema.SchemaReader
 }
 
 func NewManager(logger *logrus.Logger, schemaReader schema.SchemaReader, replicaCopier types.ReplicaCopier) *Manager {
 	replicationFSM := newShardReplicationFSM()
 	return &Manager{
-		replicationFSM:    replicationFSM,
-		replicationEngine: newShardReplicationEngine(logger, replicationFSM, replicaCopier),
-		schemaReader:      schemaReader,
+		replicationFSM: replicationFSM,
+		schemaReader:   schemaReader,
 	}
 }
 
 func (m *Manager) GetReplicationFSM() *ShardReplicationFSM {
 	return m.replicationFSM
-}
-
-func (m *Manager) StartReplicationEngine() {
-	return
-	m.replicationEngine.Start()
 }
 
 func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
@@ -60,4 +53,14 @@ func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
 	}
 	// Store in the FSM the shard replication op
 	return m.replicationFSM.Replicate(logId, req)
+}
+
+func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationUpdateOpStateRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Store in the FSM the shard replication op
+	return m.replicationFSM.UpdateReplicationOpStatus(req)
 }

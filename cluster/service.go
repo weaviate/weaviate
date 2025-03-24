@@ -21,6 +21,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/bootstrap"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -33,16 +34,18 @@ import (
 type Service struct {
 	*Raft
 
-	raftAddr string
-	config   *Config
+	replicationEngine *replication.ShardReplicationEngine
+	raftAddr          string
+	config            *Config
 
 	rpcClient *rpc.Client
 	rpcServer *rpc.Server
 	logger    *logrus.Logger
 
 	// closing channels
-	closeBootstrapper chan struct{}
-	closeWaitForDB    chan struct{}
+	closeBootstrapper  chan struct{}
+	closeOnFSMCaughtUp chan struct{}
+	closeWaitForDB     chan struct{}
 }
 
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
@@ -55,18 +58,37 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 
 	fsm := NewFSM(cfg, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
+	replicationEngine := replication.NewShardReplicationEngine(cfg.Logger, fsm.replicationManager.GetReplicationFSM(), raft, cfg.ReplicaCopier)
 
 	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{
-		Raft:              raft,
-		raftAddr:          raftAdvertisedAddress,
-		config:            &cfg,
-		rpcClient:         client,
-		rpcServer:         svr,
-		logger:            cfg.Logger,
-		closeBootstrapper: make(chan struct{}),
-		closeWaitForDB:    make(chan struct{}),
+		Raft:               raft,
+		replicationEngine:  replicationEngine,
+		raftAddr:           raftAdvertisedAddress,
+		config:             &cfg,
+		rpcClient:          client,
+		rpcServer:          svr,
+		logger:             cfg.Logger,
+		closeBootstrapper:  make(chan struct{}),
+		closeOnFSMCaughtUp: make(chan struct{}),
+		closeWaitForDB:     make(chan struct{}),
+	}
+}
+
+func (c *Service) onFSMCaughtUp() {
+	ticker := time.NewTicker(5 * time.Second)
+	for {
+		select {
+		case <-c.closeOnFSMCaughtUp:
+			return
+		case _ = <-ticker.C:
+			if c.Raft.store.FSMHasCaughtUp() {
+				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
+				c.replicationEngine.Start()
+				return
+			}
+		}
 	}
 }
 
@@ -126,6 +148,9 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("restore database: %w", err)
 	}
 
+	enterrors.GoWrapper(func() {
+		c.onFSMCaughtUp()
+	}, c.logger)
 	return nil
 }
 
@@ -135,6 +160,7 @@ func (c *Service) Close(ctx context.Context) error {
 	enterrors.GoWrapper(func() {
 		c.closeBootstrapper <- struct{}{}
 		c.closeWaitForDB <- struct{}{}
+		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
 	c.logger.Info("closing raft FSM store ...")
