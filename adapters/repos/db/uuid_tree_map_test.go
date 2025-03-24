@@ -420,6 +420,6 @@ func containsBenchmarkFn(treeHeight, uuidCount int) func(b *testing.B) {
 	}
 }
 
-func benchmarkName(height, n int) string {
-	return fmt.Sprintf("tree_height_%d_uuid_count_%d", height, n)
+func benchmarkName(treeHeight, uuidCount int) string {
+	return fmt.Sprintf("tree_height_%d_uuid_count_%d", treeHeight, uuidCount)
 }
