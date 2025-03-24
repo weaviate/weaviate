@@ -253,34 +253,51 @@ func generateRandomUUIDs(n int) []UUID {
 }
 
 func BenchmarkUUIDRangeContains(b *testing.B) {
-	uuidCounts := []int{10_000, 100_000, 1_000_000}
-	treeHeights := []int{8, 16, 32, 64}
+	type benchmarkConfig struct {
+		treeHeight int
+		uuidCount  int
+	}
 
-	for _, treeHeight := range treeHeights {
+	benchConfigs := []benchmarkConfig{
+		{8, 10_000},
+		{8, 100_000},
+		{8, 1_000_000},
+		{16, 10_000},
+		{16, 100_000},
+		{16, 1_000_000},
+		{32, 10_000},
+		{32, 100_000},
+		{32, 1_000_000},
+		{64, 10_000},
+		{64, 100_000},
+		{64, 1_000_000},
+	}
+
+	for _, benchConfig := range benchConfigs {
+		b.Run(benchmarkName(benchConfig.treeHeight, benchConfig.uuidCount),
+			containsBenchmarkFn(benchConfig.treeHeight, benchConfig.uuidCount))
+	}
+}
+
+func containsBenchmarkFn(treeHeight, uuidCount int) func(b *testing.B) {
+	return func(b *testing.B) {
 		m := NewUUIDTreeMap(treeHeight)
-		r, err := m.Range(0) // always use leaf 0
-		require.NoErrorf(b, err, "error generating range for tree %d", treeHeight)
+		r, err := m.Range(0)
+		require.NoErrorf(b, err, "error generating range for tree height %d", treeHeight)
 
-		for _, uuidCount := range uuidCounts {
-			b.Run(
-				benchmarkName(treeHeight, uuidCount),
-				func(b *testing.B) {
-					uuids := generateRandomUUIDs(uuidCount)
-					b.ResetTimer()
+		uuids := generateRandomUUIDs(uuidCount)
+		b.ResetTimer()
 
-					count := 0
-					for i := 0; i < b.N; i++ {
-						for _, uuid := range uuids {
-							if r.Contains(uuid) {
-								count++
-							}
-						}
-					}
-
-					require.GreaterOrEqual(b, count, 0, "count should never be negative")
-				},
-			)
+		count := 0
+		for i := 0; i < b.N; i++ {
+			for _, uuid := range uuids {
+				if r.Contains(uuid) {
+					count++
+				}
+			}
 		}
+
+		require.GreaterOrEqual(b, count, 0, "count should never be negative")
 	}
 }
 
