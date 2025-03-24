@@ -452,8 +452,8 @@ func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string]backup.Othe
 	return map[string]backup.OtherDescriptors{"policies": {Content: bts}}, nil
 }
 
-func (b BackupWrapper) WriteDescriptors(_ context.Context, descrpiptors map[string]backup.OtherDescriptors) error {
-	descr, ok := descrpiptors["policies"]
+func (b BackupWrapper) WriteDescriptors(_ context.Context, descriptors map[string]backup.OtherDescriptors) error {
+	descr, ok := descriptors["policies"]
 	if !ok {
 		return errors.New("no policies found")
 	}
