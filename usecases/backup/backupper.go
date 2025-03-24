@@ -26,24 +26,26 @@ import (
 )
 
 type backupper struct {
-	node        string
-	logger      logrus.FieldLogger
-	sourcer     Sourcer
-	rbacSourcer SourcerNonClass
-	backends    BackupBackendProvider
+	node           string
+	logger         logrus.FieldLogger
+	sourcer        Sourcer
+	rbacSourcer    SourcerNonClass
+	dynUserSourcer SourcerNonClass
+	backends       BackupBackendProvider
 	// shardCoordinationChan is sync and coordinate operations
 	shardSyncChan
 }
 
-func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, rbacSourcer SourcerNonClass, backends BackupBackendProvider,
+func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, rbacSourcer SourcerNonClass, dynUserSourcer SourcerNonClass, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
-		node:          node,
-		logger:        logger,
-		sourcer:       sourcer,
-		rbacSourcer:   rbacSourcer,
-		backends:      backends,
-		shardSyncChan: shardSyncChan{coordChan: make(chan interface{}, 5)},
+		node:           node,
+		logger:         logger,
+		sourcer:        sourcer,
+		rbacSourcer:    rbacSourcer,
+		dynUserSourcer: dynUserSourcer,
+		backends:       backends,
+		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
 }
 
@@ -155,7 +157,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 
 		}
-		provider := newUploader(b.sourcer, b.rbacSourcer, store, req.ID, b.lastOp.set, b.logger).
+		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
 		result := backup.BackupDescriptor{

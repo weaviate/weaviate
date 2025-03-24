@@ -12,6 +12,7 @@
 package apikey
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -24,6 +25,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+
+	"github.com/weaviate/weaviate/entities/backup"
 
 	"github.com/alexedwards/argon2id"
 
@@ -458,4 +461,62 @@ func ReadFile(filename string) ([]byte, error) {
 	}
 
 	return data, nil
+}
+func (c *DBUser) getBytes() ([]byte, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	marshal, err := json.Marshal(c.data)
+	if err != nil {
+		return nil, err
+	}
+
+	return marshal, nil
+}
+
+func (c *DBUser) restoreFromBytes(data []byte) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	var dynamicUsers dbUserdata
+
+	err := json.Unmarshal(data, &dynamicUsers)
+	if err != nil {
+		return err
+	}
+
+	c.data = dynamicUsers
+	clear(c.data.WeakKeyStorageById)
+
+	return nil
+}
+
+func (c *DBUser) BackupLocations() BackupWrapper {
+	return NewBackupWrapper(c.getBytes, c.restoreFromBytes)
+}
+
+type BackupWrapper struct {
+	getBytes             func() ([]byte, error)
+	restoreFromBytesFunc func([]byte) error
+}
+
+func NewBackupWrapper(getbytesFunc func() ([]byte, error), restoreFromBytesFunc func([]byte) error) BackupWrapper {
+	return BackupWrapper{getBytes: getbytesFunc, restoreFromBytesFunc: restoreFromBytesFunc}
+}
+
+func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string]backup.OtherDescriptors, error) {
+	bts, err := b.getBytes()
+	if err != nil {
+		return nil, err
+	}
+	return map[string]backup.OtherDescriptors{"dynamicUsers": {Content: bts}}, nil
+}
+
+func (b BackupWrapper) WriteDescriptors(_ context.Context, descriptors map[string]backup.OtherDescriptors) error {
+	descr, ok := descriptors["dynamicUsers"]
+	if !ok {
+		return errors.New("no policies found")
+	}
+
+	return b.restoreFromBytesFunc(descr.Content)
 }

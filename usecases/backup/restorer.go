@@ -33,11 +33,12 @@ import (
 )
 
 type restorer struct {
-	node        string // node name
-	logger      logrus.FieldLogger
-	sourcer     Sourcer
-	rbacSourcer SourcerNonClass
-	backends    BackupBackendProvider
+	node           string // node name
+	logger         logrus.FieldLogger
+	sourcer        Sourcer
+	rbacSourcer    SourcerNonClass
+	dynUserSourcer SourcerNonClass
+	backends       BackupBackendProvider
 	shardSyncChan
 
 	// TODO: keeping status in memory after restore has been done
@@ -48,16 +49,17 @@ type restorer struct {
 }
 
 func newRestorer(node string, logger logrus.FieldLogger,
-	sourcer Sourcer, rbacSourcer SourcerNonClass,
+	sourcer Sourcer, rbacSourcer SourcerNonClass, dynUserSourcer SourcerNonClass,
 	backends BackupBackendProvider,
 ) *restorer {
 	return &restorer{
-		node:          node,
-		logger:        logger,
-		sourcer:       sourcer,
-		rbacSourcer:   rbacSourcer,
-		backends:      backends,
-		shardSyncChan: shardSyncChan{coordChan: make(chan interface{}, 5)},
+		node:           node,
+		logger:         logger,
+		sourcer:        sourcer,
+		rbacSourcer:    rbacSourcer,
+		dynUserSourcer: dynUserSourcer,
+		backends:       backends,
+		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
 }
 
@@ -138,6 +140,12 @@ func (r *restorer) restoreAll(ctx context.Context,
 
 	if len(desc.RbacBackups) > 0 {
 		if err := r.rbacSourcer.WriteDescriptors(ctx, desc.RbacBackups); err != nil {
+			return fmt.Errorf("restore rbac: %w", err)
+		}
+	}
+
+	if len(desc.DynUserBackups) > 0 {
+		if err := r.dynUserSourcer.WriteDescriptors(ctx, desc.DynUserBackups); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
 		}
 	}
