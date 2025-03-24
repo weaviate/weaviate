@@ -15,26 +15,26 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/replication"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/cluster/schema"
+	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type Router struct {
-	logger             *logrus.Entry
-	nodeName           string
-	metadataReader     schema.SchemaReader
-	replicationFSM     *replication.ShardReplicationFSM
-	clusterStateReader cluster.NodeSelector
+	logger               *logrus.Entry
+	nodeName             string
+	metadataReader       schemaTypes.SchemaReader
+	replicationFSMReader replicationTypes.ReplicationFSMReader
+	clusterStateReader   cluster.NodeSelector
 }
 
-func New(logger *logrus.Logger, clusterStateReader cluster.NodeSelector, metadataReader schema.SchemaReader, replicationFSM *replication.ShardReplicationFSM) *Router {
+func New(logger *logrus.Logger, clusterStateReader cluster.NodeSelector, metadataReader schemaTypes.SchemaReader, replicationFSMReader replicationTypes.ReplicationFSMReader) *Router {
 	return &Router{
-		logger:             logger.WithField("action", "router"),
-		replicationFSM:     replicationFSM,
-		metadataReader:     metadataReader,
-		clusterStateReader: clusterStateReader,
+		logger:               logger.WithField("action", "router"),
+		replicationFSMReader: replicationFSMReader,
+		metadataReader:       metadataReader,
+		clusterStateReader:   clusterStateReader,
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *Router) GetReadWriteReplicasLocation(collection string, shard string) (
 	if err != nil {
 		return nil, nil, err
 	}
-	readReplicas, writeReplicas := r.replicationFSM.FilterOneShardReplicasReadWrite(collection, shard, replicas)
+	readReplicas, writeReplicas := r.replicationFSMReader.FilterOneShardReplicasReadWrite(collection, shard, replicas)
 	return readReplicas, writeReplicas, nil
 }
 
@@ -103,6 +103,9 @@ func (r *Router) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (typ
 			routingPlan.Replicas = append(routingPlan.Replicas, replica)
 			routingPlan.ReplicasHostAddrs = append(routingPlan.ReplicasHostAddrs, replicaAddr)
 		}
+	}
+	if len(routingPlan.Replicas) == 0 {
+		return routingPlan, fmt.Errorf("no replicas found for class %s shard %s", routingPlan.Collection, routingPlan.Shard)
 	}
 
 	routingPlan.IntConsistencyLevel, err = routingPlan.ValidateConsistencyLevel()

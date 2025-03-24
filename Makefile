@@ -95,3 +95,6 @@ debug: ## Connect local weaviate server via delv for debugging
 
 banner: ## Add Weaviate banner with license details
 	./tools/gen-code-from-swagger.sh
+
+mocks:
+	mockery

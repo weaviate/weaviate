@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -22,11 +23,15 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	replaceRouter "github.com/weaviate/weaviate/cluster/router"
+	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	replicationMocks "github.com/weaviate/weaviate/mocks/cluster/replication/types"
+	schemaMocks "github.com/weaviate/weaviate/mocks/cluster/schema/types"
+	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"golang.org/x/exp/slices"
 )
 
 var (
@@ -38,28 +43,28 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("PutObject", func(t *testing.T) {
-		f := newFakeFactory("C1", "S", []string{})
+		f := newFakeFactory(t, "C1", "S", []string{})
 		rep := f.newReplicator()
 		err := rep.PutObject(ctx, "S", nil, types.ConsistencyLevelAll, 0)
 		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("MergeObject", func(t *testing.T) {
-		f := newFakeFactory("C1", "S", []string{})
+		f := newFakeFactory(t, "C1", "S", []string{})
 		rep := f.newReplicator()
 		err := rep.MergeObject(ctx, "S", nil, types.ConsistencyLevelAll, 0)
 		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("DeleteObject", func(t *testing.T) {
-		f := newFakeFactory("C1", "S", []string{})
+		f := newFakeFactory(t, "C1", "S", []string{})
 		rep := f.newReplicator()
 		err := rep.DeleteObject(ctx, "S", "id", time.Now(), types.ConsistencyLevelAll, 0)
 		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("PutObjects", func(t *testing.T) {
-		f := newFakeFactory("C1", "S", []string{})
+		f := newFakeFactory(t, "C1", "S", []string{})
 		rep := f.newReplicator()
 		errs := rep.PutObjects(ctx, "S", []*storobj.Object{{}, {}}, types.ConsistencyLevelAll, 0)
 		assert.Equal(t, 2, len(errs))
@@ -69,7 +74,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	})
 
 	t.Run("DeleteObjects", func(t *testing.T) {
-		f := newFakeFactory("C1", "S", []string{})
+		f := newFakeFactory(t, "C1", "S", []string{})
 		rep := f.newReplicator()
 		xs := rep.DeleteObjects(ctx, "S", []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2"), strfmt.UUID("3")}, time.Now(), false, types.ConsistencyLevelAll, 0)
 		assert.Equal(t, 3, len(xs))
@@ -79,7 +84,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	})
 
 	t.Run("AddReferences", func(t *testing.T) {
-		f := newFakeFactory("C1", "S", []string{})
+		f := newFakeFactory(t, "C1", "S", []string{})
 		rep := f.newReplicator()
 		errs := rep.AddReferences(ctx, "S", []objects.BatchReference{{}, {}}, types.ConsistencyLevelAll, 0)
 		assert.Equal(t, 2, len(errs))
@@ -99,7 +104,7 @@ func TestReplicatorPutObject(t *testing.T) {
 	)
 	t.Run("SuccessWithConsistencyLevelAll", func(t *testing.T) {
 		nodes := []string{"A", "B", "C"}
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
@@ -111,7 +116,7 @@ func TestReplicatorPutObject(t *testing.T) {
 	})
 	t.Run("SuccessWithConsistencyLevelOne", func(t *testing.T) {
 		nodes := []string{"A", "B", "C"}
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 
@@ -128,7 +133,7 @@ func TestReplicatorPutObject(t *testing.T) {
 	})
 	t.Run("SuccessWithConsistencyLevelQuorum", func(t *testing.T) {
 		nodes := []string{"A", "B", "C"}
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes[:2] {
@@ -145,7 +150,7 @@ func TestReplicatorPutObject(t *testing.T) {
 	})
 
 	t.Run("PhaseOneConnectionError", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		f.WClient.On("PutObject", mock.Anything, nodes[0], cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
@@ -158,7 +163,7 @@ func TestReplicatorPutObject(t *testing.T) {
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		f.WClient.On("PutObject", mock.Anything, nodes[0], cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
@@ -172,7 +177,7 @@ func TestReplicatorPutObject(t *testing.T) {
 	})
 
 	t.Run("Commit", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
@@ -196,7 +201,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 	)
 
 	t.Run("Success", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
@@ -208,7 +213,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 	})
 
 	t.Run("PhaseOneConnectionError", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		f.WClient.On("MergeObject", mock.Anything, nodes[0], cls, shard, anyVal, merge, uint64(123)).Return(resp, nil)
@@ -221,7 +226,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		f.WClient.On("MergeObject", mock.Anything, nodes[0], cls, shard, anyVal, merge, uint64(123)).Return(resp, nil)
@@ -235,7 +240,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 	})
 
 	t.Run("Commit", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
@@ -258,7 +263,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 		ctx   = context.Background()
 	)
 	t.Run("PhaseOneConnectionError", func(t *testing.T) {
-		factory := newFakeFactory("C1", shard, nodes)
+		factory := newFakeFactory(t, "C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
 		resp := SimpleResponse{Errors: make([]Error, 1)}
@@ -277,7 +282,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 	})
 
 	t.Run("SuccessWithConsistencyLevelAll", func(t *testing.T) {
-		factory := newFakeFactory("C1", shard, nodes)
+		factory := newFakeFactory(t, "C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
 		resp := SimpleResponse{Errors: make([]Error, 1)}
@@ -290,7 +295,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelOne, 123))
 	})
 	t.Run("SuccessWithConsistencyQuorum", func(t *testing.T) {
-		factory := newFakeFactory("C1", shard, nodes)
+		factory := newFakeFactory(t, "C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
 		resp := SimpleResponse{Errors: make([]Error, 1)}
@@ -317,7 +322,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 	})
 
 	t.Run("SuccessWithConsistencyQuorum", func(t *testing.T) {
-		factory := newFakeFactory("C1", shard, nodes)
+		factory := newFakeFactory(t, "C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
 		resp := SimpleResponse{Errors: make([]Error, 1)}
@@ -353,7 +358,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 	)
 
 	t.Run("PhaseOneConnectionError", func(t *testing.T) {
-		factory := newFakeFactory("C1", shard, nodes)
+		factory := newFakeFactory(t, "C1", shard, nodes)
 		client := factory.WClient
 		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 		client.On("DeleteObjects", mock.Anything, nodes[0], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(SimpleResponse{}, nil)
@@ -369,7 +374,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 	})
 
 	t.Run("PhaseTwoDecodingError", func(t *testing.T) {
-		factory := newFakeFactory("C1", shard, nodes)
+		factory := newFakeFactory(t, "C1", shard, nodes)
 		client := factory.WClient
 		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 		for _, n := range nodes {
@@ -380,7 +385,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		assert.Equal(t, len(result), 2)
 	})
 	t.Run("PartialSuccess", func(t *testing.T) {
-		factory := newFakeFactory("C1", shard, nodes)
+		factory := newFakeFactory(t, "C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
 		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
@@ -400,7 +405,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: &Error{Msg: "e1"}}, result[1])
 	})
 	t.Run("SuccessWithConsistencyLevelAll", func(t *testing.T) {
-		factory := newFakeFactory("C1", shard, nodes)
+		factory := newFakeFactory(t, "C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
 		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
@@ -421,7 +426,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 	})
 
 	t.Run("SuccessWithConsistencyLevelOne", func(t *testing.T) {
-		factory := newFakeFactory("C1", shard, nodes)
+		factory := newFakeFactory(t, "C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
 		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
@@ -440,7 +445,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 	})
 	t.Run("SuccessWithConsistencyQuorum", func(t *testing.T) {
 		nodes = []string{"A", "B", "C"}
-		factory := newFakeFactory("C1", shard, nodes)
+		factory := newFakeFactory(t, "C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
 		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
@@ -478,7 +483,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 		resp1 = SimpleResponse{[]Error{{}}}
 	)
 	t.Run("SuccessWithConsistencyLevelAll", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{Errors: make([]Error, 3)}
 		for _, n := range nodes {
@@ -490,7 +495,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 	})
 	t.Run("SuccessWithConsistencyLevelOne", func(t *testing.T) {
 		nodes := []string{"A", "B", "C"}
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		for _, n := range nodes[:2] {
 			f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
@@ -510,7 +515,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 
 	t.Run("SuccessWithConsistencyLevelQuorum", func(t *testing.T) {
 		nodes := []string{"A", "B", "C"}
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		for _, n := range nodes[:2] {
 			f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
@@ -529,7 +534,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 	})
 
 	t.Run("PhaseOneConnectionError", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		f.WClient.On("PutObjects", mock.Anything, nodes[0], cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
 		f.WClient.On("PutObjects", mock.Anything, nodes[1], cls, shard, anyVal, objs, uint64(0)).Return(resp1, errAny)
@@ -542,7 +547,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		f.WClient.On("PutObjects", mock.Anything, nodes[0], cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
 		resp2 := SimpleResponse{[]Error{{Msg: "E1"}, {Msg: "E2"}}}
@@ -558,7 +563,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 	})
 
 	t.Run("PhaseTwoDecodingError", func(t *testing.T) {
-		f := newFakeFactory(cls, shard, nodes)
+		f := newFakeFactory(t, cls, shard, nodes)
 		rep := f.newReplicator()
 		for _, n := range nodes {
 			f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
@@ -577,7 +582,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 	})
 
 	t.Run("PhaseTwoUnsuccessfulResponse", func(t *testing.T) {
-		f := newFakeFactory(cls, shard, nodes)
+		f := newFakeFactory(t, cls, shard, nodes)
 		rep := f.newReplicator()
 		node2Errs := []Error{{Msg: "E1"}, {}, {Msg: "E3"}}
 		for _, n := range nodes {
@@ -609,7 +614,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 		refs  = []objects.BatchReference{{}, {}}
 	)
 	t.Run("Success", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
@@ -621,7 +626,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 	})
 
 	t.Run("PhaseOneConnectionError", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		f.WClient.On("AddReferences", mock.Anything, nodes[0], cls, shard, anyVal, refs, uint64(123)).Return(resp, nil)
@@ -635,7 +640,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		f.WClient.On("AddReferences", mock.Anything, nodes[0], cls, shard, anyVal, refs, uint64(123)).Return(resp, nil)
@@ -652,7 +657,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 	})
 
 	t.Run("Commit", func(t *testing.T) {
-		f := newFakeFactory(cls, shard, nodes)
+		f := newFakeFactory(t, cls, shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
@@ -669,6 +674,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 }
 
 type fakeFactory struct {
+	t              *testing.T
 	CLS            string
 	Nodes          []string
 	Shard2replicas map[string][]string
@@ -678,10 +684,11 @@ type fakeFactory struct {
 	hook           *test.Hook
 }
 
-func newFakeFactory(class, shard string, nodes []string) *fakeFactory {
+func newFakeFactory(t *testing.T, class, shard string, nodes []string) *fakeFactory {
 	logger, hook := test.NewNullLogger()
 
 	return &fakeFactory{
+		t:              t,
 		CLS:            class,
 		Nodes:          nodes,
 		Shard2replicas: map[string][]string{shard: nodes},
@@ -692,14 +699,38 @@ func newFakeFactory(class, shard string, nodes []string) *fakeFactory {
 	}
 }
 
-func (f fakeFactory) AddShard(shard string, nodes []string) {
+func (f *fakeFactory) AddShard(shard string, nodes []string) {
 	f.Shard2replicas[shard] = nodes
 }
 
-func (f fakeFactory) newReplicator() *Replicator {
-	nodeResolver := newFakeNodeResolver(f.Nodes)
-	shardingState := newFakeShardingState("A", f.Shard2replicas, nodeResolver)
-	router := replaceRouter.New(f.log, nodeResolver, shardingState, nil)
+func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
+	nodes := make([]string, 0, len(f.Nodes))
+	for _, n := range f.Nodes {
+		if n == thisNode {
+			nodes = slices.Insert(nodes, 0, thisNode)
+		} else {
+			nodes = append(nodes, n)
+		}
+	}
+	clusterState := clusterMocks.NewMockNodeSelector(nodes...)
+	schemaReaderMock := &schemaMocks.SchemaReader{}
+	schemaReaderMock.On("ShardReplicas", mock.Anything, mock.Anything).Return(func(class string, shard string) ([]string, error) {
+		v, ok := f.Shard2replicas[shard]
+		if !ok {
+			return []string{}, fmt.Errorf("could not find node")
+		}
+		return v, nil
+	})
+	replicationFsmMock := &replicationMocks.ReplicationFSMReader{}
+	replicationFsmMock.On("FilterOneShardReplicasReadWrite", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+		return shardReplicasLocation, shardReplicasLocation
+	})
+	router := clusterRouter.New(f.log, clusterState, schemaReaderMock, replicationFsmMock)
+	return router
+}
+
+func (f *fakeFactory) newReplicator() *Replicator {
+	router := f.newRouter("")
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
@@ -714,17 +745,15 @@ func (f fakeFactory) newReplicator() *Replicator {
 		}{f.RClient, f.WClient}, f.log)
 }
 
-func (f fakeFactory) newFinder(thisNode string) *Finder {
-	nodeResolver := newFakeNodeResolver(f.Nodes)
-	shardingState := newFakeShardingState(thisNode, f.Shard2replicas, nodeResolver)
-	router := replaceRouter.New(f.log, nodeResolver, shardingState, nil)
+func (f *fakeFactory) newFinder(thisNode string) *Finder {
+	router := f.newRouter(thisNode)
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 	return NewFinder(f.CLS, router, thisNode, f.RClient, f.log, time.Microsecond*1, time.Millisecond*128, getDeletionStrategy)
 }
 
-func (f fakeFactory) assertLogContains(t *testing.T, key string, xs ...string) {
+func (f *fakeFactory) assertLogContains(t *testing.T, key string, xs ...string) {
 	t.Helper()
 	// logging might happen after returning to the caller
 	// Therefore, we need to make sure that the goroutine
@@ -746,7 +775,7 @@ func (f fakeFactory) assertLogContains(t *testing.T, key string, xs ...string) {
 	}
 }
 
-func (f fakeFactory) assertLogErrorContains(t *testing.T, xs ...string) {
+func (f *fakeFactory) assertLogErrorContains(t *testing.T, xs ...string) {
 	t.Helper()
 	// logging might happen after returning to the caller
 	// Therefore, we need to make sure that the goroutine

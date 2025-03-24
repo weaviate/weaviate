@@ -68,7 +68,7 @@ func replica(id strfmt.UUID, lastTime int64, deleted bool) objects.Replica {
 
 func TestFinderCantReachEnoughReplicas(t *testing.T) {
 	var (
-		f      = newFakeFactory("C1", "S", []string{})
+		f      = newFakeFactory(t, "C1", "S", []string{})
 		ctx    = context.Background()
 		finder = f.newFinder("A")
 	)
@@ -90,14 +90,14 @@ func TestFinderNodeObject(t *testing.T) {
 	)
 
 	t.Run("Unresolved", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		finder := f.newFinder("A")
 		_, err := finder.NodeObject(ctx, "N", "S", "id", nil, additional.Properties{})
 		assert.Contains(t, err.Error(), "N")
 	})
 
 	t.Run("Success", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(t, "C1", shard, nodes)
 		finder := f.newFinder("A")
 		for _, n := range nodes {
 			f.RClient.On("FetchObject", anyVal, n, cls, shard, id, proj, adds).Return(r, nil)
@@ -123,7 +123,7 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 
 	t.Run("AllButOne", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -143,7 +143,7 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -160,7 +160,7 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 
 	t.Run("NotFound", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			// obj       = object(id, 3)
@@ -177,7 +177,7 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 
 	t.Run("ContextCancelledFastEnough", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -240,7 +240,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("AllButOne", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -258,7 +258,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -275,7 +275,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("NotFound", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			// obj       = object(id, 3)
@@ -293,7 +293,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 	// succeeds via Fetch0+Digest1
 	t.Run("Digest02Fail", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -312,7 +312,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 	// fails because only Node0 succeeds
 	t.Run("Fetch12Digest12Fail", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -335,7 +335,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 	// fails because only Node1 succeeds
 	t.Run("Fetch02Digest02Fail", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			item      = objects.Replica{ID: id, Object: object(id, 3)}
@@ -415,7 +415,7 @@ func TestFinderGetOneWithConsistencyLevelOne(t *testing.T) {
 
 	t.Run("None", func(t *testing.T) {
 		var (
-			f      = newFakeFactory("C1", shard, nodes)
+			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder("A")
 			// obj    = objects.Replica{ID: id, Object: object(id, 3)
 		)
@@ -431,7 +431,7 @@ func TestFinderGetOneWithConsistencyLevelOne(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		var (
-			f      = newFakeFactory("C1", shard, nodes)
+			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder(nodes[2])
 			item   = objects.Replica{ID: id, Object: object(id, 3)}
 		)
@@ -443,7 +443,7 @@ func TestFinderGetOneWithConsistencyLevelOne(t *testing.T) {
 
 	t.Run("NotFound", func(t *testing.T) {
 		var (
-			f      = newFakeFactory("C1", shard, nodes)
+			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder("A")
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(emptyItem, nil)
@@ -466,7 +466,7 @@ func TestFinderExistsWithConsistencyLevelALL(t *testing.T) {
 
 	t.Run("None", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
@@ -483,7 +483,7 @@ func TestFinderExistsWithConsistencyLevelALL(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
@@ -499,7 +499,7 @@ func TestFinderExistsWithConsistencyLevelALL(t *testing.T) {
 
 	t.Run("NotFound", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 0, Deleted: true}}
@@ -526,7 +526,7 @@ func TestFinderExistsWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("AllButOne", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
@@ -543,7 +543,7 @@ func TestFinderExistsWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
@@ -559,7 +559,7 @@ func TestFinderExistsWithConsistencyLevelQuorum(t *testing.T) {
 
 	t.Run("NotFound", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 0, Deleted: true}}
@@ -585,7 +585,7 @@ func TestFinderExistsWithConsistencyLevelOne(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
@@ -600,7 +600,7 @@ func TestFinderExistsWithConsistencyLevelOne(t *testing.T) {
 
 	t.Run("NotFound", func(t *testing.T) {
 		var (
-			f         = newFakeFactory("C1", shard, nodes)
+			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
 			digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 0, Deleted: true}}
@@ -625,7 +625,7 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 	t.Run("ExceptOne", func(t *testing.T) {
 		var (
 			shard       = shards[0]
-			f           = newFakeFactory("C1", shard, nodes)
+			f           = newFakeFactory(t, "C1", shard, nodes)
 			finder      = f.newFinder("A")
 			xs, digestR = genInputs("A", shard, 1, ids)
 		)
@@ -642,7 +642,7 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 	t.Run("OneShard", func(t *testing.T) {
 		var (
 			shard       = shards[0]
-			f           = newFakeFactory("C1", shard, nodes)
+			f           = newFakeFactory(t, "C1", shard, nodes)
 			finder      = f.newFinder("A")
 			xs, digestR = genInputs("A", shard, 2, ids)
 		)
@@ -657,7 +657,7 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 
 	t.Run("TwoShards", func(t *testing.T) {
 		var (
-			f             = newFakeFactory("C1", shards[0], nodes)
+			f             = newFakeFactory(t, "C1", shards[0], nodes)
 			finder        = f.newFinder("A")
 			idSet1        = ids[:3]
 			idSet2        = ids[3:6]
@@ -686,7 +686,7 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 
 	t.Run("ThreeShard", func(t *testing.T) {
 		var (
-			f             = newFakeFactory("C1", shards[0], nodes)
+			f             = newFakeFactory(t, "C1", shards[0], nodes)
 			finder        = f.newFinder("A")
 			ids1          = ids[:2]
 			ids2          = ids[2:4]
@@ -723,7 +723,7 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 
 	t.Run("TwoShardSingleNode", func(t *testing.T) {
 		var (
-			f             = newFakeFactory("C1", shards[0], nodes)
+			f             = newFakeFactory(t, "C1", shards[0], nodes)
 			finder        = f.newFinder("A")
 			ids1          = ids[:2]
 			ids2          = ids[2:4]
@@ -774,7 +774,7 @@ func TestFinderCheckConsistencyQuorum(t *testing.T) {
 			shard  = "SH1"
 			nodes  = []string{"A", "B", "C"}
 			ctx    = context.Background()
-			f      = newFakeFactory("C1", shard, nodes)
+			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder("A")
 			xs1    = []*storobj.Object{
 				objectEx(ids[0], 4, shard, "A"),
@@ -800,7 +800,7 @@ func TestFinderCheckConsistencyQuorum(t *testing.T) {
 
 	t.Run("None", func(t *testing.T) {
 		var (
-			f      = newFakeFactory("C1", shard, nodes)
+			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder("A")
 			xs     = []*storobj.Object{
 				objectEx(ids[0], 1, shard, "A"),
@@ -825,7 +825,7 @@ func TestFinderCheckConsistencyQuorum(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		var (
-			f      = newFakeFactory("C1", shard, nodes)
+			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder("A")
 			xs     = []*storobj.Object{
 				objectEx(ids[0], 1, shard, "A"),
@@ -854,7 +854,7 @@ func TestFinderCheckConsistencyOne(t *testing.T) {
 		shard  = "SH1"
 		nodes  = []string{"A", "B", "C"}
 		ctx    = context.Background()
-		f      = newFakeFactory("C1", shard, nodes)
+		f      = newFakeFactory(t, "C1", shard, nodes)
 		finder = f.newFinder("A")
 		xs     = []*storobj.Object{
 			objectEx(ids[0], 4, shard, "A"),

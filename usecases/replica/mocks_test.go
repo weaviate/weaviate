@@ -174,7 +174,8 @@ func (f *fakeShardingState) ResolveParentNodes(_ string, shard string) (map[stri
 
 // node resolver
 type fakeNodeResolver struct {
-	hosts map[string]string
+	hosts    map[string]string
+	thisNode string
 }
 
 func (r *fakeNodeResolver) AllHostnames() []string {
@@ -191,10 +192,22 @@ func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	return r.hosts[nodeName], true
 }
 
-func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
+func newFakeNodeResolver(thisNode string, nodes []string) *fakeNodeResolver {
 	hosts := make(map[string]string)
 	for _, node := range nodes {
 		hosts[node] = node
 	}
-	return &fakeNodeResolver{hosts: hosts}
+	return &fakeNodeResolver{thisNode: thisNode, hosts: hosts}
+}
+
+func (f *fakeNodeResolver) LocalName() string {
+	return f.thisNode
+}
+
+func (f *fakeNodeResolver) NodeAddress(node string) string {
+	v, ok := f.hosts[node]
+	if ok {
+		return v
+	}
+	return ""
 }
