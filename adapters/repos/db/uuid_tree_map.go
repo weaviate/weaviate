@@ -160,21 +160,26 @@ func (id LeafID) uint64() uint64 {
 	return uint64(id)
 }
 
-func compareUUID(a, b UUID) int {
-	for i := 0; i < uuidLen; i++ {
-		if a[i] < b[i] {
-			return -1
-		}
-		if a[i] > b[i] {
-			return 1
-		}
-	}
-	return 0
-}
-
 // Contains returns true if the given UUID u is within the range r (inclusive).
 func (r UUIDRange) Contains(u UUID) bool {
-	return compareUUID(u, r.Start) >= 0 && compareUUID(u, r.End) <= 0
+	// Check against start bound
+	for i := 0; i < uuidLen; i++ {
+		if u[i] < r.Start[i] {
+			return false
+		} else if u[i] > r.Start[i] {
+			break
+		}
+	}
+
+	for i := 0; i < uuidLen; i++ {
+		if u[i] > r.End[i] {
+			return false
+		} else if u[i] < r.End[i] {
+			break
+		}
+	}
+
+	return true
 }
 
 // String returns a human-readable representation of the UUID range
