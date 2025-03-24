@@ -309,6 +309,9 @@ func (s *Shard) initAsyncReplication() error {
 	// sync hashtree with current object states
 
 	enterrors.GoWrapper(func() {
+		s.store.PauseCompaction(ctx)
+		defer s.store.ResumeCompaction(ctx)
+
 		objCount := 0
 		prevProgressLogging := time.Now()
 
