@@ -161,6 +161,10 @@ func (id LeafID) uint64() uint64 {
 }
 
 // Contains returns true if the given UUID u is within the range r (inclusive).
+// Optimized for early exits when comparing UUIDs. Since UUIDs are partitioned based on
+// their first 8 bytes, with the last 8 bytes typically being either all 0x00 (for start bounds)
+// or all 0xFF (for end bounds), we can often determine containment by checking only the
+// first few bytes. As a result, we start checking bytes comparing the start bound.
 func (r UUIDRange) Contains(u UUID) bool {
 	for i := 0; i < uuidLen; i++ {
 		if u[i] < r.Start[i] {
