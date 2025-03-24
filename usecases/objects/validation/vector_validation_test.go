@@ -63,6 +63,15 @@ func TestVectors(t *testing.T) {
 			},
 			expErr: true,
 		},
+		"non existent named vectors": {
+			class: &models.Class{
+				VectorConfig: map[string]models.VectorConfig{"first": {}, "second": {}},
+			},
+			obj: &models.Object{
+				Vectors: models.Vectors{"third": []float32{1, 2, 3}},
+			},
+			expErr: true,
+		},
 		"mixed vectors": {
 			class: &models.Class{
 				Vectorizer:      "legacy",

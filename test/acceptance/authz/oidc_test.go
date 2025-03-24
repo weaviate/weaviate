@@ -124,7 +124,7 @@ func TestRbacWithOIDC(t *testing.T) {
 				var notFound *authz.GetRolesForUserNotFound
 				require.True(t, errors.As(err, &notFound))
 			} else {
-				rolesDB := helper.GetRolesForUser(t, customUser, tokenAdmin)
+				rolesDB := helper.GetRolesForUser(t, customUser, tokenAdmin, true)
 				require.Len(t, rolesDB, 0)
 			}
 
