@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -422,5 +421,5 @@ func containsBenchmarkFn(treeHeight, uuidCount int) func(b *testing.B) {
 }
 
 func benchmarkName(height, n int) string {
-	return "tree_height_" + strconv.FormatInt(int64(height), 10) + "_uuid_count_" + strconv.FormatInt(int64(n), 10)
+	return fmt.Sprintf("tree_height_%d_uuid_count_%d", height, n)
 }
