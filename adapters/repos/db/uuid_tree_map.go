@@ -140,7 +140,7 @@ func (m *UUIDTreeMap) rangeEnd(leaf LeafID) UUID {
 	// A UUID is 16 bytes (128 bits) while we only set 8 bytes (64 bits) above.
 	// Here we fill the other remaining 64 bits so the upper bound has all trailing
 	// bits set to 1 (8 bytes set to 0xFF).
-	for i := 8; i < 16; i++ {
+	for i := 8; i < uuidLen; i++ {
 		uuidBytes[i] = 0xFF
 	}
 
