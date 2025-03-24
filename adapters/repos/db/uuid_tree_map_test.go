@@ -50,7 +50,7 @@ func incrementUUID(u UUID) UUID {
 	return res
 }
 
-func TestNewUUIDTreeMap_InvalidHeightPanics(t *testing.T) {
+func TestNewUUIDTreeMapInvalidHeightPanics(t *testing.T) {
 	heights := []int{-1, 65, 100}
 	for _, height := range heights {
 		t.Run("invalid height", func(t *testing.T) {
@@ -64,7 +64,7 @@ func TestNewUUIDTreeMap_InvalidHeightPanics(t *testing.T) {
 	}
 }
 
-func TestNewUUIDTreeMap_ValidHeightsDoNotPanic(t *testing.T) {
+func TestNewUUIDTreeMapValidHeightsDoNotPanic(t *testing.T) {
 	for height := 0; height < 64; height++ {
 		t.Run("valid height", func(t *testing.T) {
 			defer func() {
@@ -77,7 +77,7 @@ func TestNewUUIDTreeMap_ValidHeightsDoNotPanic(t *testing.T) {
 	}
 }
 
-func TestUUIDTreeMap_Range_Height0(t *testing.T) {
+func TestUUIDTreeMapRangeHeight0(t *testing.T) {
 	m := NewUUIDTreeMap(0)
 	r, err := m.Range(0)
 	if err != nil {
@@ -94,7 +94,7 @@ func TestUUIDTreeMap_Range_Height0(t *testing.T) {
 	require.Equal(t, expectedEnd, r.End, "expected end to be %v, got %v", expectedEnd, r.End)
 }
 
-func TestUUIDTreeMap_Range_Height1(t *testing.T) {
+func TestUUIDTreeMapRangeHeight1(t *testing.T) {
 	m := NewUUIDTreeMap(1)
 	var expected byte
 
@@ -111,7 +111,7 @@ func TestUUIDTreeMap_Range_Height1(t *testing.T) {
 	require.Equal(t, expected, r1.End[0]&0x80, "expected end to be %v, got %v", expected, r1.End[0]&0x80)
 }
 
-func TestUUIDTreeMap_Range_Height64(t *testing.T) {
+func TestUUIDTreeMapRangeHeight64(t *testing.T) {
 	m := NewUUIDTreeMap(64)
 	leaf := uint64(0x0123456789ABCDEF)
 	r, err := m.Range(leaf)
@@ -135,7 +135,7 @@ func TestUUIDTreeMap_Range_Height64(t *testing.T) {
 	require.Equal(t, expectedEnd, r.End, "expected lower 64 bits of r.End to be all 0xFF")
 }
 
-func TestUUIDTreeMap_Range_MaxLeaf64(t *testing.T) {
+func TestUUIDTreeMapRangeMaxLeaf64(t *testing.T) {
 	m := NewUUIDTreeMap(64)
 	var maxLeaf uint64 = math.MaxUint64 // math.MaxUint64
 
@@ -153,7 +153,7 @@ func TestUUIDTreeMap_Range_MaxLeaf64(t *testing.T) {
 	}
 }
 
-func TestUUIDTreeMap_Range_Height5(t *testing.T) {
+func TestUUIDTreeMapRangeHeight5(t *testing.T) {
 	m := NewUUIDTreeMap(5)
 
 	// Leaf 3 (binary: 00011)
@@ -171,7 +171,7 @@ func TestUUIDTreeMap_Range_Height5(t *testing.T) {
 	require.Equal(t, prefix|expectedSuffix, endPrefix, "expected end to be %v, got %v", prefix|expectedSuffix, endPrefix)
 }
 
-func TestUUIDTreeMap_Range_ExhaustiveHeight3(t *testing.T) {
+func TestUUIDTreeMapRangeExhaustiveHeight3(t *testing.T) {
 	m := NewUUIDTreeMap(3)
 
 	var ranges []UUIDRange
@@ -202,7 +202,7 @@ func TestUUIDTreeMap_Range_ExhaustiveHeight3(t *testing.T) {
 	}
 }
 
-func TestUUIDTreeMap_ConsecutiveLeafRanges(t *testing.T) {
+func TestUUIDTreeMapConsecutiveLeafRanges(t *testing.T) {
 	m := NewUUIDTreeMap(5)
 
 	for i := uint64(0); i < (1<<5)-1; i++ {
@@ -218,7 +218,7 @@ func TestUUIDTreeMap_ConsecutiveLeafRanges(t *testing.T) {
 	}
 }
 
-func TestUUIDRange_Contains(t *testing.T) {
+func TestUUIDRangeContains(t *testing.T) {
 	m := NewUUIDTreeMap(3)
 	r, _ := m.Range(5) // leaf 5 → prefix 0b101
 
@@ -232,7 +232,7 @@ func TestUUIDRange_Contains(t *testing.T) {
 	require.False(t, r.Contains(u), "expected UUID %v NOT to be in range %v", u, r)
 }
 
-func TestUUIDRange_LeafOutOfBounds(t *testing.T) {
+func TestUUIDRangeLeafOutOfBounds(t *testing.T) {
 	m := NewUUIDTreeMap(2)
 	_, err := m.Range(4)
 	require.Errorf(t, err, "expected error for leaf 4 to be in range %v", m)
@@ -247,7 +247,7 @@ func generateRandomUUIDs(n int) []UUID {
 	return uuids
 }
 
-func BenchmarkUUIDRange_Contains(b *testing.B) {
+func BenchmarkUUIDRangeContains(b *testing.B) {
 	uuidCounts := []int{10_000, 100_000, 1_000_000}
 	treeHeights := []int{8, 16, 32, 64}
 
