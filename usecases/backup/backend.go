@@ -180,20 +180,21 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
-	sourcer     Sourcer
-	rbacSourcer SourcerNonClass
-	backend     nodeStore
-	backupID    string
+	sourcer        Sourcer
+	rbacSourcer    SourcerNonClass
+	dynUserSourcer SourcerNonClass
+	backend        nodeStore
+	backupID       string
 	zipConfig
 	setStatus func(st backup.Status)
 	log       logrus.FieldLogger
 }
 
-func newUploader(sourcer Sourcer, rbacSourcer SourcerNonClass, backend nodeStore,
+func newUploader(sourcer Sourcer, rbacSourcer SourcerNonClass, dynUserSourcer SourcerNonClass, backend nodeStore,
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
-		sourcer, rbacSourcer, backend,
+		sourcer, rbacSourcer, dynUserSourcer, backend,
 		backupID,
 		newZipConfig(Compression{
 			Level:         DefaultCompression,
@@ -277,6 +278,16 @@ Loop:
 			return err
 		}
 		desc.RbacBackups = descrp
+	}
+
+	if err := ctx.Err(); err != nil {
+		return contextChecker(ctx)
+	} else {
+		descrp, err := u.dynUserSourcer.GetDescriptors(ctx)
+		if err != nil {
+			return err
+		}
+		desc.DynUserBackups = descrp
 	}
 
 	u.setStatus(backup.Transferred)

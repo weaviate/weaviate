@@ -84,6 +84,7 @@ func NewHandler(
 	sourcer Sourcer,
 	backends BackupBackendProvider,
 	rbacSourcer SourcerNonClass,
+	dynUserSourcer SourcerNonClass,
 ) *Handler {
 	node := schema.NodeName()
 	m := &Handler{
@@ -92,10 +93,10 @@ func NewHandler(
 		authorizer: authorizer,
 		backends:   backends,
 		backupper: newBackupper(node, logger,
-			sourcer, rbacSourcer,
+			sourcer, rbacSourcer, dynUserSourcer,
 			backends),
 		restorer: newRestorer(node, logger,
-			sourcer, rbacSourcer,
+			sourcer, rbacSourcer, dynUserSourcer,
 			backends,
 		),
 	}
