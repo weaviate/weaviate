@@ -30,7 +30,6 @@ import (
 //
 // swagger:model RestoreConfig
 type RestoreConfig struct {
-
 	// Name of the bucket, container, volume, etc
 	Bucket string `json:"Bucket,omitempty"`
 

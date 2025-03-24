@@ -394,7 +394,7 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb)
 }
 
-func (m *Manager) getBytes() ([]byte, error) {
+func (m *Manager) getBytes() (map[string][]byte, error) {
 	m.backupLock.Lock()
 	defer m.backupLock.Unlock()
 
@@ -403,21 +403,36 @@ func (m *Manager) getBytes() ([]byte, error) {
 		return nil, err
 	}
 
-	marshal, err := json.Marshal(policies)
+	policiesB, err := json.Marshal(policies)
 	if err != nil {
 		return nil, err
 	}
 
-	return marshal, nil
+	groupings, err := m.casbin.GetGroupingPolicy()
+	if err != nil {
+		return nil, err
+	}
+
+	groupingsB, err := json.Marshal(groupings)
+	if err != nil {
+		return nil, err
+	}
+
+	bytes := map[string][]byte{
+		"policies":  policiesB,
+		"groupings": groupingsB,
+	}
+
+	return bytes, nil
 }
 
-func (m *Manager) restoreFromBytes(data []byte) error {
+func (m *Manager) restoreFromBytes(policiesB []byte, groupingsB []byte) error {
 	m.backupLock.Lock()
 	defer m.backupLock.Unlock()
 
 	var policies [][]string
 
-	err := json.Unmarshal(data, &policies)
+	err := json.Unmarshal(policiesB, &policies)
 	if err != nil {
 		return err
 	}
@@ -428,6 +443,23 @@ func (m *Manager) restoreFromBytes(data []byte) error {
 		return err
 	}
 
+	var groupings [][]string
+	if err := json.Unmarshal(groupingsB, &groupings); err != nil {
+		return err
+	}
+
+	for _, grouping := range groupings {
+		if _, err := m.casbin.AddRoleForUser(grouping[0], grouping[1]); err != nil {
+			return fmt.Errorf("AddRoleForUser: %w", err)
+		}
+	}
+
+	if err := m.casbin.SavePolicy(); err != nil {
+		return err
+	}
+	if err := m.casbin.InvalidateCache(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -436,29 +468,39 @@ func (m *Manager) BackupLocations() BackupWrapper {
 }
 
 type BackupWrapper struct {
-	getBytes             func() ([]byte, error)
-	restoreFromBytesFunc func([]byte) error
+	getBytes             func() (map[string][]byte, error)
+	restoreFromBytesFunc func([]byte, []byte) error
 }
 
-func NewBackupWrapper(getbytesFunc func() ([]byte, error), restoreFromBytesFunc func([]byte) error) BackupWrapper {
+func NewBackupWrapper(getbytesFunc func() (map[string][]byte, error), restoreFromBytesFunc func([]byte, []byte) error) BackupWrapper {
 	return BackupWrapper{getBytes: getbytesFunc, restoreFromBytesFunc: restoreFromBytesFunc}
 }
 
 func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string]backup.OtherDescriptors, error) {
-	bts, err := b.getBytes()
+	btsMap, err := b.getBytes()
 	if err != nil {
 		return nil, err
 	}
-	return map[string]backup.OtherDescriptors{"policies": {Content: bts}}, nil
+	ret := make(map[string]backup.OtherDescriptors, len(btsMap))
+	for key, val := range btsMap {
+		ret[key] = backup.OtherDescriptors{Content: val}
+	}
+
+	return ret, nil
 }
 
 func (b BackupWrapper) WriteDescriptors(_ context.Context, descriptors map[string]backup.OtherDescriptors) error {
-	descr, ok := descriptors["policies"]
+	policies, ok := descriptors["policies"]
 	if !ok {
 		return errors.New("no policies found")
 	}
 
-	return b.restoreFromBytesFunc(descr.Content)
+	groupings, ok := descriptors["groupings"]
+	if !ok {
+		return errors.New("no groupings found")
+	}
+
+	return b.restoreFromBytesFunc(policies.Content, groupings.Content)
 }
 
 func prettyPermissionsActions(perm *models.Permission) string {
