@@ -24,13 +24,13 @@ import (
 // This allows efficient synchronization of objects by UUID range — for instance, when using
 // Merkle trees to compare which subsets of objects differ between distributed systems.
 //
-// Example: A tree height of 3 results in a Merkle tree with 2³ = 8 leaf nodes.
+// Example: A tree height of 3 results in a tree with 2³ = 8 leaf nodes.
 // As a result, 3 bits of the UUID determine the partitioning and allow us to map each UUID
 // to one and only one leaf of the tree and vice versa.
 //
-// The result is a Merkle tree, with the UUID space divided as:
+// The result is a tree, with the UUID space divided as:
 //
-//   ┌────────────── Merkle Tree (Height = 3) ──────────────┐
+//   ┌───────────────── Tree (Height = 3) ──────────────────┐
 //   │                                                      │
 //   │                         Root                         │
 //   │                          *                           │
@@ -67,7 +67,7 @@ import (
 // - Extract the full range of UUIDs under a specific leaf
 //
 // Example use case:
-// Two nodes use a hash/Merkle tree to compare UUIDs they store. If the hash
+// Two nodes use a hash tree to compare UUIDs they store. If the hash
 // for leaf 5 differs, we know that UUIDs in the range A0000000... to BFFFFFFF...
 // need to be checked or synchronized. This avoids comparing all 2^128 UUIDs.
 
