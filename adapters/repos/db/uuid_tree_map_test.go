@@ -24,6 +24,7 @@ import (
 )
 
 const (
+	expectedLeafIdErrMsg = "expected leaf to be %v, got %v"
 	expectedStartErrMsg  = "expected start to be %v, got %v"
 	expectedEndErrMsg    = "expected end to be %v, got %v"
 	unexpectedLeafErrMsg = "unexpected error for leaf %d: %v"
@@ -119,12 +120,13 @@ func TestUUIDTreeMapRangeHeight1(t *testing.T) {
 
 func TestUUIDTreeMapRangeHeight64(t *testing.T) {
 	m := NewUUIDTreeMap(64)
-	leaf := uint64(0x0123456789ABCDEF)
+	leaf := LeafID(0x0123456789ABCDEF)
 	r, err := m.Range(leaf)
 	require.NoError(t, err)
+	require.Equal(t, leaf, r.Leaf, expectedLeafIdErrMsg, leaf, r.Leaf)
 
-	startPrefix := binary.BigEndian.Uint64(r.Start[:8])
-	endPrefix := binary.BigEndian.Uint64(r.End[:8])
+	startPrefix := LeafID(binary.BigEndian.Uint64(r.Start[:8]))
+	endPrefix := LeafID(binary.BigEndian.Uint64(r.End[:8]))
 
 	require.Equal(t, leaf, startPrefix, "expected start prefix to match leaf")
 	require.Equal(t, leaf, endPrefix, "expected end prefix to match leaf")
@@ -143,15 +145,16 @@ func TestUUIDTreeMapRangeHeight64(t *testing.T) {
 
 func TestUUIDTreeMapRangeMaxLeaf64(t *testing.T) {
 	m := NewUUIDTreeMap(64)
-	var maxLeaf uint64 = math.MaxUint64 // math.MaxUint64
+	maxLeaf := LeafID(math.MaxUint64) // math.MaxUint64
 
 	r, err := m.Range(maxLeaf)
 	require.NoErrorf(t, err, "unexpected error for max leaf %d: %v", maxLeaf, err)
+	require.Equal(t, maxLeaf, r.Leaf, expectedLeafIdErrMsg, maxLeaf, r.Leaf)
 
-	startPrefix := binary.BigEndian.Uint64(r.Start[:8])
+	startPrefix := LeafID(binary.BigEndian.Uint64(r.Start[:8]))
 	require.Equal(t, maxLeaf, startPrefix, expectedStartErrMsg, maxLeaf, startPrefix)
 
-	endPrefix := binary.BigEndian.Uint64(r.End[:8])
+	endPrefix := LeafID(binary.BigEndian.Uint64(r.End[:8]))
 	require.Equal(t, maxLeaf, endPrefix, expectedEndErrMsg, maxLeaf, endPrefix)
 
 	for i := 8; i < 16; i++ {
@@ -163,17 +166,18 @@ func TestUUIDTreeMapRangeHeight5(t *testing.T) {
 	m := NewUUIDTreeMap(5)
 
 	// Leaf 3 (binary: 00011)
-	leaf := uint64(3)
+	leaf := LeafID(3)
 	r, err := m.Range(leaf)
 	require.NoErrorf(t, err, unexpectedLeafErrMsg, leaf, err)
+	require.Equal(t, leaf, r.Leaf, expectedLeafIdErrMsg, leaf, r.Leaf)
 
 	// Check that prefix bits match expected range
 	prefix := leaf << (64 - 5)
-	startPrefix := binary.BigEndian.Uint64(r.Start[:8])
+	startPrefix := LeafID(binary.BigEndian.Uint64(r.Start[:8]))
 	require.Equal(t, prefix, startPrefix, expectedStartErrMsg, prefix, startPrefix)
 
-	expectedSuffix := (uint64(1) << (64 - 5)) - 1
-	endPrefix := binary.BigEndian.Uint64(r.End[:8])
+	expectedSuffix := LeafID(uint64(1)<<(64-5)) - 1
+	endPrefix := LeafID(binary.BigEndian.Uint64(r.End[:8]))
 	require.Equal(t, prefix|expectedSuffix, endPrefix, expectedEndErrMsg, prefix|expectedSuffix, endPrefix)
 }
 
@@ -181,9 +185,10 @@ func TestUUIDTreeMapRangeExhaustiveHeight3(t *testing.T) {
 	m := NewUUIDTreeMap(3)
 
 	var ranges []UUIDRange
-	for i := uint64(0); i < 8; i++ {
+	for i := LeafID(0); i < 8; i++ {
 		r, err := m.Range(i)
 		require.NoErrorf(t, err, unexpectedLeafErrMsg, i, err)
+		require.Equal(t, i, r.Leaf, expectedLeafIdErrMsg, i, r.Leaf)
 		ranges = append(ranges, r)
 	}
 
@@ -211,12 +216,14 @@ func TestUUIDTreeMapRangeExhaustiveHeight3(t *testing.T) {
 func TestUUIDTreeMapConsecutiveLeafRanges(t *testing.T) {
 	m := NewUUIDTreeMap(5)
 
-	for i := uint64(0); i < (1<<5)-1; i++ {
+	for i := LeafID(0); i < (1<<5)-1; i++ {
 		curr, err := m.Range(i)
 		require.NoErrorf(t, err, unexpectedLeafErrMsg, i, err)
 		next, err := m.Range(i + 1)
 		require.NoErrorf(t, err, unexpectedLeafErrMsg, i, err)
 		require.True(t, bytes.Compare(curr.End[:], next.Start[:]) < 0, "leaf %d and %d ranges overlap or are out of order: %v >= %v", i, i+1, curr.End, next.Start)
+		require.Equal(t, i, curr.Leaf, expectedLeafIdErrMsg, i, curr.Leaf)
+		require.Equal(t, i+1, next.Leaf, expectedLeafIdErrMsg, i+1, next.Leaf)
 
 		// Check that curr.End + 1 == next.Start
 		endPlusOne := incrementUUID(curr.End)
@@ -227,6 +234,7 @@ func TestUUIDTreeMapConsecutiveLeafRanges(t *testing.T) {
 func TestUUIDRangeContains(t *testing.T) {
 	m := NewUUIDTreeMap(3)
 	r, _ := m.Range(5) // leaf 5 → prefix 0b101
+	require.Equal(t, LeafID(5), r.Leaf, expectedLeafIdErrMsg, 5, r.Leaf)
 
 	// UUID with prefix 0b101 matches
 	u := UUID{}
