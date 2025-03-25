@@ -21,3 +21,12 @@ func Enabled(value string) bool {
 		return false
 	}
 }
+
+func Disabled(value string) bool {
+	switch strings.ToLower(value) {
+	case "off", "disabled", "0", "false":
+		return true
+	default:
+		return false
+	}
+}
