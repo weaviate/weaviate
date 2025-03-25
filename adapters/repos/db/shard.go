@@ -253,6 +253,7 @@ type Shard struct {
 	// allows concurrent shut read/write
 	shutdownLock *sync.RWMutex
 
+	reindexer                             ShardReindexerV3
 	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
 	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
 	// stores names of properties that are searchable and use buckets of
