@@ -71,26 +71,13 @@ import (
 // for leaf 5 differs, we know that UUIDs in the range A0000000... to BFFFFFFF...
 // need to be checked or synchronized. This avoids comparing all 2^128 UUIDs.
 
-type UUIDTreeMap struct {
-	treeHeight int
-}
-
 const (
 	uuidLen       = 16
 	maxTreeHeight = 64
 )
 
-// UUID represents a UUID as 8 bytes (128-bit) identifier.
-type UUID [uuidLen]byte
-
-// LeafID represents an identified for the hash tree leaf
-type LeafID uint64
-
-// UUIDRange defines an inclusive range of UUIDs with a Start and End bound.
-type UUIDRange struct {
-	Leaf  LeafID
-	Start UUID
-	End   UUID
+type UUIDTreeMap struct {
+	treeHeight int
 }
 
 // NewUUIDTreeMap creates a new UUIDTreeMap with the given tree height.
@@ -125,6 +112,11 @@ func (m *UUIDTreeMap) Range(leaf LeafID) (UUIDRange, error) {
 	}, nil
 }
 
+func (m *UUIDTreeMap) LeafID(uuid UUID) LeafID {
+	prefix := binary.BigEndian.Uint64(uuid[:8])
+	return LeafID(prefix >> (maxTreeHeight - m.treeHeight))
+}
+
 func (m *UUIDTreeMap) rangeStart(leaf LeafID) UUID {
 	var uuidBytes [uuidLen]byte
 	binary.BigEndian.PutUint64(uuidBytes[:], m.prefix(leaf))
@@ -147,17 +139,41 @@ func (m *UUIDTreeMap) rangeEnd(leaf LeafID) UUID {
 	return uuidBytes
 }
 
-func (m *UUIDTreeMap) LeafID(uuid UUID) LeafID {
-	prefix := binary.BigEndian.Uint64(uuid[:8])
-	return LeafID(prefix >> (maxTreeHeight - m.treeHeight))
-}
-
 func (m *UUIDTreeMap) prefix(leaf LeafID) uint64 {
 	return leaf.uint64() << (maxTreeHeight - m.treeHeight)
 }
 
+// UUID represents a UUID as 16 bytes (128-bit) identifier.
+type UUID [uuidLen]byte
+
+// String returns a standard UUID string representation of the 128-bit UUID.
+func (u UUID) String() string {
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		binary.BigEndian.Uint32(u[0:4]),
+		binary.BigEndian.Uint16(u[4:6]),
+		binary.BigEndian.Uint16(u[6:8]),
+		binary.BigEndian.Uint16(u[8:10]),
+		u[10:],
+	)
+}
+
+// LeafID represents an identified for the hash tree leaf
+type LeafID uint64
+
+// String returns a LeafID string representation
+func (id LeafID) String() string {
+	return fmt.Sprintf("%d", id.uint64())
+}
+
 func (id LeafID) uint64() uint64 {
 	return uint64(id)
+}
+
+// UUIDRange defines an inclusive range of UUIDs with a Start and End bound.
+type UUIDRange struct {
+	Leaf  LeafID
+	Start UUID
+	End   UUID
 }
 
 // Contains returns true if the given UUID u is within the range r (inclusive).
@@ -189,20 +205,4 @@ func (r UUIDRange) Contains(u UUID) bool {
 // in the format "(leaf: <leaf>, start: <start>, end: <end>)".
 func (r UUIDRange) String() string {
 	return fmt.Sprintf("(leaf: %v, start: %v, end: %v)", r.Leaf, r.Start, r.End)
-}
-
-// String returns a LeafID string representation
-func (id LeafID) String() string {
-	return fmt.Sprintf("%d", id.uint64())
-}
-
-// String returns a standard UUID string representation of the 128-bit UUID.
-func (u UUID) String() string {
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		binary.BigEndian.Uint32(u[0:4]),
-		binary.BigEndian.Uint16(u[4:6]),
-		binary.BigEndian.Uint16(u[6:8]),
-		binary.BigEndian.Uint16(u[8:10]),
-		u[10:],
-	)
 }
