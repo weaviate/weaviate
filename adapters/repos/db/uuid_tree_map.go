@@ -118,12 +118,14 @@ func (m *UUIDTreeMap) LeafID(uuid UUID) LeafID {
 	return LeafID(prefix >> (maxTreeHeight - m.treeHeight))
 }
 
+// rangeStart returns the smallest UUID in the leaf's partition range.
 func (m *UUIDTreeMap) rangeStart(leaf LeafID) UUID {
 	var uuidBytes [uuidLen]byte
 	binary.BigEndian.PutUint64(uuidBytes[:], m.prefix(leaf))
 	return uuidBytes
 }
 
+// rangeEnd returns the largest UUID in the leaf's partition range.
 func (m *UUIDTreeMap) rangeEnd(leaf LeafID) UUID {
 	var uuidBytes [uuidLen]byte
 	prefix := m.prefix(leaf)
@@ -140,6 +142,7 @@ func (m *UUIDTreeMap) rangeEnd(leaf LeafID) UUID {
 	return uuidBytes
 }
 
+// prefix returns the 64-bit prefix for a given leaf.
 func (m *UUIDTreeMap) prefix(leaf LeafID) uint64 {
 	return leaf.uint64() << (maxTreeHeight - m.treeHeight)
 }
@@ -158,7 +161,7 @@ func (u UUID) String() string {
 	)
 }
 
-// LeafID represents an identified for the hash tree leaf
+// LeafID represents an identified for the hash tree leaf.
 type LeafID uint64
 
 // String returns a LeafID string representation
@@ -166,6 +169,7 @@ func (id LeafID) String() string {
 	return fmt.Sprintf("%d", id.uint64())
 }
 
+// uint64 returns LeafID identifies as a uint64
 func (id LeafID) uint64() uint64 {
 	return uint64(id)
 }
