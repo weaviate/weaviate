@@ -23,6 +23,7 @@ const (
 
 const (
 	DefaultMultivectorEnabled     = false
+	DefaultMultivectorMuvera      = true
 	DefaultMultivectorAggregation = "maxSim"
 )
 

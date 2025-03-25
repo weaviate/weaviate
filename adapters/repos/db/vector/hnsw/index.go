@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
@@ -188,12 +187,12 @@ type hnsw struct {
 	visitedListPoolMaxSize int
 
 	// only used for multivector mode
-	multivector  atomic.Bool
-	muvera       atomic.Bool
-	encoder      *multivector.MuveraEncoder
-	docIDVectors map[uint64][]uint64
-	vecIDcounter uint64
-	maxDocID     uint64
+	multivector   atomic.Bool
+	muvera        atomic.Bool
+	muveraEncoder *multivector.MuveraEncoder
+	docIDVectors  map[uint64][]uint64
+	vecIDcounter  uint64
+	maxDocID      uint64
 }
 
 type CommitLogger interface {
@@ -322,12 +321,6 @@ func New(cfg Config, uc ent.UserConfig,
 	index.multivector.Store(uc.Multivector.Enabled)
 	index.muvera.Store(uc.Multivector.Muvera)
 
-	if uc.Multivector.Muvera {
-		config := multivector.DefaultMuveraConfig()
-		encoder := multivector.NewMuveraEncoder(config)
-		index.encoder = encoder
-	}
-
 	if uc.BQ.Enabled {
 		var err error
 		if !uc.Multivector.Enabled {
@@ -354,6 +347,15 @@ func New(cfg Config, uc ent.UserConfig,
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
 			}
+		} else {
+			index.muveraEncoder = multivector.NewMuveraEncoder(multivector.DefaultMuveraConfig())
+			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_muvera_vectors", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			if err != nil {
+				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
+			}
+			if err := index.muveraEncoder.InitSimHash(); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -372,7 +374,7 @@ func New(cfg Config, uc ent.UserConfig,
 	return index, nil
 }
 
-func Float32FromCompressedBytes(muveraBytes []byte) []float32 {
+/*func Float32FromCompressedBytes(muveraBytes []byte) []float32 {
 	slice := make([]float32, len(muveraBytes)/4)
 	for i := range slice {
 		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(muveraBytes[i*4:]))
@@ -395,16 +397,6 @@ func (h *hnsw) getMuveraVectorForID(ctx context.Context, docID uint64) ([]float3
 }
 
 func (h *hnsw) encodeMultiVector() error {
-	if h.encoder == nil {
-		config := multivector.DefaultMuveraConfig()
-		h.encoder = multivector.NewMuveraEncoder(config)
-	}
-	fmt.Println("Creating muvera vectors bucket")
-	err := h.store.CreateOrLoadBucket(context.Background(), "muvera_vectors", lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return errors.Wrapf(err, "Create or load bucket (muvera store)")
-	}
-
 	vectors := h.cache.All()
 	filteredVectors := make([][]float32, 0, len(vectors))
 	for _, v := range vectors {
@@ -415,7 +407,6 @@ func (h *hnsw) encodeMultiVector() error {
 	if err := h.encoder.Fit([][][]float32{filteredVectors}); err != nil {
 		return err
 	}
-	fmt.Println("encoder fitted")
 	// Iterate over all the keys of the docIDVectors map
 	muveraVectors := make([][]float32, 0, len(h.docIDVectors))
 	var vecs [][]float32
@@ -431,12 +422,10 @@ func (h *hnsw) encodeMultiVector() error {
 		muveraVectors = append(muveraVectors, muveraVec)
 	}
 	h.cache.Drop()
-	fmt.Println("dropped cache")
 	h.cache = cache.NewShardedFloat32LockCache(h.getMuveraVectorForID, h.MultiVectorForIDThunk, 1e12, 1, h.logger,
 		true, cache.DefaultDeletionInterval, h.allocChecker)
 	h.vectorForID = h.cache.Get
 	h.multiVectorForID = h.cache.MultiGet
-	fmt.Println("created new cache")
 	h.cache.Grow(uint64(h.nodes.Len()))
 	compressionhelpers.Concurrently(h.logger, uint64(len(muveraVectors)),
 		func(index uint64) {
@@ -447,7 +436,7 @@ func (h *hnsw) encodeMultiVector() error {
 		})
 	h.muvera.Store(true)
 	return nil
-}
+}*/
 
 // TODO: use this for incoming replication
 // func (h *hnsw) insertFromExternal(nodeId, targetLevel int, neighborsAtLevel map[int][]uint32) {

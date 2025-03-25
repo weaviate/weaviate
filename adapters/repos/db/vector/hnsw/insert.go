@@ -170,12 +170,11 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		// Process all vectors
 		processedVectors := make([][]float32, len(vectors))
 		for i, v := range vectors {
-			processedVectors[i] = h.encoder.EncodeDoc(v)
+			processedVectors[i] = h.muveraEncoder.EncodeDoc(v)
 			docIDBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(docIDBytes, docIDs[i])
 			muveraBytes := MuveraBytesFromFloat32(processedVectors[i])
-			h.store.Bucket("muvera_vectors").Put(docIDBytes, muveraBytes)
-
+			h.store.Bucket(h.id+"_muvera_vectors").Put(docIDBytes, muveraBytes)
 		}
 		// Replace original vectors with processed ones
 		return h.AddBatch(ctx, docIDs, processedVectors)

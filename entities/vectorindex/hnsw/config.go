@@ -115,6 +115,7 @@ func (u *UserConfig) SetDefaults() {
 	}
 	u.Multivector = MultivectorConfig{
 		Enabled:     DefaultMultivectorEnabled,
+		Muvera:      DefaultMultivectorMuvera,
 		Aggregation: DefaultMultivectorAggregation,
 	}
 }
