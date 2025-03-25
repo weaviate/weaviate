@@ -128,7 +128,7 @@ func TestRbacWithOIDC(t *testing.T) {
 				require.Len(t, rolesDB, 0)
 			}
 
-			usersOidc := helper.GetUserForRolesOIDC(t, createSchemaRoleName, tokenAdmin)
+			usersOidc := helper.GetUserForRolesBoth(t, createSchemaRoleName, tokenAdmin)
 			require.Len(t, usersOidc, 1)
 			if test.onlyOIDC || !test.nameCollision {
 				_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)), helper.CreateAuth(tokenAdmin))

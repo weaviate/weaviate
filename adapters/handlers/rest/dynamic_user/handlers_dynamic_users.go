@@ -53,11 +53,6 @@ const (
 	userNameRegexCore = `[A-Za-z][-_0-9A-Za-z@.]{0,128}`
 )
 
-const (
-	userTypeStatic  = "static"
-	userTypeDynamic = "dynamic"
-)
-
 var validateUserNameRegex = regexp.MustCompile(`^` + userNameRegexCore + `$`)
 
 func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, authConfig config.Authentication, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
@@ -106,7 +101,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dynamicUser := range filteredUsers {
-		response, err = h.addToListAllResponse(response, dynamicUser.Id, userTypeDynamic, dynamicUser.Active)
+		response, err = h.addToListAllResponse(response, dynamicUser.Id, string(models.UserTypeOutputDbDynamic), dynamicUser.Active)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -114,7 +109,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 
 	if isRootUser {
 		for _, staticUser := range h.staticApiKeysConfigs.Users {
-			response, err = h.addToListAllResponse(response, staticUser, userTypeStatic, true)
+			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbStatic), true)
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 			}
@@ -175,9 +170,9 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		roles = append(roles, roleName)
 	}
 
-	userType := userTypeDynamic
+	userType := string(models.UserTypeOutputDbDynamic)
 	if isStaticUser {
-		userType = userTypeStatic
+		userType = string(models.UserTypeOutputDbStatic)
 	}
 
 	return users.NewGetUserInfoOK().WithPayload(&models.DBUserInfo{UserID: &params.UserID, Roles: roles, DbUserType: &userType, Active: &active})

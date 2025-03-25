@@ -32,10 +32,10 @@ func TestSuccessList(t *testing.T) {
 	tests := []struct {
 		name     string
 		userId   string
-		userType string
+		userType models.UserTypeOutput
 	}{
-		{name: "dynamic user", userId: "dynamic", userType: userTypeDynamic},
-		{name: "static user", userId: "static", userType: userTypeStatic},
+		{name: "dynamic user", userId: "dynamic", userType: models.UserTypeOutputDbDynamic},
+		{name: "static user", userId: "static", userType: models.UserTypeOutputDbStatic},
 	}
 
 	for _, test := range tests {
@@ -44,7 +44,7 @@ func TestSuccessList(t *testing.T) {
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.READ, authorization.Users(test.userId)[0]).Return(nil)
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
-			if test.userType == userTypeDynamic {
+			if test.userType == models.UserTypeOutputDbDynamic {
 				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId}}, nil)
 			}
 			dynUser.On("GetRolesForUser", test.userId, models.UserTypeInputDb).Return(
@@ -64,7 +64,7 @@ func TestSuccessList(t *testing.T) {
 
 			require.Equal(t, *parsed.Payload.UserID, test.userId)
 			require.Equal(t, parsed.Payload.Roles, []string{"role"})
-			require.Equal(t, *parsed.Payload.DbUserType, test.userType)
+			require.Equal(t, *parsed.Payload.DbUserType, string(test.userType))
 		})
 	}
 }

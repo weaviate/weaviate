@@ -61,29 +61,22 @@ func GetUserForRoles(t *testing.T, roleName, key string) []string {
 	resp, err := Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(roleName), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
-	userIds := make([]string, len(resp.Payload))
-	for i, user := range resp.Payload {
+	userIds := make([]string, 0, len(resp.Payload))
+	for _, user := range resp.Payload {
 		if *user.UserType == models.UserTypeOutputOidc {
 			continue
 		}
-		userIds[i] = user.UserID
+		userIds = append(userIds, user.UserID)
 	}
 	return userIds
 }
 
-func GetUserForRolesOIDC(t *testing.T, roleName, key string) []string {
+func GetUserForRolesBoth(t *testing.T, roleName, key string) []*authz.GetUsersForRoleOKBodyItems0 {
 	t.Helper()
 	resp, err := Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(roleName), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
-	userIds := make([]string, len(resp.Payload))
-	for i, user := range resp.Payload {
-		if *user.UserType != models.UserTypeOutputOidc {
-			continue
-		}
-		userIds[i] = user.UserID
-	}
-	return userIds
+	return resp.Payload
 }
 
 func GetInfoForOwnUser(t *testing.T, key string) *models.UserOwnInfo {
