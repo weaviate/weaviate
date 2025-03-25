@@ -31,6 +31,7 @@ var errAny = errors.New("any error")
 func TestBootstrapper(t *testing.T) {
 	ctx := context.Background()
 	anything := mock.Anything
+	nodesSlice := []string{"S1", "S2"}
 	nodes := map[string]int{"S1": 1, "S2": 2}
 
 	tests := []struct {
@@ -116,7 +117,7 @@ func TestBootstrapper(t *testing.T) {
 			test.doBefore(m)
 
 			// Configure the bootstrapper
-			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(), test.isReady)
+			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady)
 			b.retryPeriod = time.Millisecond
 			b.jitter = time.Millisecond
 			ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
