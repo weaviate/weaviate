@@ -24,12 +24,12 @@ import (
 )
 
 func (h *replicationHandler) replicate(params replication.ReplicateParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(*params.Body.CollectionID, *params.Body.ShardID)...); err != nil {
-		return replication.NewReplicateForbidden()
-	}
-
 	if err := params.Body.Validate(nil /* pass nil as we don't validate formatting here*/); err != nil {
 		return replication.NewReplicateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(*params.Body.CollectionID, *params.Body.ShardID)...); err != nil {
+		return replication.NewReplicateForbidden()
 	}
 
 	if err := h.replicationManager.ReplicationReplicateReplica(*params.Body.SourceNodeName, *params.Body.CollectionID, *params.Body.ShardID, *params.Body.DestinationNodeName); err != nil {
