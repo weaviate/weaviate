@@ -1600,7 +1600,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 			memTombstones.Or(activeTombstones)
 
-			if n2 > 0 {
+			if active.Count() > 0 {
 				active.advanceOnTombstoneOrFilter()
 			}
 		}
@@ -1620,7 +1620,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 			memTombstones.Or(tombstones)
 
-			if n2 > 0 {
+			if flushing.Count() > 0 {
 				flushing.tombstones = activeTombstones
 				flushing.advanceOnTombstoneOrFilter()
 			}
@@ -1696,7 +1696,7 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		if v.Tombstone {
 			continue
 		}
-
+		n++
 		if len(v.Value) < 8 {
 			// b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
 			continue
@@ -1708,14 +1708,14 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		if filterDocIds != nil && !filterDocIds.Contains(d.Id) {
 			continue
 		}
-		n++
+
 		term.blockDataDecoded.DocIds = append(term.blockDataDecoded.DocIds, d.Id)
 		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
 		term.propLengths[d.Id] = uint32(d.PropLength)
 
 	}
 	if len(term.blockDataDecoded.DocIds) == 0 {
-		return 0, nil
+		return n, nil
 	}
 
 	term.blockEntries = make([]*terms.BlockEntry, 1)
