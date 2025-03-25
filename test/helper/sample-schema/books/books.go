@@ -93,7 +93,7 @@ func ClassMixedContextionaryVectorizer() *models.Class {
 		"contextionary_all": {
 			Vectorizer: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": false,
+					"vectorizeClassName": true,
 				},
 			},
 			VectorIndexType: "hnsw",
