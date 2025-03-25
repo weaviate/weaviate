@@ -47,6 +47,7 @@ var (
 	text2vecTransformers                = "text2vec-transformers"
 	id1                                 = "00000000-0000-0000-0000-000000000001"
 	id2                                 = "00000000-0000-0000-0000-000000000002"
+	id3                                 = "00000000-0000-0000-0000-000000000003"
 )
 
 var targetVectors = []string{

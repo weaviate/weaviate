@@ -189,6 +189,31 @@ func (o *DeactivateUserNotFound) WriteResponse(rw http.ResponseWriter, producer 
 	rw.WriteHeader(404)
 }
 
+// DeactivateUserConflictCode is the HTTP code returned for type DeactivateUserConflict
+const DeactivateUserConflictCode int = 409
+
+/*
+DeactivateUserConflict user already deactivated
+
+swagger:response deactivateUserConflict
+*/
+type DeactivateUserConflict struct {
+}
+
+// NewDeactivateUserConflict creates DeactivateUserConflict with default headers values
+func NewDeactivateUserConflict() *DeactivateUserConflict {
+
+	return &DeactivateUserConflict{}
+}
+
+// WriteResponse to the client
+func (o *DeactivateUserConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(409)
+}
+
 // DeactivateUserUnprocessableEntityCode is the HTTP code returned for type DeactivateUserUnprocessableEntity
 const DeactivateUserUnprocessableEntityCode int = 422
 

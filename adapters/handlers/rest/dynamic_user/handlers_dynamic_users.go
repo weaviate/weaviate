@@ -354,7 +354,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 	}
 
 	if !existingUser[params.UserID].Active {
-		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("user already deactivated")))
+		return users.NewDeactivateUserConflict()
 	}
 
 	revokeKey := false
@@ -396,7 +396,7 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 	}
 
 	if existingUser[params.UserID].Active {
-		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("user already activated")))
+		return users.NewActivateUserConflict()
 	}
 
 	if err := h.dynamicUser.ActivateUser(params.UserID); err != nil {

@@ -64,7 +64,7 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 }
 
 func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
-	err := ScanAllLSM(g.store, func(prop *models.PropertySchema, docID uint64) (bool, error) {
+	err := ScanAllLSM(ctx, g.store, func(prop *models.PropertySchema, docID uint64) (bool, error) {
 		return true, g.addElementById(prop, docID)
 	}, &storobj.PropertyExtraction{
 		PropertyPaths: [][]string{{g.params.GroupBy.Property.String()}},
@@ -278,7 +278,7 @@ func (g *grouper) insertOrdered(elem group) {
 // ScanAllLSM iterates over every row in the object buckets.
 // Caller can specify which properties it is interested in to make the scanning more performant, or pass nil to
 // decode everything.
-func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn, properties *storobj.PropertyExtraction) error {
+func ScanAllLSM(ctx context.Context, store *lsmkv.Store, scan docid.ObjectScanFn, properties *storobj.PropertyExtraction) error {
 	b := store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return fmt.Errorf("objects bucket not found")
@@ -288,16 +288,21 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn, properties *storobj
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		elem, err := storobj.FromBinaryOptional(v, additional.Properties{}, properties)
-		if err != nil {
-			return errors.Wrapf(err, "unmarshal data object")
-		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			elem, err := storobj.FromBinaryOptional(v, additional.Properties{}, properties)
+			if err != nil {
+				return errors.Wrapf(err, "unmarshal data object")
+			}
 
-		// scanAll has no abort, so we can ignore the first arg
-		properties := elem.Properties()
-		_, err = scan(&properties, elem.DocID)
-		if err != nil {
-			return err
+			// scanAll has no abort, so we can ignore the first arg
+			properties := elem.Properties()
+			_, err = scan(&properties, elem.DocID)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
