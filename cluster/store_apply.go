@@ -199,7 +199,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			"class": cmd.Class,
 			"more":  msg,
 		}).Error("unknown command")
-		panic(fmt.Sprintf("unknown command type=%d class=%s more=%s", cmd.Type, cmd.Class, msg))
 	}
 
 	// Wrap the function in a go routine to ensure panic recovery. This is necessary as this function is run in an
