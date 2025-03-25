@@ -24,7 +24,6 @@ message JoinPeerResponse {
 message RemovePeerRequest {
   string id = 1;
 }
-
 message RemovePeerResponse {
   string leader = 1;
 }
@@ -69,8 +68,10 @@ message ApplyRequest {
     TYPE_STORE_SCHEMA_V1 = 99;
 
     TYPE_REPLICATION_REPLICATE = 200;
-    TYPE_REPLICATION_REPLICA_DISABLE = 201;
-    TYPE_REPLICATION_REPLICA_DELETE = 202;
+    TYPE_REPLICATION_REPLICATE_UPDATE_STATE = 201;
+    TYPE_REPLICATION_REPLICATE_ABORT = 202;
+    TYPE_REPLICATION_REPLICA_DISABLE = 210;
+    TYPE_REPLICATION_REPLICA_DELETE = 211;
   }
   Type type = 1;
   string class = 2;

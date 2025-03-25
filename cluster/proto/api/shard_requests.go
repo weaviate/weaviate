@@ -20,9 +20,10 @@ type ShardReplicationState string
 const (
 	REGISTERED  ShardReplicationState = "REGISTERED"
 	HYDRATING   ShardReplicationState = "HYDRATING"
+	FINALIZING  ShardReplicationState = "FINALIZING"
 	READY       ShardReplicationState = "READY"
-	LIVE        ShardReplicationState = "LIVE"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"
+	ABORTED     ShardReplicationState = "ABORTED"
 )
 
 type ReplicationReplicateShardRequest struct {

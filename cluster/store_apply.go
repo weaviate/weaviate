@@ -96,7 +96,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			}).Info("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
-			st.replicationManager.StartReplicationEngine()
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
@@ -237,6 +236,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:
+		f = func() {
+			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
 		}
 
 	default:

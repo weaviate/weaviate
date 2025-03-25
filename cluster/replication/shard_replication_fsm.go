@@ -114,9 +114,9 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	readOk := false
 	writeOk := false
 	switch opState.state {
-	case api.READY:
+	case api.FINALIZING:
 		writeOk = true
-	case api.LIVE:
+	case api.READY:
 		readOk = true
 		writeOk = true
 	default:

@@ -292,12 +292,6 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
-	// This raft state is currently clean (new cluster) so we can start the replication enginer right away.
-	// If the state isn't clean we'll wait for schema catchup to be detected and the DB to be reloaded from
-	// the schema to then start the replication engine.
-	if st.lastAppliedIndexToDB.Load() == 0 {
-		st.replicationManager.StartReplicationEngine()
-	}
 	st.log.WithFields(logrus.Fields{
 		"raft_applied_index":                st.raft.AppliedIndex(),
 		"raft_last_index":                   st.raft.LastIndex(),
@@ -687,6 +681,10 @@ func (st *Store) reloadDBFromSchema() {
 		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
 	}
 	st.lastAppliedIndexToDB.Store(max(lastSnapshotIndex(st.snapshotStore), lastLogApplied))
+}
+
+func (st *Store) FSMHasCaughtUp() bool {
+	return st.lastAppliedIndex.Load() >= st.lastAppliedIndexToDB.Load()
 }
 
 type Response struct {

@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
@@ -28,11 +29,12 @@ const (
 	replicationEngineMaxConcurrentReplication = 5
 )
 
-type shardReplicationEngine struct {
+type ShardReplicationEngine struct {
 	node   string
 	logger *logrus.Entry
 
 	replicationFSM         *ShardReplicationFSM
+	leaderClient           types.ReplicationFSMUpdater
 	ongoingReplications    atomic.Int64
 	ongoingReplicationLock sync.RWMutex
 	ongoingReplicationOps  map[shardReplicationOp]struct{}
@@ -42,9 +44,11 @@ type shardReplicationEngine struct {
 	replicaCopier types.ReplicaCopier
 }
 
-func newShardReplicationEngine(logger *logrus.Logger, replicationFSM *ShardReplicationFSM, replicaCopier types.ReplicaCopier) *shardReplicationEngine {
-	return &shardReplicationEngine{
+func NewShardReplicationEngine(logger *logrus.Logger, replicationFSM *ShardReplicationFSM, leaderClient types.ReplicationFSMUpdater, replicaCopier types.ReplicaCopier) *ShardReplicationEngine {
+	return &ShardReplicationEngine{
 		logger:                logger.WithFields(logrus.Fields{"action": replicationEngineLogAction}),
+		replicationFSM:        replicationFSM,
+		leaderClient:          leaderClient,
 		ongoingReplicationOps: make(map[shardReplicationOp]struct{}),
 		opChan:                make(chan shardReplicationOp, 100),
 		stopChan:              make(chan bool),
@@ -52,7 +56,7 @@ func newShardReplicationEngine(logger *logrus.Logger, replicationFSM *ShardRepli
 	}
 }
 
-func (s *shardReplicationEngine) Start() {
+func (s *ShardReplicationEngine) Start() {
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	eg.Go(func() error {
 		s.replicationFSMMonitor()
@@ -64,11 +68,11 @@ func (s *shardReplicationEngine) Start() {
 	}
 }
 
-func (s *shardReplicationEngine) Stop() {
+func (s *ShardReplicationEngine) Stop() {
 	s.stopChan <- true
 }
 
-func (s *shardReplicationEngine) replicationFSMMonitor() {
+func (s *ShardReplicationEngine) replicationFSMMonitor() {
 	ticker := time.NewTicker(5 * time.Second)
 	for {
 	LOOP_RESET:
@@ -104,31 +108,45 @@ func (s *shardReplicationEngine) replicationFSMMonitor() {
 	}
 }
 
-func (s *shardReplicationEngine) registerStartShardReplication(op shardReplicationOp) {
+func (s *ShardReplicationEngine) registerStartShardReplication(op shardReplicationOp) {
 	s.ongoingReplicationLock.Lock()
 	defer s.ongoingReplicationLock.Unlock()
 
 	s.ongoingReplicationOps[op] = struct{}{}
 }
 
-func (s *shardReplicationEngine) startShardReplication(op shardReplicationOp) {
+func (s *ShardReplicationEngine) startShardReplication(op shardReplicationOp) {
 	s.ongoingReplications.Add(1)
 	s.registerStartShardReplication(op)
 
+	// TODO: Handle shutdown/abort related routine to stop all ongoing replica movement
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	eg.Go(func() error {
-		defer s.ongoingReplications.Add(-1)
-		// TODO defer deleting the op from ongoing ops map and fsm maps as well? but only if it doesn't work?
-		if s.node == op.targetShard.nodeId {
+		return backoff.Retry(func() error {
+			defer s.ongoingReplications.Add(-1)
 			// TODO how to cancel this context if we need to stop (eg hook it up to stopChan?)
 			ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour)
 			defer cancel()
-			err := s.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId)
-			if err != nil {
+
+			// Update FSM that we are starting to hydrate this replica
+			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.HYDRATING); err != nil {
+				s.logger.WithError(err).Errorf("failed to update replica op state to %s", api.HYDRATING)
+			}
+
+			// Copy the replica
+			if err := s.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
+				// TODO: Handle failure and failure tracking in replicationFSM of replica ops
 				return err
 			}
-		}
-		return nil
+
+			// Update FSM that we are done copying files and we can start final sync follower phase
+			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.FINALIZING); err != nil {
+				s.logger.WithError(err).Errorf("failed to update replica op state to %s", api.FINALIZING)
+			}
+
+			// TODO Handle finalizing step for replica movement
+			return nil
+		}, backoff.NewConstantBackOff(5*time.Second))
 	})
 	err := eg.Wait()
 	if err != nil {
@@ -137,7 +155,7 @@ func (s *shardReplicationEngine) startShardReplication(op shardReplicationOp) {
 	}
 }
 
-func (s *shardReplicationEngine) recoverShardReplication(op shardReplicationOp) {
+func (s *ShardReplicationEngine) recoverShardReplication(op shardReplicationOp) {
 	s.ongoingReplications.Add(1)
 	s.registerStartShardReplication(op)
 
@@ -152,7 +170,7 @@ func (s *shardReplicationEngine) recoverShardReplication(op shardReplicationOp) 
 	}
 }
 
-func (s *shardReplicationEngine) getShardReplicationOps() ([]shardReplicationOp, []shardReplicationOp) {
+func (s *ShardReplicationEngine) getShardReplicationOps() ([]shardReplicationOp, []shardReplicationOp) {
 	var newShardReplicationOp []shardReplicationOp
 	var ongoingShardReplicationOp []shardReplicationOp
 	for _, op := range s.replicationFSM.GetOpsForNode(s.node) {
