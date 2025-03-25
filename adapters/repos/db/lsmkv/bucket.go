@@ -1696,7 +1696,7 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		if v.Tombstone {
 			continue
 		}
-		n++
+
 		if len(v.Value) < 8 {
 			// b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
 			continue
@@ -1708,13 +1708,14 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		if filterDocIds != nil && !filterDocIds.Contains(d.Id) {
 			continue
 		}
+		n++
 		term.blockDataDecoded.DocIds = append(term.blockDataDecoded.DocIds, d.Id)
 		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
 		term.propLengths[d.Id] = uint32(d.PropLength)
 
 	}
 	if len(term.blockDataDecoded.DocIds) == 0 {
-		return n, nil
+		return 0, nil
 	}
 
 	term.blockEntries = make([]*terms.BlockEntry, 1)
