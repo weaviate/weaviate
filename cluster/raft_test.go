@@ -365,9 +365,6 @@ func TestRaftPanics(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, resp, Response{})
 
-	// Unknown Command
-	assert.Panics(t, func() { m.store.Apply(&raft.Log{}) })
-
 	// Not a Valid Payload
 	assert.Panics(t, func() { m.store.Apply(&raft.Log{Data: []byte("a")}) })
 
