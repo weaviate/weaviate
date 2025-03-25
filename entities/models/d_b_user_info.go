@@ -26,10 +26,10 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// UserInfo user info
+// DBUserInfo d b user info
 //
-// swagger:model UserInfo
-type UserInfo struct {
+// swagger:model DBUserInfo
+type DBUserInfo struct {
 
 	// activity status of the returned user
 	// Required: true
@@ -49,8 +49,8 @@ type UserInfo struct {
 	UserID *string `json:"userId"`
 }
 
-// Validate validates this user info
-func (m *UserInfo) Validate(formats strfmt.Registry) error {
+// Validate validates this d b user info
+func (m *DBUserInfo) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateActive(formats); err != nil {
@@ -75,7 +75,7 @@ func (m *UserInfo) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *UserInfo) validateActive(formats strfmt.Registry) error {
+func (m *DBUserInfo) validateActive(formats strfmt.Registry) error {
 
 	if err := validate.Required("active", "body", m.Active); err != nil {
 		return err
@@ -84,7 +84,7 @@ func (m *UserInfo) validateActive(formats strfmt.Registry) error {
 	return nil
 }
 
-var userInfoTypeDbUserTypePropEnum []interface{}
+var dBUserInfoTypeDbUserTypePropEnum []interface{}
 
 func init() {
 	var res []string
@@ -92,28 +92,28 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		userInfoTypeDbUserTypePropEnum = append(userInfoTypeDbUserTypePropEnum, v)
+		dBUserInfoTypeDbUserTypePropEnum = append(dBUserInfoTypeDbUserTypePropEnum, v)
 	}
 }
 
 const (
 
-	// UserInfoDbUserTypeDynamic captures enum value "dynamic"
-	UserInfoDbUserTypeDynamic string = "dynamic"
+	// DBUserInfoDbUserTypeDynamic captures enum value "dynamic"
+	DBUserInfoDbUserTypeDynamic string = "dynamic"
 
-	// UserInfoDbUserTypeStatic captures enum value "static"
-	UserInfoDbUserTypeStatic string = "static"
+	// DBUserInfoDbUserTypeStatic captures enum value "static"
+	DBUserInfoDbUserTypeStatic string = "static"
 )
 
 // prop value enum
-func (m *UserInfo) validateDbUserTypeEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, userInfoTypeDbUserTypePropEnum, true); err != nil {
+func (m *DBUserInfo) validateDbUserTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, dBUserInfoTypeDbUserTypePropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *UserInfo) validateDbUserType(formats strfmt.Registry) error {
+func (m *DBUserInfo) validateDbUserType(formats strfmt.Registry) error {
 
 	if err := validate.Required("dbUserType", "body", m.DbUserType); err != nil {
 		return err
@@ -127,7 +127,7 @@ func (m *UserInfo) validateDbUserType(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
+func (m *DBUserInfo) validateRoles(formats strfmt.Registry) error {
 
 	if err := validate.Required("roles", "body", m.Roles); err != nil {
 		return err
@@ -136,7 +136,7 @@ func (m *UserInfo) validateRoles(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *UserInfo) validateUserID(formats strfmt.Registry) error {
+func (m *DBUserInfo) validateUserID(formats strfmt.Registry) error {
 
 	if err := validate.Required("userId", "body", m.UserID); err != nil {
 		return err
@@ -145,13 +145,13 @@ func (m *UserInfo) validateUserID(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this user info based on context it is used
-func (m *UserInfo) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this d b user info based on context it is used
+func (m *DBUserInfo) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *UserInfo) MarshalBinary() ([]byte, error) {
+func (m *DBUserInfo) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -159,8 +159,8 @@ func (m *UserInfo) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *UserInfo) UnmarshalBinary(b []byte) error {
-	var res UserInfo
+func (m *DBUserInfo) UnmarshalBinary(b []byte) error {
+	var res DBUserInfo
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

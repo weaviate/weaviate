@@ -36,7 +36,7 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 	controller := mocks.NewControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
-	userType := models.UserTypeDb
+	userType := models.UserTypeInputDb
 	principal := &models.Principal{Username: "user1"}
 	params := authz.AssignRoleToUserParams{
 		ID: "user1",
@@ -467,7 +467,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 		expectedError string
 	}
 
-	userType := models.UserTypeDb
+	userType := models.UserTypeInputDb
 
 	tests := []testCase{
 		{

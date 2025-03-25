@@ -44,7 +44,7 @@ type dynUserHandler struct {
 
 type DynamicUserAndRolesGetter interface {
 	apikey.DynamicUser
-	GetRolesForUser(user string, userTypes models.UserType) (map[string][]authorization.Policy, error)
+	GetRolesForUser(user string, userTypes models.UserTypeInput) (map[string][]authorization.Policy, error)
 	RevokeRolesForUser(userName string, roles ...string) error
 }
 
@@ -104,7 +104,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 		},
 	)
 
-	response := make([]*models.UserInfo, 0, len(filteredUsers))
+	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dynamicUser := range filteredUsers {
 		response, err = h.addToListAllResponse(response, dynamicUser.Id, userTypeDynamic, dynamicUser.Active)
 		if err != nil {
@@ -124,8 +124,8 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(response []*models.UserInfo, id, userType string, active bool) ([]*models.UserInfo, error) {
-	roles, err := h.dynamicUser.GetRolesForUser(id, models.UserTypeDb)
+func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool) ([]*models.DBUserInfo, error) {
+	roles, err := h.dynamicUser.GetRolesForUser(id, models.UserTypeInputDb)
 	if err != nil {
 		return response, err
 	}
@@ -134,7 +134,7 @@ func (h *dynUserHandler) addToListAllResponse(response []*models.UserInfo, id, u
 	for role := range roles {
 		roleNames = append(roleNames, role)
 	}
-	response = append(response, &models.UserInfo{
+	response = append(response, &models.DBUserInfo{
 		Active:     &active,
 		UserID:     &id,
 		DbUserType: &userType,
@@ -165,7 +165,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		active = user.Active
 	}
 
-	existedRoles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypeDb)
+	existedRoles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypeInputDb)
 	if err != nil {
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("get roles: %w", err)))
 	}
@@ -180,7 +180,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		userType = userTypeStatic
 	}
 
-	return users.NewGetUserInfoOK().WithPayload(&models.UserInfo{UserID: &params.UserID, Roles: roles, DbUserType: &userType, Active: &active})
+	return users.NewGetUserInfoOK().WithPayload(&models.DBUserInfo{UserID: &params.UserID, Roles: roles, DbUserType: &userType, Active: &active})
 }
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
@@ -303,7 +303,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 	if len(existingUsers) == 0 {
 		return users.NewDeleteUserNotFound()
 	}
-	roles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypeDb)
+	roles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypeInputDb)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -312,7 +312,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		for name := range roles {
 			roleNames = append(roleNames, name)
 		}
-		if err := h.dynamicUser.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, models.UserTypeDb), roleNames...); err != nil {
+		if err := h.dynamicUser.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, models.UserTypeInputDb), roleNames...); err != nil {
 			return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 	}
