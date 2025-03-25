@@ -112,6 +112,7 @@ func (m *UUIDTreeMap) Range(leaf LeafID) (UUIDRange, error) {
 	}, nil
 }
 
+// LeafID returns the leaf identifier for a given UUID based on the tree height.
 func (m *UUIDTreeMap) LeafID(uuid UUID) LeafID {
 	prefix := binary.BigEndian.Uint64(uuid[:8])
 	return LeafID(prefix >> (maxTreeHeight - m.treeHeight))
