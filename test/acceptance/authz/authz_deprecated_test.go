@@ -12,7 +12,10 @@
 package authz
 
 import (
+	"context"
 	"testing"
+
+	"github.com/weaviate/weaviate/test/docker"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
@@ -29,8 +32,20 @@ func TestDeprecatedEndpoints(t *testing.T) {
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	defer down()
+	ctx := context.Background()
+
+	// enable OIDC to be able to assign to db and oidc separately
+	compose, err := docker.New().
+		WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins(adminUser).
+		WithApiKey().WithUserApiKey(customUser, customKey).WithUserApiKey(adminUser, adminKey).
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
 
 	testRoleName := "testRole1"
 	createCollectionsAction := authorization.CreateCollections
@@ -56,13 +71,9 @@ func TestDeprecatedEndpoints(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey)
+		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey, true)
 		require.Len(t, RolesDbUser, 1)
 		require.Equal(t, testRoleName, *RolesDbUser[0].Name)
-
-		RolesOIDCUser := helper.GetRolesForUserOIDC(t, customUser, adminKey)
-		require.Len(t, RolesOIDCUser, 1)
-		require.Equal(t, testRoleName, *RolesOIDCUser[0].Name)
 	})
 
 	// revoke without usertype should revoke from, OIDC as well as db user
@@ -74,7 +85,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 		helper.AssignRoleToUserOIDC(t, adminKey, testRoleName, customUser)
 
-		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey)
+		RolesDbUser := helper.GetRolesForUser(t, customUser, adminKey, true)
 		require.Len(t, RolesDbUser, 1)
 		require.Equal(t, testRoleName, *RolesDbUser[0].Name)
 
@@ -96,7 +107,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
-		resp, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser), clientAuth)
+		resp, err := helper.Client(t).Authz.GetRolesForUserDeprecated(authz.NewGetRolesForUserDeprecatedParams().WithID(customUser), clientAuth)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)
@@ -109,7 +120,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 
 		// no duplicates after also assigning to OIDC
 		helper.AssignRoleToUserOIDC(t, adminKey, testRoleName, customUser)
-		resp, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser), clientAuth)
+		resp, err = helper.Client(t).Authz.GetRolesForUserDeprecated(authz.NewGetRolesForUserDeprecatedParams().WithID(customUser), clientAuth)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)
@@ -122,7 +133,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 
 		// remove from DB user, OIDC still has role
 		helper.RevokeRoleFromUser(t, adminKey, testRoleName, customUser)
-		resp, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser), clientAuth)
+		resp, err = helper.Client(t).Authz.GetRolesForUserDeprecated(authz.NewGetRolesForUserDeprecatedParams().WithID(customUser), clientAuth)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)

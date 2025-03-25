@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.30.0-dev"
+    "version": "1.31.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -1054,6 +1054,13 @@ func init() {
             "name": "userType",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission",
+            "name": "includeFullRoles",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4464,6 +4471,9 @@ func init() {
           "404": {
             "description": "user not found"
           },
+          "409": {
+            "description": "user already activated"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
@@ -4533,6 +4543,9 @@ func init() {
           },
           "404": {
             "description": "user not found"
+          },
+          "409": {
+            "description": "user already deactivated"
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -7278,7 +7291,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.30.0-dev"
+    "version": "1.31.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -8284,6 +8297,13 @@ func init() {
             "name": "userType",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission",
+            "name": "includeFullRoles",
+            "in": "query"
           }
         ],
         "responses": {
@@ -11816,6 +11836,9 @@ func init() {
           "404": {
             "description": "user not found"
           },
+          "409": {
+            "description": "user already activated"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
@@ -11885,6 +11908,9 @@ func init() {
           },
           "404": {
             "description": "user not found"
+          },
+          "409": {
+            "description": "user already deactivated"
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",

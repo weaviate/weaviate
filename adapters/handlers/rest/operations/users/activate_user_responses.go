@@ -189,6 +189,31 @@ func (o *ActivateUserNotFound) WriteResponse(rw http.ResponseWriter, producer ru
 	rw.WriteHeader(404)
 }
 
+// ActivateUserConflictCode is the HTTP code returned for type ActivateUserConflict
+const ActivateUserConflictCode int = 409
+
+/*
+ActivateUserConflict user already activated
+
+swagger:response activateUserConflict
+*/
+type ActivateUserConflict struct {
+}
+
+// NewActivateUserConflict creates ActivateUserConflict with default headers values
+func NewActivateUserConflict() *ActivateUserConflict {
+
+	return &ActivateUserConflict{}
+}
+
+// WriteResponse to the client
+func (o *ActivateUserConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(409)
+}
+
 // ActivateUserUnprocessableEntityCode is the HTTP code returned for type ActivateUserUnprocessableEntity
 const ActivateUserUnprocessableEntityCode int = 422
 

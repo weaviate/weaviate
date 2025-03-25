@@ -209,6 +209,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	appState := startupRoutine(ctx, options)
 
+	// initializing at the top to reflect the config changes before we pass on to different components.
+	initRuntimeOverrides(appState)
+
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.HTTPServerMetrics = monitoring.NewHTTPServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
 		appState.GRPCServerMetrics = monitoring.NewGRPCServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
@@ -397,7 +400,11 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// longer start up if the required minimum is now higher than 1. We want
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
-		Replication:                 replication.GlobalConfig{MinimumFactor: 1},
+		Replication: replication.GlobalConfig{
+			MinimumFactor:              1,
+			AsyncReplicationDisabled:   appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
+			AsyncReplicationDisabledFn: appState.ServerConfig.Config.Replication.AsyncReplicationDisabledFn,
+		},
 		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
@@ -481,6 +488,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
 		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
 		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		EnableOneNodeRecovery:  appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
+		ForceOneNodeRecovery:   appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
 		DB:                     nil,
 		Parser:                 schemaParser,
 		NodeNameToPortMap:      server2port,
@@ -518,33 +527,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		configRuntime.CollectionRetrievalStrategyEnvVariable,
 		appState.Logger,
 	)
-
-	// Enable runtime config manager
-	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
-		cm, err := configRuntime.NewConfigManager(
-			appState.ServerConfig.Config.RuntimeOverrides.Path,
-			config.ParseYaml,
-			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
-			appState.Logger,
-			prometheus.DefaultRegisterer)
-		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
-			os.Exit(1)
-		}
-
-		enterrors.GoWrapper(func() {
-			// NOTE: Not using parent `ctx` because that is getting cancelled in the caller even during startup.
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			if err := cm.Run(ctx); err != nil {
-				appState.Logger.WithField("action", "runtime config manager startup ").WithError(err).
-					Fatal("runtime config manager stopped")
-			}
-		}, appState.Logger)
-		rc := config.NewWeaviateRuntimeConfig(cm)
-		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCountFn = rc.GetMaximumAllowedCollectionsCount
-	}
 
 	schemaManager, err := schemaUC.NewManager(migrator,
 		appState.ClusterService.Raft,
@@ -648,6 +630,36 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		reindexTaskNamesWithArgs["ShardInvertedReindexTask_SpecifiedIndex"] = appState.ServerConfig.Config.ReindexIndexesAtStartup
 	}
 
+	reindexTasksV2Names := []string{}
+	reindexTasksV2Args := map[string]any{}
+	reindexFinishedV2 := make(chan error, 1)
+	if appState.ServerConfig.Config.ReindexMapToBlockmaxAtStartup {
+		reindexTasksV2Names = append(reindexTasksV2Names, "ShardInvertedReindexTask_MapToBlockmax")
+		reindexTasksV2Args["ShardInvertedReindexTask_MapToBlockmax"] = map[string]any{
+			"SwapBuckets":               appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.SwapBuckets,
+			"UnswapBuckets":             appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.UnswapBuckets,
+			"TidyBuckets":               appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.TidyBuckets,
+			"Rollback":                  appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.Rollback,
+			"ProcessingDurationSeconds": appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds,
+			"PauseDurationSeconds":      appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.PauseDurationSeconds,
+		}
+	}
+
+	if len(reindexTasksV2Names) > 0 {
+		waitForMetaStore := func() error {
+			// wait until meta store is ready, as reindex tasks need schema
+			<-storeReadyCtx.Done()
+			if err := context.Cause(storeReadyCtx); !errors.Is(err, metaStoreReadyErr) {
+				return err
+			}
+			return nil
+		}
+		if err := runReindexerV2(reindexCtx, waitForMetaStore, migrator, appState.Logger, reindexTasksV2Names,
+			reindexTasksV2Args, reindexFinishedV2); err != nil {
+			os.Exit(1) // fail only in case of error (effectively when reindexer is not created)
+		}
+	}
+
 	if len(reindexTaskNamesWithArgs) > 0 {
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
@@ -679,6 +691,85 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	return appState
+}
+
+func runReindexerV2(reindexCtx context.Context, waitForMetaStore func() error,
+	migrator *db.Migrator, logger logrus.FieldLogger,
+	reindexTasksV2Names []string, reindexTasksV2Args map[string]any, reindexFinishedV2 chan<- error,
+) error {
+	logger = logger.WithField("action", "reindexV2")
+
+	reindexer, err := migrator.ReindexerV2(reindexTasksV2Names, reindexTasksV2Args)
+	if err != nil {
+		logger.WithError(err).Error("creating reindexer")
+		return err
+	}
+
+	if reindexer.HasOnBefore() {
+		start := time.Now()
+		logger.Debug("starting waiting for meta store")
+		if err := waitForMetaStore(); err != nil {
+			err = fmt.Errorf("meta store not available: %w", err)
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished waiting for meta store")
+
+			reindexFinishedV2 <- err
+			return nil
+		}
+		logger.WithField("took", time.Since(start)).Debug("finished waiting for meta store")
+
+		start = time.Now()
+		logger.Info("starting on before")
+		if err := reindexer.OnBefore(reindexCtx); err != nil {
+			err = fmt.Errorf("on before: %w", err)
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished on before")
+		} else {
+			logger.WithField("took", time.Since(start)).Info("finished on before")
+		}
+
+		// continue even in onBefore failed on some tasks.
+		// remaining tasks will proceed with reindexing.
+		enterrors.GoWrapper(func() {
+			start = time.Now()
+			logger.Info("starting reindexing")
+			if err := reindexer.Reindex(reindexCtx); err != nil {
+				err = fmt.Errorf("reindex: %w", err)
+				logger.WithField("took", time.Since(start)).WithError(err).Error("finished reindexing")
+
+				reindexFinishedV2 <- err
+				return
+			}
+			logger.WithField("took", time.Since(start)).Info("finished reindexing")
+			reindexFinishedV2 <- nil
+		}, logger)
+
+		return nil
+	}
+
+	enterrors.GoWrapper(func() {
+		start := time.Now()
+		logger.Debug("starting waiting for meta store")
+		if err := waitForMetaStore(); err != nil {
+			err = fmt.Errorf("meta store not available: %w", err)
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished waiting for meta store")
+
+			reindexFinishedV2 <- err
+			return
+		}
+		logger.WithField("took", time.Since(start)).Debug("finished waiting for meta store")
+
+		start = time.Now()
+		logger.Info("starting reindexing")
+		if err := reindexer.Reindex(reindexCtx); err != nil {
+			err = fmt.Errorf("reindex: %w", err)
+			logger.WithField("took", time.Since(start)).WithError(err).Error("finished reindexing")
+
+			reindexFinishedV2 <- err
+			return
+		}
+		logger.WithField("took", time.Since(start)).Info("finished reindexing")
+	}, logger)
+
+	return nil
 }
 
 func parseNode2Port(appState *state.State) (m map[string]int, err error) {
@@ -1645,4 +1736,35 @@ type membership struct {
 func (m membership) LeaderID() string {
 	_, id := m.raft.LeaderWithID()
 	return id
+}
+
+func initRuntimeOverrides(appState *state.State) {
+	// Enable runtime config manager
+	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
+		cm, err := configRuntime.NewConfigManager(
+			appState.ServerConfig.Config.RuntimeOverrides.Path,
+			config.ParseYaml,
+			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
+			appState.Logger,
+			prometheus.DefaultRegisterer)
+		if err != nil {
+			appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
+			os.Exit(1)
+		}
+
+		enterrors.GoWrapper(func() {
+			// NOTE: Not using parent `ctx` because that is getting cancelled in the caller even during startup.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			if err := cm.Run(ctx); err != nil {
+				appState.Logger.WithField("action", "runtime config manager startup ").WithError(err).
+					Fatal("runtime config manager stopped")
+			}
+		}, appState.Logger)
+		rc := config.NewWeaviateRuntimeConfig(cm)
+		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCountFn = rc.GetMaximumAllowedCollectionsCount
+		appState.ServerConfig.Config.AutoSchema.EnabledFn = rc.GetAutoSchemaEnabled
+		appState.ServerConfig.Config.Replication.AsyncReplicationDisabledFn = rc.GetAsyncReplicationDisabled
+	}
 }

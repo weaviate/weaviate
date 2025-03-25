@@ -435,14 +435,6 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	exists, err := h.userExists(params.ID)
-	if err != nil {
-		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user exists: %w", err)))
-	}
-	if !exists {
-		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("username to assign role to doesn't exist")))
-	}
-
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
 		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
@@ -452,7 +444,13 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
-	userTypes := getUserTypes(params.Body.UserType)
+	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, params.Body.UserType)
+	if err != nil {
+		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user exists: %w", err)))
+	}
+	if userTypes == nil {
+		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("username to assign role to doesn't exist")))
+	}
 	for _, userType := range userTypes {
 		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeFromId(params.ID, userType), params.Body.Roles); err != nil {
 			return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
@@ -531,7 +529,7 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 		}
 	}
 
-	exists, err := h.userExists(params.ID)
+	exists, err := h.userExistsDeprecated(params.ID)
 	if err != nil {
 		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user existence: %w", err)))
 	}
@@ -604,12 +602,14 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		}
 	}
 
+	includeFullRoles := params.IncludeFullRoles != nil && *params.IncludeFullRoles
+
 	userType, err := validateUserTypeInput(params.UserType)
 	if err != nil {
 		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown userType: %v", params.UserType)))
 	}
 
-	exists, err := h.userExists(params.ID)
+	exists, err := h.userExists(params.ID, userType)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user existence: %w", err)))
 	}
@@ -622,32 +622,32 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
 	}
 
-	response := []*models.Role{}
-	var authErr error
+	var roles []*models.Role
+	var authErrs []error
 	for roleName, policies := range existingRoles {
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
 			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %w", err)))
 		}
 
-		if !ownUser {
-			if err := h.authorizeRoleScopes(principal, authorization.READ, nil, roleName); err != nil {
-				authErr = err
-				continue
+		role := &models.Role{Name: &roleName}
+		if includeFullRoles {
+			if !ownUser {
+				if err := h.authorizeRoleScopes(principal, authorization.READ, nil, roleName); err != nil {
+					authErrs = append(authErrs, err)
+					continue
+				}
 			}
+			role.Permissions = perms
 		}
-
-		response = append(response, &models.Role{
-			Name:        &roleName,
-			Permissions: perms,
-		})
+		roles = append(roles, role)
 	}
 
-	if len(existingRoles) != 0 && len(response) == 0 {
-		return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(authErr))
+	if len(authErrs) > 0 {
+		return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.Join(authErrs...)))
 	}
 
-	sortByName(response)
+	sortByName(roles)
 
 	h.logger.WithFields(logrus.Fields{
 		"action":                "get_roles_for_user",
@@ -656,7 +656,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		"user_to_get_roles_for": params.ID,
 	}).Info("roles requested")
 
-	return authz.NewGetRolesForUserOK().WithPayload(response)
+	return authz.NewGetRolesForUserOK().WithPayload(roles)
 }
 
 func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
@@ -770,14 +770,6 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	exists, err := h.userExists(params.ID)
-	if err != nil {
-		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user existence: %w", err)))
-	}
-	if !exists {
-		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("username to revoke role from doesn't exist")))
-	}
-
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
 		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
@@ -787,7 +779,13 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the request roles doesn't exist")))
 	}
 
-	userTypes := getUserTypes(params.Body.UserType)
+	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, params.Body.UserType)
+	if err != nil {
+		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user exists: %w", err)))
+	}
+	if userTypes == nil {
+		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("username to revoke role from doesn't exist")))
+	}
 	for _, userType := range userTypes {
 		if err := h.controller.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.ID, userType), params.Body.Roles...); err != nil {
 			return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
@@ -856,7 +854,37 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 	return authz.NewRevokeRoleFromGroupOK()
 }
 
-func (h *authZHandlers) userExists(user string) (bool, error) {
+func (h *authZHandlers) userExists(user string, userType models.UserType) (bool, error) {
+	switch userType {
+	case models.UserTypeOidc:
+		if !h.oidcConfigs.Enabled {
+			return false, fmt.Errorf("oidc is not enabled")
+		}
+		return true, nil
+	case models.UserTypeDb:
+		if h.apiKeysConfigs.Enabled {
+			for _, apiKey := range h.apiKeysConfigs.Users {
+				if apiKey == user {
+					return true, nil
+				}
+			}
+		}
+
+		users, err := h.controller.GetUsers(user)
+		if err != nil {
+			return false, err
+		}
+		if len(users) == 1 {
+			return true, nil
+		} else {
+			return false, nil
+		}
+	default:
+		return false, fmt.Errorf("unknown user type")
+	}
+}
+
+func (h *authZHandlers) userExistsDeprecated(user string) (bool, error) {
 	// We are only able to check if a user is present on the system if APIKeys are the only auth method. For OIDC
 	// users are managed in an external service and there is no general way to check if a user we have not seen yet is
 	// valid.
@@ -901,6 +929,30 @@ func (h *authZHandlers) isRootUser(principal *models.Principal) bool {
 	return slices.Contains(h.rbacconfig.RootUsers, principal.Username)
 }
 
+func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypeParam models.UserType) ([]models.UserType, error) {
+	if userTypeParam == "" {
+		exists, err := h.userExistsDeprecated(id)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, nil
+		}
+
+		return []models.UserType{models.UserTypeOidc, models.UserTypeDb}, nil
+	} else {
+		exists, err := h.userExists(id, userTypeParam)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, nil
+		}
+
+		return []models.UserType{userTypeParam}, nil
+	}
+}
+
 // validateRootRole validates that enduser do not touch the internal root role
 func validateRootRole(name string) error {
 	if name == authorization.Root {
@@ -924,16 +976,6 @@ func sortByName(roles []*models.Role) {
 	sort.Slice(roles, func(i, j int) bool {
 		return *roles[i].Name < *roles[j].Name
 	})
-}
-
-func getUserTypes(userTypeParam models.UserType) []models.UserType {
-	var userTypes []models.UserType
-	if userTypeParam == "" {
-		userTypes = []models.UserType{models.UserTypeOidc, models.UserTypeDb}
-	} else {
-		userTypes = []models.UserType{userTypeParam}
-	}
-	return userTypes
 }
 
 func validateUserTypeInput(userTypeInput string) (models.UserType, error) {
