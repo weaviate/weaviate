@@ -20,9 +20,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func (h *replicationHandler) replicate(params replication.ReplicateParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(*params.Body.CollectionID, *params.Body.ShardID)...); err != nil {
+		return replication.NewReplicateForbidden()
+	}
+
 	if err := params.Body.Validate(nil /* pass nil as we don't validate formatting here*/); err != nil {
 		return replication.NewReplicateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}

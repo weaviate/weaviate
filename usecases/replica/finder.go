@@ -364,8 +364,9 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 	ec := errorcompounder.New()
 
-	for _, host := range routingPlan.Replicas {
-		if host == f.nodeName {
+	localHostAddr, _ := f.router.NodeHostname(f.nodeName)
+	for _, host := range routingPlan.ReplicasHostAddrs {
+		if host == localHostAddr {
 			continue
 		}
 
