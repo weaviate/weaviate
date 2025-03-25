@@ -64,7 +64,7 @@ func init() {
 	numParallelStr := os.Getenv("TOKENIZER_CONCURRENCY_COUNT")
 	if numParallelStr != "" {
 		x, err := strconv.Atoi(numParallelStr)
-		if err != nil {
+		if err == nil {
 			numParallel = x
 		}
 	}

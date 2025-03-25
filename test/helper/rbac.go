@@ -37,10 +37,10 @@ func GetRoles(t *testing.T, key string) []*models.Role {
 	return resp.Payload
 }
 
-func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
+func GetRolesForUser(t *testing.T, user, key string, includeRoles bool) []*models.Role {
 	t.Helper()
 	userType := models.UserTypeDb
-	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)), CreateAuth(key))
+	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)).WithIncludeFullRoles(&includeRoles), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload
@@ -48,8 +48,9 @@ func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
 
 func GetRolesForUserOIDC(t *testing.T, user, key string) []*models.Role {
 	t.Helper()
+	truep := true
 	userType := models.UserTypeOidc
-	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)), CreateAuth(key))
+	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)).WithIncludeFullRoles(&truep), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload
