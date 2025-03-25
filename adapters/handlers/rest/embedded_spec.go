@@ -6620,6 +6620,7 @@ func init() {
     },
     "ReplicationDeleteReplicaRequest": {
       "description": "Request body to delete a replica of given shard of a given collection",
+      "type": "object",
       "required": [
         "nodeName",
         "collectionId",
@@ -6642,6 +6643,7 @@ func init() {
     },
     "ReplicationDisableReplicaRequest": {
       "description": "Request body to disable (soft-delete) a replica of given shard of a given collection",
+      "type": "object",
       "required": [
         "nodeName",
         "collectionId",
@@ -6664,6 +6666,7 @@ func init() {
     },
     "ReplicationReplicateReplicaRequest": {
       "description": "Request body to add a replica of given shard of a given collection",
+      "type": "object",
       "required": [
         "sourceNodeName",
         "destinationNodeName",
@@ -14398,6 +14401,7 @@ func init() {
     },
     "ReplicationDeleteReplicaRequest": {
       "description": "Request body to delete a replica of given shard of a given collection",
+      "type": "object",
       "required": [
         "nodeName",
         "collectionId",
@@ -14420,6 +14424,7 @@ func init() {
     },
     "ReplicationDisableReplicaRequest": {
       "description": "Request body to disable (soft-delete) a replica of given shard of a given collection",
+      "type": "object",
       "required": [
         "nodeName",
         "collectionId",
@@ -14442,6 +14447,7 @@ func init() {
     },
     "ReplicationReplicateReplicaRequest": {
       "description": "Request body to add a replica of given shard of a given collection",
+      "type": "object",
       "required": [
         "sourceNodeName",
         "destinationNodeName",

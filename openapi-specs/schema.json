@@ -835,6 +835,7 @@
                 "type": "string"
             }
         },
+        "type": "object",
         "required": [
             "sourceNodeName",
             "destinationNodeName",
@@ -858,6 +859,7 @@
                 "type": "string"
             }
         },
+        "type": "object",
         "required": [
             "nodeName",
             "collectionId",
@@ -880,6 +882,7 @@
                 "type": "string"
             }
         },
+        "type": "object",
         "required": [
             "nodeName",
             "collectionId",
