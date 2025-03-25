@@ -55,7 +55,7 @@ function release() {
         tag_exact="${DOCKER_REPO}:${weaviate_version}"
   else
     if [ -n "$arch" ]; then
-      tag_preview_semver="${DOCKER_REPO}:${weaviate_version}-${git_revision}-${arch}"
+      tag_preview_semver="${DOCKER_REPO}:${weaviate_version}-${git_revision}.${arch}"
     else
       tag_preview_semver="${DOCKER_REPO}:${weaviate_version}-${git_revision}"
     fi
@@ -66,7 +66,7 @@ function release() {
       weaviate_version="${prefix}-${git_hash}"
     else
       if [ -n "$arch" ]; then
-        tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_revision}-${arch}"
+        tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_revision}.${arch}"
       else
         tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_revision}"
       fi
