@@ -18,12 +18,10 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type replicationHandler struct {
 	authorizer         authorization.Authorizer
-	schemaReader       schemaUC.SchemaGetter
 	replicationManager replicationTypes.Manager
 
 	logger  logrus.FieldLogger

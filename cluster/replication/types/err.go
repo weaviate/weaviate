@@ -13,6 +13,4 @@ package types
 
 import "errors"
 
-var (
-	ErrInvalidRequest = errors.New("invalid request")
-)
+var ErrInvalidRequest = errors.New("invalid request")

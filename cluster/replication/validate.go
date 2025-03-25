@@ -32,7 +32,7 @@ func ValidateReplicationReplicateShard(schemaReader schema.SchemaReader, c *api.
 	// ClassInfo doesn't return an error, so the only way to know if the class exist is to check if the Exists
 	// boolean is not set to default value
 	if !classInfo.Exists {
-		return fmt.Errorf("collection %s does not exists", ErrClassNotFound)
+		return fmt.Errorf("collection %s does not exists: %w", c.SourceCollection, ErrClassNotFound)
 	}
 
 	// Ensure source shard replica exists and target replica doesn't already exist

@@ -163,7 +163,6 @@ func buildApplyRequest(
 	cmdType api.ApplyRequest_Type,
 	jsonSubCmd interface{},
 ) *api.ApplyRequest {
-
 	subData, err := json.Marshal(jsonSubCmd)
 	if err != nil {
 		panic("json.Marshal( " + err.Error())

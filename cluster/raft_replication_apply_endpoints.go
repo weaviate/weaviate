@@ -31,7 +31,7 @@ func (s *Raft) ReplicationReplicateReplica(sourceNode string, sourceCollection s
 	}
 
 	if err := replication.ValidateReplicationReplicateShard(s.SchemaReader(), req); err != nil {
-		return fmt.Errorf("%w: %s", replicationTypes.ErrInvalidRequest, err)
+		return fmt.Errorf("%w: %w", replicationTypes.ErrInvalidRequest, err)
 	}
 
 	subCommand, err := json.Marshal(req)
