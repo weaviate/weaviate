@@ -93,8 +93,8 @@ func CheckStrategyRoaringSetRange(strategy string) error {
 }
 
 func DefaultSearchableStrategy() string {
-	if config.Enabled(os.Getenv("USE_INVERTED_SEARCHABLE")) {
-		return StrategyInverted
+	if config.Disabled(os.Getenv("USE_INVERTED_SEARCHABLE")) {
+		return StrategyMapCollection
 	}
-	return StrategyMapCollection
+	return StrategyInverted
 }
