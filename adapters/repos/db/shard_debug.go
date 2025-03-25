@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 // IMPORTANT:
@@ -43,19 +44,18 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return errors.Wrap(err, "drop vector index")
 	}
 
+	var newConfig schemaConfig.VectorIndexConfig
 	if targetVector == "" {
-		s.vectorIndex, err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfig)
-		if err != nil {
-			return errors.Wrap(err, "init vector index")
-		}
-		vidx = s.vectorIndex
+		newConfig = s.index.vectorIndexUserConfig
 	} else {
-		s.vectorIndexes[targetVector], err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfigs[targetVector])
-		if err != nil {
-			return errors.Wrap(err, "init vector index")
-		}
-		vidx = s.vectorIndexes[targetVector]
+		newConfig = s.index.vectorIndexUserConfigs[targetVector]
 	}
+
+	vidx, err = s.initVectorIndex(ctx, targetVector, newConfig)
+	if err != nil {
+		return errors.Wrap(err, "init vector index")
+	}
+	s.setVectorIndex(targetVector, vidx)
 
 	q.ResetWith(vidx)
 	q.Resume()
