@@ -218,6 +218,9 @@ func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 }
 
 func (s *Shard) initTargetVectors(ctx context.Context) error {
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+
 	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
 	s.queues = make(map[string]*VectorIndexQueue, len(s.index.vectorIndexUserConfigs))
 
@@ -238,6 +241,9 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 }
 
 func (s *Shard) initLegacyVector(ctx context.Context) error {
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+
 	vectorIndex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig)
 	if err != nil {
 		return err
@@ -250,4 +256,15 @@ func (s *Shard) initLegacyVector(ctx context.Context) error {
 	s.vectorIndex = vectorIndex
 	s.queue = queue
 	return nil
+}
+
+func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+
+	if targetVector == "" {
+		s.vectorIndex = index
+	} else {
+		s.vectorIndexes[targetVector] = index
+	}
 }

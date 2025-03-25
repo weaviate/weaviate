@@ -196,6 +196,7 @@ type Shard struct {
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
 
+	vectorIndexMu sync.RWMutex
 	vectorIndex   VectorIndex
 	queue         *VectorIndexQueue
 	vectorIndexes map[string]VectorIndex

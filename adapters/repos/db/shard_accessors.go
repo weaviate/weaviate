@@ -23,6 +23,12 @@ import (
 // ForEachVectorIndex iterates through each vector index initialized in the shard (named and legacy).
 // Iteration stops at the first return of non-nil error.
 func (s *Shard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
+	// As we expect the mutex to be write-locked very rarely, we allow the callback
+	// to be invoked under the lock. If we find contention here, we should make a copy of the indexes
+	// before iterating over them.
+	s.vectorIndexMu.RLock()
+	defer s.vectorIndexMu.RUnlock()
+
 	for targetVector, idx := range s.vectorIndexes {
 		if idx == nil {
 			continue
@@ -43,6 +49,12 @@ func (s *Shard) ForEachVectorIndex(f func(targetVector string, index VectorIndex
 // ForEachVectorQueue iterates through each vector index queue initialized in the shard (named and legacy).
 // Iteration stops at the first return of non-nil error.
 func (s *Shard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
+	// As we expect the mutex to be write-locked very rarely, we allow the callback
+	// to be invoked under the lock. If we find contention here, we should make a copy of the queues
+	// before iterating over them.
+	s.vectorIndexMu.RLock()
+	defer s.vectorIndexMu.RUnlock()
+
 	for targetVector, q := range s.queues {
 		if q == nil {
 			continue
@@ -63,6 +75,9 @@ func (s *Shard) ForEachVectorQueue(f func(targetVector string, queue *VectorInde
 // GetVectorIndexQueue retrieves a vector index queue associated with the targetVector.
 // Empty targetVector is treated as a request to access a queue for the legacy vector index.
 func (s *Shard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
+	s.vectorIndexMu.RLock()
+	defer s.vectorIndexMu.RUnlock()
+
 	if targetVector == "" {
 		return s.queue, s.queue != nil
 	}
@@ -74,6 +89,9 @@ func (s *Shard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, boo
 // GetVectorIndex retrieves a vector index queue associated with the targetVector.
 // Empty targetVector is treated as a request to access a queue for the legacy vector index.
 func (s *Shard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
+	s.vectorIndexMu.RLock()
+	defer s.vectorIndexMu.RUnlock()
+
 	if targetVector == "" {
 		return s.vectorIndex, s.vectorIndex != nil
 	}
@@ -88,6 +106,9 @@ func (s *Shard) hasLegacyVectorIndex() bool {
 }
 
 func (s *Shard) hasAnyVectorIndex() bool {
+	s.vectorIndexMu.RLock()
+	defer s.vectorIndexMu.RUnlock()
+
 	return len(s.vectorIndexes) > 0 || s.vectorIndex != nil
 }
 
