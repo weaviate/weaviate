@@ -16,6 +16,7 @@ import (
 	"io"
 	"math"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
@@ -36,9 +37,12 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 			return nil, 0, nil, err
 		}
 
-		_, err = r.Read(buf)
+		n, err := r.Read(buf)
 		if err != nil {
 			return nil, 0, nil, err
+		}
+		if n != len(buf) {
+			return nil, 0, nil, errors.Errorf("expected to read %d bytes, got %d", len(buf), n)
 		}
 	}
 
@@ -71,9 +75,12 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 		}
 
 		buf = make([]byte, blockCount*20)
-		_, err = r.Read(buf)
+		n, err := r.Read(buf)
 		if err != nil {
 			return nil, 0, nil, err
+		}
+		if n != len(buf) {
+			return nil, 0, nil, errors.Errorf("expected to read %d bytes, got %d", len(buf), n)
 		}
 	}
 
@@ -90,17 +97,24 @@ func (s *segment) loadBlockDataReusable(sectionReader *io.SectionReader, offset,
 		terms.DecodeBlockDataReusable(s.contents[offsetStart:offsetEnd], encoded)
 		return nil
 	} else {
-
-		_, err := sectionReader.Seek(int64(offsetStart-offset), io.SeekStart)
+		sectionOffset := int64(offsetStart - offset)
+		toRead := int(offsetEnd - offsetStart)
+		off, err := sectionReader.Seek(sectionOffset, io.SeekStart)
 		if err != nil {
 			return err
 		}
+		if off != sectionOffset {
+			return errors.Errorf("expected to seek to %d, got %d", sectionOffset, off)
+		}
 
-		_, err = sectionReader.Read(buf[:offsetEnd-offsetStart])
+		n, err := sectionReader.Read(buf[:toRead])
 		if err != nil {
 			return err
 		}
-		terms.DecodeBlockDataReusable(buf[:offsetEnd-offsetStart], encoded)
+		if n != int(toRead) {
+			return errors.Errorf("expected to read %d bytes, got %d", toRead, n)
+		}
+		terms.DecodeBlockDataReusable(buf[:toRead], encoded)
 	}
 	return nil
 }
