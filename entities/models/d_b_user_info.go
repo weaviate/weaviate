@@ -30,14 +30,13 @@ import (
 //
 // swagger:model DBUserInfo
 type DBUserInfo struct {
-
 	// activity status of the returned user
 	// Required: true
 	Active *bool `json:"active"`
 
 	// type of the returned user
 	// Required: true
-	// Enum: [dynamic static]
+	// Enum: [db_dynamic db_static]
 	DbUserType *string `json:"dbUserType"`
 
 	// The role names associated to the user
@@ -76,7 +75,6 @@ func (m *DBUserInfo) Validate(formats strfmt.Registry) error {
 }
 
 func (m *DBUserInfo) validateActive(formats strfmt.Registry) error {
-
 	if err := validate.Required("active", "body", m.Active); err != nil {
 		return err
 	}
@@ -88,7 +86,7 @@ var dBUserInfoTypeDbUserTypePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["dynamic","static"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["db_dynamic","db_static"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -98,11 +96,11 @@ func init() {
 
 const (
 
-	// DBUserInfoDbUserTypeDynamic captures enum value "dynamic"
-	DBUserInfoDbUserTypeDynamic string = "dynamic"
+	// DBUserInfoDbUserTypeDbDynamic captures enum value "db_dynamic"
+	DBUserInfoDbUserTypeDbDynamic string = "db_dynamic"
 
-	// DBUserInfoDbUserTypeStatic captures enum value "static"
-	DBUserInfoDbUserTypeStatic string = "static"
+	// DBUserInfoDbUserTypeDbStatic captures enum value "db_static"
+	DBUserInfoDbUserTypeDbStatic string = "db_static"
 )
 
 // prop value enum
@@ -114,7 +112,6 @@ func (m *DBUserInfo) validateDbUserTypeEnum(path, location string, value string)
 }
 
 func (m *DBUserInfo) validateDbUserType(formats strfmt.Registry) error {
-
 	if err := validate.Required("dbUserType", "body", m.DbUserType); err != nil {
 		return err
 	}
@@ -128,7 +125,6 @@ func (m *DBUserInfo) validateDbUserType(formats strfmt.Registry) error {
 }
 
 func (m *DBUserInfo) validateRoles(formats strfmt.Registry) error {
-
 	if err := validate.Required("roles", "body", m.Roles); err != nil {
 		return err
 	}
@@ -137,7 +133,6 @@ func (m *DBUserInfo) validateRoles(formats strfmt.Registry) error {
 }
 
 func (m *DBUserInfo) validateUserID(formats strfmt.Registry) error {
-
 	if err := validate.Required("userId", "body", m.UserID); err != nil {
 		return err
 	}

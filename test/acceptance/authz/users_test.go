@@ -543,7 +543,7 @@ func TestListAllUsers(t *testing.T) {
 		for _, user := range allUsersAdmin {
 			name := *user.UserID
 
-			if *user.DbUserType == models.DBUserInfoDbUserTypeStatic {
+			if *user.DbUserType == models.DBUserInfoDbUserTypeDbStatic {
 				continue
 			}
 

@@ -5514,8 +5514,8 @@ func init() {
           "description": "type of the returned user",
           "type": "string",
           "enum": [
-            "dynamic",
-            "static"
+            "db_dynamic",
+            "db_static"
           ]
         },
         "roles": {
@@ -13031,8 +13031,8 @@ func init() {
           "description": "type of the returned user",
           "type": "string",
           "enum": [
-            "dynamic",
-            "static"
+            "db_dynamic",
+            "db_static"
           ]
         },
         "roles": {
