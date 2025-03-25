@@ -82,7 +82,7 @@ func (c *Service) onFSMCaughtUp() {
 		select {
 		case <-c.closeOnFSMCaughtUp:
 			return
-		case _ = <-ticker.C:
+		case <-ticker.C:
 			if c.Raft.store.FSMHasCaughtUp() {
 				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
 				c.replicationEngine.Start()

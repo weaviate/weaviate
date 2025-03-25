@@ -13,7 +13,6 @@ package replica
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -135,79 +134,4 @@ func (f *fakeClient) Commit(ctx context.Context, host, index, shard, requestID s
 func (f *fakeClient) Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID)
 	return args.Get(0).(SimpleResponse), args.Error(1)
-}
-
-// Replica finder
-type fakeShardingState struct {
-	thisNode        string
-	ShardToReplicas map[string][]string
-	nodeResolver    *fakeNodeResolver
-}
-
-func newFakeShardingState(thisNode string, shardToReplicas map[string][]string, resolver *fakeNodeResolver) *fakeShardingState {
-	return &fakeShardingState{
-		thisNode:        thisNode,
-		ShardToReplicas: shardToReplicas,
-		nodeResolver:    resolver,
-	}
-}
-
-func (f *fakeShardingState) NodeName() string {
-	return f.thisNode
-}
-
-func (f *fakeShardingState) ResolveParentNodes(_ string, shard string) (map[string]string, error) {
-	replicas, ok := f.ShardToReplicas[shard]
-	if !ok {
-		return nil, fmt.Errorf("sharding state not found")
-	}
-
-	m := make(map[string]string)
-	for _, name := range replicas {
-		addr, _ := f.nodeResolver.NodeHostname(name)
-		m[name] = addr
-
-	}
-
-	return m, nil
-}
-
-// node resolver
-type fakeNodeResolver struct {
-	hosts    map[string]string
-	thisNode string
-}
-
-func (r *fakeNodeResolver) AllHostnames() []string {
-	hosts := make([]string, 0, len(r.hosts))
-
-	for _, h := range r.hosts {
-		hosts = append(hosts, h)
-	}
-
-	return hosts
-}
-
-func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
-	return r.hosts[nodeName], true
-}
-
-func newFakeNodeResolver(thisNode string, nodes []string) *fakeNodeResolver {
-	hosts := make(map[string]string)
-	for _, node := range nodes {
-		hosts[node] = node
-	}
-	return &fakeNodeResolver{thisNode: thisNode, hosts: hosts}
-}
-
-func (f *fakeNodeResolver) LocalName() string {
-	return f.thisNode
-}
-
-func (f *fakeNodeResolver) NodeAddress(node string) string {
-	v, ok := f.hosts[node]
-	if ok {
-		return v
-	}
-	return ""
 }

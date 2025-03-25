@@ -13,13 +13,17 @@ package replication
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-var ErrShardAlreadyReplicating = errors.New("target shard is already being replicated")
-var ErrReplicationOpNotFound = errors.New("could not find the replication op")
+var (
+	ErrShardAlreadyReplicating = errors.New("target shard is already being replicated")
+	ErrReplicationOpNotFound   = errors.New("could not find the replication op")
+)
 
 func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateShardRequest) error {
 	s.opsLock.Lock()
@@ -67,6 +71,7 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
+	var err error
 	op, ok := s.opsById[id]
 	if !ok {
 		return ErrReplicationOpNotFound
@@ -74,7 +79,7 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 
 	ops, ok := s.opsByNode[op.sourceShard.nodeId]
 	if !ok {
-		//TODO should not happen
+		err = multierror.Append(err, fmt.Errorf("could not find op in ops by node, this should not happen"))
 	}
 	opsReplace, ok := findAndDeleteOp(op.id, ops)
 	if ok {
@@ -83,7 +88,7 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 
 	ops, ok = s.opsByCollection[op.sourceShard.collectionId]
 	if !ok {
-		//TODO should not happen
+		err = multierror.Append(err, fmt.Errorf("could not find op in ops by collection, this should not happen"))
 	}
 	opsReplace, ok = findAndDeleteOp(op.id, ops)
 	if ok {
@@ -92,7 +97,7 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 
 	ops, ok = s.opsByShard[op.sourceShard.shardId]
 	if !ok {
-		//TODO should not happen
+		err = multierror.Append(err, fmt.Errorf("could not find op in ops by shard, this should not happen"))
 	}
 	opsReplace, ok = findAndDeleteOp(op.id, ops)
 	if ok {
@@ -103,8 +108,7 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 	delete(s.opsById, op.id)
 	delete(s.opsStatus, op)
 
-	return nil
-
+	return err
 }
 
 func findAndDeleteOp(id uint64, ops []shardReplicationOp) ([]shardReplicationOp, bool) {
@@ -119,7 +123,7 @@ func findAndDeleteOp(id uint64, ops []shardReplicationOp) ([]shardReplicationOp,
 		}
 	}
 	if ok {
-		slices.Delete(ops, indexToDelete, indexToDelete)
+		ops = slices.Delete(ops, indexToDelete, indexToDelete)
 	}
 	return ops, ok
 }

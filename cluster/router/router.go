@@ -23,7 +23,6 @@ import (
 
 type Router struct {
 	logger               *logrus.Entry
-	nodeName             string
 	metadataReader       schemaTypes.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	clusterStateReader   cluster.NodeSelector
@@ -61,7 +60,6 @@ func (r *Router) GetReadReplicasLocation(collection string, shard string) ([]str
 		return nil, err
 	}
 	return readReplicasLocation, nil
-
 }
 
 func (r *Router) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {

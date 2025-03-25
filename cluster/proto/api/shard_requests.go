@@ -37,8 +37,7 @@ type ReplicationReplicateShardRequest struct {
 	TargetNode string
 }
 
-type ReplicationReplicateShardReponse struct {
-}
+type ReplicationReplicateShardReponse struct{}
 
 type ReplicationUpdateOpStateRequest struct {
 	Version int
@@ -47,8 +46,7 @@ type ReplicationUpdateOpStateRequest struct {
 	State ShardReplicationState
 }
 
-type ReplicationUpdateOpStateResponse struct {
-}
+type ReplicationUpdateOpStateResponse struct{}
 
 type ReplicationDeleteOpRequest struct {
 	Version int
@@ -56,5 +54,4 @@ type ReplicationDeleteOpRequest struct {
 	Id uint64
 }
 
-type ReplicationDeleteOpResponse struct {
-}
+type ReplicationDeleteOpResponse struct{}
