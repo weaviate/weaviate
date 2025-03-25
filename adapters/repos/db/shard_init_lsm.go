@@ -39,12 +39,6 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		}).Debugf("loaded non-vector (lsm, object, inverted) in %s for shard %q", took, s.ID())
 	}()
 
-	// init the store itself synchronously
-	err := s.initLSMStore()
-	if err != nil {
-		return fmt.Errorf("init shard %q: lsm store: %w", s.ID(), err)
-	}
-
 	// the shard versioner is also dependency of some of the bucket
 	// initializations, so it also needs to happen synchronously
 	if err := s.initIndexCounterVersionerAndBitmapFactory(); err != nil {
@@ -89,7 +83,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	// the other initializations going on here.
 	s.initProperties(eg, class)
 
-	err = eg.Wait()
+	err := eg.Wait()
 	if err != nil {
 		// annotate error with shard id only once, all inner functions should only
 		// annotate what they do, but not repeat the shard id.

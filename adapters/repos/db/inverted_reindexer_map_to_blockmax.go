@@ -22,13 +22,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -48,7 +45,7 @@ type mapToBlockmaxConfig struct {
 
 type ShardInvertedReindexTask_MapToBlockmax struct {
 	logger               logrus.FieldLogger
-	newReindexTracker    func(lsmPath string) (reindexTracker, error)
+	newReindexTracker    func(lsmPath string) (mapToBlockmaxReindexTracker, error)
 	keyParser            indexKeyParser
 	objectsIteratorAsync objectsIteratorAsync
 	config               mapToBlockmaxConfig
@@ -62,8 +59,8 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 	objectsIteratorAsync := uuidObjectsIteratorAsync
 
 	logger = logger.WithField("task", "MapToBlockmax")
-	newReindexTracker := func(lsmPath string) (reindexTracker, error) {
-		rt := newFileReindexTracker(lsmPath, keyParser)
+	newReindexTracker := func(lsmPath string) (mapToBlockmaxReindexTracker, error) {
+		rt := newFileMapToBlockmaxReindexTracker(lsmPath, keyParser)
 		if err := rt.init(); err != nil {
 			return nil, err
 		}
@@ -272,7 +269,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
+	logger logrus.FieldLogger, shard ShardLike, rt mapToBlockmaxReindexTracker, props []string,
 ) error {
 	lsmPath := shard.pathLSM()
 	segmentPathsToMove := [][2]string{}
@@ -388,7 +385,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) getSegmentPathsToMove(bucketPat
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) swapIngestAndMapBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
+	logger logrus.FieldLogger, shard ShardLike, rt mapToBlockmaxReindexTracker, props []string,
 ) error {
 	lsmPath := shard.pathLSM()
 	store := shard.Store()
@@ -470,7 +467,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) swapIngestAndMapBuckets(ctx con
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) unswapIngestAndMapBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
+	logger logrus.FieldLogger, shard ShardLike, rt mapToBlockmaxReindexTracker, props []string,
 ) error {
 	lsmPath := shard.pathLSM()
 	store := shard.Store()
@@ -551,7 +548,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) unswapIngestAndMapBuckets(ctx c
 }
 
 func (t *ShardInvertedReindexTask_MapToBlockmax) tidyMapBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
+	logger logrus.FieldLogger, shard ShardLike, rt mapToBlockmaxReindexTracker, props []string,
 ) error {
 	lsmPath := shard.pathLSM()
 
@@ -999,7 +996,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) findPropsToReindex(shard ShardL
 	return propNames
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLike, rt reindexTracker) ([]string, error) {
+func (t *ShardInvertedReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLike, rt mapToBlockmaxReindexTracker) ([]string, error) {
 	if rt.hasProps() {
 		props, err := rt.getProps()
 		if err != nil {
@@ -1021,424 +1018,424 @@ type migrationData struct {
 	err   error
 }
 
-type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
-) (time.Time, <-chan *migrationData)
-
-func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey,
-	propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
-) (time.Time, <-chan *migrationData) {
-	startedCh := make(chan time.Time)
-	mdCh := make(chan *migrationData)
-
-	enterrors.GoWrapper(func() {
-		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
-		defer cursor.Close()
-
-		startedCh <- time.Now() // after cursor created (necessary locks acquired)
-		addProps := additional.Properties{}
-
-		var k, v []byte
-		if lastKey == nil {
-			k, v = cursor.First()
-		} else {
-			key := lastKey.Bytes()
-			k, v = cursor.Seek(key)
-			if bytes.Equal(k, key) {
-				k, v = cursor.Next()
-			}
-		}
-
-		for ; k != nil; k, v = cursor.Next() {
-			ik := keyParse(k)
-			obj, err := storobj.FromBinaryOptional(v, addProps, propExtraction)
-			if err != nil {
-				mdCh <- &migrationData{err: fmt.Errorf("unmarshalling object %q: %w", ik.String(), err)}
-				break
-			}
-
-			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
-				props, _, err := shard.AnalyzeObject(obj)
-				if err != nil {
-					mdCh <- &migrationData{err: fmt.Errorf("analyzing object %q: %w", ik.String(), err)}
-					break
-				}
-
-				if <-breakCh {
-					break
-				}
-				mdCh <- &migrationData{key: ik.Clone(), props: props, docID: obj.DocID}
-			} else {
-				if <-breakCh {
-					break
-				}
-				mdCh <- &migrationData{key: ik.Clone()}
-			}
-		}
-		if k == nil {
-			<-breakCh
-			mdCh <- nil
-		}
-		close(mdCh)
-	}, logger)
-
-	return <-startedCh, mdCh
-}
-
-type reindexTracker interface {
-	isStarted() bool
-	markStarted(time.Time) error
-	getStarted() (time.Time, error)
-
-	markProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error
-	getProgress() (indexKey, error)
-
-	isReindexed() bool
-	markReindexed() error
-
-	isMerged() bool
-	markMerged() error
-
-	isSwapped() bool
-	markSwapped() error
-	unmarkSwapped() error
-	isSwappedProp(propName string) bool
-	markSwappedProp(propName string) error
-	unmarkSwappedProp(propName string) error
-
-	isTidied() bool
-	markTidied() error
-
-	hasProps() bool
-	getProps() ([]string, error)
-	saveProps([]string) error
-
-	reset() error
-}
-
-func newFileReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReindexTracker {
-	return &fileReindexTracker{
-		progressCheckpoint: 1,
-		keyParser:          keyParser,
-		config: fileReindexTrackerConfig{
-			filenameStarted:    "started.mig",
-			filenameProgress:   "progress.mig",
-			filenameReindexed:  "reindexed.mig",
-			filenameMerged:     "merged.mig",
-			filenameSwapped:    "swapped.mig",
-			filenameTidied:     "tidied.mig",
-			filenameProperties: "properties.mig",
-			migrationPath:      filepath.Join(lsmPath, ".migrations", "searchable_map_to_blockmax"),
-		},
-	}
-}
-
-type fileReindexTracker struct {
-	progressCheckpoint int
-	keyParser          indexKeyParser
-	config             fileReindexTrackerConfig
-}
-
-type fileReindexTrackerConfig struct {
-	filenameStarted    string
-	filenameProgress   string
-	filenameReindexed  string
-	filenameMerged     string
-	filenameSwapped    string
-	filenameTidied     string
-	filenameProperties string
-	migrationPath      string
-}
-
-func (t *fileReindexTracker) init() error {
-	if err := os.MkdirAll(t.config.migrationPath, 0o777); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (t *fileReindexTracker) isStarted() bool {
-	return t.fileExists(t.config.filenameStarted)
-}
-
-func (t *fileReindexTracker) markStarted(started time.Time) error {
-	return t.createFile(t.config.filenameStarted, []byte(t.encodeTime(started)))
-}
-
-func (t *fileReindexTracker) getStarted() (time.Time, error) {
-	path := t.filepath(t.config.filenameStarted)
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return t.decodeTime(string(content))
-}
-
-func (t *fileReindexTracker) findLastProgressFile() (string, error) {
-	prefix := t.config.filenameProgress + "."
-	expectedLen := len(prefix) + 9 // 9 digits
-
-	lastProgressFilename := ""
-	err := filepath.WalkDir(t.config.migrationPath, func(path string, d os.DirEntry, err error) error {
-		// skip parent and children dirs
-		if path != t.config.migrationPath {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			if name := d.Name(); len(name) == expectedLen && strings.HasPrefix(name, prefix) {
-				lastProgressFilename = name
-			}
-		}
-		return nil
-	})
-
-	return lastProgressFilename, err
-}
-
-func (t *fileReindexTracker) markProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error {
-	filename := fmt.Sprintf("%s.%09d", t.config.filenameProgress, t.progressCheckpoint)
-	content := strings.Join([]string{
-		t.encodeTime(time.Now()),
-		lastProcessedKey.String(),
-		fmt.Sprintf("all %d", processedCount),
-		fmt.Sprintf("idx %d", indexedCount),
-	}, "\n")
-
-	if err := t.createFile(filename, []byte(content)); err != nil {
-		return err
-	}
-	t.progressCheckpoint++
-	return nil
-}
-
-func (t *fileReindexTracker) getProgress() (indexKey, error) {
-	filename, err := t.findLastProgressFile()
-	if err != nil {
-		return nil, err
-	}
-	if filename == "" {
-		return t.keyParser.FromBytes(nil), nil
-	}
-
-	checkpoint, err := strconv.Atoi(strings.TrimPrefix(filename, t.config.filenameProgress+"."))
-	if err != nil {
-		return nil, err
-	}
-
-	path := t.filepath(filename)
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	split := strings.Split(string(content), "\n")
-	key, err := t.keyParser.FromString(split[1])
-	if err != nil {
-		return nil, err
-	}
-
-	t.progressCheckpoint = checkpoint + 1
-	return key, nil
-}
-
-func (t *fileReindexTracker) isReindexed() bool {
-	return t.fileExists(t.config.filenameReindexed)
-}
-
-func (t *fileReindexTracker) markReindexed() error {
-	return t.createFile(t.config.filenameReindexed, []byte(t.encodeTimeNow()))
-}
-
-func (t *fileReindexTracker) isMerged() bool {
-	return t.fileExists(t.config.filenameMerged)
-}
-
-func (t *fileReindexTracker) markMerged() error {
-	return t.createFile(t.config.filenameMerged, []byte(t.encodeTimeNow()))
-}
-
-func (t *fileReindexTracker) isSwappedProp(propName string) bool {
-	return t.fileExists(t.config.filenameSwapped + "." + propName)
-}
-
-func (t *fileReindexTracker) markSwappedProp(propName string) error {
-	return t.createFile(t.config.filenameSwapped+"."+propName, []byte(t.encodeTimeNow()))
-}
-
-func (t *fileReindexTracker) unmarkSwappedProp(propName string) error {
-	return t.removeFile(t.config.filenameSwapped + "." + propName)
-}
-
-func (t *fileReindexTracker) isSwapped() bool {
-	return t.fileExists(t.config.filenameSwapped)
-}
-
-func (t *fileReindexTracker) markSwapped() error {
-	return t.createFile(t.config.filenameSwapped, []byte(t.encodeTimeNow()))
-}
-
-func (t *fileReindexTracker) unmarkSwapped() error {
-	return t.removeFile(t.config.filenameSwapped)
-}
-
-func (t *fileReindexTracker) isTidied() bool {
-	return t.fileExists(t.config.filenameTidied)
-}
-
-func (t *fileReindexTracker) markTidied() error {
-	return t.createFile(t.config.filenameTidied, []byte(t.encodeTimeNow()))
-}
-
-func (t *fileReindexTracker) filepath(filename string) string {
-	return filepath.Join(t.config.migrationPath, filename)
-}
-
-func (t *fileReindexTracker) fileExists(filename string) bool {
-	if _, err := os.Stat(t.filepath(filename)); err == nil {
-		return true
-	} else if errors.Is(err, os.ErrNotExist) {
-		return false
-	}
-	return false
-}
-
-func (t *fileReindexTracker) createFile(filename string, content []byte) error {
-	path := t.filepath(filename)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	if len(content) > 0 {
-		_, err = file.Write(content)
-		return err
-	}
-	return nil
-}
-
-func (t *fileReindexTracker) removeFile(filename string) error {
-	return os.Remove(t.filepath(filename))
-}
-
-func (t *fileReindexTracker) encodeTimeNow() string {
-	return t.encodeTime(time.Now())
-}
-
-func (t *fileReindexTracker) encodeTime(tm time.Time) string {
-	return tm.UTC().Format(time.RFC3339Nano)
-}
-
-func (t *fileReindexTracker) decodeTime(tm string) (time.Time, error) {
-	return time.Parse(time.RFC3339Nano, tm)
-}
-
-func (t *fileReindexTracker) hasProps() bool {
-	return t.fileExists(t.config.filenameProperties)
-}
-
-func (t *fileReindexTracker) saveProps(propNames []string) error {
-	props := []byte(strings.Join(propNames, ","))
-	return t.createFile(t.config.filenameProperties, props)
-}
-
-func (t *fileReindexTracker) getProps() ([]string, error) {
-	content, err := os.ReadFile(t.filepath(t.config.filenameProperties))
-	if err != nil {
-		return nil, err
-	}
-	if len(content) == 0 {
-		return []string{}, nil
-	}
-	return strings.Split(string(content), ","), nil
-}
-
-func (t *fileReindexTracker) reset() error {
-	return os.RemoveAll(t.config.migrationPath)
-}
-
-type indexKey interface {
-	String() string
-	Bytes() []byte
-	Clone() indexKey
-}
-
-type uuidBytes []byte
-
-func (b uuidBytes) String() string {
-	if b == nil {
-		return "nil"
-	}
-	uid, err := uuid.FromBytes(b)
-	if err != nil {
-		return err.Error()
-	}
-	return uid.String()
-}
-
-func (b uuidBytes) Bytes() []byte {
-	return b
-}
-
-func (b uuidBytes) Clone() indexKey {
-	buf := make([]byte, len(b))
-	copy(buf, b)
-	return uuidBytes(buf)
-}
-
-// type uint64Bytes []byte
-
-// func (b uint64Bytes) String() string {
-// 	if b == nil {
-// 		return "nil"
+// type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+// ) (time.Time, <-chan *migrationData)
+
+// func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey,
+// 	propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+// ) (time.Time, <-chan *migrationData) {
+// 	startedCh := make(chan time.Time)
+// 	mdCh := make(chan *migrationData)
+
+// 	enterrors.GoWrapper(func() {
+// 		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
+// 		defer cursor.Close()
+
+// 		startedCh <- time.Now() // after cursor created (necessary locks acquired)
+// 		addProps := additional.Properties{}
+
+// 		var k, v []byte
+// 		if lastKey == nil {
+// 			k, v = cursor.First()
+// 		} else {
+// 			key := lastKey.Bytes()
+// 			k, v = cursor.Seek(key)
+// 			if bytes.Equal(k, key) {
+// 				k, v = cursor.Next()
+// 			}
+// 		}
+
+// 		for ; k != nil; k, v = cursor.Next() {
+// 			ik := keyParse(k)
+// 			obj, err := storobj.FromBinaryOptional(v, addProps, propExtraction)
+// 			if err != nil {
+// 				mdCh <- &migrationData{err: fmt.Errorf("unmarshalling object %q: %w", ik.String(), err)}
+// 				break
+// 			}
+
+// 			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
+// 				props, _, err := shard.AnalyzeObject(obj)
+// 				if err != nil {
+// 					mdCh <- &migrationData{err: fmt.Errorf("analyzing object %q: %w", ik.String(), err)}
+// 					break
+// 				}
+
+// 				if <-breakCh {
+// 					break
+// 				}
+// 				mdCh <- &migrationData{key: ik.Clone(), props: props, docID: obj.DocID}
+// 			} else {
+// 				if <-breakCh {
+// 					break
+// 				}
+// 				mdCh <- &migrationData{key: ik.Clone()}
+// 			}
+// 		}
+// 		if k == nil {
+// 			<-breakCh
+// 			mdCh <- nil
+// 		}
+// 		close(mdCh)
+// 	}, logger)
+
+// 	return <-startedCh, mdCh
+// }
+
+// type reindexTracker interface {
+// 	isStarted() bool
+// 	markStarted(time.Time) error
+// 	getStarted() (time.Time, error)
+
+// 	markProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error
+// 	getProgress() (indexKey, error)
+
+// 	isReindexed() bool
+// 	markReindexed() error
+
+// 	isMerged() bool
+// 	markMerged() error
+
+// 	isSwapped() bool
+// 	markSwapped() error
+// 	unmarkSwapped() error
+// 	isSwappedProp(propName string) bool
+// 	markSwappedProp(propName string) error
+// 	unmarkSwappedProp(propName string) error
+
+// 	isTidied() bool
+// 	markTidied() error
+
+// 	hasProps() bool
+// 	getProps() ([]string, error)
+// 	saveProps([]string) error
+
+// 	reset() error
+// }
+
+// func newFileReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReindexTracker {
+// 	return &fileReindexTracker{
+// 		progressCheckpoint: 1,
+// 		keyParser:          keyParser,
+// 		config: fileReindexTrackerConfig{
+// 			filenameStarted:    "started.mig",
+// 			filenameProgress:   "progress.mig",
+// 			filenameReindexed:  "reindexed.mig",
+// 			filenameMerged:     "merged.mig",
+// 			filenameSwapped:    "swapped.mig",
+// 			filenameTidied:     "tidied.mig",
+// 			filenameProperties: "properties.mig",
+// 			migrationPath:      filepath.Join(lsmPath, ".migrations", "searchable_map_to_blockmax"),
+// 		},
 // 	}
-// 	return fmt.Sprint(binary.LittleEndian.Uint64(b))
 // }
 
-// func (b uint64Bytes) Bytes() []byte {
-// 	return b
+// type fileReindexTracker struct {
+// 	progressCheckpoint int
+// 	keyParser          indexKeyParser
+// 	config             fileReindexTrackerConfig
 // }
 
-// func (b uint64Bytes) Clone() indexKey {
-// 	buf := make([]byte, len(b))
-// 	copy(buf, b)
-// 	return uint64Bytes(buf)
+// type fileReindexTrackerConfig struct {
+// 	filenameStarted    string
+// 	filenameProgress   string
+// 	filenameReindexed  string
+// 	filenameMerged     string
+// 	filenameSwapped    string
+// 	filenameTidied     string
+// 	filenameProperties string
+// 	migrationPath      string
 // }
 
-type indexKeyParser interface {
-	FromString(key string) (indexKey, error)
-	FromBytes(key []byte) indexKey
-}
+// func (t *fileReindexTracker) init() error {
+// 	if err := os.MkdirAll(t.config.migrationPath, 0o777); err != nil {
+// 		return err
+// 	}
+// 	return nil
+// }
 
-type uuidKeyParser struct{}
+// func (t *fileReindexTracker) isStarted() bool {
+// 	return t.fileExists(t.config.filenameStarted)
+// }
 
-func (p *uuidKeyParser) FromString(key string) (indexKey, error) {
-	uid, err := uuid.Parse(key)
-	if err != nil {
-		return nil, err
-	}
-	buf, err := uid.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-	return uuidBytes(buf), nil
-}
+// func (t *fileReindexTracker) markStarted(started time.Time) error {
+// 	return t.createFile(t.config.filenameStarted, []byte(t.encodeTime(started)))
+// }
 
-func (p *uuidKeyParser) FromBytes(key []byte) indexKey {
-	return uuidBytes(key)
-}
+// func (t *fileReindexTracker) getStarted() (time.Time, error) {
+// 	path := t.filepath(t.config.filenameStarted)
+// 	content, err := os.ReadFile(path)
+// 	if err != nil {
+// 		return time.Time{}, err
+// 	}
+// 	return t.decodeTime(string(content))
+// }
 
-// type uint64KeyParser struct{}
+// func (t *fileReindexTracker) findLastProgressFile() (string, error) {
+// 	prefix := t.config.filenameProgress + "."
+// 	expectedLen := len(prefix) + 9 // 9 digits
 
-// func (p *uint64KeyParser) FromString(key string) (indexKey, error) {
-// 	u, err := strconv.ParseUint(key, 10, 64)
+// 	lastProgressFilename := ""
+// 	err := filepath.WalkDir(t.config.migrationPath, func(path string, d os.DirEntry, err error) error {
+// 		// skip parent and children dirs
+// 		if path != t.config.migrationPath {
+// 			if d.IsDir() {
+// 				return filepath.SkipDir
+// 			}
+// 			if name := d.Name(); len(name) == expectedLen && strings.HasPrefix(name, prefix) {
+// 				lastProgressFilename = name
+// 			}
+// 		}
+// 		return nil
+// 	})
+
+// 	return lastProgressFilename, err
+// }
+
+// func (t *fileReindexTracker) markProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error {
+// 	filename := fmt.Sprintf("%s.%09d", t.config.filenameProgress, t.progressCheckpoint)
+// 	content := strings.Join([]string{
+// 		t.encodeTime(time.Now()),
+// 		lastProcessedKey.String(),
+// 		fmt.Sprintf("all %d", processedCount),
+// 		fmt.Sprintf("idx %d", indexedCount),
+// 	}, "\n")
+
+// 	if err := t.createFile(filename, []byte(content)); err != nil {
+// 		return err
+// 	}
+// 	t.progressCheckpoint++
+// 	return nil
+// }
+
+// func (t *fileReindexTracker) getProgress() (indexKey, error) {
+// 	filename, err := t.findLastProgressFile()
 // 	if err != nil {
 // 		return nil, err
 // 	}
-// 	buf := make([]byte, 8)
-// 	binary.LittleEndian.PutUint64(buf, u)
-// 	return uint64Bytes(buf), nil
+// 	if filename == "" {
+// 		return t.keyParser.FromBytes(nil), nil
+// 	}
+
+// 	checkpoint, err := strconv.Atoi(strings.TrimPrefix(filename, t.config.filenameProgress+"."))
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	path := t.filepath(filename)
+// 	content, err := os.ReadFile(path)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	split := strings.Split(string(content), "\n")
+// 	key, err := t.keyParser.FromString(split[1])
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	t.progressCheckpoint = checkpoint + 1
+// 	return key, nil
 // }
 
-// func (p *uint64KeyParser) FromBytes(key []byte) indexKey {
-// 	return uint64Bytes(key)
+// func (t *fileReindexTracker) isReindexed() bool {
+// 	return t.fileExists(t.config.filenameReindexed)
 // }
+
+// func (t *fileReindexTracker) markReindexed() error {
+// 	return t.createFile(t.config.filenameReindexed, []byte(t.encodeTimeNow()))
+// }
+
+// func (t *fileReindexTracker) isMerged() bool {
+// 	return t.fileExists(t.config.filenameMerged)
+// }
+
+// func (t *fileReindexTracker) markMerged() error {
+// 	return t.createFile(t.config.filenameMerged, []byte(t.encodeTimeNow()))
+// }
+
+// func (t *fileReindexTracker) isSwappedProp(propName string) bool {
+// 	return t.fileExists(t.config.filenameSwapped + "." + propName)
+// }
+
+// func (t *fileReindexTracker) markSwappedProp(propName string) error {
+// 	return t.createFile(t.config.filenameSwapped+"."+propName, []byte(t.encodeTimeNow()))
+// }
+
+// func (t *fileReindexTracker) unmarkSwappedProp(propName string) error {
+// 	return t.removeFile(t.config.filenameSwapped + "." + propName)
+// }
+
+// func (t *fileReindexTracker) isSwapped() bool {
+// 	return t.fileExists(t.config.filenameSwapped)
+// }
+
+// func (t *fileReindexTracker) markSwapped() error {
+// 	return t.createFile(t.config.filenameSwapped, []byte(t.encodeTimeNow()))
+// }
+
+// func (t *fileReindexTracker) unmarkSwapped() error {
+// 	return t.removeFile(t.config.filenameSwapped)
+// }
+
+// func (t *fileReindexTracker) isTidied() bool {
+// 	return t.fileExists(t.config.filenameTidied)
+// }
+
+// func (t *fileReindexTracker) markTidied() error {
+// 	return t.createFile(t.config.filenameTidied, []byte(t.encodeTimeNow()))
+// }
+
+// func (t *fileReindexTracker) filepath(filename string) string {
+// 	return filepath.Join(t.config.migrationPath, filename)
+// }
+
+// func (t *fileReindexTracker) fileExists(filename string) bool {
+// 	if _, err := os.Stat(t.filepath(filename)); err == nil {
+// 		return true
+// 	} else if errors.Is(err, os.ErrNotExist) {
+// 		return false
+// 	}
+// 	return false
+// }
+
+// func (t *fileReindexTracker) createFile(filename string, content []byte) error {
+// 	path := t.filepath(filename)
+// 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer file.Close()
+
+// 	if len(content) > 0 {
+// 		_, err = file.Write(content)
+// 		return err
+// 	}
+// 	return nil
+// }
+
+// func (t *fileReindexTracker) removeFile(filename string) error {
+// 	return os.Remove(t.filepath(filename))
+// }
+
+// func (t *fileReindexTracker) encodeTimeNow() string {
+// 	return t.encodeTime(time.Now())
+// }
+
+// func (t *fileReindexTracker) encodeTime(tm time.Time) string {
+// 	return tm.UTC().Format(time.RFC3339Nano)
+// }
+
+// func (t *fileReindexTracker) decodeTime(tm string) (time.Time, error) {
+// 	return time.Parse(time.RFC3339Nano, tm)
+// }
+
+// func (t *fileReindexTracker) hasProps() bool {
+// 	return t.fileExists(t.config.filenameProperties)
+// }
+
+// func (t *fileReindexTracker) saveProps(propNames []string) error {
+// 	props := []byte(strings.Join(propNames, ","))
+// 	return t.createFile(t.config.filenameProperties, props)
+// }
+
+// func (t *fileReindexTracker) getProps() ([]string, error) {
+// 	content, err := os.ReadFile(t.filepath(t.config.filenameProperties))
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	if len(content) == 0 {
+// 		return []string{}, nil
+// 	}
+// 	return strings.Split(string(content), ","), nil
+// }
+
+// func (t *fileReindexTracker) reset() error {
+// 	return os.RemoveAll(t.config.migrationPath)
+// }
+
+// type indexKey interface {
+// 	String() string
+// 	Bytes() []byte
+// 	Clone() indexKey
+// }
+
+// type uuidBytes []byte
+
+// func (b uuidBytes) String() string {
+// 	if b == nil {
+// 		return "nil"
+// 	}
+// 	uid, err := uuid.FromBytes(b)
+// 	if err != nil {
+// 		return err.Error()
+// 	}
+// 	return uid.String()
+// }
+
+// func (b uuidBytes) Bytes() []byte {
+// 	return b
+// }
+
+// func (b uuidBytes) Clone() indexKey {
+// 	buf := make([]byte, len(b))
+// 	copy(buf, b)
+// 	return uuidBytes(buf)
+// }
+
+// // type uint64Bytes []byte
+
+// // func (b uint64Bytes) String() string {
+// // 	if b == nil {
+// // 		return "nil"
+// // 	}
+// // 	return fmt.Sprint(binary.LittleEndian.Uint64(b))
+// // }
+
+// // func (b uint64Bytes) Bytes() []byte {
+// // 	return b
+// // }
+
+// // func (b uint64Bytes) Clone() indexKey {
+// // 	buf := make([]byte, len(b))
+// // 	copy(buf, b)
+// // 	return uint64Bytes(buf)
+// // }
+
+// type indexKeyParser interface {
+// 	FromString(key string) (indexKey, error)
+// 	FromBytes(key []byte) indexKey
+// }
+
+// type uuidKeyParser struct{}
+
+// func (p *uuidKeyParser) FromString(key string) (indexKey, error) {
+// 	uid, err := uuid.Parse(key)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	buf, err := uid.MarshalBinary()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return uuidBytes(buf), nil
+// }
+
+// func (p *uuidKeyParser) FromBytes(key []byte) indexKey {
+// 	return uuidBytes(key)
+// }
+
+// // type uint64KeyParser struct{}
+
+// // func (p *uint64KeyParser) FromString(key string) (indexKey, error) {
+// // 	u, err := strconv.ParseUint(key, 10, 64)
+// // 	if err != nil {
+// // 		return nil, err
+// // 	}
+// // 	buf := make([]byte, 8)
+// // 	binary.LittleEndian.PutUint64(buf, u)
+// // 	return uint64Bytes(buf), nil
+// // }
+
+// // func (p *uint64KeyParser) FromBytes(key []byte) indexKey {
+// // 	return uint64Bytes(key)
+// // }

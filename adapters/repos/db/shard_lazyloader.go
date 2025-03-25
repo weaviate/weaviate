@@ -61,7 +61,7 @@ type LazyLoadShard struct {
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
-	shardLoadLimiter ShardLoadLimiter,
+	shardLoadLimiter ShardLoadLimiter, reindexer ShardReindexerV3,
 ) *LazyLoadShard {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -76,6 +76,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			jobQueueCh:       jobQueueCh,
 			scheduler:        index.scheduler,
 			indexCheckpoints: indexCheckpoints,
+			reindexer:        reindexer,
 		},
 		memMonitor:       memMonitor,
 		shardLoadLimiter: shardLoadLimiter,
@@ -90,6 +91,7 @@ type deferredShardOpts struct {
 	jobQueueCh       chan job
 	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
+	reindexer        ShardReindexerV3
 
 	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
 	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
@@ -124,7 +126,8 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	defer l.shardLoadLimiter.Release()
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler, l.shardOpts.indexCheckpoints)
+		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
+		l.shardOpts.indexCheckpoints, l.shardOpts.reindexer)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
