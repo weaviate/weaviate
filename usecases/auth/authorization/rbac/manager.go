@@ -53,7 +53,7 @@ func (m *manager) upsertRolesPermissions(roles map[string][]authorization.Policy
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
 		// e.g. : g, user:wv_internal_empty, role:roleName
-		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserTypeDb), conv.PrefixRoleName(roleName)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserTypeInputDb), conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 		for _, policy := range policies {
@@ -196,7 +196,7 @@ func (m *manager) AddRolesForUser(user string, roles []string) error {
 	return nil
 }
 
-func (m *manager) GetRolesForUser(userName string, userType models.UserType) (map[string][]authorization.Policy, error) {
+func (m *manager) GetRolesForUser(userName string, userType models.UserTypeInput) (map[string][]authorization.Policy, error) {
 	rolesNames, err := m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
 	if err != nil {
 		return nil, fmt.Errorf("GetRolesForUser: %w", err)
@@ -211,7 +211,7 @@ func (m *manager) GetRolesForUser(userName string, userType models.UserType) (ma
 	return roles, err
 }
 
-func (m *manager) GetUsersForRole(roleName string, userType models.UserType) ([]string, error) {
+func (m *manager) GetUsersForRole(roleName string, userType models.UserTypeInput) ([]string, error) {
 	pusers, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(roleName))
 	if err != nil {
 		return nil, fmt.Errorf("GetUsersForRole: %w", err)

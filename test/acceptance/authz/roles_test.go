@@ -247,7 +247,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get roles for user after assignment", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser).WithUserType(string(models.UserTypeDb)), clientAuth)
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser).WithUserType(string(models.UserTypeInputDb)), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 2, len(res.Payload))
 		names := make([]string, len(res.Payload))
@@ -269,7 +269,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get roles for user after deletion", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser).WithUserType(string(models.UserTypeDb)), clientAuth)
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser).WithUserType(string(models.UserTypeInputDb)), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
 		require.Equal(t, existingRole, *res.Payload[0].Name)
@@ -1092,14 +1092,14 @@ func TestRolesUserExistence(t *testing.T) {
 
 	t.Run("Cannot assign or revoke to/from OIDC user (not enabled)", func(t *testing.T) {
 		resp, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, UserType: models.UserTypeOidc}),
+			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, UserType: models.UserTypeInputOidc}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Nil(t, resp)
 		require.Error(t, err)
 
 		resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
-			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, UserType: models.UserTypeOidc}),
+			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, UserType: models.UserTypeInputOidc}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Nil(t, resp2)
@@ -1108,14 +1108,14 @@ func TestRolesUserExistence(t *testing.T) {
 
 	t.Run("Cannot assign or revoke to/from non-existent db user", func(t *testing.T) {
 		resp, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, UserType: models.UserTypeDb}),
+			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, UserType: models.UserTypeInputDb}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Nil(t, resp)
 		require.Error(t, err)
 
 		resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
-			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, UserType: models.UserTypeDb}),
+			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, UserType: models.UserTypeInputDb}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Nil(t, resp2)
@@ -1182,7 +1182,7 @@ func TestGetRolesForUserPermission(t *testing.T) {
 	falsep := false
 	truep := true
 	t.Run("No permissions", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)), helper.CreateAuth(userKey))
+		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)), helper.CreateAuth(userKey))
 		require.Error(t, err)
 	})
 
@@ -1191,7 +1191,7 @@ func TestGetRolesForUserPermission(t *testing.T) {
 		defer helper.RevokeRoleFromUser(t, adminKey, userRoleName, userName)
 
 		// can get role names
-		resp, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)).WithIncludeFullRoles(&falsep), helper.CreateAuth(userKey))
+		resp, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)).WithIncludeFullRoles(&falsep), helper.CreateAuth(userKey))
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)
@@ -1199,7 +1199,7 @@ func TestGetRolesForUserPermission(t *testing.T) {
 		require.Nil(t, resp.Payload[0].Permissions)
 
 		// cannot get all roles
-		_, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)).WithIncludeFullRoles(&truep), helper.CreateAuth(userKey))
+		_, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)).WithIncludeFullRoles(&truep), helper.CreateAuth(userKey))
 		require.Error(t, err)
 	})
 
@@ -1210,7 +1210,7 @@ func TestGetRolesForUserPermission(t *testing.T) {
 		defer helper.RevokeRoleFromUser(t, adminKey, roleRoleName, userName)
 
 		// can get role names
-		resp, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)).WithIncludeFullRoles(&falsep), helper.CreateAuth(userKey))
+		resp, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)).WithIncludeFullRoles(&falsep), helper.CreateAuth(userKey))
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)
@@ -1218,7 +1218,7 @@ func TestGetRolesForUserPermission(t *testing.T) {
 		require.Nil(t, resp.Payload[0].Permissions)
 
 		// can get all roles
-		resp, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)).WithIncludeFullRoles(&truep), helper.CreateAuth(userKey))
+		resp, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)).WithIncludeFullRoles(&truep), helper.CreateAuth(userKey))
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Payload, 1)
