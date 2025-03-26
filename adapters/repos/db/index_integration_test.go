@@ -250,6 +250,27 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	assert.NotNil(t, afterRecreateAndInsertObj2)
 }
 
+func TestIndex_AddNewVectorIndex(t *testing.T) {
+	var (
+		ctx          = testCtx()
+		initialClass = &models.Class{Class: "ClassName"}
+		shard, index = testShard(t, ctx, initialClass.Class)
+	)
+
+	_, ok := shard.GetVectorIndex("new_index")
+	require.False(t, ok)
+
+	require.NoError(t, index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{
+		"new_index": hnsw.UserConfig{
+			Distance: "cosine",
+		},
+	}))
+
+	vectorIndex, ok := shard.GetVectorIndex("new_index")
+	require.True(t, ok)
+	require.NotNil(t, vectorIndex)
+}
+
 func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	ctx := testCtx()
 	class := &models.Class{Class: "deletetest"}

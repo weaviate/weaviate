@@ -122,7 +122,7 @@ func setupNodesHandlers(api *operations.WeaviateAPI,
 	schemaManger *schemaUC.Manager, repo *db.DB, appState *state.State,
 ) {
 	nodesManager := nodesUC.NewManager(appState.Logger, appState.Authorizer,
-		repo, schemaManger)
+		repo, schemaManger, appState.ServerConfig.Config.Authorization.Rbac)
 
 	h := &nodesHandlers{nodesManager, newNodesRequestsTotal(appState.Metrics, appState.Logger)}
 	api.NodesNodesGetHandler = nodes.

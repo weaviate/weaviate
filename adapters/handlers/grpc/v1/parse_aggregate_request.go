@@ -27,10 +27,10 @@ import (
 )
 
 type AggregateParser struct {
-	authorizedGetClass func(string) (*models.Class, error)
+	authorizedGetClass classGetterWithAuthzFunc
 }
 
-func NewAggregateParser(authorizedGetClass func(string) (*models.Class, error)) *AggregateParser {
+func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc) *AggregateParser {
 	return &AggregateParser{
 		authorizedGetClass: authorizedGetClass,
 	}
@@ -76,7 +76,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant)
 		if err != nil {
 			return nil, fmt.Errorf("extract filters: %w", err)
 		}

@@ -122,7 +122,7 @@ func (_m *Controller) GetRoles(names ...string) (map[string][]authorization.Poli
 }
 
 // GetRolesForUser provides a mock function with given fields: user, userType
-func (_m *Controller) GetRolesForUser(user string, userType models.UserType) (map[string][]authorization.Policy, error) {
+func (_m *Controller) GetRolesForUser(user string, userType models.UserTypeInput) (map[string][]authorization.Policy, error) {
 	ret := _m.Called(user, userType)
 
 	if len(ret) == 0 {
@@ -131,10 +131,10 @@ func (_m *Controller) GetRolesForUser(user string, userType models.UserType) (ma
 
 	var r0 map[string][]authorization.Policy
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, models.UserType) (map[string][]authorization.Policy, error)); ok {
+	if rf, ok := ret.Get(0).(func(string, models.UserTypeInput) (map[string][]authorization.Policy, error)); ok {
 		return rf(user, userType)
 	}
-	if rf, ok := ret.Get(0).(func(string, models.UserType) map[string][]authorization.Policy); ok {
+	if rf, ok := ret.Get(0).(func(string, models.UserTypeInput) map[string][]authorization.Policy); ok {
 		r0 = rf(user, userType)
 	} else {
 		if ret.Get(0) != nil {
@@ -142,7 +142,7 @@ func (_m *Controller) GetRolesForUser(user string, userType models.UserType) (ma
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, models.UserType) error); ok {
+	if rf, ok := ret.Get(1).(func(string, models.UserTypeInput) error); ok {
 		r1 = rf(user, userType)
 	} else {
 		r1 = ret.Error(1)
@@ -152,7 +152,7 @@ func (_m *Controller) GetRolesForUser(user string, userType models.UserType) (ma
 }
 
 // GetUsersForRole provides a mock function with given fields: role, userType
-func (_m *Controller) GetUsersForRole(role string, userType models.UserType) ([]string, error) {
+func (_m *Controller) GetUsersForRole(role string, userType models.UserTypeInput) ([]string, error) {
 	ret := _m.Called(role, userType)
 
 	if len(ret) == 0 {
@@ -161,10 +161,10 @@ func (_m *Controller) GetUsersForRole(role string, userType models.UserType) ([]
 
 	var r0 []string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, models.UserType) ([]string, error)); ok {
+	if rf, ok := ret.Get(0).(func(string, models.UserTypeInput) ([]string, error)); ok {
 		return rf(role, userType)
 	}
-	if rf, ok := ret.Get(0).(func(string, models.UserType) []string); ok {
+	if rf, ok := ret.Get(0).(func(string, models.UserTypeInput) []string); ok {
 		r0 = rf(role, userType)
 	} else {
 		if ret.Get(0) != nil {
@@ -172,7 +172,7 @@ func (_m *Controller) GetUsersForRole(role string, userType models.UserType) ([]
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, models.UserType) error); ok {
+	if rf, ok := ret.Get(1).(func(string, models.UserTypeInput) error); ok {
 		r1 = rf(role, userType)
 	} else {
 		r1 = ret.Error(1)

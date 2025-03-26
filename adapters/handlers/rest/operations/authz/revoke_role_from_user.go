@@ -94,7 +94,7 @@ type RevokeRoleFromUserBody struct {
 	Roles []string `json:"roles" yaml:"roles"`
 
 	// user type
-	UserType models.UserType `json:"userType,omitempty" yaml:"userType,omitempty"`
+	UserType models.UserTypeInput `json:"userType,omitempty" yaml:"userType,omitempty"`
 }
 
 // Validate validates this revoke role from user body

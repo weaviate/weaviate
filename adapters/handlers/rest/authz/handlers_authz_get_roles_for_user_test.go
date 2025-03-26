@@ -40,7 +40,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 			Domain:   authorization.SchemaDomain,
 		},
 	}
-	userType := models.UserTypeDb
+	userType := models.UserTypeInputDb
 	returnedPolices := map[string][]authorization.Policy{
 		"testRole": policies,
 	}
@@ -59,7 +59,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				UserType:         string(userType),
 				IncludeFullRoles: &truep,
 			},
-			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeDb},
+			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
 			expectAuthz: true,
 		},
 		{
@@ -69,7 +69,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				UserType:         string(userType),
 				IncludeFullRoles: &falseP,
 			},
-			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeDb},
+			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
 			expectAuthz: true,
 		},
 		{
@@ -79,7 +79,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				UserType:         string(userType),
 				IncludeFullRoles: &truep,
 			},
-			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeDb},
+			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
 			expectAuthz: false,
 		},
 	}
@@ -92,7 +92,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 					authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(nil)
 				}
 			}
-			controller.On("GetRolesForUser", tt.params.ID, models.UserTypeDb).Return(returnedPolices, nil)
+			controller.On("GetRolesForUser", tt.params.ID, models.UserTypeInputDb).Return(returnedPolices, nil)
 			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{"testUser": {}}, nil)
 
 			h := &authZHandlers{
@@ -134,7 +134,7 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 		expectedError string
 	}
 	truep := true
-	userType := models.UserTypeDb
+	userType := models.UserTypeInputDb
 	tests := []testCase{
 		{
 			name: "authorization error no access to role",
@@ -197,7 +197,7 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 		expectedError string
 	}
 
-	userType := models.UserTypeDb
+	userType := models.UserTypeInputDb
 	tests := []testCase{
 		{
 			name: "internal server error",

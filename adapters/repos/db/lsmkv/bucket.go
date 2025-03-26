@@ -359,12 +359,17 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 		defer inMemCursor.Close()
 
 		for k, v := inMemCursor.First(); k != nil; k, v = inMemCursor.Next() {
-			obj, err := storobj.FromBinaryUUIDOnly(v)
-			if err != nil {
-				return fmt.Errorf("cannot unmarshal object: %w", err)
-			}
-			if err := f(obj); err != nil {
-				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				obj, err := storobj.FromBinaryUUIDOnly(v)
+				if err != nil {
+					return fmt.Errorf("cannot unmarshal object: %w", err)
+				}
+				if err := f(obj); err != nil {
+					return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+				}
 			}
 		}
 
@@ -375,12 +380,17 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 	}
 
 	for k, v := onDiskCursor.First(); k != nil; k, v = onDiskCursor.Next() {
-		obj, err := storobj.FromBinaryUUIDOnly(v)
-		if err != nil {
-			return fmt.Errorf("cannot unmarshal object: %w", err)
-		}
-		if err := f(obj); err != nil {
-			return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			obj, err := storobj.FromBinaryUUIDOnly(v)
+			if err != nil {
+				return fmt.Errorf("cannot unmarshal object: %w", err)
+			}
+			if err := f(obj); err != nil {
+				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+			}
 		}
 	}
 
@@ -1600,7 +1610,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 			memTombstones.Or(activeTombstones)
 
-			if n2 > 0 {
+			if !active.Exhausted() {
 				active.advanceOnTombstoneOrFilter()
 			}
 		}
@@ -1620,7 +1630,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 			memTombstones.Or(tombstones)
 
-			if n2 > 0 {
+			if !flushing.Exhausted() {
 				flushing.tombstones = activeTombstones
 				flushing.advanceOnTombstoneOrFilter()
 			}
@@ -1708,6 +1718,7 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		if filterDocIds != nil && !filterDocIds.Contains(d.Id) {
 			continue
 		}
+
 		term.blockDataDecoded.DocIds = append(term.blockDataDecoded.DocIds, d.Id)
 		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
 		term.propLengths[d.Id] = uint32(d.PropLength)
@@ -1716,7 +1727,7 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	if len(term.blockDataDecoded.DocIds) == 0 {
 		return n, nil
 	}
-
+	term.exhausted = false
 	term.blockEntries = make([]*terms.BlockEntry, 1)
 	term.blockEntries[0] = &terms.BlockEntry{
 		MaxId:  term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
