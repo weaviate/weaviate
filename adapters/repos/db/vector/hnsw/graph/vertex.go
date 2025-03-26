@@ -175,9 +175,10 @@ func (v *VertexEditor) LevelLen(level int) int {
 }
 
 func (v *VertexEditor) SetLevel(level int) {
-	v.v.level = level
-
-	v.EnsureLevel(level)
+	if level > v.v.level {
+		v.v.level = level
+		v.EnsureLevel(level)
+	}
 }
 
 func (v *VertexEditor) EnsureLevel(level int) {
