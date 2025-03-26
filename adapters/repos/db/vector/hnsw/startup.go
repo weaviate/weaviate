@@ -37,11 +37,6 @@ func (h *hnsw) init(cfg Config) error {
 	if err := h.restoreFromDisk(); err != nil {
 		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
-	if h.multivector.Load() {
-		if err := h.restoreDocMappings(); err != nil {
-			return errors.Wrapf(err, "restore doc mappings %q", cfg.ID)
-		}
-	}
 
 	// init commit logger for future writes
 	cl, err := cfg.MakeCommitLoggerThunk()
@@ -135,6 +130,12 @@ func (h *hnsw) restoreFromDisk() error {
 	h.tombstones = state.Tombstones
 	h.tombstoneLock.Unlock()
 
+	if h.multivector.Load() {
+		if err := h.restoreDocMappings(); err != nil {
+			return errors.Wrapf(err, "restore doc mappings")
+		}
+	}
+
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
 		h.cache.Drop()
@@ -209,9 +210,14 @@ func (h *hnsw) restoreFromDisk() error {
 		}
 		// make sure the compressed cache fits the current size
 		h.compressor.GrowCache(uint64(h.nodes.Len()))
+
 	} else if !h.compressed.Load() {
 		// make sure the cache fits the current size
 		h.cache.Grow(uint64(h.nodes.Len()))
+
+		if h.multivector.Load() {
+			h.populateKeys()
+		}
 
 		if h.nodes.Len() > 0 {
 			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
@@ -245,9 +251,6 @@ func (h *hnsw) restoreDocMappings() error {
 			relativeID = 0
 			prevDocID = docID
 		}
-		if !h.compressed.Load() {
-			h.cache.SetKeys(node.ID(), docID, relativeID)
-		}
 		h.Lock()
 		h.docIDVectors[docID] = append(h.docIDVectors[docID], node.ID())
 		h.Unlock()
@@ -270,6 +273,14 @@ func (h *hnsw) restoreDocMappings() error {
 	h.maxDocID = maxDocID
 	h.Unlock()
 	return nil
+}
+
+func (h *hnsw) populateKeys() {
+	for docID, nodeIDs := range h.docIDVectors {
+		for relativeID, nodeID := range nodeIDs {
+			h.cache.SetKeys(nodeID, docID, uint64(relativeID))
+		}
+	}
 }
 
 func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
