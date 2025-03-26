@@ -260,12 +260,11 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	oldIdx := shd.VectorIndex()
-
 	// wait for the first batch to be indexed
+	oldIdx, q := getVectorIndexAndQueue(t, shd, "")
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shd.Queue().Size() <= 500 {
+		if q.Size() <= 500 {
 			break
 		}
 	}
@@ -273,14 +272,14 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	err := shd.DebugResetVectorIndex(ctx, "")
 	require.Nil(t, err)
 
-	newIdx := shd.VectorIndex()
+	newIdx, q := getVectorIndexAndQueue(t, shd, "")
 
 	// the new index should be different from the old one.
 	// pointer comparison is enough here
 	require.NotEqual(t, oldIdx, newIdx)
 
 	// queue should be empty after reset
-	require.EqualValues(t, 0, shd.Queue().Size())
+	require.EqualValues(t, 0, q.Size())
 
 	// make sure the new index does not contain any of the objects
 	for _, obj := range objs {
@@ -291,76 +290,6 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-}
-
-func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
-	for _, tt := range []struct {
-		name          string
-		setConfigs    func(idx *Index)
-		expectIndexes []string
-	}{
-		{
-			name: "only legacy vector",
-			setConfigs: func(idx *Index) {
-				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
-			},
-			expectIndexes: []string{""},
-		},
-		{
-			name: "only named vector",
-			setConfigs: func(idx *Index) {
-				idx.vectorIndexUserConfig = nil
-				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-					"vector1": hnsw.NewDefaultUserConfig(),
-					"vector2": flat.NewDefaultUserConfig(),
-				}
-			},
-			expectIndexes: []string{"vector1", "vector2"},
-		},
-		{
-			name: "mixed vectors",
-			setConfigs: func(idx *Index) {
-				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
-				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-					"vector1": hnsw.NewDefaultUserConfig(),
-					"vector2": flat.NewDefaultUserConfig(),
-				}
-			},
-			expectIndexes: []string{"", "vector1", "vector2"},
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(), false, true, tt.setConfigs)
-
-			capturedIndexes := make(map[string]any)
-			err := shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-				require.NotNil(t, index)
-				capturedIndexes[targetVector] = index
-				return nil
-			})
-			require.NoError(t, err)
-
-			capturedQueues := make(map[string]any)
-			err = shard.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-				require.NotNil(t, queue)
-				capturedQueues[targetVector] = queue
-				return nil
-			})
-			require.NoError(t, err)
-
-			require.Len(t, capturedIndexes, len(tt.expectIndexes))
-			for _, name := range tt.expectIndexes {
-				_, ok := capturedIndexes[name]
-				require.True(t, ok)
-			}
-
-			require.Len(t, capturedQueues, len(tt.expectIndexes))
-			for _, name := range tt.expectIndexes {
-				_, ok := capturedQueues[name]
-				require.True(t, ok)
-			}
-		})
-	}
 }
 
 func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
@@ -405,8 +334,7 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	oldIdx := shd.VectorIndexes()["foo"]
-	q := shd.Queues()["foo"]
+	oldIdx, q := getVectorIndexAndQueue(t, shd, "foo")
 
 	// wait for the first batch to be indexed
 	for i := 0; i < 10; i++ {
@@ -419,7 +347,7 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 	err := shd.DebugResetVectorIndex(ctx, "foo")
 	require.Nil(t, err)
 
-	newIdx := shd.VectorIndexes()["foo"]
+	newIdx, q := getVectorIndexAndQueue(t, shd, "foo")
 
 	// the new index should be different from the old one.
 	// pointer comparison is enough here
@@ -444,22 +372,18 @@ func TestShard_RepairIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	tests := []struct {
-		name           string
-		targetVector   string
-		multiVector    bool
-		cfg            schemaConfig.VectorIndexConfig
-		idxOpt         func(*Index)
-		getQueue       func(ShardLike) *VectorIndexQueue
-		getVectorIndex func(ShardLike) VectorIndex
+		name                   string
+		targetVector           string
+		multiVector            bool
+		cfg                    schemaConfig.VectorIndexConfig
+		idxOpt                 func(*Index)
+		getVectorIndexAndQueue func(ShardLike) (VectorIndex, *VectorIndexQueue)
 	}{
 		{
 			name: "hnsw",
 			cfg:  hnsw.UserConfig{},
-			getQueue: func(s ShardLike) *VectorIndexQueue {
-				return s.Queue()
-			},
-			getVectorIndex: func(s ShardLike) VectorIndex {
-				return s.VectorIndex()
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "")
 			},
 		},
 		{
@@ -470,11 +394,8 @@ func TestShard_RepairIndex(t *testing.T) {
 				i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
 				i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{}
 			},
-			getQueue: func(s ShardLike) *VectorIndexQueue {
-				return s.Queues()["foo"]
-			},
-			getVectorIndex: func(s ShardLike) VectorIndex {
-				return s.VectorIndexes()["foo"]
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "foo")
 			},
 		},
 		{
@@ -490,21 +411,15 @@ func TestShard_RepairIndex(t *testing.T) {
 					},
 				}
 			},
-			getQueue: func(s ShardLike) *VectorIndexQueue {
-				return s.Queues()["foo"]
-			},
-			getVectorIndex: func(s ShardLike) VectorIndex {
-				return s.VectorIndexes()["foo"]
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "foo")
 			},
 		},
 		{
 			name: "flat",
 			cfg:  flat.NewDefaultUserConfig(),
-			getQueue: func(s ShardLike) *VectorIndexQueue {
-				return s.Queue()
-			},
-			getVectorIndex: func(s ShardLike) VectorIndex {
-				return s.VectorIndex()
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "")
 			},
 		},
 	}
@@ -552,8 +467,7 @@ func TestShard_RepairIndex(t *testing.T) {
 				require.Nil(t, err)
 			}
 
-			vidx := test.getVectorIndex(shd)
-			q := test.getQueue(shd)
+			vidx, q := test.getVectorIndexAndQueue(shd)
 
 			// wait for the queue to be empty
 			for i := 0; i < 20; i++ {
@@ -628,22 +542,18 @@ func TestShard_FillQueue(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	tests := []struct {
-		name           string
-		targetVector   string
-		multiVector    bool
-		cfg            schemaConfig.VectorIndexConfig
-		idxOpt         func(*Index)
-		getQueue       func(ShardLike) *VectorIndexQueue
-		getVectorIndex func(ShardLike) VectorIndex
+		name                   string
+		targetVector           string
+		multiVector            bool
+		cfg                    schemaConfig.VectorIndexConfig
+		idxOpt                 func(*Index)
+		getVectorIndexAndQueue func(ShardLike) (VectorIndex, *VectorIndexQueue)
 	}{
 		{
 			name: "hnsw",
 			cfg:  hnsw.UserConfig{},
-			getQueue: func(s ShardLike) *VectorIndexQueue {
-				return s.Queue()
-			},
-			getVectorIndex: func(s ShardLike) VectorIndex {
-				return s.VectorIndex()
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "")
 			},
 		},
 		{
@@ -654,11 +564,8 @@ func TestShard_FillQueue(t *testing.T) {
 				i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
 				i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{}
 			},
-			getQueue: func(s ShardLike) *VectorIndexQueue {
-				return s.Queues()["foo"]
-			},
-			getVectorIndex: func(s ShardLike) VectorIndex {
-				return s.VectorIndexes()["foo"]
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "foo")
 			},
 		},
 		{
@@ -674,21 +581,15 @@ func TestShard_FillQueue(t *testing.T) {
 					},
 				}
 			},
-			getQueue: func(s ShardLike) *VectorIndexQueue {
-				return s.Queues()["foo"]
-			},
-			getVectorIndex: func(s ShardLike) VectorIndex {
-				return s.VectorIndexes()["foo"]
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "foo")
 			},
 		},
 		{
 			name: "flat",
 			cfg:  flat.NewDefaultUserConfig(),
-			getQueue: func(s ShardLike) *VectorIndexQueue {
-				return s.Queue()
-			},
-			getVectorIndex: func(s ShardLike) VectorIndex {
-				return s.VectorIndex()
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "")
 			},
 		},
 	}
@@ -736,8 +637,7 @@ func TestShard_FillQueue(t *testing.T) {
 				require.Nil(t, err)
 			}
 
-			vidx := test.getVectorIndex(shd)
-			q := test.getQueue(shd)
+			vidx, q := test.getVectorIndexAndQueue(shd)
 
 			// wait for the queue to be empty
 			require.EventuallyWithT(t, func(t *assert.CollectT) {
@@ -896,10 +796,18 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		}
 	}
 
-	q := shd.Queue()
+	q, ok := shd.GetVectorIndexQueue("")
+	require.True(t, ok)
 
 	// wait for the queue to be empty
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		assert.Zero(t, q.Size())
 	}, 300*time.Second, 1*time.Second)
+}
+
+func getVectorIndexAndQueue(t *testing.T, shard ShardLike, targetVector string) (VectorIndex, *VectorIndexQueue) {
+	idx, vok := shard.GetVectorIndex(targetVector)
+	q, qok := shard.GetVectorIndexQueue(targetVector)
+	require.True(t, vok && qok)
+	return idx, q
 }
