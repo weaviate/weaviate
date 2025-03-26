@@ -37,7 +37,7 @@ type DBUserInfo struct {
 
 	// type of the returned user
 	// Required: true
-	// Enum: [db_dynamic db_static]
+	// Enum: [db_user db_env_user]
 	DbUserType *string `json:"dbUserType"`
 
 	// The role names associated to the user
@@ -88,7 +88,7 @@ var dBUserInfoTypeDbUserTypePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["db_dynamic","db_static"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["db_user","db_env_user"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -98,11 +98,11 @@ func init() {
 
 const (
 
-	// DBUserInfoDbUserTypeDbDynamic captures enum value "db_dynamic"
-	DBUserInfoDbUserTypeDbDynamic string = "db_dynamic"
+	// DBUserInfoDbUserTypeDbUser captures enum value "db_user"
+	DBUserInfoDbUserTypeDbUser string = "db_user"
 
-	// DBUserInfoDbUserTypeDbStatic captures enum value "db_static"
-	DBUserInfoDbUserTypeDbStatic string = "db_static"
+	// DBUserInfoDbUserTypeDbEnvUser captures enum value "db_env_user"
+	DBUserInfoDbUserTypeDbEnvUser string = "db_env_user"
 )
 
 // prop value enum

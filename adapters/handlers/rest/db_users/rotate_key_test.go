@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic_user
+package db_users
 
 import (
 	"errors"
@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user/mocks"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -38,9 +38,9 @@ func TestSuccessRotate(t *testing.T) {
 	dynUser.On("RotateKey", "user", mock.Anything).Return(nil)
 
 	h := dynUserHandler{
-		dynamicUser:    dynUser,
-		authorizer:     authorizer,
-		dynUserEnabled: true,
+		dbUsers:       dynUser,
+		authorizer:    authorizer,
+		dbUserEnabled: true,
 	}
 
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
@@ -74,7 +74,7 @@ func TestRotateInternalServerError(t *testing.T) {
 			}
 
 			h := dynUserHandler{
-				dynamicUser: dynUser, authorizer: authorizer, dynUserEnabled: true,
+				dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true,
 			}
 
 			res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
@@ -93,8 +93,8 @@ func TestRotateNotFound(t *testing.T) {
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer, dynUserEnabled: true,
+		dbUsers:    dynUser,
+		authorizer: authorizer, dbUserEnabled: true,
 	}
 
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
@@ -110,8 +110,8 @@ func TestRotateForbidden(t *testing.T) {
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer, dynUserEnabled: true,
+		dbUsers:    dynUser,
+		authorizer: authorizer, dbUserEnabled: true,
 	}
 
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
@@ -127,8 +127,8 @@ func TestRotateUnprocessableEntity(t *testing.T) {
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer, dynUserEnabled: true,
+		dbUsers:    dynUser,
+		authorizer: authorizer, dbUserEnabled: true,
 
 		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
 	}
@@ -144,9 +144,9 @@ func TestRotateNoDynamic(t *testing.T) {
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
-		dynamicUser:    mocks.NewDynamicUserAndRolesGetter(t),
-		authorizer:     authorizer,
-		dynUserEnabled: false,
+		dbUsers:       mocks.NewDynamicUserAndRolesGetter(t),
+		authorizer:    authorizer,
+		dbUserEnabled: false,
 	}
 
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user"}, principal)
