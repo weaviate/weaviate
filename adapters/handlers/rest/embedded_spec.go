@@ -3528,7 +3528,14 @@ func init() {
               "properties": {
                 "status": {
                   "description": "The current status of the shard replica move operation",
-                  "type": "string"
+                  "type": "string",
+                  "enum": [
+                    "READY",
+                    "INDEXING",
+                    "REPLICATION_FINALIZING",
+                    "REPLICATION_HYDRATING",
+                    "REPLICATION_DEHYDRATING"
+                  ]
                 }
               }
             }
@@ -11057,7 +11064,14 @@ func init() {
               "properties": {
                 "status": {
                   "description": "The current status of the shard replica move operation",
-                  "type": "string"
+                  "type": "string",
+                  "enum": [
+                    "READY",
+                    "INDEXING",
+                    "REPLICATION_FINALIZING",
+                    "REPLICATION_HYDRATING",
+                    "REPLICATION_DEHYDRATING"
+                  ]
                 }
               }
             }

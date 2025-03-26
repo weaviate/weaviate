@@ -2841,7 +2841,14 @@
               "properties": {
                 "status": {
                   "type": "string",
-                  "description": "The current status of the shard replica move operation"
+                  "description": "The current status of the shard replica move operation",
+                  "enum": [
+                    "READY",
+                    "INDEXING",
+                    "REPLICATION_FINALIZING",
+                    "REPLICATION_HYDRATING",
+                    "REPLICATION_DEHYDRATING"
+                  ]
                 }
               },
               "required": ["status"]
