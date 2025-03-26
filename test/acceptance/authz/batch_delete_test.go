@@ -197,6 +197,18 @@ func TestAuthZBatchDelete(t *testing.T) {
 			Action: &deleteDataAction,
 			Data:   &models.PermissionData{Collection: &classNameSource},
 		},
+		{
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &classNameSource},
+		},
+		{
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &classNameTarget},
+		},
+		{
+			Action: &readDataAction,
+			Data:   &models.PermissionData{Collection: &classNameTarget},
+		},
 	}
 	t.Run("all rights with reference", func(t *testing.T) {
 		deleteRole := &models.Role{
