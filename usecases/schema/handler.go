@@ -18,7 +18,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -135,6 +134,8 @@ type Handler struct {
 	scaleOut                scaleOut
 	parser                  Parser
 	classGetter             *ClassGetter
+
+	experimentBackwardsCompatibleNamedVectorsEnabled bool
 }
 
 // NewHandler creates a new handler
@@ -168,6 +169,8 @@ func NewHandler(
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
 		classGetter:             classGetter,
+
+		experimentBackwardsCompatibleNamedVectorsEnabled: experimentBackwardsCompatibleNamedVectorsEnabled(),
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)

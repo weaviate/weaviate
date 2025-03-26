@@ -341,11 +341,14 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	wg := new(sync.WaitGroup)
 	var err error
 	for targetVector, targetCfg := range updated {
-		wg.Add(1)
-
 		if index, ok := s.GetVectorIndex(targetVector); ok {
+			wg.Add(1)
 			if err = index.UpdateUserConfig(targetCfg, wg.Done); err != nil {
 				break
+			}
+		} else {
+			if err = s.initTargetVector(ctx, targetVector, targetCfg); err != nil {
+				return fmt.Errorf("creating new vector index: %w", err)
 			}
 		}
 	}
