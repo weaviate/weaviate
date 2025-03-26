@@ -38,10 +38,8 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		}
 	}
 
-	if len(s.index.vectorIndexUserConfigs) > 0 {
-		if err := s.initTargetVectors(ctx); err != nil {
-			return err
-		}
+	if err := s.initTargetVectors(ctx); err != nil {
+		return err
 	}
 
 	return nil
@@ -225,18 +223,31 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 	s.queues = make(map[string]*VectorIndexQueue, len(s.index.vectorIndexUserConfigs))
 
 	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
-		vectorIndex, err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
-		if err != nil {
-			return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
+		if err := s.initTargetVectorWithLock(ctx, targetVector, vectorIndexConfig); err != nil {
+			return err
 		}
-		queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
-		if err != nil {
-			return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
-		}
-
-		s.vectorIndexes[targetVector] = vectorIndex
-		s.queues[targetVector] = queue
 	}
+	return nil
+}
+
+func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig) error {
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+	return s.initTargetVectorWithLock(ctx, targetVector, cfg)
+}
+
+func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig) error {
+	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg)
+	if err != nil {
+		return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
+	}
+	queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
+	if err != nil {
+		return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
+	}
+
+	s.vectorIndexes[targetVector] = vectorIndex
+	s.queues[targetVector] = queue
 	return nil
 }
 

@@ -24,46 +24,42 @@ import (
 
 func testMixedVectorsCreateSchema(host string) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx := context.Background()
-		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
-		require.Nil(t, err)
+		var (
+			ctx = context.Background()
 
-		cleanup := func() {
-			err := client.Schema().AllDeleter().Do(context.Background())
-			require.Nil(t, err)
-		}
+			className      = "MixedVectorDefaults"
+			text2vecCohere = "text2vec-cohere"
+			text2vecOpenAI = "text2vec-openai"
+
+			vectorizerClassOptions = map[string][]string{
+				text2vecOpenAI: {"vectorizeClassName", "baseURL", "model"},
+				text2vecCohere: {"vectorizeClassName", "baseUrl", "model", "truncate"},
+			}
+			propOptions = []string{"vectorizePropertyName", "skip"}
+
+			assertVectorizer = func(moduleConfig interface{}, module string) {
+				vectorizers, ok := moduleConfig.(map[string]interface{})
+				require.True(t, ok)
+				require.Len(t, vectorizers, 1)
+				require.Contains(t, vectorizers, module)
+				require.NotNil(t, vectorizers[module])
+
+				vectorizerConfig, ok := vectorizers[module].(map[string]interface{})
+				require.True(t, ok)
+
+				expectClassOptions := vectorizerClassOptions[module]
+				require.Len(t, vectorizerConfig, len(expectClassOptions))
+				for _, classOption := range expectClassOptions {
+					assert.Contains(t, vectorizerConfig, classOption)
+				}
+			}
+		)
+
+		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
+		require.NoError(t, err)
 
 		t.Run("defaults for vectorizer configs", func(t *testing.T) {
-			defer cleanup()
-
-			var (
-				className      = "MixedVectorDefaults"
-				text2vecCohere = "text2vec-cohere"
-				text2vecOpenAI = "text2vec-openai"
-
-				vectorizerClassOptions = map[string][]string{
-					text2vecOpenAI: {"vectorizeClassName", "baseURL", "model"},
-					text2vecCohere: {"vectorizeClassName", "baseUrl", "model", "truncate"},
-				}
-				propOptions = []string{"vectorizePropertyName", "skip"}
-
-				assertVectorizer = func(moduleConfig interface{}, module string) {
-					vectorizers, ok := moduleConfig.(map[string]interface{})
-					require.True(t, ok)
-					require.Len(t, vectorizers, 1)
-					require.Contains(t, vectorizers, module)
-					require.NotNil(t, vectorizers[module])
-
-					vectorizerConfig, ok := vectorizers[module].(map[string]interface{})
-					require.True(t, ok)
-
-					expectClassOptions := vectorizerClassOptions[module]
-					require.Len(t, vectorizerConfig, len(expectClassOptions))
-					for _, classOption := range expectClassOptions {
-						assert.Contains(t, vectorizerConfig, classOption)
-					}
-				}
-			)
+			require.NoError(t, client.Schema().AllDeleter().Do(context.Background()))
 
 			class := &models.Class{
 				Class: className,
@@ -92,8 +88,7 @@ func testMixedVectorsCreateSchema(host string) func(t *testing.T) {
 				},
 			}
 
-			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
-			require.NoError(t, err)
+			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.NoError(t, err)
@@ -136,6 +131,108 @@ func testMixedVectorsCreateSchema(host string) func(t *testing.T) {
 					}
 				}
 			}
+		})
+
+		t.Run("defaults for vectorizer configs when adding named vector", func(t *testing.T) {
+			require.NoError(t, client.Schema().AllDeleter().Do(context.Background()))
+
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						Name:     "text",
+						DataType: schema.DataTypeText.PropString(),
+					},
+				},
+				Vectorizer: text2vecOpenAI,
+				VectorConfig: map[string]models.VectorConfig{
+					"openai": {
+						Vectorizer: map[string]interface{}{
+							text2vecOpenAI: map[string]interface{}{},
+						},
+						VectorIndexType: "hnsw",
+					},
+				},
+			}
+			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+			class.VectorConfig["cohere"] = models.VectorConfig{
+				Vectorizer: map[string]interface{}{
+					text2vecCohere: map[string]interface{}{
+						"vectorizeClassName": true,
+					},
+				},
+				VectorIndexType: "flat",
+			}
+			require.NoError(t, client.Schema().ClassUpdater().WithClass(class).Do(ctx))
+
+			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, class.Class, classCreated.Class)
+
+			require.Len(t, classCreated.VectorConfig, 2)
+			for _, targetVector := range []struct{ name, module, indexType string }{
+				{name: "openai", module: text2vecOpenAI, indexType: "hnsw"},
+				{name: "cohere", module: text2vecCohere, indexType: "flat"},
+			} {
+				config := classCreated.VectorConfig[targetVector.name]
+
+				assert.Equal(t, targetVector.indexType, config.VectorIndexType)
+				assert.NotEmpty(t, config.VectorIndexConfig)
+				assertVectorizer(config.Vectorizer, targetVector.module)
+			}
+
+			// props defaults
+			for _, prop := range classCreated.Properties {
+				require.NotNil(t, prop.ModuleConfig)
+				vectorizers, ok := prop.ModuleConfig.(map[string]interface{})
+				require.True(t, ok)
+
+				require.Len(t, vectorizers, 2)
+				for _, vectorizer := range []string{text2vecOpenAI, text2vecCohere} {
+					require.Contains(t, vectorizers, vectorizer)
+
+					vectorizerConfig, ok := vectorizers[vectorizer].(map[string]interface{})
+					require.True(t, ok)
+					require.Len(t, vectorizerConfig, len(propOptions))
+					for _, propOption := range propOptions {
+						assert.Contains(t, vectorizerConfig, propOption)
+					}
+				}
+			}
+		})
+
+		t.Run("cannot remove named vector", func(t *testing.T) {
+			require.NoError(t, client.Schema().AllDeleter().Do(context.Background()))
+
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						Name:     "text",
+						DataType: schema.DataTypeText.PropString(),
+					},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"openai": {
+						Vectorizer: map[string]interface{}{
+							text2vecOpenAI: map[string]interface{}{},
+						},
+						VectorIndexType: "hnsw",
+					},
+					"cohere": {
+						Vectorizer: map[string]interface{}{
+							text2vecOpenAI: map[string]interface{}{},
+						},
+						VectorIndexType: "hnsw",
+					},
+				},
+			}
+			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+			delete(class.VectorConfig, "cohere")
+			err = client.Schema().ClassUpdater().WithClass(class).Do(ctx)
+			require.ErrorContains(t, err, `missing config for vector \"cohere\"`)
 		})
 	}
 }

@@ -53,9 +53,10 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
-
-	require.Nil(t, err)
+	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+	handler.experimentBackwardsCompatibleNamedVectorsEnabled = true
+	handler.parser.experimentBackwardsCompatibleNamedVectorsEnabled = true
 	return &handler, schemaManager
 }
 
