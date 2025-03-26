@@ -74,6 +74,17 @@ func TestAuthzAggregateWithGRPC(t *testing.T) {
 			}
 			helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewArticle().WithTitle("How to git gud").WithTenant(tt.tenantName).Object()}, adminKey)
 
+			roleName := fmt.Sprintf("role-%v", tt.mtEnabled)
+			helper.DeleteClassAuth(t, roleName, adminKey)
+			defer helper.DeleteClassAuth(t, roleName, adminKey)
+			helper.CreateRole(t, adminKey, &models.Role{Name: &roleName, Permissions: []*models.Permission{
+				helper.NewDataPermission().
+					WithAction(authorization.ReadData).
+					WithCollection(articles.ArticlesClass().Class).
+					WithTenant(tt.tenantPermission).
+					Permission(),
+			}})
+
 			t.Run("correctly fail to perform a gRPC Search call without permissions", func(t *testing.T) {
 				ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
 				_, err := grpcClient.Aggregate(ctx, &protocol.AggregateRequest{
@@ -85,19 +96,8 @@ func TestAuthzAggregateWithGRPC(t *testing.T) {
 				require.Equal(t, status.Code(err), codes.PermissionDenied)
 			})
 
-			t.Run("create role with necessary permissions on articles and assign to custom user", func(t *testing.T) {
-				roleName := fmt.Sprintf("role-%v", tt.mtEnabled)
-				helper.CreateRole(t, adminKey, &models.Role{Name: &roleName, Permissions: []*models.Permission{
-					helper.NewDataPermission().
-						WithAction(authorization.ReadData).
-						WithCollection(articles.ArticlesClass().Class).
-						WithTenant(tt.tenantPermission).
-						Permission(),
-				}})
-				helper.AssignRoleToUser(t, adminKey, roleName, customUser)
-			})
-
 			t.Run("correctly succeed to perform a gRPC Search call with permissions", func(t *testing.T) {
+				helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 				ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
 				resp, err := grpcClient.Aggregate(ctx, &protocol.AggregateRequest{
 					Collection:   articles.ArticlesClass().Class,
@@ -113,4 +113,45 @@ func TestAuthzAggregateWithGRPC(t *testing.T) {
 			})
 		})
 	}
+
+	t.Run("with multi-tenancy and only partial permissions", func(t *testing.T) {
+		cls := articles.ArticlesClass()
+		cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+		helper.CreateClassAuth(t, cls, adminKey)
+		helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: "tenant1"}, {Name: "tenant2"}}, adminKey)
+		helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewArticle().WithTitle("How to git gud").WithTenant("tenant1").Object()}, adminKey)
+		helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewArticle().WithTitle("How to git gud").WithTenant("tenant2").Object()}, adminKey)
+
+		// role with permission for tenant1 but not 2
+		roleName := "role-tenant-1"
+		helper.DeleteRole(t, adminKey, roleName)
+		defer helper.DeleteRole(t, adminKey, roleName)
+
+		helper.CreateRole(t, adminKey, &models.Role{Name: &roleName, Permissions: []*models.Permission{
+			helper.NewDataPermission().
+				WithAction(authorization.ReadData).
+				WithCollection(articles.ArticlesClass().Class).
+				WithTenant("tenant1").
+				Permission(),
+		}})
+		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
+
+		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
+		resp, err := grpcClient.Aggregate(ctx, &protocol.AggregateRequest{
+			Collection:   articles.ArticlesClass().Class,
+			Tenant:       "tenant1",
+			ObjectsCount: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Equal(t, *resp.GetSingleResult().ObjectsCount, int64(1))
+
+		_, err = grpcClient.Aggregate(ctx, &protocol.AggregateRequest{
+			Collection:   articles.ArticlesClass().Class,
+			Tenant:       "tenant2",
+			ObjectsCount: true,
+		})
+		require.Error(t, err)
+		require.Equal(t, status.Code(err), codes.PermissionDenied)
+	})
 }
