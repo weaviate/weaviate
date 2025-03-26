@@ -585,7 +585,7 @@ func TestListAllUsers(t *testing.T) {
 		for _, user := range allUsers {
 			name := *user.UserID
 
-			if *user.DbUserType == "static" {
+			if *user.DbUserType == models.DBUserInfoDbUserTypeDbStatic {
 				continue
 			}
 
