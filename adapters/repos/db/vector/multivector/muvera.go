@@ -20,7 +20,7 @@ func DefaultMuveraConfig() MuveraConfig {
 		KSim:         3,
 		NumClusters:  8,
 		Dimensions:   128,
-		DProjections: 8,
+		DProjections: 16,
 		Repetitions:  20,
 	}
 }
@@ -29,6 +29,7 @@ func DefaultMuveraConfig() MuveraConfig {
 type MuveraEncoder struct {
 	config    MuveraConfig
 	gaussians [][]float32 // Random Gaussian vectors for SimHash projection
+	S         [][]float32 // Random projection matrix with ±1 entries
 }
 
 // NewMuveraEncoder creates a new Muvera encoder
@@ -41,6 +42,19 @@ func NewMuveraEncoder(config MuveraConfig) *MuveraEncoder {
 	encoder.gaussians = make([][]float32, config.Repetitions)
 	for i := 0; i < config.Repetitions; i++ {
 		encoder.gaussians[i] = make([]float32, config.KSim*config.DProjections)
+	}
+
+	// Initialize random projection matrix S
+	encoder.S = make([][]float32, config.DProjections)
+	for i := 0; i < config.DProjections; i++ {
+		encoder.S[i] = make([]float32, config.Dimensions)
+		for j := 0; j < config.Dimensions; j++ {
+			if rand.Float64() < 0.5 {
+				encoder.S[i][j] = 1.0
+			} else {
+				encoder.S[i][j] = -1.0
+			}
+		}
 	}
 
 	return encoder
@@ -77,8 +91,28 @@ func (e *MuveraEncoder) simHash(vec []float32, gaussians []float32) uint64 {
 	return result
 }
 
-func (e *MuveraEncoder) encode(vec [][]float32) []float32 {
+func (e *MuveraEncoder) projectVec(vec [][]float32, dprojections int) [][]float32 {
+	projectedVec := make([][]float32, len(vec))
+	scale := 1.0 / float32(math.Sqrt(float64(dprojections)))
+
+	for i, token := range vec {
+		projectedVec[i] = make([]float32, dprojections)
+		// Apply projection: (1/√dproj)Sx
+		for j := 0; j < dprojections; j++ {
+			var sum float32
+			for k := 0; k < e.config.Dimensions; k++ {
+				sum += e.S[j][k] * token[k]
+			}
+			projectedVec[i][j] = scale * sum
+		}
+	}
+	return projectedVec
+}
+
+func (e *MuveraEncoder) encode(fullVec [][]float32) []float32 {
 	result := make([]float32, e.config.Repetitions*e.config.NumClusters*e.config.DProjections)
+
+	vec := e.projectVec(fullVec, e.config.DProjections)
 
 	// For each repetition
 	for rep := 0; rep < e.config.Repetitions; rep++ {
@@ -91,7 +125,8 @@ func (e *MuveraEncoder) encode(vec [][]float32) []float32 {
 			}
 		}
 	}
-	return result
+
+	return result.projectFlattenedVec()
 }
 
 // EncodeQuery encodes a query vector using Muvera
@@ -101,9 +136,11 @@ func (e *MuveraEncoder) EncodeQuery(query [][]float32) []float32 {
 }
 
 // EncodeDoc encodes a document vector using Muvera
-func (e *MuveraEncoder) EncodeDoc(doc [][]float32) []float32 {
+func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 	// Initialize result vector with zeros
 	result := make([]float32, e.config.NumClusters*e.config.DProjections*e.config.Repetitions)
+
+	doc := e.projectVec(fullDoc, e.config.DProjections)
 
 	// For each repetition
 	for rep := 0; rep < e.config.Repetitions; rep++ {
