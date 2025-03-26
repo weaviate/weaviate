@@ -190,7 +190,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.StoreSchemaV1()
 		}
-
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
 			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
@@ -211,7 +210,13 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
 		}
-
+	case api.ApplyRequest_TYPE_UPSERT_USER, api.ApplyRequest_TYPE_DELETE_USER, api.ApplyRequest_TYPE_ROTATE_USER_API_KEY, api.ApplyRequest_TYPE_SUSPEND_USER, api.ApplyRequest_TYPE_ACTIVATE_USER:
+		const msg = "received command for dynamic user management which is only supported in 1.30+. RAFT message is skipped."
+		st.log.WithFields(logrus.Fields{
+			"type":  cmd.Type,
+			"class": cmd.Class,
+			"more":  msg,
+		}).Error("unknown command")
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
@@ -221,7 +226,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			"class": cmd.Class,
 			"more":  msg,
 		}).Error("unknown command")
-		panic(fmt.Sprintf("unknown command type=%d class=%s more=%s", cmd.Type, cmd.Class, msg))
 	}
 
 	// Wrap the function in a go routine to ensure panic recovery. This is necessary as this function is run in an
