@@ -145,11 +145,9 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 			err = fmt.Errorf("rollback: searchable map buckets are deleted, can not restore")
 			return
 		}
-		if rt.isSwapped() {
-			if err = t.unswapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
-				err = fmt.Errorf("rollback: unswapping buckets: %w", err)
-				return
-			}
+		if err = t.unswapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
+			err = fmt.Errorf("rollback: unswapping buckets: %w", err)
+			return
 		}
 		if err = t.removeReindexBucketsDirs(ctx, logger, shard, props); err != nil {
 			err = fmt.Errorf("rollback: removing reindex buckets: %w", err)
@@ -544,7 +542,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) unswapIngestAndMapBuckets(ctx c
 
 	logger.Debug("unswapped searchable buckets")
 
-	if err := t.loadSwappedSearchBuckets(ctx, logger, shard, props); err != nil {
+	if err := t.loadUnswappedSearchBuckets(ctx, logger, shard, props); err != nil {
 		return err
 	}
 	logger.Debug("loaded searchable buckets after unswap")
@@ -607,6 +605,13 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) loadSwappedSearchBuckets(ctx co
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, false, false, 1)
+	return t.loadBuckets(ctx, logger, shard, props, helpers.BucketSearchableFromPropNameLSM, bucketOpts)
+}
+
+func (t *ShardInvertedReindexTask_MapToBlockmax) loadUnswappedSearchBuckets(ctx context.Context,
+	logger logrus.FieldLogger, shard ShardLike, props []string,
+) error {
+	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyMapCollection, false, false, 1)
 	return t.loadBuckets(ctx, logger, shard, props, helpers.BucketSearchableFromPropNameLSM, bucketOpts)
 }
 
