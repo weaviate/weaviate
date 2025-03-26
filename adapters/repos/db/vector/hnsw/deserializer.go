@@ -190,7 +190,7 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		res.Nodes.Set(graph.NewVertexWithConnections(id, int(level), make([][]uint64, level+1)))
 	} else {
 		node.Edit(func(v *graph.VertexEditor) error {
-			v.SetLevel(int(level))
+			v.ForceSetLevel(int(level))
 			return nil
 		})
 	}

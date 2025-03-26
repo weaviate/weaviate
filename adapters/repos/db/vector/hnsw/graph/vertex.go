@@ -181,8 +181,14 @@ func (v *VertexEditor) SetLevel(level int) {
 	}
 }
 
+func (v *VertexEditor) ForceSetLevel(level int) {
+	v.v.level = level
+
+	v.EnsureLevel(level)
+}
+
 func (v *VertexEditor) EnsureLevel(level int) {
-	if level >= len(v.v.connections) {
+	if len(v.v.connections) <= level {
 		// we need to grow the connections slice
 		newConns := make([][]uint64, level+1)
 		copy(newConns, v.v.connections)
