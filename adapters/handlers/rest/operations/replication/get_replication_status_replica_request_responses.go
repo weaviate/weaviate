@@ -20,6 +20,8 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // GetReplicationStatusReplicaRequestOKCode is the HTTP code returned for type GetReplicationStatusReplicaRequestOK
@@ -76,6 +78,11 @@ GetReplicationStatusReplicaRequestBadRequest Malformed replica move operation id
 swagger:response getReplicationStatusReplicaRequestBadRequest
 */
 type GetReplicationStatusReplicaRequestBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewGetReplicationStatusReplicaRequestBadRequest creates GetReplicationStatusReplicaRequestBadRequest with default headers values
@@ -84,12 +91,27 @@ func NewGetReplicationStatusReplicaRequestBadRequest() *GetReplicationStatusRepl
 	return &GetReplicationStatusReplicaRequestBadRequest{}
 }
 
+// WithPayload adds the payload to the get replication status replica request bad request response
+func (o *GetReplicationStatusReplicaRequestBadRequest) WithPayload(payload *models.ErrorResponse) *GetReplicationStatusReplicaRequestBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get replication status replica request bad request response
+func (o *GetReplicationStatusReplicaRequestBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *GetReplicationStatusReplicaRequestBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // GetReplicationStatusReplicaRequestNotFoundCode is the HTTP code returned for type GetReplicationStatusReplicaRequestNotFound

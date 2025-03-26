@@ -27,6 +27,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // GetReplicationStatusReplicaRequestReader is a Reader for the GetReplicationStatusReplicaRequest structure.
@@ -139,6 +141,7 @@ GetReplicationStatusReplicaRequestBadRequest describes a response with status co
 Malformed replica move operation id
 */
 type GetReplicationStatusReplicaRequestBadRequest struct {
+	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this get replication status replica request bad request response has a 2xx status code
@@ -172,14 +175,25 @@ func (o *GetReplicationStatusReplicaRequestBadRequest) Code() int {
 }
 
 func (o *GetReplicationStatusReplicaRequestBadRequest) Error() string {
-	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestBadRequest ", 400)
+	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetReplicationStatusReplicaRequestBadRequest) String() string {
-	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestBadRequest ", 400)
+	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *GetReplicationStatusReplicaRequestBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *GetReplicationStatusReplicaRequestBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

@@ -3541,7 +3541,10 @@ func init() {
             }
           },
           "400": {
-            "description": "Malformed replica move operation id"
+            "description": "Malformed replica move operation id",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Shard replica move operation not found"
@@ -11080,7 +11083,10 @@ func init() {
             }
           },
           "400": {
-            "description": "Malformed replica move operation id"
+            "description": "Malformed replica move operation id",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Shard replica move operation not found"
