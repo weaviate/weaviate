@@ -67,6 +67,31 @@ func (o *GetReplicationStatusReplicaRequestOK) WriteResponse(rw http.ResponseWri
 	}
 }
 
+// GetReplicationStatusReplicaRequestBadRequestCode is the HTTP code returned for type GetReplicationStatusReplicaRequestBadRequest
+const GetReplicationStatusReplicaRequestBadRequestCode int = 400
+
+/*
+GetReplicationStatusReplicaRequestBadRequest Malformed replica move operation id
+
+swagger:response getReplicationStatusReplicaRequestBadRequest
+*/
+type GetReplicationStatusReplicaRequestBadRequest struct {
+}
+
+// NewGetReplicationStatusReplicaRequestBadRequest creates GetReplicationStatusReplicaRequestBadRequest with default headers values
+func NewGetReplicationStatusReplicaRequestBadRequest() *GetReplicationStatusReplicaRequestBadRequest {
+
+	return &GetReplicationStatusReplicaRequestBadRequest{}
+}
+
+// WriteResponse to the client
+func (o *GetReplicationStatusReplicaRequestBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(400)
+}
+
 // GetReplicationStatusReplicaRequestNotFoundCode is the HTTP code returned for type GetReplicationStatusReplicaRequestNotFound
 const GetReplicationStatusReplicaRequestNotFoundCode int = 404
 

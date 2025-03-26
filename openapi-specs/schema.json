@@ -2854,6 +2854,9 @@
               "required": ["status"]
             }
           },
+          "400": {
+            "description": "Malformed replica move operation id"
+          },
           "404": {
             "description": "Shard replica move operation not found"
           }

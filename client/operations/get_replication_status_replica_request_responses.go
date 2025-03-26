@@ -43,6 +43,12 @@ func (o *GetReplicationStatusReplicaRequestReader) ReadResponse(response runtime
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewGetReplicationStatusReplicaRequestBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 404:
 		result := NewGetReplicationStatusReplicaRequestNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -118,6 +124,62 @@ func (o *GetReplicationStatusReplicaRequestOK) readResponse(response runtime.Cli
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
+
+	return nil
+}
+
+// NewGetReplicationStatusReplicaRequestBadRequest creates a GetReplicationStatusReplicaRequestBadRequest with default headers values
+func NewGetReplicationStatusReplicaRequestBadRequest() *GetReplicationStatusReplicaRequestBadRequest {
+	return &GetReplicationStatusReplicaRequestBadRequest{}
+}
+
+/*
+GetReplicationStatusReplicaRequestBadRequest describes a response with status code 400, with default header values.
+
+Malformed replica move operation id
+*/
+type GetReplicationStatusReplicaRequestBadRequest struct {
+}
+
+// IsSuccess returns true when this get replication status replica request bad request response has a 2xx status code
+func (o *GetReplicationStatusReplicaRequestBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get replication status replica request bad request response has a 3xx status code
+func (o *GetReplicationStatusReplicaRequestBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get replication status replica request bad request response has a 4xx status code
+func (o *GetReplicationStatusReplicaRequestBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this get replication status replica request bad request response has a 5xx status code
+func (o *GetReplicationStatusReplicaRequestBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this get replication status replica request bad request response a status code equal to that given
+func (o *GetReplicationStatusReplicaRequestBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the get replication status replica request bad request response
+func (o *GetReplicationStatusReplicaRequestBadRequest) Code() int {
+	return 400
+}
+
+func (o *GetReplicationStatusReplicaRequestBadRequest) Error() string {
+	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestBadRequest ", 400)
+}
+
+func (o *GetReplicationStatusReplicaRequestBadRequest) String() string {
+	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestBadRequest ", 400)
+}
+
+func (o *GetReplicationStatusReplicaRequestBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }
