@@ -196,13 +196,15 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	}
 
 	rReq := Request{
-		Method:      OpRestore,
-		ID:          req.ID,
-		Backend:     req.Backend,
-		Compression: req.Compression,
-		Classes:     meta.Classes(),
-		Bucket:      req.Bucket,
-		Path:        req.Path,
+		Method:            OpRestore,
+		ID:                req.ID,
+		Backend:           req.Backend,
+		Compression:       req.Compression,
+		Classes:           meta.Classes(),
+		Bucket:            req.Bucket,
+		Path:              req.Path,
+		UserRestoreOption: req.UserRestoreOption,
+		RbacRestoreOption: req.RbacRestoreOption,
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {

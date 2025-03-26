@@ -83,6 +83,8 @@ func NewHandler(
 	schema schemaManger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
+	rbacSourcer SourcerNonClass,
+	dynUserSourcer SourcerNonClass,
 ) *Handler {
 	node := schema.NodeName()
 	m := &Handler{
@@ -91,10 +93,10 @@ func NewHandler(
 		authorizer: authorizer,
 		backends:   backends,
 		backupper: newBackupper(node, logger,
-			sourcer,
+			sourcer, rbacSourcer, dynUserSourcer,
 			backends),
 		restorer: newRestorer(node, logger,
-			sourcer,
+			sourcer, rbacSourcer, dynUserSourcer,
 			backends,
 		),
 	}
@@ -142,6 +144,9 @@ type BackupRequest struct {
 
 	// Override path (optional) - replaces environement variable for one call
 	Path string
+
+	RbacRestoreOption string
+	UserRestoreOption string
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate

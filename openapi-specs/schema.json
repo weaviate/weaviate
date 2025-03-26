@@ -1270,6 +1270,24 @@
           "minimum": 1,
           "maximum": 80,
           "x-nullable": false
+        },
+        "rolesOptions" : {
+          "description": "How roles should be restored",
+          "type": "string",
+          "enum": [
+            "noRestore",
+            "all"
+          ],
+          "default": "all"
+        },
+        "usersOptions" : {
+          "description": "How users should be restored",
+          "type": "string",
+          "enum": [
+            "noRestore",
+            "all"
+          ],
+          "default": "all"
         }
       }
     },

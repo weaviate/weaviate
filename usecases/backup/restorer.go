@@ -33,10 +33,12 @@ import (
 )
 
 type restorer struct {
-	node     string // node name
-	logger   logrus.FieldLogger
-	sourcer  Sourcer
-	backends BackupBackendProvider
+	node           string // node name
+	logger         logrus.FieldLogger
+	sourcer        Sourcer
+	rbacSourcer    SourcerNonClass
+	dynUserSourcer SourcerNonClass
+	backends       BackupBackendProvider
 	shardSyncChan
 
 	// TODO: keeping status in memory after restore has been done
@@ -47,15 +49,17 @@ type restorer struct {
 }
 
 func newRestorer(node string, logger logrus.FieldLogger,
-	sourcer Sourcer,
+	sourcer Sourcer, rbacSourcer SourcerNonClass, dynUserSourcer SourcerNonClass,
 	backends BackupBackendProvider,
 ) *restorer {
 	return &restorer{
-		node:          node,
-		logger:        logger,
-		sourcer:       sourcer,
-		backends:      backends,
-		shardSyncChan: shardSyncChan{coordChan: make(chan interface{}, 5)},
+		node:           node,
+		logger:         logger,
+		sourcer:        sourcer,
+		rbacSourcer:    rbacSourcer,
+		dynUserSourcer: dynUserSourcer,
+		backends:       backends,
+		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
 }
 
@@ -112,7 +116,7 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath)
+		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -129,10 +133,23 @@ func (r *restorer) restore(
 // The final backup restoration is orchestrated by the raft store.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
-	store nodeStore, overrideBucket, overridePath string,
-) (err error) {
+	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
+) error {
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
+
+	if len(desc.DynUserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
+		if err := r.dynUserSourcer.WriteDescriptors(ctx, desc.DynUserBackups); err != nil {
+			return fmt.Errorf("restore rbac: %w", err)
+		}
+	}
+
+	if len(desc.RbacBackups) > 0 && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
+		if err := r.rbacSourcer.WriteDescriptors(ctx, desc.RbacBackups); err != nil {
+			return fmt.Errorf("restore rbac: %w", err)
+		}
+	}
+
 	for _, cdesc := range desc.Classes {
 		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)

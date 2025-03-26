@@ -22,9 +22,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/prometheus/client_golang/prometheus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -144,7 +145,7 @@ type Config struct {
 	ForceOneNodeRecovery bool
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
-	AuthzController authorization.Controller
+	RBAC *rbac.Manager
 
 	DynamicUserController apikey.DynamicUser
 }
@@ -217,7 +218,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
 		}),
 		schemaManager:  schemaManager,
-		authZManager:   rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
+		authZManager:   rbacRaft.NewManager(cfg.RBAC, cfg.Logger),
 		dynUserManager: dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
 	}
 }
