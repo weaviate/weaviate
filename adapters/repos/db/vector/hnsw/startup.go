@@ -226,6 +226,7 @@ func (h *hnsw) restoreFromDisk() error {
 		}
 	}
 	if h.compressed.Load() && h.multivector.Load() {
+		h.compressor.GrowCache(uint64(len(h.nodes)))
 		h.populateKeys()
 	}
 
