@@ -1600,7 +1600,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 			memTombstones.Or(activeTombstones)
 
-			if active.Count() > 0 {
+			if !active.Exhausted() {
 				active.advanceOnTombstoneOrFilter()
 			}
 		}
@@ -1620,7 +1620,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 			memTombstones.Or(tombstones)
 
-			if flushing.Count() > 0 {
+			if !flushing.Exhausted() {
 				flushing.tombstones = activeTombstones
 				flushing.advanceOnTombstoneOrFilter()
 			}
@@ -1718,6 +1718,7 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		return n, nil
 	}
 
+	term.exhausted = false
 	term.blockEntries = make([]*terms.BlockEntry, 1)
 	term.blockEntries[0] = &terms.BlockEntry{
 		MaxId:  term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
