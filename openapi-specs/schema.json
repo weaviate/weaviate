@@ -2819,6 +2819,40 @@
         }
       }
     },
+    "/replication/{id}/status": {
+      "get": {
+        "summary": "Get the status of a shard replica move operation",
+        "description": "Returns the status of a shard replica move operation for a given shard, identified by the provided id.",
+        "operationId": "getReplicationStatusReplicaRequest",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The shard replica move operation id to get the status for",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The status of the shard replica move operation",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "description": "The current status of the shard replica move operation"
+                }
+              },
+              "required": ["status"]
+            }
+          },
+          "404": {
+            "description": "Shard replica move operation not found"
+          }
+        }
+      }
+    },
     "/users/own-info": {
       "get": {
         "summary": "get info relevant to own user, e.g. username, roles",

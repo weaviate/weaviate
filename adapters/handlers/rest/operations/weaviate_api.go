@@ -139,6 +139,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		UsersGetOwnInfoHandler: users.GetOwnInfoHandlerFunc(func(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetOwnInfo has not yet been implemented")
 		}),
+		GetReplicationStatusReplicaRequestHandler: replication.GetReplicationStatusReplicaRequestHandlerFunc(func(params replication.GetReplicationStatusReplicaRequestParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation GetReplicationStatusReplicaRequest has not yet been implemented")
+		}),
 		AuthzGetRoleHandler: authz.GetRoleHandlerFunc(func(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRole has not yet been implemented")
 		}),
@@ -417,6 +420,8 @@ type WeaviateAPI struct {
 	UsersDeleteUserHandler users.DeleteUserHandler
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
 	UsersGetOwnInfoHandler users.GetOwnInfoHandler
+	// GetReplicationStatusReplicaRequestHandler sets the operation handler for the get replication status replica request operation
+	GetReplicationStatusReplicaRequestHandler replication.GetReplicationStatusReplicaRequestHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
 	AuthzGetRoleHandler authz.GetRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
@@ -679,6 +684,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.UsersGetOwnInfoHandler == nil {
 		unregistered = append(unregistered, "users.GetOwnInfoHandler")
+	}
+	if o.GetReplicationStatusReplicaRequestHandler == nil {
+		unregistered = append(unregistered, "GetReplicationStatusReplicaRequestHandler")
 	}
 	if o.AuthzGetRoleHandler == nil {
 		unregistered = append(unregistered, "authz.GetRoleHandler")
@@ -1037,6 +1045,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/users/own-info"] = users.NewGetOwnInfo(o.context, o.UsersGetOwnInfoHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/replication/{id}/status"] = replication.NewGetReplicationStatusReplicaRequest(o.context, o.GetReplicationStatusReplicaRequestHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

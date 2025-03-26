@@ -3503,6 +3503,42 @@ func init() {
         ]
       }
     },
+    "/replication/{id}/status": {
+      "get": {
+        "description": "Returns the status of a shard replica move operation for a given shard, identified by the provided id.",
+        "summary": "Get the status of a shard replica move operation",
+        "operationId": "getReplicationStatusReplicaRequest",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The shard replica move operation id to get the status for",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The status of the shard replica move operation",
+            "schema": {
+              "type": "object",
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "description": "The current status of the shard replica move operation",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Shard replica move operation not found"
+          }
+        }
+      }
+    },
     "/schema": {
       "get": {
         "description": "Fetch an array of all collection definitions from the schema.",
@@ -10994,6 +11030,42 @@ func init() {
         "x-serviceIds": [
           "weaviate.replication.replicate"
         ]
+      }
+    },
+    "/replication/{id}/status": {
+      "get": {
+        "description": "Returns the status of a shard replica move operation for a given shard, identified by the provided id.",
+        "summary": "Get the status of a shard replica move operation",
+        "operationId": "getReplicationStatusReplicaRequest",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The shard replica move operation id to get the status for",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The status of the shard replica move operation",
+            "schema": {
+              "type": "object",
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "description": "The current status of the shard replica move operation",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Shard replica move operation not found"
+          }
+        }
       }
     },
     "/schema": {
