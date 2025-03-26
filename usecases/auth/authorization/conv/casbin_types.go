@@ -436,7 +436,7 @@ func UserNameWithTypeFromPrincipal(principal *models.Principal) string {
 	return fmt.Sprintf("%s:%s", principal.UserType, principal.Username)
 }
 
-func UserNameWithTypeFromId(username string, userType models.UserType) string {
+func UserNameWithTypeFromId(username string, userType models.UserTypeInput) string {
 	return fmt.Sprintf("%s:%s", userType, username)
 }
 

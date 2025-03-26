@@ -295,7 +295,7 @@ func (a *Client) GetUserInfo(params *GetUserInfoParams, authInfo runtime.ClientA
 }
 
 /*
-ListAllUsers lists all users
+ListAllUsers lists all db users
 */
 func (a *Client) ListAllUsers(params *ListAllUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListAllUsersOK, error) {
 	// TODO: Validate the params before sending

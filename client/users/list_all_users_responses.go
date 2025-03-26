@@ -74,7 +74,7 @@ ListAllUsersOK describes a response with status code 200, with default header va
 Info about the user
 */
 type ListAllUsersOK struct {
-	Payload []*models.UserInfo
+	Payload []*models.DBUserInfo
 }
 
 // IsSuccess returns true when this list all users o k response has a 2xx status code
@@ -115,7 +115,7 @@ func (o *ListAllUsersOK) String() string {
 	return fmt.Sprintf("[GET /users/db][%d] listAllUsersOK  %+v", 200, o.Payload)
 }
 
-func (o *ListAllUsersOK) GetPayload() []*models.UserInfo {
+func (o *ListAllUsersOK) GetPayload() []*models.DBUserInfo {
 	return o.Payload
 }
 

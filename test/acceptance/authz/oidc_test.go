@@ -119,7 +119,7 @@ func TestRbacWithOIDC(t *testing.T) {
 
 			if test.onlyOIDC || !test.nameCollision {
 				// validation check for existence will fail
-				_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)), helper.CreateAuth(tokenAdmin))
+				_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)), helper.CreateAuth(tokenAdmin))
 				require.Error(t, err)
 				var notFound *authz.GetRolesForUserNotFound
 				require.True(t, errors.As(err, &notFound))
@@ -128,10 +128,10 @@ func TestRbacWithOIDC(t *testing.T) {
 				require.Len(t, rolesDB, 0)
 			}
 
-			usersOidc := helper.GetUserForRolesOIDC(t, createSchemaRoleName, tokenAdmin)
+			usersOidc := helper.GetUserForRolesBoth(t, createSchemaRoleName, tokenAdmin)
 			require.Len(t, usersOidc, 1)
 			if test.onlyOIDC || !test.nameCollision {
-				_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeDb)), helper.CreateAuth(tokenAdmin))
+				_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)), helper.CreateAuth(tokenAdmin))
 				require.Error(t, err)
 				var notFound *authz.GetRolesForUserNotFound
 				require.True(t, errors.As(err, &notFound))
@@ -158,14 +158,14 @@ func TestRbacWithOIDC(t *testing.T) {
 			if test.onlyOIDC {
 				// cannot assign/revoke to/from db users
 				resp, err := helper.Client(t).Authz.AssignRoleToUser(
-					authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{createSchemaRoleName}, UserType: models.UserTypeDb}),
+					authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{createSchemaRoleName}, UserType: models.UserTypeInputDb}),
 					helper.CreateAuth(tokenAdmin),
 				)
 				require.Nil(t, resp)
 				require.Error(t, err)
 
 				resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
-					authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{createSchemaRoleName}, UserType: models.UserTypeDb}),
+					authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{createSchemaRoleName}, UserType: models.UserTypeInputDb}),
 					helper.CreateAuth(tokenAdmin),
 				)
 				require.Nil(t, resp2)

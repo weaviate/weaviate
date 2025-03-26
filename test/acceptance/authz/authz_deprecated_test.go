@@ -113,7 +113,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 		require.Len(t, resp.Payload, 1)
 		require.Equal(t, testRoleName, *resp.Payload[0].Name)
 
-		res, err := helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRoleName), clientAuth)
+		res, err := helper.Client(t).Authz.GetUsersForRoleDeprecated(authz.NewGetUsersForRoleDeprecatedParams().WithID(testRoleName), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
 		require.Equal(t, customUser, res.Payload[0])
@@ -126,7 +126,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 		require.Len(t, resp.Payload, 1)
 		require.Equal(t, testRoleName, *resp.Payload[0].Name)
 
-		res, err = helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRoleName), clientAuth)
+		res, err = helper.Client(t).Authz.GetUsersForRoleDeprecated(authz.NewGetUsersForRoleDeprecatedParams().WithID(testRoleName), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
 		require.Equal(t, customUser, res.Payload[0])
@@ -139,7 +139,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 		require.Len(t, resp.Payload, 1)
 		require.Equal(t, testRoleName, *resp.Payload[0].Name)
 
-		res, err = helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRoleName), clientAuth)
+		res, err = helper.Client(t).Authz.GetUsersForRoleDeprecated(authz.NewGetUsersForRoleDeprecatedParams().WithID(testRoleName), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
 		require.Equal(t, customUser, res.Payload[0])

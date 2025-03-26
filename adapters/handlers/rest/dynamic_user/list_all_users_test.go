@@ -56,10 +56,10 @@ func TestSuccessListAll(t *testing.T) {
 			authorizer.On("Authorize", test.principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 			dynUser.On("GetUsers").Return(map[string]*apikey.User{dynamicUser: {Id: dynamicUser}}, nil)
-			dynUser.On("GetRolesForUser", dynamicUser, models.UserTypeDb).Return(
+			dynUser.On("GetRolesForUser", dynamicUser, models.UserTypeInputDb).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
 			if test.includeStatic {
-				dynUser.On("GetRolesForUser", staticUser, models.UserTypeDb).Return(
+				dynUser.On("GetRolesForUser", staticUser, models.UserTypeInputDb).Return(
 					map[string][]authorization.Policy{"role": {}}, nil)
 			}
 
