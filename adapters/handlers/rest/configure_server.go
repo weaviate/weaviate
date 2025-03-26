@@ -13,11 +13,15 @@ package rest
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/utils"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -26,6 +30,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -55,8 +61,9 @@ func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
 			appState.ServerConfig.Config,
 			appState.Traverser,
 			appState.Modules,
+			appState.Authorizer,
 		)
-		if err != nil && err != utils.ErrEmptySchema {
+		if err != nil && !errors.Is(err, utils.ErrEmptySchema) {
 			appState.Logger.WithField("action", "graphql_rebuild").
 				WithError(err).Error("could not (re)build graphql provider")
 		}
@@ -65,9 +72,9 @@ func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
 }
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
-	config config.Config, traverser *traverser.Traverser, modulesProvider *modules.Provider,
+	config config.Config, traverser *traverser.Traverser, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (graphql.GraphQL, error) {
-	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config, modulesProvider)
+	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config, modulesProvider, authorizer)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +96,7 @@ func configureOIDC(appState *state.State) *oidc.Client {
 	return c
 }
 
-func configureAPIKey(appState *state.State) *apikey.Client {
+func configureAPIKey(appState *state.State) *apikey.ApiKey {
 	c, err := apikey.New(appState.ServerConfig.Config)
 	if err != nil {
 		appState.Logger.WithField("action", "api_keys_init").WithError(err).Fatal("apikey client could not start up")
@@ -106,8 +113,32 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 	return anonymous.New(appState.ServerConfig.Config)
 }
 
-func configureAuthorizer(appState *state.State) authorization.Authorizer {
-	return authorization.New(appState.ServerConfig.Config)
+func configureAuthorizer(appState *state.State) error {
+	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
+		// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
+		rbacController, err := rbac.New(
+			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
+			appState.ServerConfig.Config.Authorization.Rbac,
+			appState.Logger)
+		if err != nil {
+			return fmt.Errorf("can't init casbin %w", err)
+		}
+
+		appState.AuthzController = rbacController
+		appState.Authorizer = rbacController
+	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {
+		appState.Authorizer = adminlist.New(appState.ServerConfig.Config.Authorization.AdminList)
+	} else {
+		appState.Authorizer = &authorization.DummyAuthorizer{}
+	}
+
+	if appState.ServerConfig.Config.Authorization.Rbac.Enabled && appState.AuthzController == nil {
+		// this in general shall not happen, it's to catch cases were RBAC expected but we weren't able
+		// to assign it.
+		return fmt.Errorf("RBAC is expected to be enabled, but the controller wasn't initialized")
+	}
+
+	return nil
 }
 
 func timeTillDeadline(ctx context.Context) string {

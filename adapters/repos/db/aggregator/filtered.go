@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
@@ -70,10 +71,13 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 		return sparse, scores, nil
 	}
 
-	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
+	denseSearch := func(vec models.Vector) ([]*storobj.Object, []float32, error) {
 		allowList, err := fa.buildAllowList(ctx)
 		if err != nil {
 			return nil, nil, err
+		}
+		if allowList != nil {
+			defer allowList.Close()
 		}
 
 		res, dists, err := fa.objectVectorSearch(ctx, vec, allowList)
@@ -107,8 +111,16 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 	if err != nil {
 		return nil, err
 	}
+	if allowList != nil {
+		defer allowList.Close()
+	}
 
-	if len(fa.params.SearchVector) > 0 {
+	isVectorEmpty, err := dto.IsVectorEmpty(fa.params.SearchVector)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate filtered: %w", err)
+	}
+
+	if !isVectorEmpty {
 		foundIDs, _, err = fa.vectorSearch(ctx, allowList, fa.params.SearchVector)
 		if err != nil {
 			return nil, err
@@ -184,7 +196,7 @@ func (fa *filteredAggregator) AnalyzeObject(ctx context.Context,
 		}
 
 		if err := fa.addPropValue(prop, value); err != nil {
-			return fmt.Errorf("failed to add prop value: %s", err)
+			return fmt.Errorf("failed to add prop value: %w", err)
 		}
 	}
 

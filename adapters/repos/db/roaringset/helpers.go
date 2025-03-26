@@ -14,16 +14,7 @@ package roaringset
 import (
 	"sync"
 
-	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/concurrency"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/weaviate/sroar"
-)
-
-var (
-	prefillBufferSize  = 65_536
-	prefillMaxRoutines = 4
 )
 
 func NewBitmap(values ...uint64) *sroar.Bitmap {
@@ -53,160 +44,133 @@ func Condense(bm *sroar.Bitmap) *sroar.Bitmap {
 	return condensed
 }
 
-// NewInvertedBitmap creates a bitmap that as all IDs filled from 0 to maxVal.
-// Then the source bitmap is subtracted (AndNot) from the all-ids bitmap,
-// resulting in a bitmap containing all ids from 0 to maxVal except the ones
-// that were set on the source.
-func NewInvertedBitmap(source *sroar.Bitmap, maxVal uint64, logger logrus.FieldLogger) *sroar.Bitmap {
-	bm := NewBitmapPrefill(maxVal, logger)
-	bm.AndNot(source)
-	return bm
-}
+// defaultIdIncrement  is the amount of bits greater than <maxId>
+// to reduce the amount of times BitmapFactory has to reallocate.
+const defaultIdIncrement = uint64(1024)
 
-// Creates prefilled bitmap with values from 0 to maxVal (included).
-//
-// It is designed to be more performant both
-// time-wise (compared to Set/SetMany)
-// and memory-wise (compared to FromSortedList accepting entire slice of elements)
-// Method creates multiple small bitmaps using FromSortedList (slice is reusable)
-// and ORs them together to get final bitmap.
-// For maxVal > prefillBufferSize (65_536) and multiple CPUs available task is performed
-// by up to prefillMaxRoutines (4) goroutines.
-func NewBitmapPrefill(maxVal uint64, logger logrus.FieldLogger) *sroar.Bitmap {
-	routinesLimit := concurrency.NoMoreThanNUMCPU(prefillMaxRoutines)
-	if routinesLimit == 1 || maxVal <= uint64(prefillBufferSize) {
-		return newBitmapPrefillSequential(maxVal)
-	}
-	return newBitmapPrefillParallel(maxVal, routinesLimit, logger)
-}
+type MaxIdGetterFunc func() uint64
 
-func newBitmapPrefillSequential(maxVal uint64) *sroar.Bitmap {
-	inc := uint64(prefillBufferSize)
-	buf := make([]uint64, prefillBufferSize)
-	finalBM := sroar.NewBitmap()
-
-	for i := uint64(0); i <= maxVal; i += inc {
-		j := uint64(0)
-		for ; j < inc && i+j <= maxVal; j++ {
-			buf[j] = i + j
-		}
-		finalBM.Or(sroar.FromSortedList(buf[:j]))
-	}
-	return finalBM
-}
-
-func newBitmapPrefillParallel(maxVal uint64, routinesLimit int, logger logrus.FieldLogger) *sroar.Bitmap {
-	inc := uint64(prefillBufferSize / routinesLimit)
-	lock := new(sync.Mutex)
-	ch := make(chan uint64, routinesLimit)
-	wg := new(sync.WaitGroup)
-	wg.Add(routinesLimit)
-	finalBM := sroar.NewBitmap()
-
-	for r := 0; r < routinesLimit; r++ {
-		f := func() {
-			buf := make([]uint64, inc)
-
-			for i := range ch {
-				j := uint64(0)
-				for ; j < inc && i+j <= maxVal; j++ {
-					buf[j] = i + j
-				}
-				bm := sroar.FromSortedList(buf[:j])
-
-				lock.Lock()
-				finalBM.Or(bm)
-				lock.Unlock()
-			}
-			wg.Done()
-		}
-		enterrors.GoWrapper(f, logger)
-	}
-
-	for i := uint64(0); i <= maxVal; i += inc {
-		ch <- i
-	}
-	close(ch)
-	wg.Wait()
-	return finalBM
-}
-
-type MaxValGetterFunc func() uint64
-
-const (
-	// DefaultBufferIncrement  is the amount of bits greater than <maxVal>
-	// to reduce the amount of times BitmapFactory has to reallocate.
-	DefaultBufferIncrement = uint64(100)
-)
-
-// BitmapFactory exists to prevent an expensive call to
-// NewBitmapPrefill each time NewInvertedBitmap is invoked
+// BitmapFactory exists to provide prefilled bitmaps using pool (reducing allocation of memory)
+// and favor cloning (faster) over prefilling bitmap from scratch each time bitmap is requested
 type BitmapFactory struct {
-	bitmap        *sroar.Bitmap
-	maxValGetter  MaxValGetterFunc
-	currentMaxVal uint64
-	lock          sync.RWMutex
+	lock           *sync.RWMutex
+	prefilled      *sroar.Bitmap
+	bufPool        *BitmapBufPool
+	maxIdGetter    MaxIdGetterFunc
+	prefilledMaxId uint64
 }
 
-func NewBitmapFactory(maxValGetter MaxValGetterFunc, logger logrus.FieldLogger) *BitmapFactory {
-	maxVal := maxValGetter() + DefaultBufferIncrement
+func NewBitmapFactory(maxIdGetter MaxIdGetterFunc) *BitmapFactory {
+	prefilledMaxId := maxIdGetter() + defaultIdIncrement
+	prefilled := sroar.Prefill(prefilledMaxId)
+
 	return &BitmapFactory{
-		bitmap:        NewBitmapPrefill(maxVal, logger),
-		maxValGetter:  maxValGetter,
-		currentMaxVal: maxVal,
+		lock:           new(sync.RWMutex),
+		prefilled:      prefilled,
+		bufPool:        NewBitmapBufPool(prefilled.LenInBytes(), 1.2),
+		maxIdGetter:    maxIdGetter,
+		prefilledMaxId: prefilledMaxId,
 	}
 }
 
 // GetBitmap returns a prefilled bitmap, which is cloned from a shared internal.
 // This method is safe to call concurrently. The purpose behind sharing an
-// internal bitmap, is that a Clone() operation is much cheaper than prefilling
-// a map up to <maxDocID> elements is an expensive operation, and this way we
-// only have to do it once.
-func (bmf *BitmapFactory) GetBitmap() *sroar.Bitmap {
-	bmf.lock.RLock()
-	maxVal := bmf.maxValGetter()
+// internal bitmap, is that a Clone() operation is cheaper than prefilling
+// a bitmap up to <maxDocID>
+func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
+	bitmap, release, removeRange := bmf.getBitmap()
+	bitmap.RemoveRange(removeRange[0], removeRange[1])
+	return bitmap, release
+}
 
-	// We don't need to expand, maxVal is unchanged
-	{
-		if maxVal <= bmf.currentMaxVal {
-			cloned := bmf.bitmap.Clone()
-			bmf.lock.RUnlock()
-			return cloned
-		}
+func (bmf *BitmapFactory) getBitmap() (cloned *sroar.Bitmap, release func(), removeRange [2]uint64) {
+	bmf.lock.RLock()
+
+	maxId := bmf.maxIdGetter()
+	prefilledMaxId := bmf.prefilledMaxId
+
+	// No need to expand, maxId is included
+	if maxId <= prefilledMaxId {
+		cloned, release = bmf.clone()
+		bmf.lock.RUnlock()
+		return cloned, release, [2]uint64{maxId + 1, prefilledMaxId + 1}
 	}
 
 	bmf.lock.RUnlock()
 	bmf.lock.Lock()
 	defer bmf.lock.Unlock()
 
+	maxId = bmf.maxIdGetter()
+	prefilledMaxId = bmf.prefilledMaxId
+
 	// 2nd check to ensure bitmap wasn't expanded by
 	// concurrent request white waiting for write lock
-	{
-		maxVal = bmf.maxValGetter()
-		if maxVal <= bmf.currentMaxVal {
-			return bmf.bitmap.Clone()
-		}
+	if maxId <= prefilledMaxId {
+		cloned, release = bmf.clone()
+		return cloned, release, [2]uint64{maxId + 1, prefilledMaxId + 1}
 	}
 
-	// maxVal has grown to exceed even the buffer,
-	// time to expand
-	{
-		length := maxVal + DefaultBufferIncrement - bmf.currentMaxVal
-		list := make([]uint64, length)
-		for i := uint64(0); i < length; i++ {
-			list[i] = bmf.currentMaxVal + i + 1
-		}
-
-		bmf.bitmap.Or(sroar.FromSortedList(list))
-		bmf.currentMaxVal = maxVal + DefaultBufferIncrement
-	}
-
-	return bmf.bitmap.Clone()
+	// expand bitmap with additional ids
+	prefilledMaxId = maxId + defaultIdIncrement
+	bmf.prefilled.FillUp(prefilledMaxId)
+	bmf.prefilledMaxId = prefilledMaxId
+	cloned, release = bmf.clone()
+	return cloned, release, [2]uint64{maxId + 1, prefilledMaxId + 1}
 }
 
-// ActualMaxVal returns the highest value in the bitmap not including the buffer
-func (bmf *BitmapFactory) ActualMaxVal() uint64 {
-	bmf.lock.RLock()
-	defer bmf.lock.RUnlock()
-	return bmf.maxValGetter()
+func (bmf *BitmapFactory) clone() (cloned *sroar.Bitmap, release func()) {
+	buf, release := bmf.bufPool.Get(bmf.prefilled.LenInBytes())
+	cloned = bmf.prefilled.CloneToBuf(buf)
+	return
+}
+
+type BitmapBufPool struct {
+	pool          *sync.Pool
+	lock          *sync.Mutex
+	capFactor     float32
+	initialMinCap int
+}
+
+func NewBitmapBufPool(initialMinCap int, capFactor float32) *BitmapBufPool {
+	p := &BitmapBufPool{
+		capFactor:     capFactor,
+		initialMinCap: initialMinCap,
+		lock:          new(sync.Mutex),
+	}
+
+	p.pool = &sync.Pool{
+		New: p.createBuf,
+	}
+	return p
+}
+
+func (p *BitmapBufPool) Get(minCap int) (buf []byte, put func()) {
+	ptr := p.pool.Get().(*[]byte)
+	buf = *ptr
+	if cap(buf) < minCap {
+		p.updateInitialMinCap(minCap)
+		*ptr = *p.createBuf().(*[]byte)
+		buf = *ptr
+	} else if len(buf) > 0 {
+		buf = buf[:0]
+		*ptr = buf
+	}
+	return buf, func() { p.pool.Put(ptr) }
+}
+
+func (p *BitmapBufPool) createBuf() any {
+	p.lock.Lock()
+	minCap := p.initialMinCap
+	p.lock.Unlock()
+
+	buf := make([]byte, 0, int(float32(minCap)*p.capFactor))
+	return &buf
+}
+
+func (p *BitmapBufPool) updateInitialMinCap(minCap int) {
+	p.lock.Lock()
+	if minCap > p.initialMinCap {
+		p.initialMinCap = minCap
+	}
+	p.lock.Unlock()
 }

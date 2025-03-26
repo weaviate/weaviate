@@ -17,6 +17,10 @@ import (
 )
 
 type Params struct {
+	ApiEndpoint      string
+	ProjectID        string
+	EndpointID       string
+	Region           string
 	Model            string
 	Temperature      *float64
 	MaxTokens        *int
@@ -25,6 +29,8 @@ type Params struct {
 	StopSequences    []string
 	PresencePenalty  *float64
 	FrequencyPenalty *float64
+	Images           []*string
+	ImageProperties  []string
 }
 
 func extract(field *ast.ObjectField) interface{} {
@@ -33,6 +39,14 @@ func extract(field *ast.ObjectField) interface{} {
 	if ok {
 		for _, f := range fields {
 			switch f.Name.Value {
+			case "apiEndpoint":
+				out.ApiEndpoint = gqlparser.GetValueAsStringOrEmpty(f)
+			case "projectId":
+				out.ProjectID = gqlparser.GetValueAsStringOrEmpty(f)
+			case "endpointId":
+				out.EndpointID = gqlparser.GetValueAsStringOrEmpty(f)
+			case "region":
+				out.Region = gqlparser.GetValueAsStringOrEmpty(f)
 			case "model":
 				out.Model = gqlparser.GetValueAsStringOrEmpty(f)
 			case "temperature":
@@ -49,6 +63,10 @@ func extract(field *ast.ObjectField) interface{} {
 				out.PresencePenalty = gqlparser.GetValueAsFloat64(f)
 			case "frequencyPenalty":
 				out.FrequencyPenalty = gqlparser.GetValueAsFloat64(f)
+			case "images":
+				out.Images = gqlparser.GetValueAsStringPtrArray(f)
+			case "imageProperties":
+				out.ImageProperties = gqlparser.GetValueAsStringArray(f)
 			default:
 				// do nothing
 			}

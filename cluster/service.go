@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
@@ -47,34 +48,22 @@ type Service struct {
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
-func New(cfg Config) *Service {
+func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 	rpcListenAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
-	// When using FQDN lookup we might want to advertise a different IP than the one we'll be listening on.
-	// This address is then sent to raft peers as the address this node listen on.
-	// This address needs to proxy/forward to that node (think static ip for a service)
-	// This is necessary to ensure that the FQDN ip will be stored in the raft logs.
 	raftAdvertisedAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort)
-	if cfg.EnableFQDNResolver {
-		addr := resolver.NewFQDN(resolver.FQDNConfig{
-			// We don't need to specify more config as we are only using that resolver to resolve a node id to an IP
-			// overriding the default resolver using memberlist.
-			TLD: cfg.FQDNResolverTLD,
-		}).NodeAddress(cfg.NodeID)
-		if addr != "" {
-			raftAdvertisedAddress = addr
-		} else {
-			cfg.Logger.Warnf("raft fqdn lookup configured but unable to resolve node %s to an IP, fallbacking to %s", cfg.NodeID, raftAdvertisedAddress)
-		}
-	}
-	cl := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
+	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
+
 	fsm := NewFSM(cfg, prometheus.DefaultRegisterer)
-	raft := NewRaft(cfg.NodeSelector, &fsm, cl)
+	raft := NewRaft(cfg.NodeSelector, &fsm, client)
+
+	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
+
 	return &Service{
 		Raft:              raft,
 		raftAddr:          raftAdvertisedAddress,
 		config:            &cfg,
-		rpcClient:         cl,
-		rpcServer:         rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.Logger, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled),
+		rpcClient:         client,
+		rpcServer:         svr,
 		logger:            cfg.Logger,
 		closeBootstrapper: make(chan struct{}),
 		closeWaitForDB:    make(chan struct{}),
@@ -93,16 +82,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("open raft store: %w", err)
 	}
 
-	// If FQDN resolver is enabled make sure we're also using it for the bootstrapping process
 	nodeToAddressResolver := c.config.NodeToAddressResolver
-	if c.config.EnableFQDNResolver {
-		nodeToAddressResolver = resolver.NewFQDN(resolver.FQDNConfig{
-			// We don't need to specify more config as we are only using that resolver to resolve a node id to an IP
-			// overriding the default resolver using memberlist.
-			TLD: c.config.FQDNResolverTLD,
-		})
-	}
-
 	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
 	if err != nil {
 		return err

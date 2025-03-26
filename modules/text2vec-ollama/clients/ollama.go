@@ -51,14 +51,14 @@ func New(timeout time.Duration, logger logrus.FieldLogger) *ollama {
 
 func (v *ollama) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	res, err := v.vectorize(ctx, input, cfg)
 	return res, nil, 0, err
 }
 
 func (v *ollama) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	return v.vectorize(ctx, input, cfg)
 }
 
@@ -80,7 +80,7 @@ func (v *ollama) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.Cla
 
 func (v *ollama) vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
 	body, err := json.Marshal(embeddingsRequest{
 		Model: settings.Model(),
@@ -114,7 +114,7 @@ func (v *ollama) vectorize(ctx context.Context, input []string,
 
 func (v *ollama) parseEmbeddingsResponse(statusCode int,
 	bodyBytes []byte, input []string,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrapf(err, "unmarshal response body. Got: %v", string(bodyBytes))
@@ -132,7 +132,7 @@ func (v *ollama) parseEmbeddingsResponse(statusCode int,
 		return nil, errors.Errorf("empty embeddings response")
 	}
 
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Text:       input,
 		Vector:     resBody.Embeddings,
 		Dimensions: len(resBody.Embeddings[0]),

@@ -12,6 +12,7 @@
 package test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -156,9 +157,11 @@ func TestUpdatePropertyDescription(t *testing.T) {
 			})
 		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
 		assert.NotNil(t, err)
-		parsed, ok := err.(*clschema.SchemaObjectsUpdateUnprocessableEntity)
-		require.True(t, ok)
-		require.Contains(t, parsed.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
+		var parsed *clschema.SchemaObjectsUpdateUnprocessableEntity
+		require.ErrorAs(t, err, &parsed)
+		if errors.As(err, &parsed) {
+			require.Contains(t, parsed.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
+		}
 	})
 
 	t.Run("update field other than description in nested", func(t *testing.T) {
@@ -178,8 +181,10 @@ func TestUpdatePropertyDescription(t *testing.T) {
 			})
 		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
 		assert.NotNil(t, err)
-		parsed, ok := err.(*clschema.SchemaObjectsUpdateUnprocessableEntity)
-		require.True(t, ok)
-		require.Contains(t, parsed.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
+		var parsed *clschema.SchemaObjectsUpdateUnprocessableEntity
+		require.ErrorAs(t, err, &parsed)
+		if errors.As(err, &parsed) {
+			require.Contains(t, parsed.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
+		}
 	})
 }

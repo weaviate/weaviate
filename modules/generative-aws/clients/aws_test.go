@@ -54,12 +54,12 @@ func TestGetAnswer(t *testing.T) {
 			},
 		}
 
-		textProperties := []map[string]string{{"prop": "My name is john"}}
+		props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
 		expected := modulecapabilities.GenerateResponse{
 			Result: ptString("John"),
 		}
 
-		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
+		res, err := c.GenerateAllResults(context.Background(), props, "What is my name?", nil, false, nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -85,9 +85,9 @@ func TestGetAnswer(t *testing.T) {
 			},
 		}
 
-		textProperties := []map[string]string{{"prop": "My name is john"}}
+		props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
 
-		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
+		_, err := c.GenerateAllResults(context.Background(), props, "What is my name?", nil, false, nil)
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to AWS failed with status: 200 error: some error from the server")

@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
@@ -31,7 +32,6 @@ import (
 	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 	text2vecadditionalprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
 	text2vecneartext "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
-
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -53,7 +53,7 @@ func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
 	return in, nil
 }
 
-func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return true
 }
 
@@ -72,7 +72,7 @@ func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return true
 }
 
@@ -91,7 +91,7 @@ func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	if len(param) > 0 {
 		p := &text2vecadditionalprojector.Params{}
 		err := p.SetDefaultsAndValidate(100, 4)
@@ -120,7 +120,7 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return &text2vecadditionalsempath.Params{}
 }
 
@@ -215,7 +215,7 @@ func (fmp *fakeModulesProvider) ExtractAdditionalField(className, name string, p
 	if additionalProperties := txt2vec.AdditionalProperties(); len(additionalProperties) > 0 {
 		if additionalProperty, ok := additionalProperties[name]; ok {
 			if additionalProperty.GraphQLExtractFunction != nil {
-				return additionalProperty.GraphQLExtractFunction(params)
+				return additionalProperty.GraphQLExtractFunction(params, nil)
 			}
 		}
 	}
@@ -223,7 +223,7 @@ func (fmp *fakeModulesProvider) ExtractAdditionalField(className, name string, p
 }
 
 func (fmp *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32,
+	moduleParams map[string]interface{}, searchVector models.Vector,
 	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return fmp.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams, nil)
@@ -231,7 +231,7 @@ func (fmp *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, 
 
 func (fmp *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
-	searchVector []float32, capability string, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
+	searchVector models.Vector, capability string, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) (search.Results, error) {
 	txt2vec := &mockText2vecContextionaryModule{}
 	additionalProperties := txt2vec.AdditionalProperties()
@@ -239,8 +239,8 @@ func (fmp *fakeModulesProvider) additionalExtend(ctx context.Context,
 		additionalPropertyFn := fmp.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn != nil && value != nil {
 			searchValue := value
-			if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
-				searchVectorValue.SetSearchVector(searchVector)
+			if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector[[]float32]); ok {
+				searchVectorValue.SetSearchVector(searchVector.([]float32))
 				searchValue = searchVectorValue
 			}
 			resArray, err := additionalPropertyFn(ctx, in, searchValue, nil, nil, nil)
@@ -311,7 +311,7 @@ func extractAdditionalParam(name string, args []*ast.Argument) interface{} {
 	switch name {
 	case "semanticPath", "featureProjection":
 		if ap, ok := additionalProperties[name]; ok {
-			return ap.GraphQLExtractFunction(args)
+			return ap.GraphQLExtractFunction(args, nil)
 		}
 		return nil
 	default:
@@ -323,9 +323,27 @@ func getFakeModulesProvider() *fakeModulesProvider {
 	return &fakeModulesProvider{}
 }
 
+type fakeAuthorizer struct{}
+
+func (f *fakeAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
+
+func (f *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
+
+func (a *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	return resources, nil
+}
+
+func getFakeAuthorizer() *fakeAuthorizer {
+	return &fakeAuthorizer{}
+}
+
 func newMockResolver() *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := get.Build(&test_helper.SimpleSchema, logger, getFakeModulesProvider())
+	field, err := get.Build(&test_helper.SimpleSchema, logger, getFakeModulesProvider(), getFakeAuthorizer())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
@@ -338,7 +356,7 @@ func newMockResolver() *mockResolver {
 }
 
 func newExploreMockResolver() *mockResolver {
-	field := explore.Build(test_helper.SimpleSchema.Objects, getFakeModulesProvider())
+	field := explore.Build(test_helper.SimpleSchema.Objects, getFakeModulesProvider(), getFakeAuthorizer())
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Explore"

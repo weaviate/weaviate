@@ -12,12 +12,14 @@
 package test
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -188,8 +190,8 @@ func TestPatchTenantObjects_ChangeTenant(t *testing.T) {
 			WithID(toUpdate.ID).WithBody(&toUpdate)
 		_, err := helper.Client(t).Objects.ObjectsClassPatch(params, nil)
 		require.NotNil(t, err) // tenant does not exist
-		parsedErr, ok := err.(*objects.ObjectsClassPatchUnprocessableEntity)
-		require.True(t, ok)
+		var parsedErr *objects.ObjectsClassPatchUnprocessableEntity
+		require.True(t, errors.As(err, &parsedErr))
 		require.NotNil(t, parsedErr.Payload.Error)
 		require.Len(t, parsedErr.Payload.Error, 1)
 		assert.Contains(t, err.Error(), fmt.Sprint(http.StatusUnprocessableEntity))

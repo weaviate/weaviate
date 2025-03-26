@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -26,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/scaler"
@@ -43,15 +46,20 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
 	}
+	fakeClusterState := fakes.NewFakeClusterState()
+	fakeValidator := &fakeValidator{}
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{})
 	handler, err := NewHandler(
-		schemaManager, schemaManager, &fakeValidator{}, logger, &fakeAuthorizer{nil},
-		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
+		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
+		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
+		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
+
 	require.Nil(t, err)
+	handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 	return &handler, schemaManager
 }
 
-func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorizer) (*Handler, *fakeSchemaManager) {
+func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorization.Authorizer) (*Handler, *fakeSchemaManager) {
 	cfg := config.Config{}
 	metaHandler := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
@@ -60,10 +68,13 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 			"model1", "model2",
 		},
 	}
+	fakeClusterState := fakes.NewFakeClusterState()
+	fakeValidator := &fakeValidator{}
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
 	handler, err := NewHandler(
-		metaHandler, metaHandler, &fakeValidator{}, logger, authorizer,
-		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
+		metaHandler, metaHandler, fakeValidator, logger, authorizer,
+		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
+		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
 }
@@ -135,14 +146,6 @@ func (f *fakeDB) GetShardsStatus(class, tenant string) (models.ShardStatusList, 
 
 func (f *fakeDB) TriggerSchemaUpdateCallbacks() {
 	f.Called()
-}
-
-type fakeAuthorizer struct {
-	err error
-}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return f.err
 }
 
 type fakeScaleOutManager struct{}
@@ -222,6 +225,18 @@ func (f *fakeModuleConfig) GetByName(name string) modulecapabilities.Module {
 	return nil
 }
 
+func (f *fakeModuleConfig) IsGenerative(moduleName string) bool {
+	return strings.Contains(moduleName, "generative")
+}
+
+func (f *fakeModuleConfig) IsReranker(moduleName string) bool {
+	return strings.Contains(moduleName, "reranker")
+}
+
+func (f *fakeModuleConfig) IsMultiVector(moduleName string) bool {
+	return strings.Contains(moduleName, "colbert")
+}
+
 type fakeVectorizerValidator struct {
 	valid []string
 }
@@ -248,7 +263,11 @@ func (f fakeVectorConfig) DistanceName() string {
 	return common.DistanceCosine
 }
 
-func dummyParseVectorConfig(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error) {
+func (f fakeVectorConfig) IsMultiVector() bool {
+	return false
+}
+
+func dummyParseVectorConfig(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
 	return fakeVectorConfig{raw: in}, nil
 }
 

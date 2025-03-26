@@ -17,6 +17,7 @@ const (
 	StrategySetCollection = "setcollection"
 	StrategyMapCollection = "mapcollection"
 	StrategyRoaringSet    = "roaringset"
+	StrategyInverted      = "inverted"
 )
 
 type SegmentStrategy uint16
@@ -26,6 +27,7 @@ const (
 	SegmentStrategySetCollection
 	SegmentStrategyMapCollection
 	SegmentStrategyRoaringSet
+	SegmentStrategyInverted
 )
 
 func SegmentStrategyFromString(in string) SegmentStrategy {
@@ -38,6 +40,8 @@ func SegmentStrategyFromString(in string) SegmentStrategy {
 		return SegmentStrategyMapCollection
 	case StrategyRoaringSet:
 		return SegmentStrategyRoaringSet
+	case StrategyInverted:
+		return SegmentStrategyInverted
 	default:
 		panic("unsupported strategy")
 	}

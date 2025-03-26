@@ -13,12 +13,14 @@ package replica
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -68,7 +70,7 @@ type Replicator struct {
 func NewReplicator(className string,
 	stateGetter shardingState,
 	nodeResolver nodeResolver,
-	deletionStrategy string,
+	getDeletionStrategy func() string,
 	client Client,
 	l logrus.FieldLogger,
 ) *Replicator {
@@ -85,7 +87,7 @@ func NewReplicator(className string,
 		resolver:    resolver,
 		log:         l,
 		Finder: NewFinder(className, resolver, client, l,
-			defaultPullBackOffInitialInterval, defaultPullBackOffMaxElapsedTime, deletionStrategy),
+			defaultPullBackOffInitialInterval, defaultPullBackOffMaxElapsedTime, getDeletionStrategy),
 	}
 }
 
@@ -152,8 +154,8 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "merge").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", doc.ID).Error(err)
-		replicaErr, ok := err.(*Error)
-		if ok && replicaErr != nil && replicaErr.Code == StatusObjectNotFound {
+		var replicaErr *Error
+		if errors.As(err, &replicaErr) && replicaErr != nil && replicaErr.Code == StatusObjectNotFound {
 			return objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
 		}
 	}

@@ -82,7 +82,7 @@ func TestMoveVectorToAnother(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				v := newMovements()
+				v := newMovements[[]float32]()
 				res, err := v.MoveTo(test.source, test.target, test.weight)
 				assert.Equal(t, test.expectedError, err)
 				assert.Equal(t, test.expectedResult, res)
@@ -146,7 +146,7 @@ func TestMoveVectorToAnother(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				v := newMovements()
+				v := newMovements[[]float32]()
 				res, err := v.MoveAwayFrom(test.source, test.target, test.weight)
 				assert.Equal(t, test.expectedError, err)
 				for i := range test.expectedResult {
@@ -154,5 +154,22 @@ func TestMoveVectorToAnother(t *testing.T) {
 				}
 			})
 		}
+	})
+
+	t.Run("should error for multivectors", func(t *testing.T) {
+		source := [][]float32{{0, 1}, {2, 3}}
+		target := [][]float32{{0, 1}, {2, 3}}
+
+		t.Run("multivectors moveTo", func(t *testing.T) {
+			v := newMovements[[][]float32]()
+			_, err := v.MoveTo(source, target, 0)
+			assert.Equal(t, err, fmt.Errorf("move to operations are not applicable for multivector embeddings"))
+		})
+
+		t.Run("multivectors moveAwayFrom", func(t *testing.T) {
+			v := newMovements[[][]float32]()
+			_, err := v.MoveAwayFrom(source, target, 0)
+			assert.Equal(t, err, fmt.Errorf("move away from operations are not applicable for multivector embeddings"))
+		})
 	})
 }

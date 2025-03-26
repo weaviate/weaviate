@@ -13,11 +13,14 @@ package test_suits
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -208,6 +211,54 @@ func testCreateSchemaWithMixedVectorizers(host string) func(t *testing.T) {
 				for targetVector, vector := range updatedVectors {
 					assert.Equal(t, vector, models.Vector(afterUpdateVectors[targetVector]))
 				}
+			})
+
+			t.Run("check BYOV vector names for existence when inserting", func(t *testing.T) {
+				_, err = client.Data().Creator().
+					WithClassName(className).
+					WithID(id3).
+					WithProperties(map[string]interface{}{
+						"text": "Lorem ipsum dolor sit amet",
+					}).
+					WithVectors(models.Vectors{
+						"non_existent_vector": []float32{0.1, 0.2, 0.3},
+					}).
+					Do(ctx)
+				require.Error(t, err)
+				var clientError *fault.WeaviateClientError
+				require.True(t, errors.As(err, &clientError))
+				require.Equal(t, 422, clientError.StatusCode)
+				require.Contains(t, clientError.Msg, fmt.Sprintf("collection %s does not have configuration for vector non_existent_vector", className))
+			})
+
+			t.Run("check BYOV vector names for existence when updating", func(t *testing.T) {
+				err = client.Data().Updater().
+					WithClassName(className).
+					WithID(id1).
+					WithVectors(models.Vectors{
+						"non_existent_vector": []float32{0.1, 0.2, 0.3},
+					}).
+					Do(ctx)
+				require.Error(t, err)
+				var clientError *fault.WeaviateClientError
+				require.True(t, errors.As(err, &clientError))
+				require.Equal(t, 422, clientError.StatusCode)
+				require.Contains(t, clientError.Msg, fmt.Sprintf("collection %s does not have configuration for vector non_existent_vector", className))
+			})
+
+			t.Run("check BYOV vector names for existence when merge updating", func(t *testing.T) {
+				err = client.Data().Updater().WithMerge().
+					WithClassName(className).
+					WithID(id1).
+					WithVectors(models.Vectors{
+						"non_existent_vector": []float32{0.1, 0.2, 0.3},
+					}).
+					Do(ctx)
+				require.Error(t, err)
+				var clientError *fault.WeaviateClientError
+				require.True(t, errors.As(err, &clientError))
+				require.Equal(t, 422, clientError.StatusCode)
+				require.Contains(t, clientError.Msg, fmt.Sprintf("collection %s does not have configuration for vector non_existent_vector", className))
 			})
 		})
 	}

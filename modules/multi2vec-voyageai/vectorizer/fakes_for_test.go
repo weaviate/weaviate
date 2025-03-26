@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
@@ -75,12 +76,16 @@ func (f fakeClassConfig) TargetVector() string {
 	return ""
 }
 
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
 type fakeClient struct{}
 
 func (c *fakeClient) Vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationCLIPResult, error) {
-	result := &modulecomponents.VectorizationCLIPResult{
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	result := &modulecomponents.VectorizationCLIPResult[[]float32]{
 		TextVectors:  [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
 		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},
 	}
@@ -89,8 +94,8 @@ func (c *fakeClient) Vectorize(ctx context.Context,
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,
 	input []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationCLIPResult, error) {
-	result := &modulecomponents.VectorizationCLIPResult{
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	result := &modulecomponents.VectorizationCLIPResult[[]float32]{
 		TextVectors: [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
 	}
 	return result, nil
@@ -98,8 +103,8 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 
 func (c *fakeClient) VectorizeImageQuery(ctx context.Context,
 	images []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationCLIPResult, error) {
-	result := &modulecomponents.VectorizationCLIPResult{
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	result := &modulecomponents.VectorizationCLIPResult[[]float32]{
 		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},
 	}
 	return result, nil

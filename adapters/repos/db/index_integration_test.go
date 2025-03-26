@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
@@ -29,8 +30,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -109,15 +112,20 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}
 	// create index with data
 	shardState := singleShardState()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
+
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil)
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -145,7 +153,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -171,13 +179,13 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	index, err = NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema:     fakeSchema,
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil)
 	require.Nil(t, err)
 
 	err = index.addProperty(context.TODO(), &models.Property{
@@ -207,7 +215,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&thing, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
+			&thing, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -220,13 +228,13 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	// update the index vectorIndexUserConfig
-	beforeVectorConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
+	beforeVectorConfig, ok := index.GetVectorIndexConfig("").(hnsw.UserConfig)
 	require.Equal(t, -1, beforeVectorConfig.EF)
 	require.True(t, ok)
 	beforeVectorConfig.EF = 99
 	err = index.updateVectorIndexConfig(context.TODO(), beforeVectorConfig)
 	require.Nil(t, err)
-	afterVectorConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
+	afterVectorConfig, ok := index.GetVectorIndexConfig("").(hnsw.UserConfig)
 	require.True(t, ok)
 	require.Equal(t, 99, afterVectorConfig.EF)
 
@@ -278,15 +286,19 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}
 
 	shardState := singleShardState()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil)
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -314,7 +326,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		}
 
 		err := index.putObject(ctx, storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -360,13 +372,17 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 
 	// create index
 	shardState := singleShardState()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(class.Class),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, cpFile, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil)
 	require.Nil(t, err)
 
 	// at this point the shard is not loaded yet.
@@ -426,15 +442,19 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 
 	// create index
 	shardState := singleShardState()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: NewAtomicInt64(1),
+		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, cpFile, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil)
 	require.Nil(t, err)
 
 	// force the index to load the shard
@@ -463,7 +483,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -479,30 +499,23 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	logger, _ := test.NewNullLogger()
 	shardState := singleShardState()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
 
 	idx, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:              rootDir,
 		ClassName:             schema.ClassName(class.Class),
 		DisableLazyLoadShards: true,
-		ReplicationFactor:     NewAtomicInt64(1),
+		ReplicationFactor:     1,
 		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil)
 	require.Nil(t, err)
 	return idx
-}
-
-func invertedConfig() *models.InvertedIndexConfig {
-	return &models.InvertedIndexConfig{
-		CleanupIntervalSeconds: 60,
-		Stopwords: &models.StopwordConfig{
-			Preset: "none",
-		},
-		IndexNullState:      true,
-		IndexPropertyLength: true,
-	}
 }
 
 func getIndexFilenames(rootDir, indexName string) ([]string, error) {
@@ -530,6 +543,7 @@ func getIndexFilenames(rootDir, indexName string) ([]string, error) {
 
 func TestIndex_DebugResetVectorIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
 
 	ctx := context.Background()
 	class := &models.Class{Class: "reindextest"}
@@ -548,6 +562,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
 		obj := testObject("reindextest")
+		obj.Vector = randVector(3)
 		objs = append(objs, obj)
 	}
 
@@ -556,20 +571,22 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 		require.Nil(t, err)
 	}
 
+	vidx, q := getVectorIndexAndQueue(t, shard, "")
+
 	// wait until the queue is empty
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.Queue().Size() == 0 {
+		if q.Size() == 0 {
 			break
 		}
 	}
 
 	// wait for the in-flight indexing to finish
-	shard.Queue().Wait()
+	q.Wait()
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -580,17 +597,17 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 	// wait until the queue is empty
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.Queue().Size() == 0 {
+		if q.Size() == 0 {
 			break
 		}
 	}
 
 	// wait for the in-flight indexing to finish
-	shard.Queue().Wait()
+	q.Wait()
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -601,6 +618,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 
 func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
 
 	ctx := context.Background()
 	class := &models.Class{Class: "reindextest"}
@@ -608,7 +626,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 		t,
 		ctx,
 		&models.Class{Class: class.Class},
-		hnsw.UserConfig{},
+		nil,
 		false,
 		true,
 		func(i *Index) {
@@ -645,7 +663,8 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	q := shard.Queues()["foo"]
+	vidx, q := getVectorIndexAndQueue(t, shard, "foo")
+
 	// wait until the queue is empty
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
@@ -658,9 +677,8 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	q.Wait()
 
 	// make sure the new index contains all the objects
-	vidx := shard.VectorIndexes()["foo"]
 	for _, obj := range objs {
-		if !vidx.ContainsNode(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -668,7 +686,6 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "foo")
 	require.Nil(t, err)
 
-	q = shard.Queues()["foo"]
 	// wait until the queue is empty
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
@@ -681,9 +698,8 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	q.Wait()
 
 	// make sure the new index contains all the objects
-	vidx = shard.VectorIndexes()["foo"]
 	for _, obj := range objs {
-		if !vidx.ContainsNode(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -694,7 +710,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 
 func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
-	t.Setenv("ASYNC_INDEX_INTERVAL", "100ms")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
 
 	ctx := context.Background()
 	var cfg hnsw.UserConfig
@@ -736,20 +752,22 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 		require.Nil(t, err)
 	}
 
+	vidx, q := getVectorIndexAndQueue(t, shard, "")
+
 	// wait until the queue is empty
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.Queue().Size() == 0 {
+		if q.Size() == 0 {
 			break
 		}
 	}
 
-	shard.Queue().Wait()
+	q.Wait()
 
 	// wait until the index is compressed
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.VectorIndex().Compressed() {
+		if vidx.Compressed() {
 			break
 		}
 	}
@@ -758,27 +776,27 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	require.Nil(t, err)
 
 	// wait until the queue is empty
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.Queue().Size() == 0 {
+		if q.Size() == 0 {
 			break
 		}
 	}
 
 	// wait for the in-flight indexing to finish
-	shard.Queue().Wait()
+	q.Wait()
 
 	// wait until the index is compressed
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.VectorIndex().Compressed() {
+		if vidx.Compressed() {
 			break
 		}
 	}
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -809,7 +827,16 @@ func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestIndex_PreloadQueue(t *testing.T) {
+func randVector(dim int) []float32 {
+	vec := make([]float32, dim)
+	for i := range vec {
+		vec[i] = rand.Float32()
+	}
+
+	return vec
+}
+
+func TestIndex_ConvertQueue(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
 
 	ctx := context.Background()
@@ -837,12 +864,11 @@ func TestIndex_PreloadQueue(t *testing.T) {
 	}
 
 	// reset the queue
-	q := shard.Queue()
-	err := q.ResetWith(shard.VectorIndex())
-	require.Nil(t, err)
-	q.ResumeIndexing()
+	vidx, q := getVectorIndexAndQueue(t, shard, "")
+	q.ResetWith(vidx)
+	q.Resume()
 
-	err = shard.PreloadQueue("")
+	err := shard.ConvertQueue("")
 	require.Nil(t, err)
 
 	// wait until the queue is empty
@@ -858,7 +884,7 @@ func TestIndex_PreloadQueue(t *testing.T) {
 
 	// make sure the index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -867,7 +893,7 @@ func TestIndex_PreloadQueue(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestIndex_PreloadQueueTargetVector(t *testing.T) {
+func TestIndex_ConvertQueueTargetVector(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
 
 	ctx := context.Background()
@@ -900,16 +926,14 @@ func TestIndex_PreloadQueueTargetVector(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	q := shard.Queues()["foo"]
-	vectorIndex := shard.VectorIndexes()["foo"]
+	vectorIndex, q := getVectorIndexAndQueue(t, shard, "foo")
 
 	// reset the queue
-	q.PauseIndexing()
-	err := q.ResetWith(vectorIndex)
-	require.Nil(t, err)
-	q.ResumeIndexing()
+	q.Pause()
+	q.ResetWith(vectorIndex)
+	q.Resume()
 
-	err = shard.PreloadQueue("foo")
+	err := shard.ConvertQueue("foo")
 	require.Nil(t, err)
 
 	// wait until the queue is empty
@@ -925,7 +949,7 @@ func TestIndex_PreloadQueueTargetVector(t *testing.T) {
 
 	// make sure the index contains all the objects
 	for _, obj := range objs {
-		if !vectorIndex.ContainsNode(obj.DocID) {
+		if !vectorIndex.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}

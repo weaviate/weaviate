@@ -207,7 +207,7 @@ func (f *fakeVectorRepoKNN) ZeroShotSearch(ctx context.Context, vector []float32
 }
 
 func (f *fakeVectorRepoKNN) VectorSearch(ctx context.Context,
-	params dto.GetParams, targetVectors []string, searchVectors [][]float32,
+	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
 	f.Lock()
 	defer f.Unlock()
@@ -233,12 +233,6 @@ func (f *fakeVectorRepoKNN) get(id strfmt.UUID) (*models.Object, bool) {
 	defer f.Unlock()
 	t, ok := f.db[id]
 	return t, ok
-}
-
-type fakeAuthorizer struct{}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return nil
 }
 
 func newFakeVectorRepoContextual(unclassified, targets search.Results) *fakeVectorRepoContextual {
@@ -297,7 +291,7 @@ func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects 
 }
 
 func (f *fakeVectorRepoContextual) VectorSearch(ctx context.Context,
-	params dto.GetParams, targetVectors []string, searchVectors [][]float32,
+	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
 	if searchVectors == nil {
 		filteredTargets := matchClassName(f.targets, params.ClassName)
@@ -307,30 +301,35 @@ func (f *fakeVectorRepoContextual) VectorSearch(ctx context.Context,
 	// simulate that this takes some time
 	time.Sleep(5 * time.Millisecond)
 
-	filteredTargets := matchClassName(f.targets, params.ClassName)
-	results := filteredTargets
-	sort.SliceStable(results, func(i, j int) bool {
-		simI, err := cosineSim(results[i].Vector, searchVectors[0])
-		if err != nil {
-			panic(err.Error())
+	switch searchVector := searchVectors[0].(type) {
+	case []float32:
+		filteredTargets := matchClassName(f.targets, params.ClassName)
+		results := filteredTargets
+		sort.SliceStable(results, func(i, j int) bool {
+			simI, err := cosineSim(results[i].Vector, searchVector)
+			if err != nil {
+				panic(err.Error())
+			}
+
+			simJ, err := cosineSim(results[j].Vector, searchVector)
+			if err != nil {
+				panic(err.Error())
+			}
+			return simI > simJ
+		})
+
+		if len(results) == 0 {
+			return nil, f.errorOnAggregate
 		}
 
-		simJ, err := cosineSim(results[j].Vector, searchVectors[0])
-		if err != nil {
-			panic(err.Error())
+		out := []search.Result{
+			results[0],
 		}
-		return simI > simJ
-	})
 
-	if len(results) == 0 {
-		return nil, f.errorOnAggregate
+		return out, f.errorOnAggregate
+	default:
+		return nil, fmt.Errorf("unsupported search vector type: %T", searchVectors[0])
 	}
-
-	out := []search.Result{
-		results[0],
-	}
-
-	return out, f.errorOnAggregate
 }
 
 func matchClassName(in []search.Result, className string) []search.Result {

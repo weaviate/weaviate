@@ -14,6 +14,7 @@ package schema
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -82,6 +83,10 @@ func (dt DataType) AsName() string {
 	return strings.ReplaceAll(dt.String(), "[]", "Array")
 }
 
+func (dt DataType) IsPrimitive() bool {
+	return slices.Contains(PrimitiveDataTypes, dt)
+}
+
 var PrimitiveDataTypes []DataType = []DataType{
 	DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate,
 	DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob, DataTypeTextArray,
@@ -97,6 +102,8 @@ var DeprecatedPrimitiveDataTypes []DataType = []DataType{
 	// deprecated as of v1.19
 	DataTypeString, DataTypeStringArray,
 }
+
+var allPrimitiveDataTypes []DataType = append(PrimitiveDataTypes, DeprecatedPrimitiveDataTypes...)
 
 type PropertyKind int
 
@@ -219,7 +226,13 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 	return FindPropertyDataTypeWithRefs(s.GetClass, dataType, false, "")
 }
 
-// FindPropertyDataTypeWithRefs Based on the schema, return a valid description of the defined datatype
+// FindPropertyDataTypeWithRefs is a no auth wrapper for FindPropertyDataTypeWithRefsAndAuth
+func FindPropertyDataTypeWithRefs(authorizedGetClass func(string) *models.Class, dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
+	wrapperFunc := func(name string) (*models.Class, error) { return authorizedGetClass(name), nil }
+	return FindPropertyDataTypeWithRefsAndAuth(wrapperFunc, dataType, relaxCrossRefValidation, beloningToClass)
+}
+
+// FindPropertyDataTypeWithRefsAndAuth Based on the schema, return a valid description of the defined datatype
 // If relaxCrossRefValidation is set, there is no check if the referenced class
 // exists in the schema. This can be helpful in scenarios, such as restoring
 // from a backup where we have no guarantee over the order of class creation.
@@ -227,7 +240,7 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 // exists in the schema is skipped. This is done to allow creating class schema with
 // properties referencing to itself. Previously such properties had to be created separately
 // only after creation of class schema
-func FindPropertyDataTypeWithRefs(fn func(string) *models.Class, dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
+func FindPropertyDataTypeWithRefsAndAuth(authorizedGetClass func(string) (*models.Class, error), dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
 	if len(dataType) < 1 {
 		return nil, errors.New("dataType must have at least one element")
 	}
@@ -267,7 +280,11 @@ func FindPropertyDataTypeWithRefs(fn func(string) *models.Class, dataType []stri
 		}
 
 		if beloningToClass != className && !relaxCrossRefValidation {
-			if fn(className.String()) == nil {
+			class, err := authorizedGetClass(className.String())
+			if err != nil {
+				return nil, err
+			}
+			if class == nil {
 				return nil, ErrRefToNonexistentClass
 			}
 		}
@@ -283,9 +300,9 @@ func FindPropertyDataTypeWithRefs(fn func(string) *models.Class, dataType []stri
 
 func AsPrimitive(dataType []string) (DataType, bool) {
 	if len(dataType) == 1 {
-		for _, dt := range append(PrimitiveDataTypes, DeprecatedPrimitiveDataTypes...) {
-			if dataType[0] == dt.String() {
-				return dt, true
+		for i := range allPrimitiveDataTypes {
+			if dataType[0] == allPrimitiveDataTypes[i].String() {
+				return allPrimitiveDataTypes[i], true
 			}
 		}
 		if len(dataType[0]) == 0 {

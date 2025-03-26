@@ -22,7 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// AdditionalProperties Additional Meta information about a single object object.
+// AdditionalProperties (Response only) Additional meta information about a single object.
 //
 // swagger:model AdditionalProperties
 type AdditionalProperties map[string]interface{}

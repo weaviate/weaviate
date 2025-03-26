@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -47,7 +48,11 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 			continue
 		}
 		queue := objectByClass[item.Object.Class]
-		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Object.Vector, item.Object.Vectors))
+		vectors, multiVectors, err := dto.GetVectors(item.Object.Vectors)
+		if err != nil {
+			return nil, fmt.Errorf("cannot process batch: cannot get vectors: %w", err)
+		}
+		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Object.Vector, vectors, multiVectors))
 		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
 		objectByClass[item.Object.Class] = queue
 	}
@@ -90,6 +95,9 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	for class, index := range indexByClass {
 		queue := objectByClass[class]
 		errs := index.putObjectBatch(ctx, queue.objects, repl, schemaVersion)
+		index.metrics.BatchCount(len(queue.objects))
+		index.metrics.BatchCountBytes(estimateStorBatchMemory(queue.objects))
+
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -217,6 +225,15 @@ func estimateBatchMemory(objs objects.BatchObjects) int64 {
 	var sum int64
 	for _, item := range objs {
 		sum += memwatch.EstimateObjectMemory(item.Object)
+	}
+
+	return sum
+}
+
+func estimateStorBatchMemory(objs []*storobj.Object) int64 {
+	var sum int64
+	for _, item := range objs {
+		sum += memwatch.EstimateStorObjectMemory(item)
 	}
 
 	return sum

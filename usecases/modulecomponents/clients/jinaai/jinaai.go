@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -65,17 +66,18 @@ type jinaErrorDetail struct {
 	Detail string `json:"detail,omitempty"` // in case of error detail holds the error message
 }
 
-type embedding struct {
+type embedding[T dto.Embedding] struct {
 	jinaErrorDetail
 	Object string                  `json:"object"`
-	Data   []embeddingData         `json:"data,omitempty"`
+	Data   []embeddingData[T]      `json:"data,omitempty"`
 	Usage  *modulecomponents.Usage `json:"usage,omitempty"`
 }
 
-type embeddingData struct {
-	Object    string    `json:"object"`
-	Index     int       `json:"index"`
-	Embedding []float32 `json:"embedding"`
+type embeddingData[T dto.Embedding] struct {
+	Object     string `json:"object"`
+	Index      int    `json:"index"`
+	Embedding  T      `json:"embedding"`
+	Embeddings T      `json:"embeddings"`
 }
 
 type Settings struct {
@@ -86,13 +88,7 @@ type Settings struct {
 	Normalized bool
 }
 
-func buildUrl(settings Settings) (string, error) {
-	host := settings.BaseURL
-	path := "/v1/embeddings"
-	return url.JoinPath(host, path)
-}
-
-type Client struct {
+type Client[T dto.Embedding] struct {
 	jinaAIApiKey string
 	httpClient   *http.Client
 	buildUrlFn   func(settings Settings) (string, error)
@@ -101,22 +97,39 @@ type Client struct {
 	logger       logrus.FieldLogger
 }
 
-func New(jinaAIApiKey string, timeout time.Duration, defaultRPM, defaultTPM int, logger logrus.FieldLogger) *Client {
-	return &Client{
+func EmbeddingsBuildUrlFn(settings Settings) (string, error) {
+	host := settings.BaseURL
+	path := "/v1/embeddings"
+	return url.JoinPath(host, path)
+}
+
+func MultiVectorBuildUrlFn(settings Settings) (string, error) {
+	host := settings.BaseURL
+	path := "/v1/multi-vector"
+	return url.JoinPath(host, path)
+}
+
+func New[T dto.Embedding](jinaAIApiKey string,
+	timeout time.Duration,
+	defaultRPM, defaultTPM int,
+	buildUrlFn func(settings Settings) (string, error),
+	logger logrus.FieldLogger,
+) *Client[T] {
+	return &Client[T]{
 		jinaAIApiKey: jinaAIApiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		buildUrlFn: buildUrl,
+		buildUrlFn: buildUrlFn,
 		defaultRPM: defaultRPM,
 		defaultTPM: defaultTPM,
 		logger:     logger,
 	}
 }
 
-func (c *Client) Vectorize(ctx context.Context, input []string,
+func (c *Client[T]) Vectorize(ctx context.Context, input []string,
 	settings Settings,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[T], *modulecomponents.RateLimits, int, error) {
 	embeddingRequest := c.getTextEmbeddingsRequest(input, settings)
 	resBody, err := c.vectorize(ctx, embeddingRequest, settings)
 	if err != nil {
@@ -124,14 +137,18 @@ func (c *Client) Vectorize(ctx context.Context, input []string,
 	}
 
 	texts := make([]string, len(resBody.Data))
-	embeddings := make([][]float32, len(resBody.Data))
+	embeddings := make([]T, len(resBody.Data))
 	for i := range resBody.Data {
 		index := resBody.Data[i].Index
 		texts[index] = resBody.Data[i].Object
-		embeddings[index] = resBody.Data[i].Embedding
+		if resBody.Data[i].Embedding != nil {
+			embeddings[index] = resBody.Data[i].Embedding
+		} else if resBody.Data[i].Embeddings != nil {
+			embeddings[index] = resBody.Data[i].Embeddings
+		}
 	}
 
-	res := &modulecomponents.VectorizationResult{
+	res := &modulecomponents.VectorizationResult[T]{
 		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
@@ -140,16 +157,16 @@ func (c *Client) Vectorize(ctx context.Context, input []string,
 	return res, nil, modulecomponents.GetTotalTokens(resBody.Usage), nil
 }
 
-func (c *Client) VectorizeMultiModal(ctx context.Context, texts, images []string,
+func (c *Client[T]) VectorizeMultiModal(ctx context.Context, texts, images []string,
 	settings Settings,
-) (*modulecomponents.VectorizationCLIPResult, error) {
+) (*modulecomponents.VectorizationCLIPResult[T], error) {
 	embeddingRequest := c.getMultiModalEmbeddingsRequest(texts, images, settings)
 	resBody, err := c.vectorize(ctx, embeddingRequest, settings)
 	if err != nil {
 		return nil, err
 	}
 
-	var textVectors, imageVectors [][]float32
+	var textVectors, imageVectors []T
 	for i := range resBody.Data {
 		if i < len(texts) {
 			textVectors = append(textVectors, resBody.Data[i].Embedding)
@@ -158,16 +175,16 @@ func (c *Client) VectorizeMultiModal(ctx context.Context, texts, images []string
 		}
 	}
 
-	res := &modulecomponents.VectorizationCLIPResult{
+	res := &modulecomponents.VectorizationCLIPResult[T]{
 		TextVectors:  textVectors,
 		ImageVectors: imageVectors,
 	}
 	return res, nil
 }
 
-func (c *Client) vectorize(ctx context.Context,
+func (c *Client[T]) vectorize(ctx context.Context,
 	embeddingRequest interface{}, settings Settings,
-) (*embedding, error) {
+) (*embedding[T], error) {
 	body, err := json.Marshal(embeddingRequest)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
@@ -202,7 +219,7 @@ func (c *Client) vectorize(ctx context.Context,
 		return nil, errors.Wrap(err, "read response body")
 	}
 
-	var resBody embedding
+	var resBody embedding[T]
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
@@ -214,7 +231,7 @@ func (c *Client) vectorize(ctx context.Context,
 	return &resBody, nil
 }
 
-func (c *Client) getError(statusCode int, errorMessage string) error {
+func (c *Client[T]) getError(statusCode int, errorMessage string) error {
 	endpoint := "JinaAI API"
 	if errorMessage != "" {
 		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, errorMessage)
@@ -222,17 +239,21 @@ func (c *Client) getError(statusCode int, errorMessage string) error {
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (c *Client) getTextEmbeddingsRequest(input []string, settings Settings) embeddingsRequest[[]string] {
-	req := embeddingsRequest[[]string]{Input: input, Model: settings.Model, EmbeddingType: embeddingTypeFloat, Normalized: settings.Normalized}
+func (c *Client[T]) getTextEmbeddingsRequest(input []string, settings Settings) embeddingsRequest[[]string] {
+	req := embeddingsRequest[[]string]{
+		Input:         input,
+		Model:         settings.Model,
+		EmbeddingType: embeddingTypeFloat,
+		Normalized:    settings.Normalized, Dimensions: settings.Dimensions,
+	}
 	if strings.Contains(settings.Model, "v3") || strings.Contains(settings.Model, "clip") {
 		// v3 models require taskType and dimensions params
 		req.Task = &settings.Task
-		req.Dimensions = settings.Dimensions
 	}
 	return req
 }
 
-func (c *Client) getMultiModalEmbeddingsRequest(texts, images []string, settings Settings) embeddingsRequest[[]MultiModalInput] {
+func (c *Client[T]) getMultiModalEmbeddingsRequest(texts, images []string, settings Settings) embeddingsRequest[[]MultiModalInput] {
 	input := make([]MultiModalInput, len(texts)+len(images))
 	for i := range texts {
 		input[i] = MultiModalInput{Text: texts[i]}
@@ -250,15 +271,15 @@ func (c *Client) getMultiModalEmbeddingsRequest(texts, images []string, settings
 	}
 }
 
-func (c *Client) getApiKeyHeaderAndValue(apiKey string) (string, string) {
+func (c *Client[T]) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
-func (c *Client) getApiKey(ctx context.Context) (string, error) {
+func (c *Client[T]) getApiKey(ctx context.Context) (string, error) {
 	return c.getApiKeyFromContext(ctx, "X-Jinaai-Api-Key", "JINAAI_APIKEY")
 }
 
-func (c *Client) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
+func (c *Client[T]) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
 	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
@@ -268,7 +289,7 @@ func (c *Client) getApiKeyFromContext(ctx context.Context, apiKey, envVar string
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
-func (c *Client) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
+func (c *Client[T]) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
 	key, err := c.getApiKey(ctx)
 	if err != nil {
 		return [32]byte{}
@@ -276,7 +297,7 @@ func (c *Client) GetApiKeyHash(ctx context.Context, config moduletools.ClassConf
 	return sha256.Sum256([]byte(key))
 }
 
-func (c *Client) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+func (c *Client[T]) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	rpm, _ := modulecomponents.GetRateLimitFromContext(ctx, "Jinaai", c.defaultRPM, 0)
 
 	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {

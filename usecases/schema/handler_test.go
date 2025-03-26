@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -36,6 +37,7 @@ var schemaTests = []struct {
 	{name: "CantAddSameClassTwice", fn: testCantAddSameClassTwice},
 	{name: "CantAddSameClassTwiceDifferentKind", fn: testCantAddSameClassTwiceDifferentKinds},
 	{name: "AddPropertyDuringCreation", fn: testAddPropertyDuringCreation},
+	{name: "AddPropertyWithTargetVectorConfig", fn: testAddPropertyWithTargetVectorConfig},
 	{name: "AddInvalidPropertyDuringCreation", fn: testAddInvalidPropertyDuringCreation},
 	{name: "AddInvalidPropertyWithEmptyDataTypeDuringCreation", fn: testAddInvalidPropertyWithEmptyDataTypeDuringCreation},
 	{name: "DropProperty", fn: testDropProperty},
@@ -55,6 +57,7 @@ func testAddObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fakeS
 		VectorIndexConfig: map[string]interface{}{},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -73,6 +76,7 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 		}},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -90,7 +94,7 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 	}
 
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -124,7 +128,6 @@ func testAddObjectClassWrongIndexType(t *testing.T, handler *Handler, fakeSchema
 			Name:         "dummy",
 		}},
 	}
-
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	require.NotNil(t, err)
 	assert.Equal(t, "unrecognized or unsupported vectorIndexType \"vector-index-2-million\"", err.Error())
@@ -144,6 +147,7 @@ func testRemoveObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fa
 	}
 
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	require.Nil(t, err)
 
@@ -168,6 +172,7 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeSchemaManager
 		},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 
@@ -183,6 +188,7 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeSchemaManager
 		},
 	}
 	fakeSchemaManager.ExpectedCalls = fakeSchemaManager.ExpectedCalls[:0]
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(ErrNotFound)
 
 	// Add it again
@@ -202,6 +208,7 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fak
 			},
 		},
 	}
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	_, _, err := handler.AddClass(ctx, nil, class)
 	assert.Nil(t, err)
@@ -218,9 +225,6 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fak
 	assert.NotNil(t, err)
 }
 
-// TODO: parts of this test contain text2vec-contextionary logic, but parts are
-// also general logic
-
 func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
@@ -232,11 +236,6 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 			Name:         "color",
 			DataType:     schema.DataTypeText.PropString(),
 			Tokenization: models.PropertyTokenizationWhitespace,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizePropertyName": true,
-				},
-			},
 		},
 		{
 			Name:            "colorRaw1",
@@ -244,11 +243,6 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 			Tokenization:    models.PropertyTokenizationWhitespace,
 			IndexFilterable: &vFalse,
 			IndexSearchable: &vFalse,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"skip": true,
-				},
-			},
 		},
 		{
 			Name:            "colorRaw2",
@@ -256,11 +250,6 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 			Tokenization:    models.PropertyTokenizationWhitespace,
 			IndexFilterable: &vTrue,
 			IndexSearchable: &vFalse,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"skip": true,
-				},
-			},
 		},
 		{
 			Name:            "colorRaw3",
@@ -268,11 +257,6 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 			Tokenization:    models.PropertyTokenizationWhitespace,
 			IndexFilterable: &vFalse,
 			IndexSearchable: &vTrue,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"skip": true,
-				},
-			},
 		},
 		{
 			Name:            "colorRaw4",
@@ -280,21 +264,11 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 			Tokenization:    models.PropertyTokenizationWhitespace,
 			IndexFilterable: &vTrue,
 			IndexSearchable: &vTrue,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"skip": true,
-				},
-			},
 		},
 		{
 			Name:         "content",
 			DataType:     schema.DataTypeText.PropString(),
 			Tokenization: models.PropertyTokenizationWhitespace,
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizePropertyName": false,
-				},
-			},
 		},
 		{
 			Name:         "allDefault",
@@ -308,8 +282,39 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 		Properties: properties,
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
+}
+
+func testAddPropertyWithTargetVectorConfig(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
+	t.Parallel()
+
+	class := &models.Class{
+		Class: "Car",
+		Properties: []*models.Property{
+			{
+				Name:         "color",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": true,
+					},
+				},
+			},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			"vec1": {
+				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+				VectorIndexType: "flat",
+			},
+		},
+	}
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+	_, _, err := handler.AddClass(context.Background(), nil, class)
+	require.NoError(t, err)
 }
 
 func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
@@ -357,6 +362,7 @@ func testDropProperty(t *testing.T, handler *Handler, fakeSchemaManager *fakeSch
 		Class:      "Car",
 		Properties: properties,
 	}
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
@@ -373,6 +379,7 @@ func TestSchema(t *testing.T) {
 			// Run each test independently with their own handler
 			t.Run(testCase.name, func(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 				defer fakeSchemaManager.AssertExpectations(t)
 				testCase.fn(t, handler, fakeSchemaManager)
 			})

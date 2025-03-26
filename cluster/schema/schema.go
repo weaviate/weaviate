@@ -197,6 +197,13 @@ func (s *schema) ReadOnlySchema() models.Schema {
 	return cp
 }
 
+func (s *schema) CollectionsCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.classes)
+}
+
 // ShardOwner returns the node owner of the specified shard
 func (s *schema) ShardOwner(class, shard string) (string, uint64, error) {
 	meta := s.metaClass(class)
@@ -466,27 +473,25 @@ func (s *schema) updateTenantsProcess(class string, v uint64, req *command.Tenan
 	return err
 }
 
-func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
+func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantResponse, error) {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
 		return nil, err
 	}
 
 	// Read tenants using the meta lock guard
-	var res []*models.Tenant
+	var res []*models.TenantResponse
 	f := func(_ *models.Class, ss *sharding.State) error {
 		if len(tenants) == 0 {
-			res = make([]*models.Tenant, len(ss.Physical))
-			i := 0
-			for tenant := range ss.Physical {
-				res[i] = makeTenant(tenant, entSchema.ActivityStatus(ss.Physical[tenant].Status))
-				i++
+			res = make([]*models.TenantResponse, 0, len(ss.Physical))
+			for tenant, physical := range ss.Physical {
+				res = append(res, makeTenantResponse(tenant, physical))
 			}
 		} else {
-			res = make([]*models.Tenant, 0, len(tenants))
+			res = make([]*models.TenantResponse, 0, len(tenants))
 			for _, tenant := range tenants {
-				if status, ok := ss.Physical[tenant]; ok {
-					res = append(res, makeTenant(tenant, entSchema.ActivityStatus(status.Status)))
+				if physical, ok := ss.Physical[tenant]; ok {
+					res = append(res, makeTenantResponse(tenant, physical))
 				}
 			}
 		}
@@ -533,7 +538,7 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 func (s *schema) Restore(r io.Reader, parser Parser) error {
 	snap := snapshot{}
 	if err := json.NewDecoder(r).Decode(&snap); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %v", err)
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 	for _, cls := range snap.Classes {
 		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
@@ -566,11 +571,26 @@ func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
 func (s *schema) Release() {
 }
 
-//
-
-func makeTenant(name, status string) *models.Tenant {
-	return &models.Tenant{
+// makeTenant creates a tenant with the given name and status
+func makeTenant(name, status string) models.Tenant {
+	return models.Tenant{
 		Name:           name,
 		ActivityStatus: status,
+	}
+}
+
+func makeTenantResponse(tenant string, physical sharding.Physical) *models.TenantResponse {
+	// copy BelongsToNodes to avoid modification of the original slice
+	cpy := make([]string, len(physical.BelongsToNodes))
+	copy(cpy, physical.BelongsToNodes)
+
+	return MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy)
+}
+
+// MakeTenantWithBelongsToNodes creates a tenant with the given name, status, and belongsToNodes
+func MakeTenantWithBelongsToNodes(name, status string, belongsToNodes []string) *models.TenantResponse {
+	return &models.TenantResponse{
+		Tenant:         makeTenant(name, status),
+		BelongsToNodes: belongsToNodes,
 	}
 }

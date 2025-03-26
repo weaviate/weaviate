@@ -64,6 +64,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -121,6 +126,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -166,6 +176,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 							"type": hnsw.PQEncoderTypeKMeans,
 						},
 					},
+					"filterStrategy": hnsw.FilterStrategyAcorn,
 				},
 			},
 			expected: UserConfig{
@@ -197,6 +208,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					FilterStrategy: hnsw.FilterStrategyAcorn,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -218,6 +234,18 @@ func Test_DynamicUserConfig(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			name: "dynamic index is set with multivector",
+			input: map[string]interface{}{
+				"hnsw": map[string]interface{}{
+					"multivector": map[string]interface{}{
+						"enabled": true,
+					},
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "multi vector index is not supported for dynamic index",
 		},
 		{
 			name: "flat is properly set",
@@ -262,6 +290,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: 100,
@@ -304,7 +337,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cfg, err := ParseAndValidateConfig(test.input)
+			cfg, err := ParseAndValidateConfig(test.input, false)
 			if test.expectErr {
 				require.NotNil(t, err)
 				assert.Contains(t, err.Error(), test.expectErrMsg)

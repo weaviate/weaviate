@@ -55,6 +55,34 @@ func AnnotateSlowQueryLog(ctx context.Context, key string, value any) {
 	}
 }
 
+func AnnotateSlowQueryLogAppend(ctx context.Context, key string, value any) {
+	val := ctx.Value("slow_query_details")
+	if val == nil {
+		return
+	}
+
+	details, ok := val.(*SlowQueryDetails)
+	if !ok {
+		return
+	}
+
+	details.Lock()
+	defer details.Unlock()
+
+	prev, ok := details.values[key]
+	if !ok {
+		prev = make([]any, 0)
+	}
+
+	asList, ok := prev.([]any)
+	if !ok {
+		return
+	}
+
+	asList = append(asList, value)
+	details.values[key] = asList
+}
+
 func ExtractSlowQueryDetails(ctx context.Context) map[string]any {
 	val := ctx.Value("slow_query_details")
 	if val == nil {

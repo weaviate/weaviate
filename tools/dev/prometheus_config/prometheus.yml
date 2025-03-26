@@ -18,3 +18,8 @@ scrape_configs:
       - targets: ['host.docker.internal:2114']
         labels:
           instance: 'node-3'
+  - job_name: 'node'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+        - host.docker.internal:9100

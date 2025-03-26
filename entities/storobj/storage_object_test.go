@@ -58,9 +58,82 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
+		},
+		nil,
+	)
+	before.DocID = 7
+
+	asBinary, err := before.MarshalBinary()
+	require.Nil(t, err)
+
+	after, err := FromBinary(asBinary)
+	require.Nil(t, err)
+
+	t.Run("compare", func(t *testing.T) {
+		assert.Equal(t, before, after)
+	})
+
+	t.Run("extract only doc id and compare", func(t *testing.T) {
+		id, updateTime, err := DocIDAndTimeFromBinary(asBinary)
+		require.Nil(t, err)
+		assert.Equal(t, uint64(7), id)
+		assert.Equal(t, before.LastUpdateTimeUnix(), updateTime)
+	})
+
+	t.Run("extract single text prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "name")
+		require.Nil(t, err)
+		require.True(t, ok)
+		require.NotEmpty(t, prop)
+		assert.Equal(t, "MyName", prop[0])
+	})
+
+	t.Run("extract non-existing text prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "IDoNotExist")
+		require.Nil(t, err)
+		require.True(t, ok)
+		require.Empty(t, prop)
+	})
+}
+
+func TestStorageObjectMarshallingMultiVector(t *testing.T) {
+	before := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Additional: models.AdditionalProperties{
+				"classification": &additional.Classification{
+					BasedOn: []string{"some", "fields"},
+				},
+				"interpretation": map[string]interface{}{
+					"Source": []interface{}{
+						map[string]interface{}{
+							"concept":    "foo",
+							"occurrence": float64(7),
+							"weight":     float64(3),
+						},
+					},
+				},
+			},
+			Properties: map[string]interface{}{
+				"name": "MyName",
+				"foo":  float64(17),
+			},
+		},
+		[]float32{1, 2, 0.7},
+		map[string][]float32{
+			"vector1": {1, 2, 3},
+			"vector2": {4, 5, 6},
+		},
+		map[string][][]float32{
+			"vector3": {{7, 8, 9}, {10, 11, 12}},
+			"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
+			"vector5": {{19, 20, 21}, {22, 23, 24}},
 		},
 	)
 	before.DocID = 7
@@ -98,6 +171,232 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	})
 }
 
+func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
+	t.Run("all vectors stored", func(t *testing.T) {
+		before := FromObject(
+			&models.Object{
+				Class:              "MyFavoriteClass",
+				CreationTimeUnix:   123456,
+				LastUpdateTimeUnix: 56789,
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+				Additional: models.AdditionalProperties{
+					"classification": &additional.Classification{
+						BasedOn: []string{"some", "fields"},
+					},
+					"interpretation": map[string]interface{}{
+						"Source": []interface{}{
+							map[string]interface{}{
+								"concept":    "foo",
+								"occurrence": float64(7),
+								"weight":     float64(3),
+							},
+						},
+					},
+				},
+				Properties: map[string]interface{}{
+					"name": "MyName",
+					"foo":  float64(17),
+				},
+			},
+			[]float32{1, 2, 0.7},
+			map[string][]float32{
+				"vector1": {1, 2, 3},
+				"vector2": {4, 5, 6},
+			},
+			map[string][][]float32{
+				"vector3": {{7, 8, 9}, {10, 11, 12}},
+				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
+				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
+			},
+		)
+		before.DocID = 7
+
+		asBinary, err := before.MarshalBinary()
+		require.Nil(t, err)
+
+		after := &Object{}
+		after.UnmarshalBinary(asBinary)
+		require.Nil(t, err)
+
+		t.Run("compare", func(t *testing.T) {
+			assert.Equal(t, before, after)
+		})
+
+		t.Run("check vector", func(t *testing.T) {
+			require.NotEmpty(t, after.Vector)
+			assert.ElementsMatch(t, after.Vector, before.Vector)
+		})
+
+		t.Run("check vectors", func(t *testing.T) {
+			require.NotEmpty(t, after.Vectors)
+			assert.ElementsMatch(t, after.Vectors["vector1"], before.Vectors["vector1"])
+			assert.ElementsMatch(t, after.Vectors["vector2"], before.Vectors["vector2"])
+		})
+
+		t.Run("check multi vectors", func(t *testing.T) {
+			require.NotEmpty(t, after.MultiVectors)
+			assert.ElementsMatch(t, after.MultiVectors["vector3"], before.MultiVectors["vector3"])
+			assert.ElementsMatch(t, after.MultiVectors["vector4"], before.MultiVectors["vector4"])
+			assert.ElementsMatch(t, after.MultiVectors["vector5"], before.MultiVectors["vector5"])
+		})
+
+		t.Run("check multi vectors optional", func(t *testing.T) {
+			t.Run("FromBinaryOptional: empty additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+				require.Nil(t, err)
+				require.Nil(t, afterMultiVectorsOptional.MultiVectors)
+			})
+
+			t.Run("FromBinaryOptional: multi vector in additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+					Vectors: []string{"vector4"},
+				}, nil)
+				require.Nil(t, err)
+				require.NotEmpty(t, afterMultiVectorsOptional.MultiVectors)
+				require.Len(t, afterMultiVectorsOptional.MultiVectors, 1)
+				require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.MultiVectors["vector4"])
+			})
+
+			t.Run("FromBinaryOptional: named vector and multi vector in additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+					Vectors: []string{"vector2", "vector4"},
+				}, nil)
+				require.Nil(t, err)
+				require.NotEmpty(t, afterMultiVectorsOptional.Vectors)
+				require.NotEmpty(t, afterMultiVectorsOptional.MultiVectors)
+				require.Len(t, afterMultiVectorsOptional.Vectors, 2)
+				require.Len(t, afterMultiVectorsOptional.MultiVectors, 1)
+				require.Equal(t, before.Vectors["vector1"], afterMultiVectorsOptional.Vectors["vector1"])
+				require.Equal(t, before.Vectors["vector2"], afterMultiVectorsOptional.Vectors["vector2"])
+				require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.MultiVectors["vector4"])
+			})
+		})
+	})
+
+	t.Run("only vectors and multivectors", func(t *testing.T) {
+		before := FromObject(
+			&models.Object{
+				Class:              "MyFavoriteClass",
+				CreationTimeUnix:   123456,
+				LastUpdateTimeUnix: 56789,
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+				Additional: models.AdditionalProperties{
+					"classification": &additional.Classification{
+						BasedOn: []string{"some", "fields"},
+					},
+					"interpretation": map[string]interface{}{
+						"Source": []interface{}{
+							map[string]interface{}{
+								"concept":    "foo",
+								"occurrence": float64(7),
+								"weight":     float64(3),
+							},
+						},
+					},
+				},
+				Properties: map[string]interface{}{
+					"name": "MyName",
+					"foo":  float64(17),
+				},
+			},
+			nil,
+			map[string][]float32{
+				"vector1": {1, 2, 3},
+				"vector2": {4, 5, 6},
+			},
+			map[string][][]float32{
+				"vector3": {{7, 8, 9}, {10, 11, 12}},
+				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
+				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
+			},
+		)
+		before.DocID = 7
+
+		asBinary, err := before.MarshalBinary()
+		require.Nil(t, err)
+
+		after := &Object{}
+		after.UnmarshalBinary(asBinary)
+		require.Nil(t, err)
+
+		t.Run("check vector", func(t *testing.T) {
+			require.Empty(t, after.Vector)
+		})
+
+		t.Run("check vectors", func(t *testing.T) {
+			require.NotEmpty(t, after.Vectors)
+			assert.ElementsMatch(t, after.Vectors["vector1"], before.Vectors["vector1"])
+			assert.ElementsMatch(t, after.Vectors["vector2"], before.Vectors["vector2"])
+		})
+
+		t.Run("check multivectors", func(t *testing.T) {
+			require.NotEmpty(t, after.MultiVectors)
+			assert.ElementsMatch(t, after.MultiVectors["vector3"], before.MultiVectors["vector3"])
+			assert.ElementsMatch(t, after.MultiVectors["vector4"], before.MultiVectors["vector4"])
+			assert.ElementsMatch(t, after.MultiVectors["vector5"], before.MultiVectors["vector5"])
+		})
+	})
+
+	t.Run("only multi vectors", func(t *testing.T) {
+		before := FromObject(
+			&models.Object{
+				Class:              "MyFavoriteClass",
+				CreationTimeUnix:   123456,
+				LastUpdateTimeUnix: 56789,
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+				Additional: models.AdditionalProperties{
+					"classification": &additional.Classification{
+						BasedOn: []string{"some", "fields"},
+					},
+					"interpretation": map[string]interface{}{
+						"Source": []interface{}{
+							map[string]interface{}{
+								"concept":    "foo",
+								"occurrence": float64(7),
+								"weight":     float64(3),
+							},
+						},
+					},
+				},
+				Properties: map[string]interface{}{
+					"name": "MyName",
+					"foo":  float64(17),
+				},
+			},
+			nil,
+			nil,
+			map[string][][]float32{
+				"vector3": {{7, 8, 9}, {10, 11, 12}},
+				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
+				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
+			},
+		)
+		before.DocID = 7
+
+		asBinary, err := before.MarshalBinary()
+		require.Nil(t, err)
+
+		after := &Object{}
+		after.UnmarshalBinary(asBinary)
+		require.Nil(t, err)
+
+		t.Run("check vector", func(t *testing.T) {
+			require.Empty(t, after.Vector)
+		})
+
+		t.Run("check vectors", func(t *testing.T) {
+			require.Nil(t, after.Vectors)
+		})
+
+		t.Run("check multi vectors", func(t *testing.T) {
+			require.NotEmpty(t, after.MultiVectors)
+			assert.ElementsMatch(t, after.MultiVectors["vector3"], before.MultiVectors["vector3"])
+			assert.ElementsMatch(t, after.MultiVectors["vector4"], before.MultiVectors["vector4"])
+			assert.ElementsMatch(t, after.MultiVectors["vector5"], before.MultiVectors["vector5"])
+		})
+	})
+}
+
 func TestFilteringNilProperty(t *testing.T) {
 	object := FromObject(
 		&models.Object{
@@ -109,6 +408,7 @@ func TestFilteringNilProperty(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
+		nil,
 		nil,
 	)
 	props := object.Properties()
@@ -148,11 +448,12 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
 		},
+		nil,
 	)
 	before.DocID = 7
 
@@ -160,7 +461,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("without any optional", func(t *testing.T) {
-		after, err := FromBinaryOptional(asBinary, additional.Properties{})
+		after, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
 		require.Nil(t, err)
 
 		t.Run("compare", func(t *testing.T) {
@@ -228,7 +529,7 @@ func TestNewStorageObject(t *testing.T) {
 					Properties: map[string]interface{}{
 						"foo": "bar",
 					},
-				}, nil, nil)
+				}, nil, nil, nil)
 				alt.DocID = 13
 
 				assert.Equal(t, so, alt)
@@ -282,7 +583,7 @@ func TestNewStorageObject(t *testing.T) {
 					Properties: map[string]interface{}{
 						"foo": "bar",
 					},
-				}, nil, nil)
+				}, nil, nil, nil)
 				alt.DocID = 13
 
 				assert.Equal(t, so, alt)
@@ -318,11 +619,12 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
 		},
+		nil,
 	)
 	before.DocID = 7
 
@@ -370,7 +672,12 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 		"time":         "2011-11-23T01:52:23.000004234Z",
 		"boolArray":    []interface{}{true, false, true},
 		"beacon":       []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
-		"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+		"ref": []interface{}{
+			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"},
+			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248"},
+		},
+		"nested":      map[string]interface{}{"test": map[string]interface{}{"innerInt": float64(3), "innerStr": "avc"}},
+		"nestedArray": []interface{}{map[string]interface{}{"test": map[string]interface{}{"innerArray": float64(3), "innerStr": "avc"}}},
 	}
 	properties := map[string]interface{}{
 		"numberArray":  []float64{1.1, 2.1},
@@ -383,17 +690,23 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 		"time":         time.Date(2011, 11, 23, 1, 52, 23, 4234, time.UTC),
 		"boolArray":    []bool{true, false, true},
 		"beacon":       []map[string]interface{}{{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
-		"ref":          []models.SingleRef{{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"}},
+		"ref": []models.SingleRef{
+			{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"},
+			{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a81"},
+		},
+		"nested":      map[string]interface{}{"test": map[string]interface{}{"innerInt": 3, "innerStr": "avc"}},
+		"nestedArray": []interface{}{map[string]interface{}{"test": map[string]interface{}{"innerArray": float64(3), "innerStr": "avc"}}},
 	}
 	before := FromObject(
 		&models.Object{
 			Class:              "MyFavoriteClass",
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
-			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			ID:                 "73f2eb5f-5abf-447a-81ca-74b1dd168247",
 			Properties:         properties,
 		},
 		[]float32{1, 2, 0.7},
+		nil,
 		nil,
 	)
 
@@ -401,10 +714,8 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 	byteObject, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	var propertyNames []string
 	var propStrings [][]string
 	for key := range properties {
-		propertyNames = append(propertyNames, key)
 		propStrings = append(propStrings, []string{key})
 	}
 
@@ -412,11 +723,10 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 
 	// test with reused property map
 	for i := 0; i < 2; i++ {
-		require.Nil(t, UnmarshalPropertiesFromObject(byteObject, &extractedProperties, propertyNames, propStrings))
+		require.Nil(t, UnmarshalPropertiesFromObject(byteObject, extractedProperties, propStrings))
 		for key := range expected {
 			require.Equal(t, expected[key], extractedProperties[key])
 		}
-
 	}
 }
 
@@ -469,11 +779,12 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
 		},
+		nil,
 	)
 	before.DocID = 7
 
@@ -558,6 +869,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					},
 					vector,
 					nil,
+					nil,
 				)
 				before.DocID = 7
 
@@ -587,10 +899,12 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 						CreationTimeUnix: 123456,
 						ID:               strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 						Properties: map[string]interface{}{
-							"name": "myName",
+							"name":   "myName",
+							"second": "entry",
 						},
 					},
 					vector,
+					nil,
 					nil,
 				)
 				before.DocID = 7
@@ -599,7 +913,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				require.Nil(t, err)
 
 				t.Run("get without additional properties", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{})
+					after, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
@@ -615,12 +929,13 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("get with additional property vector", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{Vector: true})
+					after, err := FromBinaryOptional(asBinary, additional.Properties{Vector: true}, nil)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
 					before.Vector = vector
 					before.VectorLen = int(vectorLength)
+
 					assert.Equal(t, before, after)
 
 					assert.Equal(t, before.DocID, after.DocID)
@@ -629,6 +944,31 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					// purposes) even if the vector itself is skipped
 					assert.Equal(t, after.VectorLen, int(vectorLength))
 					assert.Equal(t, vector, after.Vector)
+				})
+
+				t.Run("with explicit properties", func(t *testing.T) {
+					after, err := FromBinaryOptional(asBinary, additional.Properties{},
+						&PropertyExtraction{PropertyPaths: [][]string{{"name"}}},
+					)
+					require.Nil(t, err)
+
+					assert.Equal(t, before.DocID, after.DocID)
+					// second property is not included
+					assert.Equal(t, map[string]interface{}{"name": "myName"}, after.Properties())
+				})
+
+				t.Run("test no props and moduleparams", func(t *testing.T) {
+					after, err := FromBinaryOptional(asBinary, additional.Properties{
+						NoProps:      true,
+						ModuleParams: map[string]interface{}{"foo": "bar"}, // this causes the property extraction code to run
+					},
+						&PropertyExtraction{PropertyPaths: nil},
+					)
+					require.Nil(t, err)
+
+					assert.Equal(t, before.DocID, after.DocID)
+					var emptyProps map[string]interface{}
+					assert.Equal(t, emptyProps, after.Properties())
 				})
 			})
 		})
@@ -687,11 +1027,12 @@ func TestVectorFromBinary(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": vector1,
 			"vector2": vector2,
 			"vector3": vector3,
 		},
+		nil,
 	)
 	before.DocID = 7
 
@@ -711,6 +1052,90 @@ func TestVectorFromBinary(t *testing.T) {
 	assert.Equal(t, vector3, outVector3)
 }
 
+func TestMultiVectorFromBinary(t *testing.T) {
+	vector1 := [][]float32{{1, 2, 3}, {4, 5, 6}}
+	vector2 := [][]float32{{4, 5, 6}, {7, 8, 9}}
+	vector3 := [][]float32{{7, 8, 9}, {10, 11, 12}, {13, 14, 15}}
+	vector4 := []float32{1, 2, 3}
+	before := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Additional: models.AdditionalProperties{
+				"classification": &additional.Classification{
+					BasedOn: []string{"some", "fields"},
+				},
+				"interpretation": map[string]interface{}{
+					"Source": []interface{}{
+						map[string]interface{}{
+							"concept":    "foo",
+							"occurrence": float64(7),
+							"weight":     float64(3),
+						},
+					},
+				},
+				"group": &additional.Group{
+					ID: 100,
+					GroupedBy: &additional.GroupedBy{
+						Value: "group-by-some-property",
+						Path:  []string{"property-path"},
+					},
+					MaxDistance: 0.1,
+					MinDistance: 0.2,
+					Count:       200,
+					Hits: []map[string]interface{}{
+						{
+							"property1": "value1",
+							"_additional": &additional.GroupHitAdditional{
+								ID:       "2c76ca18-2073-4c48-aa52-7f444d2f5b80",
+								Distance: 0.24,
+							},
+						},
+						{
+							"property1": "value2",
+						},
+					},
+				},
+			},
+			Properties: map[string]interface{}{
+				"name": "MyName",
+				"foo":  float64(17),
+			},
+		},
+		[]float32{1, 2, 0.7},
+		map[string][]float32{
+			"vector4": vector4,
+		},
+		map[string][][]float32{
+			"vector1": vector1,
+			"vector2": vector2,
+			"vector3": vector3,
+		},
+	)
+	before.DocID = 7
+
+	asBinary, err := before.MarshalBinary()
+	require.Nil(t, err)
+
+	outVector1, err := MultiVectorFromBinary(asBinary, nil, "vector1")
+	require.Nil(t, err)
+	assert.Equal(t, vector1, outVector1)
+
+	outVector2, err := MultiVectorFromBinary(asBinary, nil, "vector2")
+	require.Nil(t, err)
+	assert.Equal(t, vector2, outVector2)
+
+	outVector3, err := MultiVectorFromBinary(asBinary, nil, "vector3")
+	require.Nil(t, err)
+	assert.Equal(t, vector3, outVector3)
+
+	outVector4, err := VectorFromBinary(asBinary, nil, "vector4")
+	require.Nil(t, err)
+	assert.Equal(t, vector4, outVector4)
+}
+
 func TestStorageInvalidObjectMarshalling(t *testing.T) {
 	t.Run("invalid className", func(t *testing.T) {
 		invalidClassName := make([]byte, maxClassNameLength+1)
@@ -723,6 +1148,7 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 				LastUpdateTimeUnix: 56789,
 				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			},
+			nil,
 			nil,
 			nil,
 		)
@@ -741,6 +1167,7 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 			},
 			make([]float32, maxVectorLength+1),
 			nil,
+			nil,
 		)
 
 		_, err := invalidObj.MarshalBinary()
@@ -756,14 +1183,149 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			},
 			nil,
-			models.Vectors{
-				"vector1": make(models.Vector, maxVectorLength+1),
+			map[string][]float32{
+				"vector1": make([]float32, maxVectorLength+1),
 			},
+			nil,
 		)
 
 		_, err := invalidObj.MarshalBinary()
 		require.ErrorContains(t, err, "could not marshal 'vector' max length exceeded")
 	})
+}
+
+// Test that using the same buffer as source for unmarshalling does not cause problems due to memoy reuse
+func TestMemoryReuse(t *testing.T) {
+	props := []map[string]interface{}{
+		{
+			"numberArray":  []interface{}{1.1, 2.1},
+			"intArray":     []interface{}{1., 2., 5000.},
+			"textArrayUTF": []interface{}{"語", "b"},
+			"boolArray":    []interface{}{true, false},
+			"textArray":    []interface{}{"hello", ",", "I", "am", "a", "veeery", "long", "Array", "with some text."},
+			"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+			"foo":          float64(17),
+		},
+		{
+			"numberArray":  []interface{}{1.4, 6.1},
+			"intArray":     []interface{}{4., 3., 9000.},
+			"textArrayUTF": []interface{}{"a", "c"},
+			"boolArray":    []interface{}{true, true},
+			"textArray":    []interface{}{"I", "contain", "other", "text"},
+			"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168248"}},
+			"foo":          float64(5),
+		},
+		{
+			"numberArray":  []interface{}{1.4, 6.1, 8.9},
+			"intArray":     []interface{}{4., 3., 9000., 1.},
+			"textArrayUTF": []interface{}{"a", "c", "d"},
+			"boolArray":    []interface{}{true, true, false},
+			"textArray":    []interface{}{"I", "contain", "other", "text", "too"},
+			"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168249"}},
+			"foo":          float64(9),
+		},
+	}
+
+	largestSize := 0
+	for i, prop := range props {
+		obj := models.Object{
+			Class:      "something",
+			ID:         strfmt.UUID(fmt.Sprintf("73f4eb5f-5abf-447a-81ca-74b1dd16824%v", i)),
+			Properties: prop,
+		}
+		before := FromObject(&obj, nil, nil, nil)
+		asBinary, err := before.MarshalBinary()
+		require.Nil(t, err)
+		if len(asBinary) > largestSize {
+			largestSize = len(asBinary)
+		}
+	}
+
+	reuseableBuff := make([]byte, largestSize)
+	afterProps := []map[string]interface{}{}
+	for i, beforeProp := range props {
+		obj := models.Object{
+			Class:      "something",
+			ID:         strfmt.UUID(fmt.Sprintf("73f4eb5f-5abf-447a-81ca-74b1dd16824%v", i)),
+			Properties: beforeProp,
+		}
+
+		propertyPaths := make([][]string, 0, len(beforeProp))
+		for j := range beforeProp {
+			propertyPaths = append(propertyPaths, []string{j})
+		}
+
+		before := FromObject(&obj, nil, nil, nil)
+		asBinary, err := before.MarshalBinary()
+		require.Nil(t, err)
+		reuseableBuff = reuseableBuff[:len(asBinary)]
+		copy(reuseableBuff, asBinary)
+
+		afterProp := map[string]interface{}{}
+		require.Nil(t, UnmarshalProperties(reuseableBuff, afterProp, propertyPaths))
+		afterProps = append(afterProps, afterProp)
+	}
+
+	for i, afterProp := range afterProps {
+		assert.Equal(t, props[i], afterProp)
+	}
+}
+
+func BenchmarkUnmarshalPropertiesFullObject(b *testing.B) {
+	benchmarkExtraction(b, nil)
+}
+
+func BenchmarkUnmarshalPropertiesExplicitOnlySome(b *testing.B) {
+	benchmarkExtraction(b, []string{"name", "second"})
+}
+
+func BenchmarkUnmarshalPropertiesExplicitAll(b *testing.B) {
+	benchmarkExtraction(b, []string{"name", "second", "number", "bool", "array"})
+}
+
+func benchmarkExtraction(b *testing.B, propStrings []string) {
+	beforeProps := map[string]interface{}{
+		"name":   "some long string",
+		"second": "other very long string",
+		"number": float64(17),
+		"bool":   false,
+		"array":  []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"},
+	}
+	before := FromObject(
+		&models.Object{
+			Class:            "MyFavoriteClass",
+			CreationTimeUnix: 123456,
+			ID:               "73f2eb5f-5abf-447a-81ca-74b1dd168247",
+			Properties:       beforeProps,
+		},
+		nil,
+		nil,
+		nil,
+	)
+	before.DocID = 7
+	var props *PropertyExtraction
+
+	if len(propStrings) > 0 {
+		propertyPaths := make([][]string, len(propStrings))
+		for i, prop := range propStrings {
+			propertyPaths[i] = []string{prop}
+		}
+
+		props = &PropertyExtraction{
+			PropertyPaths: propertyPaths,
+		}
+	}
+
+	asBinary, err := before.MarshalBinary()
+	require.Nil(b, err)
+
+	b.ResetTimer()
+
+	for n := 0; n < b.N; n++ {
+		after, err := FromBinaryOptional(asBinary, additional.Properties{}, props)
+		require.Nil(b, err)
+		require.NotNil(b, after)
+	}
 }
 
 func TestObjectsByDocID(t *testing.T) {
@@ -819,7 +1381,7 @@ func TestObjectsByDocID(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, logger)
+			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, nil, logger)
 			require.Nil(t, err)
 			require.Len(t, res, len(test.inputIDs))
 
@@ -838,11 +1400,103 @@ func TestSkipMissingObjects(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ids := pickRandomIDsBetween(0, 1000, 100)
 	ids = append(ids, 1001, 1002, 1003)
-	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, logger)
+	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, nil, logger)
 	require.Nil(t, err)
 	require.Len(t, objs, 100)
 	for _, obj := range objs {
 		require.NotNil(t, obj)
+	}
+}
+
+func TestIterateThroughVectorDimensions(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		object Object
+
+		expect map[string]int
+	}{
+		{
+			name:   "empty",
+			object: Object{},
+			expect: map[string]int{},
+		},
+		{
+			name: "legacy",
+			object: Object{
+				Vector: make([]float32, 100),
+			},
+			expect: map[string]int{
+				"": 100,
+			},
+		},
+		{
+			name: "named",
+			object: Object{
+				Vectors: map[string][]float32{
+					"vec1": make([]float32, 100),
+					"vec2": make([]float32, 200),
+				},
+			},
+			expect: map[string]int{
+				"vec1": 100,
+				"vec2": 200,
+			},
+		},
+		{
+			name: "multi",
+			object: Object{
+				MultiVectors: map[string][][]float32{
+					"vec1": {
+						make([]float32, 100),
+						make([]float32, 200),
+						make([]float32, 300),
+					},
+					"vec2": {
+						make([]float32, 400),
+						make([]float32, 500),
+					},
+				},
+			},
+			expect: map[string]int{
+				"vec1": 600,
+				"vec2": 900,
+			},
+		},
+		{
+			name: "mixed",
+			object: Object{
+				Vector: make([]float32, 100),
+				Vectors: map[string][]float32{
+					"vec1": make([]float32, 200),
+					"vec2": make([]float32, 300),
+				},
+				MultiVectors: map[string][][]float32{
+					"vec3": {
+						make([]float32, 400),
+					},
+					"vec4": {
+						make([]float32, 500),
+					},
+				},
+			},
+			expect: map[string]int{
+				"":     100,
+				"vec1": 200,
+				"vec2": 300,
+				"vec3": 400,
+				"vec4": 500,
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			captured := map[string]int{}
+			err := tt.object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+				captured[targetVector] += dims
+				return nil
+			})
+			require.NoError(t, err)
+			require.Equal(t, tt.expect, captured)
+		})
 	}
 }
 
@@ -870,11 +1524,11 @@ func BenchmarkObjectsByDocID(b *testing.B) {
 		b.Run(fmt.Sprintf("Concurrent: %v with amount: %v", tt.concurrent, tt.amount), func(t *testing.B) {
 			for i := 0; i < b.N; i++ {
 				if tt.concurrent {
-					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, logger)
+					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, nil, logger)
 					require.Nil(t, err)
 
 				} else {
-					_, err := objectsByDocIDSequential(bucket, ids[:tt.amount], additional.Properties{})
+					_, err := objectsByDocIDSequential(bucket, ids[:tt.amount], additional.Properties{}, nil)
 					require.Nil(t, err)
 				}
 			}
@@ -917,7 +1571,7 @@ func FuzzObjectGet(f *testing.F) {
 			}
 		}
 
-		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, logger)
+		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
 		require.Nil(t, err)
 		require.Len(t, res, len(ids))
 		for i, obj := range res {

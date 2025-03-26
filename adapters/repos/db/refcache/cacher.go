@@ -82,13 +82,13 @@ func (c *Cacher) Build(ctx context.Context, objects []search.Result,
 	c.groupByProps = groupByProperties
 	err := c.findJobsFromResponse(objects, properties)
 	if err != nil {
-		return fmt.Errorf("build request cache: %v", err)
+		return fmt.Errorf("build request cache: %w", err)
 	}
 
 	c.dedupJobList()
 	err = c.fetchJobs(ctx)
 	if err != nil {
-		return fmt.Errorf("build request cache: %v", err)
+		return fmt.Errorf("build request cache: %w", err)
 	}
 
 	return nil

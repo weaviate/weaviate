@@ -73,7 +73,7 @@ func TestBatch(t *testing.T) {
 			v := text2vecbase.New(client,
 				batch.NewBatchVectorizer(client, 50*time.Second, batch.Settings{MaxObjectsPerBatch: 100, MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int { return 500000 }, MaxTimePerBatch: 10},
 					logger, "test"),
-				batch.ReturnBatchTokenizer(1, ""),
+				batch.ReturnBatchTokenizer(1, "", false),
 			)
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {

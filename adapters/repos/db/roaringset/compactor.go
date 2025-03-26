@@ -295,10 +295,10 @@ func (c *nodeCompactor) takeRightKey() error {
 func (c *nodeCompactor) cleanupValues(additions, deletions *sroar.Bitmap,
 ) (add, del *sroar.Bitmap, skip bool) {
 	if !c.cleanupDeletions {
-		return additions, deletions, false
+		return Condense(additions), Condense(deletions), false
 	}
 	if !additions.IsEmpty() {
-		return additions, c.emptyBitmap, false
+		return Condense(additions), c.emptyBitmap, false
 	}
 	return nil, nil, true
 }

@@ -30,11 +30,11 @@ func (m *QnAModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *QnAModule) VectorSearches() modulecapabilities.ModuleArgumentVectorForParams {
+func (m *QnAModule) VectorSearches() map[string]map[string]modulecapabilities.VectorForParams[[]float32] {
 	return m.searcher.VectorSearches()
 }
 
 var (
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.DependencySearcher(New())
+	_ = modulecapabilities.DependencySearcher[[]float32](New())
 )

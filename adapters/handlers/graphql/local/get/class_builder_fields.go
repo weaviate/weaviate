@@ -12,15 +12,18 @@
 package get
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	moduleadditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -202,7 +205,7 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 }
 
 func buildGetClassField(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
+	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum, authorizer authorization.Authorizer,
 ) graphql.Field {
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
@@ -232,7 +235,7 @@ func buildGetClassField(classObject *graphql.Object,
 			"group":      groupArgument(class.Class),
 			"groupBy":    groupByArgument(class.Class),
 		},
-		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
+		Resolve: newResolver(authorizer, modulesProvider).makeResolveGetClass(class.Class),
 	}
 
 	field.Args["bm25"] = bm25Argument(class.Class)
@@ -308,11 +311,12 @@ func whereArgument(className string) *graphql.ArgumentConfig {
 }
 
 type resolver struct {
+	authorizer      authorization.Authorizer
 	modulesProvider ModulesProvider
 }
 
-func newResolver(modulesProvider ModulesProvider) *resolver {
-	return &resolver{modulesProvider}
+func newResolver(authorizer authorization.Authorizer, modulesProvider ModulesProvider) *resolver {
+	return &resolver{authorizer, modulesProvider}
 }
 
 func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn {
@@ -326,6 +330,8 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 }
 
 func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interface{}, error) {
+	principal := restCtx.GetPrincipalFromContext(p.Context)
+
 	source, ok := p.Source.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("expected graphql root to be a map, but was %T", p.Source)
@@ -334,6 +340,15 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	resolver, ok := source["Resolver"].(Resolver)
 	if !ok {
 		return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
+	}
+
+	var tenant string
+	if tk, ok := p.Args["tenant"]; ok {
+		tenant = tk.(string)
+	}
+
+	if err := r.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(className, tenant)...); err != nil {
+		return nil, err
 	}
 
 	pagination, err := filters.ExtractPaginationFromArgs(p.Args)
@@ -358,6 +373,12 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	if err != nil {
 		return nil, err
 	}
+	allPropsToAuthorize := append(properties, groupByProperties...)
+	for _, property := range allPropsToAuthorize {
+		if err := common_filters.AuthorizeProperty(r.authorizer, &property, principal); err != nil {
+			return nil, err
+		}
+	}
 
 	var sort []filters.Sort
 	if sortArg, ok := p.Args["sort"]; ok {
@@ -366,7 +387,12 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 
 	filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 	if err != nil {
-		return nil, fmt.Errorf("could not extract filters: %s", err)
+		return nil, fmt.Errorf("could not extract filters: %w", err)
+	}
+	if filters != nil {
+		if err = common_filters.AuthorizeFilters(r.authorizer, filters.Root, principal); err != nil {
+			return nil, err
+		}
 	}
 
 	var targetVectorCombination *dto.TargetCombination
@@ -374,7 +400,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	if nearVector, ok := p.Args["nearVector"]; ok {
 		p, targetCombination, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}), nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract nearVector params: %s", err)
+			return nil, fmt.Errorf("failed to extract nearVector params: %w", err)
 		}
 		nearVectorParams = &p
 		targetVectorCombination = targetCombination
@@ -384,7 +410,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	if nearObject, ok := p.Args["nearObject"]; ok {
 		p, targetCombination, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract nearObject params: %s", err)
+			return nil, fmt.Errorf("failed to extract nearObject params: %w", err)
 		}
 		nearObjectParams = &p
 		targetVectorCombination = targetCombination
@@ -445,11 +471,6 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		groupByParams = &p
 	}
 
-	var tenant string
-	if tk, ok := p.Args["tenant"]; ok {
-		tenant = tk.(string)
-	}
-
 	params := dto.GetParams{
 		Filters:                 filters,
 		ClassName:               className,
@@ -475,7 +496,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	setLimitBasedOnVectorSearchParams(&params)
 
 	return func() (interface{}, error) {
-		result, err := resolver.GetClass(p.Context, principalFromContext(p.Context), params)
+		result, err := resolver.GetClass(p.Context, principal, params)
 		if err != nil {
 			return result, enterrors.NewErrGraphQLUser(err, "Get", params.ClassName)
 		}
@@ -537,15 +558,6 @@ func extractGroup(args map[string]interface{}) *dto.GroupParams {
 		Strategy: strategy,
 		Force:    float32(force),
 	}
-}
-
-func principalFromContext(ctx context.Context) *models.Principal {
-	principal := ctx.Value("principal")
-	if principal == nil {
-		return nil
-	}
-
-	return principal.(*models.Principal)
 }
 
 func isPrimitive(selectionSet *ast.SelectionSet) bool {
@@ -704,7 +716,14 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						if modulesProvider != nil {
 							if additionalCheck.isModuleAdditional(additionalProperty) {
 								additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
-								additionalProps.ModuleParams[additionalProperty] = modulesProvider.ExtractAdditionalField(className, additionalProperty, s.Arguments)
+								extracted := modulesProvider.ExtractAdditionalField(className, additionalProperty, s.Arguments)
+								if extractor, ok := extracted.(moduleadditional.PropertyExtractor); ok {
+									extractedProperties := extractor.GetPropertiesToExtract()
+									for _, extractedProperty := range extractedProperties {
+										properties = append(properties, search.SelectProperty{Name: extractedProperty})
+									}
+								}
+								additionalProps.ModuleParams[additionalProperty] = extracted
 								continue
 							}
 						}
@@ -774,6 +793,8 @@ func extractGroupHitProperties(
 												additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
 											}
 										}
+									} else {
+										additionalGroupProperties = append(additionalGroupProperties, search.SelectProperty{Name: hf.Name.Value})
 									}
 								}
 							}

@@ -30,6 +30,21 @@ const (
 func Test_MultiTenantBackupJourney(t *testing.T) {
 	ctx := context.Background()
 
+	multiTenantBackupJourneyStart(t, ctx, false, "backups", "", "")
+	t.Run("with override bucket and path", func(t *testing.T) {
+		multiTenantBackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+	})
+}
+
+func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+	azureBackupJourneyContainerName := containerName
+	azureBackupJourneyBackupIDCluster := "azure-backup-cluster-multi-tenant"
+	azureBackupJourneyBackupIDSingleNode := "azure-backup-single-node-multi-tenant"
+	if override {
+		azureBackupJourneyBackupIDCluster = "azure-backup-cluster-multi-tenant-override"
+		azureBackupJourneyBackupIDSingleNode = "azure-backup-single-node-multi-tenant-override"
+	}
+
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
 		tenantNames[i] = fmt.Sprintf("Tenant%d", i)
@@ -42,6 +57,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendAzure(azureBackupJourneyContainerName).
 			WithText2VecContextionary().
+			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -60,7 +76,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, tenantNames)
+				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, tenantNames, override, overrideBucket, overridePath)
 		})
 	})
 
@@ -71,6 +87,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendAzure(azureBackupJourneyContainerName).
 			WithText2VecContextionary().
+			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)
@@ -89,7 +106,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "azure", azureBackupJourneyClassName,
-				azureBackupJourneyBackupIDCluster, tenantNames, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
+				azureBackupJourneyBackupIDCluster, tenantNames, override, overrideBucket, overridePath, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
 }

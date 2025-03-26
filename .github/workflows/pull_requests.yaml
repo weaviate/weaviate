@@ -113,7 +113,7 @@ jobs:
           name: coverage-report-unit
           path: coverage-unit.txt
   Integration-Tests:
-    name: integration-tests  
+    name: integration-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,7 +148,8 @@ jobs:
           "--only-module-text2vec-contextionary",
           "--only-module-text2vec-transformers",
           "--only-module-text2vec-ollama",
-          "--only-module-generative-ollama"
+          "--only-module-generative-ollama",
+          "--only-module-many-generative"
         ]
     steps:
       - uses: actions/checkout@v4
@@ -196,7 +197,7 @@ jobs:
           fi
   Modules-Acceptance-Tests-large:
     name: modules-acceptance-tests-large
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
@@ -238,14 +239,17 @@ jobs:
       fail-fast: false
       matrix:
         test: [
+          "--only-module-multi2vec-cohere",
           "--only-module-multi2vec-google",
+          "--only-module-generative-aws",
+          "--only-module-generative-cohere",
           "--only-module-generative-google",
+          "--only-module-generative-openai",
           "--only-module-text2vec-google",
           "--only-module-text2vec-aws",
-          "--only-module-generative-aws",
-          "--only-module-multi2vec-cohere",
-          "--only-module-generative-cohere",
-          "--only-module-generative-openai"
+          "--only-module-text2vec-jinaai",
+          "--only-module-multi2vec-jinaai",
+          "--only-module-text2colbert-jinaai",
         ]
     steps:
       - uses: actions/checkout@v4
@@ -304,6 +308,7 @@ jobs:
           OPENAI_ORGANIZATION: ${{ secrets.OPENAI_ORGANIZATION }}
           COHERE_APIKEY: ${{ secrets.COHERE_APIKEY }}
           ANTHROPIC_APIKEY: ${{ secrets.ANTHROPIC_APIKEY }}
+          JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance-tests
@@ -314,6 +319,7 @@ jobs:
         test: [
           "--acceptance-only-fast",
           "--acceptance-only-graphql",
+          "--acceptance-only-authz",
           "--acceptance-only-replication",
           "--acceptance-only-async-replication",
           "--acceptance-go-client-only-fast",
@@ -339,7 +345,7 @@ jobs:
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-large:
     name: acceptance-tests-large
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     strategy:
       fail-fast: false
       matrix:
@@ -390,14 +396,14 @@ jobs:
         with:
           name: coverage-report-integration
       - name: Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           fail_ci_if_error: false
           files: ./coverage-integration.txt, ./coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
     name: compile-and-upload-binaries
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -411,7 +417,7 @@ jobs:
           install-only: true
       - name: goreleaser
         run: |
-          GIT_HASH=$(git rev-parse --short HEAD) goreleaser build  --clean --snapshot
+          GIT_REVISION=$(git rev-parse --short HEAD) GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) BUILD_USER=ci BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") goreleaser build  --clean --snapshot
       - name: Upload macos
         uses: actions/upload-artifact@v4
         with:
@@ -473,11 +479,11 @@ jobs:
         run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
 
   Push-Docker:
-    if: ${{ !github.event.pull_request.head.repo.fork && (startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '') }} # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && (startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '') }} # no PRs from fork
     needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
     name: push-docker
     timeout-minutes: 30
-    runs-on: ubuntu-latest-8-cores
+    runs-on: DB-ubuntu-24.04-8-cores
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -496,7 +502,7 @@ jobs:
           PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
-    if: ${{ !github.event.pull_request.head.repo.fork && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build')  && !(github.head_ref == '') }} # no PRs from fork    
+    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
     name: push-docker-fast
     timeout-minutes: 30
     strategy:

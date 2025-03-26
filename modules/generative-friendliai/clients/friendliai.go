@@ -18,11 +18,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -31,8 +30,6 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-friendliai/config"
 	friendliparams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type friendliai struct {
 	apiKey     string
@@ -50,16 +47,16 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *frien
 	}
 }
 
-func (v *friendliai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+func (v *friendliai) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
 	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *friendliai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forTask, err := v.generatePromptForTask(textProperties, task)
+func (v *friendliai) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
@@ -67,11 +64,10 @@ func (v *friendliai) GenerateAllResults(ctx context.Context, textProperties []ma
 }
 
 func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	friendliUrl := v.getFriendliUrl(ctx, settings.BaseURL())
+	friendliUrl := v.getFriendliUrl(ctx, params.BaseURL)
 	friendliPrompt := []map[string]string{
 		{"role": "user", "content": prompt},
 	}
@@ -143,7 +139,9 @@ func (v *friendliai) getParameters(cfg moduletools.ClassConfig, options interfac
 	if p, ok := options.(friendliparams.Params); ok {
 		params = p
 	}
-
+	if params.BaseURL == "" {
+		params.BaseURL = settings.BaseURL()
+	}
 	if params.Model == "" {
 		params.Model = settings.Model()
 	}
@@ -169,7 +167,16 @@ func (v *friendliai) getDebugInformation(debug bool, prompt string) *modulecapab
 
 func (v *friendliai) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"friendliai": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{friendliparams.Name: map[string]interface{}{"usage": usage}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[friendliparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
 	}
 	return nil
 }
@@ -180,30 +187,6 @@ func (v *friendliai) getFriendliUrl(ctx context.Context, baseURL string) string 
 		passedBaseURL = headerBaseURL
 	}
 	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL)
-}
-
-func (v *friendliai) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
-	marshal, err := json.Marshal(textProperties)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`'%v:
-%v`, task, string(marshal)), nil
-}
-
-func (v *friendliai) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	all := compile.FindAll([]byte(prompt), -1)
-	for _, match := range all {
-		originalProperty := string(match)
-		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
-		replacedProperty = strings.TrimSpace(replacedProperty)
-		value := textProperties[replacedProperty]
-		if value == "" {
-			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
-		}
-		prompt = strings.ReplaceAll(prompt, originalProperty, value)
-	}
-	return prompt, nil
 }
 
 func (v *friendliai) getApiKey(ctx context.Context) (string, error) {
@@ -252,4 +235,8 @@ type usage struct {
 
 type friendliApiError struct {
 	Message string `json:"message"`
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

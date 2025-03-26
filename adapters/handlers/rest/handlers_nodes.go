@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/cluster"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
@@ -143,10 +144,10 @@ func newNodesRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.
 }
 
 func (e *nodesRequestsTotal) logError(className string, err error) {
-	switch err.(type) {
-	case enterrors.ErrNotFound, enterrors.ErrUnprocessable:
+	switch {
+	case errors.As(err, &enterrors.ErrNotFound{}), errors.As(err, &enterrors.ErrUnprocessable{}):
 		e.logUserError(className)
-	case autherrs.Forbidden:
+	case errors.As(err, &autherrs.Forbidden{}):
 		e.logUserError(className)
 	default:
 		e.logServerError(className, err)

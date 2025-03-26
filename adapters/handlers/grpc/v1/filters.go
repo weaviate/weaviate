@@ -20,7 +20,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func extractFilters(filterIn *pb.Filters, getClass func(string) *models.Class, className string) (filters.Clause, error) {
+func ExtractFilters(filterIn *pb.Filters, authorizedGetClass func(string) (*models.Class, error), className string) (filters.Clause, error) {
 	returnFilter := filters.Clause{}
 	if filterIn.Operator == pb.Filters_OPERATOR_AND || filterIn.Operator == pb.Filters_OPERATOR_OR {
 		if filterIn.Operator == pb.Filters_OPERATOR_AND {
@@ -31,7 +31,7 @@ func extractFilters(filterIn *pb.Filters, getClass func(string) *models.Class, c
 
 		clauses := make([]filters.Clause, len(filterIn.Filters))
 		for i, clause := range filterIn.Filters {
-			retClause, err := extractFilters(clause, getClass, className)
+			retClause, err := ExtractFilters(clause, authorizedGetClass, className)
 			if err != nil {
 				return filters.Clause{}, err
 			}
@@ -82,12 +82,12 @@ func extractFilters(filterIn *pb.Filters, getClass func(string) *models.Class, c
 			}
 			returnFilter.On = path
 
-			dataType, err = extractDataType(getClass, returnFilter.Operator, className, filterIn.On)
+			dataType, err = extractDataType(authorizedGetClass, returnFilter.Operator, className, filterIn.On)
 			if err != nil {
 				return filters.Clause{}, err
 			}
 		} else {
-			path, dataType2, err := extractPathNew(getClass, className, filterIn.Target, returnFilter.Operator)
+			path, dataType2, err := extractPathNew(authorizedGetClass, className, filterIn.Target, returnFilter.Operator)
 			if err != nil {
 				return filters.Clause{}, err
 			}
@@ -182,7 +182,7 @@ func extractFilters(filterIn *pb.Filters, getClass func(string) *models.Class, c
 	return returnFilter, nil
 }
 
-func extractDataTypeProperty(getClass func(string) *models.Class, operator filters.Operator, className string, on []string) (schema.DataType, error) {
+func extractDataTypeProperty(authorizedGetClass func(string) (*models.Class, error), operator filters.Operator, className string, on []string) (schema.DataType, error) {
 	var dataType schema.DataType
 	if operator == filters.OperatorIsNull {
 		dataType = schema.DataTypeBoolean
@@ -194,9 +194,9 @@ func extractDataTypeProperty(getClass func(string) *models.Class, operator filte
 		}
 
 		classOfProp := on[len(on)-2]
-		class := getClass(classOfProp)
-		if class == nil {
-			return dataType, fmt.Errorf("could not find class %s in schema", classOfProp)
+		class, err := authorizedGetClass(classOfProp)
+		if err != nil {
+			return dataType, err
 		}
 		prop, err := schema.GetPropertyByName(class, propToCheck)
 		if err != nil {
@@ -210,7 +210,10 @@ func extractDataTypeProperty(getClass func(string) *models.Class, operator filte
 			return schema.DataTypeInt, nil
 		}
 
-		class := getClass(className)
+		class, err := authorizedGetClass(className)
+		if err != nil {
+			return dataType, err
+		}
 		if class == nil {
 			return dataType, fmt.Errorf("could not find class %s in schema", className)
 		}
@@ -233,14 +236,14 @@ func extractDataTypeProperty(getClass func(string) *models.Class, operator filte
 	return dataType, nil
 }
 
-func extractDataType(getClass func(string) *models.Class, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
+func extractDataType(authorizedGetClass func(string) (*models.Class, error), operator filters.Operator, classname string, on []string) (schema.DataType, error) {
 	propToFilterOn := on[len(on)-1]
 	if propToFilterOn == filters.InternalPropID {
 		return schema.DataTypeText, nil
 	} else if propToFilterOn == filters.InternalPropCreationTimeUnix || propToFilterOn == filters.InternalPropLastUpdateTimeUnix {
 		return schema.DataTypeDate, nil
 	} else {
-		return extractDataTypeProperty(getClass, operator, classname, on)
+		return extractDataTypeProperty(authorizedGetClass, operator, classname, on)
 	}
 }
 
@@ -257,14 +260,14 @@ func extractPath(className string, on []string) (*filters.Path, error) {
 	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: nil}, nil
 }
 
-func extractPathNew(getClass func(string) *models.Class, className string, target *pb.FilterTarget, operator filters.Operator) (*filters.Path, schema.DataType, error) {
-	class := getClass(className)
-	if class == nil {
-		return nil, "", fmt.Errorf("could not find class %s in schema", className)
+func extractPathNew(authorizedGetClass func(string) (*models.Class, error), className string, target *pb.FilterTarget, operator filters.Operator) (*filters.Path, schema.DataType, error) {
+	class, err := authorizedGetClass(className)
+	if err != nil {
+		return nil, "", err
 	}
 	switch target.Target.(type) {
 	case *pb.FilterTarget_Property:
-		dt, err := extractDataType(getClass, operator, className, []string{target.GetProperty()})
+		dt, err := extractDataType(authorizedGetClass, operator, className, []string{target.GetProperty()})
 		if err != nil {
 			return nil, "", err
 		}
@@ -279,14 +282,14 @@ func extractPathNew(getClass func(string) *models.Class, className string, targe
 		if len(refProp.DataType) != 1 {
 			return nil, "", fmt.Errorf("expected reference property with a single target, got %v for %v ", refProp.DataType, refProp.Name)
 		}
-		child, property, err := extractPathNew(getClass, refProp.DataType[0], singleTarget.Target, operator)
+		child, property, err := extractPathNew(authorizedGetClass, refProp.DataType[0], singleTarget.Target, operator)
 		if err != nil {
 			return nil, "", err
 		}
 		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(normalizedRefPropName), Child: child}, property, nil
 	case *pb.FilterTarget_MultiTarget:
 		multiTarget := target.GetMultiTarget()
-		child, property, err := extractPathNew(getClass, multiTarget.TargetCollection, multiTarget.Target, operator)
+		child, property, err := extractPathNew(authorizedGetClass, multiTarget.TargetCollection, multiTarget.Target, operator)
 		if err != nil {
 			return nil, "", err
 		}

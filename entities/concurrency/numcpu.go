@@ -24,12 +24,16 @@ var (
 	NUMCPU   = runtime.GOMAXPROCS(0)
 	NUMCPUx2 = NUMCPU * 2
 	NUMCPU_2 = NUMCPU / 2
+
+	SROAR_MERGE = 0 // see init()
 )
 
 func init() {
 	if NUMCPU_2 == 0 {
 		NUMCPU_2 = 1
 	}
+
+	SROAR_MERGE = NUMCPU_2
 }
 
 func NoMoreThanNUMCPU(conc int) int {

@@ -16,11 +16,22 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/build"
 )
 
 type WeaviateJSONFormatter struct {
-	gitHash, imageTag, serverVersion, goVersion string
 	*logrus.JSONFormatter
+	gitHash, imageTag, serverVersion, goVersion string
+}
+
+func NewWeaviateJSONFormatter() logrus.Formatter {
+	return &WeaviateJSONFormatter{
+		&logrus.JSONFormatter{},
+		build.Revision,
+		build.Branch,
+		build.Version,
+		build.GoVersion,
+	}
 }
 
 func (wf *WeaviateJSONFormatter) Format(e *logrus.Entry) ([]byte, error) {
@@ -32,8 +43,18 @@ func (wf *WeaviateJSONFormatter) Format(e *logrus.Entry) ([]byte, error) {
 }
 
 type WeaviateTextFormatter struct {
-	gitHash, imageTag, serverVersion, goVersion string
 	*logrus.TextFormatter
+	gitHash, imageTag, serverVersion, goVersion string
+}
+
+func NewWeaviateTextFormatter() logrus.Formatter {
+	return &WeaviateTextFormatter{
+		&logrus.TextFormatter{},
+		build.Revision,
+		build.Branch,
+		build.Version,
+		build.GoVersion,
+	}
 }
 
 func (wf *WeaviateTextFormatter) Format(e *logrus.Entry) ([]byte, error) {

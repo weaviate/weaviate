@@ -22,16 +22,27 @@ import (
 type Forbidden struct {
 	principal *models.Principal
 	verb      string
-	resource  string
+	resources []string
+}
+
+type Unauthenticated struct{}
+
+func (u Unauthenticated) Error() string {
+	return "user is not authenticated"
+}
+
+// NewUnauthenticated creates an explicit Unauthenticated error
+func NewUnauthenticated() Unauthenticated {
+	return Unauthenticated{}
 }
 
 // NewForbidden creates an explicit Forbidden error with details about the
 // principal and the attempted access on a specific resource
-func NewForbidden(principal *models.Principal, verb, resource string) Forbidden {
+func NewForbidden(principal *models.Principal, verb string, resources ...string) Forbidden {
 	return Forbidden{
 		principal: principal,
 		verb:      verb,
-		resource:  resource,
+		resources: resources,
 	}
 }
 
@@ -45,8 +56,8 @@ func (f Forbidden) Error() string {
 		optionalGroups = fmt.Sprintf(" (of groups %s)", groupsList)
 	}
 
-	return fmt.Sprintf("forbidden: user '%s'%s has insufficient permissions to %s %s",
-		f.principal.Username, optionalGroups, f.verb, f.resource)
+	return fmt.Sprintf("authorization, forbidden action: user '%s'%s has insufficient permissions to %s %s",
+		f.principal.Username, optionalGroups, f.verb, f.resources)
 }
 
 func wrapInSingleQuotes(input []string) []string {

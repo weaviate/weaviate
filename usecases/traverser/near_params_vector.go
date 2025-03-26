@@ -19,10 +19,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -81,8 +83,8 @@ func (v *nearParamsVector) targetFromParams(ctx context.Context,
 
 func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
-	moduleParams map[string]interface{}, className, tenant, targetVector string,
-) ([]float32, error) {
+	moduleParams map[string]interface{}, className, tenant, targetVector string, index int,
+) (models.Vector, error) {
 	err := v.validateNearParams(nearVector, nearObject, moduleParams, className)
 	if err != nil {
 		return nil, err
@@ -95,7 +97,10 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	}
 
 	if nearVector != nil {
-		return nearVector.VectorPerTarget[targetVector], nil
+		if index >= len(nearVector.Vectors) {
+			return nil, fmt.Errorf("nearVector.vectorFromParams was called with invalid index")
+		}
+		return nearVector.Vectors[index], nil
 	}
 
 	if nearObject != nil {
@@ -191,17 +196,42 @@ func (v *nearParamsVector) targetFromModules(className string, paramValue interf
 
 func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 	className, paramName string, paramValue interface{}, tenant string, targetVector string,
-) ([]float32, error) {
+) (models.Vector, error) {
 	if v.modulesProvider != nil {
-		vector, err := v.modulesProvider.VectorFromSearchParam(ctx,
-			className, targetVector, tenant, paramName, paramValue, v.findVector,
-		)
+		isMultiVector, err := v.modulesProvider.IsTargetVectorMultiVector(className, targetVector)
 		if err != nil {
-			return nil, errors.Errorf("vectorize params: %v", err)
+			return nil, errors.Errorf("is target vector: %s multi vector: %v", targetVector, err)
 		}
-		return vector, nil
+
+		if isMultiVector {
+			vector, err := v.modulesProvider.MultiVectorFromSearchParam(ctx,
+				className, targetVector, tenant, paramName, paramValue, generictypes.FindMultiVectorFn(v.findMultiVector),
+			)
+			if err != nil {
+				return nil, errors.Errorf("vectorize params: %v", err)
+			}
+			return vector, nil
+		} else {
+			vector, err := v.modulesProvider.VectorFromSearchParam(ctx,
+				className, targetVector, tenant, paramName, paramValue, generictypes.FindVectorFn(v.findVector),
+			)
+			if err != nil {
+				return nil, errors.Errorf("vectorize params: %v", err)
+			}
+			return vector, nil
+		}
 	}
 	return nil, errors.New("no modules defined")
+}
+
+// TODO:colbert unify findVector and findMultiVector
+func (v *nearParamsVector) findVectorForNearObject(ctx context.Context,
+	className string, id strfmt.UUID, tenant, targetVector string,
+) (models.Vector, string, error) {
+	if multiVector, targetVector, err := v.findMultiVector(ctx, className, id, tenant, targetVector); err == nil && len(multiVector) > 0 {
+		return multiVector, targetVector, nil
+	}
+	return v.findVector(ctx, className, id, tenant, targetVector)
 }
 
 func (v *nearParamsVector) findVector(ctx context.Context, className string, id strfmt.UUID, tenant, targetVector string) ([]float32, string, error) {
@@ -211,6 +241,16 @@ func (v *nearParamsVector) findVector(ctx context.Context, className string, id 
 		return v.crossClassFindVector(ctx, id, targetVector)
 	default:
 		return v.classFindVector(ctx, className, id, tenant, targetVector)
+	}
+}
+
+func (v *nearParamsVector) findMultiVector(ctx context.Context, className string, id strfmt.UUID, tenant, targetVector string) ([][]float32, string, error) {
+	switch className {
+	case "":
+		// Explore cross class searches where we don't have class context
+		return v.crossClassFindMultiVector(ctx, id, targetVector)
+	default:
+		return v.classFindMultiVector(ctx, className, id, tenant, targetVector)
 	}
 }
 
@@ -228,20 +268,68 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 		if len(res.Vectors) == 0 || res.Vectors[targetVector] == nil {
 			return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
 		}
-		return res.Vectors[targetVector], targetVector, nil
+		vec, ok := res.Vectors[targetVector].([]float32)
+		if !ok {
+			return nil, "", fmt.Errorf("unrecognized type: %T for target: %v", res.Vectors[targetVector], targetVector)
+		}
+		return vec, targetVector, nil
 	} else {
+		if len(res.Vector) > 0 {
+			return res.Vector, "", nil
+		}
+
 		if len(res.Vectors) == 1 {
 			for key, vec := range res.Vectors {
-				return vec, key, nil
+				switch v := vec.(type) {
+				case []float32:
+					return v, key, nil
+				default:
+					return nil, "", fmt.Errorf("unrecognized type: %T target: %v", vec, key)
+				}
 			}
 		} else if len(res.Vectors) > 1 {
 			return nil, "", errors.New("multiple vectors found, specify target vector")
 		}
 	}
-	if len(res.Vector) == 0 {
-		return nil, "", fmt.Errorf("nearObject search-object with id %v has no vector", id)
+
+	return nil, "", fmt.Errorf("nearObject search-object with id %v has no vector", id)
+}
+
+// TODO:colbert try to unify
+func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className string,
+	id strfmt.UUID, tenant, targetVector string,
+) ([][]float32, string, error) {
+	res, err := v.search.Object(ctx, className, id, search.SelectProperties{}, additional.Properties{}, nil, tenant)
+	if err != nil {
+		return nil, "", err
 	}
-	return res.Vector, targetVector, nil
+	if res == nil {
+		return nil, "", errors.New("vector not found")
+	}
+	if targetVector != "" {
+		if len(res.Vectors) == 0 || res.Vectors[targetVector] == nil {
+			return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
+		}
+		multiVector, ok := res.Vectors[targetVector].([][]float32)
+		if !ok {
+			return nil, "", fmt.Errorf("unrecognized type: %T target: %v", res.Vectors[targetVector], targetVector)
+		}
+		return multiVector, targetVector, nil
+	} else {
+		if len(res.Vectors) == 1 {
+			for key, vec := range res.Vectors {
+				switch v := vec.(type) {
+				case [][]float32:
+					return v, key, nil
+				default:
+					return nil, "", fmt.Errorf("unrecognized type: %T target: %v", vec, key)
+				}
+			}
+		} else if len(res.Vectors) > 1 {
+			return nil, "", errors.New("multiple vectors found, specify target vector")
+		}
+	}
+	return nil, "", fmt.Errorf("nearObject search-object with id %v has no vector", id)
 }
 
 func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.UUID, targetVector string) ([]float32, string, error) {
@@ -257,16 +345,32 @@ func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.U
 			if len(res[0].Vectors) == 0 || res[0].Vectors[targetVector] == nil {
 				return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
 			}
-		} else {
-			if len(res[0].Vectors) == 1 {
-				for key, vec := range res[0].Vectors {
-					return vec, key, nil
+			vec, ok := res[0].Vectors[targetVector].([]float32)
+			if !ok {
+				return nil, "", fmt.Errorf("unrecognized vector type: %T", vec)
+			}
+			return vec, targetVector, nil
+		}
+
+		if len(res[0].Vector) > 0 {
+			return res[0].Vector, "", nil
+		}
+
+		if len(res[0].Vectors) == 0 {
+			return nil, "", nil
+		}
+
+		if len(res[0].Vectors) == 1 {
+			for key, vec := range res[0].Vectors {
+				v, ok := vec.([]float32)
+				if !ok {
+					return nil, "", fmt.Errorf("unrecognized vector type: %T", vec)
 				}
-			} else if len(res[0].Vectors) > 1 {
-				return nil, "", errors.New("multiple vectors found, specify target vector")
+				return v, key, nil
 			}
 		}
-		return res[0].Vector, targetVector, nil
+
+		return nil, "", errors.New("multiple vectors found, specify target vector")
 	default:
 		if targetVector == "" {
 			vectors := make([][]float32, len(res))
@@ -280,9 +384,14 @@ func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.U
 		for i := range res {
 			if len(res[i].Vectors) > 0 {
 				if vec, ok := res[i].Vectors[targetVector]; ok {
-					vectors = append(vectors, vec)
-					if _, exists := vectorDims[len(vec)]; !exists {
-						vectorDims[len(vec)] = true
+					switch v := vec.(type) {
+					case []float32:
+						vectors = append(vectors, v)
+						if _, exists := vectorDims[len(v)]; !exists {
+							vectorDims[len(v)] = true
+						}
+					default:
+						return nil, "", fmt.Errorf("unrecognized vector type: %T for target vector: %s", vec, targetVector)
 					}
 				}
 			}
@@ -294,15 +403,47 @@ func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.U
 	}
 }
 
+func (v *nearParamsVector) crossClassFindMultiVector(ctx context.Context, id strfmt.UUID, targetVector string) ([][]float32, string, error) {
+	res, err := v.search.ObjectsByID(ctx, id, search.SelectProperties{}, additional.Properties{}, "")
+	if err != nil {
+		return nil, "", errors.Wrap(err, "find objects")
+	}
+	switch len(res) {
+	case 0:
+		return nil, "", errors.New("multi vector not found")
+	case 1:
+		if targetVector != "" {
+			if len(res[0].Vectors) == 0 || res[0].Vectors[targetVector] == nil {
+				return nil, "", fmt.Errorf("multi vector not found for target: %v", targetVector)
+			}
+		} else {
+			if len(res[0].Vectors) == 1 {
+				for key, vec := range res[0].Vectors {
+					v, ok := vec.([][]float32)
+					if !ok {
+						return nil, "", fmt.Errorf("unrecognized multi vector type: %T", vec)
+					}
+					return v, key, nil
+				}
+			} else if len(res[0].Vectors) > 1 {
+				return nil, "", errors.New("multiple multi vectors found, specify target vector")
+			}
+		}
+		return nil, "", fmt.Errorf("multi vector not found for target: %v", targetVector)
+	default:
+		return nil, "", fmt.Errorf("multiple multi vectors with incompatible dimensions found for target: %s", targetVector)
+	}
+}
+
 func (v *nearParamsVector) crossClassVectorFromNearObjectParams(ctx context.Context,
 	params *searchparams.NearObject,
-) ([]float32, string, error) {
+) (models.Vector, string, error) {
 	return v.vectorFromNearObjectParams(ctx, "", params, "", "")
 }
 
 func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 	className string, params *searchparams.NearObject, tenant, targetVector string,
-) ([]float32, string, error) {
+) (models.Vector, string, error) {
 	if len(params.ID) == 0 && len(params.Beacon) == 0 {
 		return nil, "", errors.New("empty id and beacon")
 	}
@@ -327,7 +468,7 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 		targetVector = params.TargetVectors[0]
 	}
 
-	return v.findVector(ctx, targetClassName, id, tenant, targetVector)
+	return v.findVectorForNearObject(ctx, targetClassName, id, tenant, targetVector)
 }
 
 func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,

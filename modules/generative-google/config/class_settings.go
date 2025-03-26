@@ -27,6 +27,7 @@ const (
 	endpointIDProperty  = "endpointId"
 	regionProperty      = "region"
 	modelIDProperty     = "modelId"
+	modelProperty       = "model"
 	temperatureProperty = "temperature"
 	tokenLimitProperty  = "tokenLimit"
 	topPProperty        = "topP"
@@ -40,7 +41,7 @@ var (
 	DefaultGoogleTemperature          = 1.0
 	DefaultTokenLimit                 = 1024
 	DefaultTokenLimitGemini1_0        = 2048
-	DefaultTokenLimitGemini1_0_Vision = 4096
+	DefaultTokenLimitGemini1_0_Vision = 2048
 	DefaultTokenLimitGemini1_5        = 8192
 	DefaultGoogleTopP                 = 0.95
 	DefaultGoogleTopK                 = 40
@@ -77,9 +78,10 @@ type ClassSettings interface {
 	ApiEndpoint() string
 	ProjectID() string
 	EndpointID() string
-	ModelID() string
 	Region() string
 
+	ModelID() string
+	Model() string
 	// parameters
 	// 0.0 - 1.0
 	Temperature() float64
@@ -160,6 +162,13 @@ func (ic *classSettings) getIntProperty(name string, defaultValue int) int {
 	return *asInt
 }
 
+func (ic *classSettings) getApiEndpoint(projectID string) string {
+	if projectID == "" {
+		return DefaulGenerativeAIApiEndpoint
+	}
+	return DefaultGoogleApiEndpoint
+}
+
 func (ic *classSettings) getDefaultModel(apiEndpoint string) string {
 	if apiEndpoint == DefaulGenerativeAIApiEndpoint {
 		return DefaulGenerativeAIModelID
@@ -182,7 +191,7 @@ func (ic *classSettings) getDefaultTokenLimit(model string) int {
 
 // Google params
 func (ic *classSettings) ApiEndpoint() string {
-	return ic.getStringProperty(apiEndpointProperty, DefaultGoogleApiEndpoint)
+	return ic.getStringProperty(apiEndpointProperty, ic.getApiEndpoint(ic.ProjectID()))
 }
 
 func (ic *classSettings) ProjectID() string {
@@ -195,6 +204,10 @@ func (ic *classSettings) EndpointID() string {
 
 func (ic *classSettings) ModelID() string {
 	return ic.getStringProperty(modelIDProperty, ic.getDefaultModel(ic.ApiEndpoint()))
+}
+
+func (ic *classSettings) Model() string {
+	return ic.getStringProperty(modelProperty, "")
 }
 
 func (ic *classSettings) Region() string {

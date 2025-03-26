@@ -22,8 +22,10 @@ import (
 )
 
 type indexCycleCallbacks struct {
-	compactionCallbacks cyclemanager.CycleCallbackGroup
-	compactionCycle     cyclemanager.CycleManager
+	compactionCallbacks    cyclemanager.CycleCallbackGroup
+	compactionCycle        cyclemanager.CycleManager
+	compactionAuxCallbacks cyclemanager.CycleCallbackGroup
+	compactionAuxCycle     cyclemanager.CycleManager
 
 	flushCallbacks cyclemanager.CycleCallbackGroup
 	flushCycle     cyclemanager.CycleManager
@@ -43,7 +45,7 @@ func (index *Index) initCycleCallbacks() {
 	routinesN := concurrency.TimesNUMCPU(index.Config.CycleManagerRoutinesFactor)
 
 	vectorTombstoneCleanupIntervalSeconds := hnsw.DefaultCleanupIntervalSeconds
-	if hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig); ok {
+	if hnswUserConfig, ok := index.GetVectorIndexConfig("").(hnsw.UserConfig); ok {
 		vectorTombstoneCleanupIntervalSeconds = hnswUserConfig.CleanupIntervalSeconds
 	}
 
@@ -52,10 +54,31 @@ func (index *Index) initCycleCallbacks() {
 		return strings.Join(elems, "/")
 	}
 
-	compactionCallbacks := cyclemanager.NewCallbackGroup(id("compaction"), index.logger, routinesN)
-	compactionCycle := cyclemanager.NewManager(
-		cyclemanager.CompactionCycleTicker(),
-		compactionCallbacks.CycleCallback, index.logger)
+	var compactionCycle cyclemanager.CycleManager
+	var compactionCallbacks cyclemanager.CycleCallbackGroup
+	var compactionAuxCycle cyclemanager.CycleManager
+	var compactionAuxCallbacks cyclemanager.CycleCallbackGroup
+
+	if !index.Config.SeparateObjectsCompactions {
+		compactionCallbacks = cyclemanager.NewCallbackGroup(id("compaction"), index.logger, routinesN)
+		compactionCycle = cyclemanager.NewManager(
+			cyclemanager.CompactionCycleTicker(),
+			compactionCallbacks.CycleCallback, index.logger)
+		compactionAuxCycle = cyclemanager.NewManagerNoop()
+	} else {
+		routinesNDiv2 := routinesN / 2
+		if routinesNDiv2 < 1 {
+			routinesNDiv2 = 1
+		}
+		compactionCallbacks = cyclemanager.NewCallbackGroup(id("compaction-non-objects"), index.logger, routinesNDiv2)
+		compactionCycle = cyclemanager.NewManager(
+			cyclemanager.CompactionCycleTicker(),
+			compactionCallbacks.CycleCallback, index.logger)
+		compactionAuxCallbacks = cyclemanager.NewCallbackGroup(id("compaction-objects"), index.logger, routinesNDiv2)
+		compactionAuxCycle = cyclemanager.NewManager(
+			cyclemanager.CompactionCycleTicker(),
+			compactionAuxCallbacks.CycleCallback, index.logger)
+	}
 
 	flushCallbacks := cyclemanager.NewCallbackGroup(id("flush"), index.logger, routinesN)
 	flushCycle := cyclemanager.NewManager(
@@ -99,10 +122,12 @@ func (index *Index) initCycleCallbacks() {
 		geoPropsTombstoneCleanupCallbacks.CycleCallback, index.logger)
 
 	index.cycleCallbacks = &indexCycleCallbacks{
-		compactionCallbacks: compactionCallbacks,
-		compactionCycle:     compactionCycle,
-		flushCallbacks:      flushCallbacks,
-		flushCycle:          flushCycle,
+		compactionCallbacks:    compactionCallbacks,
+		compactionCycle:        compactionCycle,
+		compactionAuxCallbacks: compactionAuxCallbacks,
+		compactionAuxCycle:     compactionAuxCycle,
+		flushCallbacks:         flushCallbacks,
+		flushCycle:             flushCycle,
 
 		vectorCommitLoggerCallbacks:     vectorCommitLoggerCallbacks,
 		vectorCommitLoggerCycle:         vectorCommitLoggerCycle,
@@ -118,10 +143,12 @@ func (index *Index) initCycleCallbacks() {
 
 func (index *Index) initCycleCallbacksNoop() {
 	index.cycleCallbacks = &indexCycleCallbacks{
-		compactionCallbacks: cyclemanager.NewCallbackGroupNoop(),
-		compactionCycle:     cyclemanager.NewManagerNoop(),
-		flushCallbacks:      cyclemanager.NewCallbackGroupNoop(),
-		flushCycle:          cyclemanager.NewManagerNoop(),
+		compactionCallbacks:    cyclemanager.NewCallbackGroupNoop(),
+		compactionCycle:        cyclemanager.NewManagerNoop(),
+		compactionAuxCallbacks: cyclemanager.NewCallbackGroupNoop(),
+		compactionAuxCycle:     cyclemanager.NewManagerNoop(),
+		flushCallbacks:         cyclemanager.NewCallbackGroupNoop(),
+		flushCycle:             cyclemanager.NewManagerNoop(),
 
 		vectorCommitLoggerCallbacks:     cyclemanager.NewCallbackGroupNoop(),
 		vectorCommitLoggerCycle:         cyclemanager.NewManagerNoop(),

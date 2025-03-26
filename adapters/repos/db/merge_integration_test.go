@@ -150,7 +150,7 @@ func Test_MergingObjects(t *testing.T) {
 			},
 			CreationTimeUnix:   now,
 			LastUpdateTimeUnix: now,
-		}, []float32{0.5}, nil, nil, 0)
+		}, []float32{0.5}, nil, nil, nil, 0)
 		require.Nil(t, err)
 
 		targetDimensionsBefore := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
@@ -164,7 +164,7 @@ func Test_MergingObjects(t *testing.T) {
 				Properties: map[string]interface{}{
 					"name": fmt.Sprintf("target item %d", i),
 				},
-			}, []float32{0.5}, nil, nil, 0)
+			}, []float32{0.5}, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 
@@ -179,7 +179,7 @@ func Test_MergingObjects(t *testing.T) {
 			},
 			CreationTimeUnix:   now,
 			LastUpdateTimeUnix: now,
-		}, nil, nil, nil, 0)
+		}, nil, nil, nil, nil, 0)
 		require.Nil(t, err)
 
 		targetDimensionsAfterNoVec := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
@@ -536,7 +536,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 			},
 			CreationTimeUnix:   int64(id),
 			LastUpdateTimeUnix: int64(id),
-		}, []float32{0.5}, nil, nil, 0)
+		}, []float32{0.5}, nil, nil, nil, 0)
 		require.Nil(t, err)
 	})
 
@@ -802,7 +802,7 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 			},
 			CreationTimeUnix:   int64(id),
 			LastUpdateTimeUnix: int64(id),
-		}, []float32{0.5}, nil, nil, 0)
+		}, []float32{0.5}, nil, nil, nil, 0)
 		require.Nil(t, err)
 	})
 
@@ -926,6 +926,80 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 		t.Run("using untouched", retrieve("untouched", 0))
 		t.Run("using touched", retrieve("touched", 28))
 	})
+}
+
+func TestMerge_ObjectWithNamedVectors(t *testing.T) {
+	var (
+		ctx          = context.Background()
+		namedVecName = "vec"
+		multiVecName = "multivec"
+		class        = &models.Class{
+			Class:               "testclass",
+			InvertedIndexConfig: invertedConfig(),
+			Properties: []*models.Property{
+				{
+					Name:     "text",
+					DataType: schema.DataTypeText.PropString(),
+				},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				namedVecName: {
+					Vectorizer:        noopVectorizerConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+				},
+				multiVecName: {
+					Vectorizer:        noopVectorizerConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultMultiVectorUserConfig(),
+				},
+			},
+		}
+		objectID = strfmt.UUID("897be7cc-1ae1-4b40-89d9-d3ea98037638")
+
+		db = createTestDatabaseWithClass(t, class)
+	)
+
+	require.NoError(t, db.PutObject(ctx, &models.Object{
+		ID:    objectID,
+		Class: class.Class,
+		Properties: map[string]interface{}{
+			"text": "test1",
+		},
+	}, nil, map[string][]float32{
+		namedVecName: randVector(10),
+	}, map[string][][]float32{
+		multiVecName: {
+			randVector(10),
+			randVector(10),
+		},
+	}, nil, 0))
+
+	newVectors := models.Vectors{
+		namedVecName: randVector(10),
+		multiVecName: [][]float32{
+			randVector(10),
+			randVector(10),
+			randVector(10),
+		},
+	}
+
+	require.NoError(t, db.Merge(ctx, objects.MergeDocument{
+		Class: class.Class,
+		ID:    objectID,
+		PrimitiveSchema: map[string]interface{}{
+			"text":   "test2",
+			"number": 2,
+		},
+		Vectors: newVectors,
+	}, nil, "", 0))
+
+	object, err := db.ObjectByID(context.Background(), objectID, nil, additional.Properties{}, "")
+	require.NoError(t, err)
+
+	require.Equal(t, newVectors, object.Vectors)
+}
+
+func noopVectorizerConfig() any {
+	return map[string]interface{}{"none": map[string]interface{}{}}
 }
 
 func uuidFromInt(in int) strfmt.UUID {

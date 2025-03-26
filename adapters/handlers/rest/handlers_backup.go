@@ -12,13 +12,16 @@
 package rest
 
 import (
+	"errors"
+
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -91,20 +94,28 @@ func parseCompressionLevel(l string) ubak.CompressionLevel {
 func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	overrideBucket := ""
+	overridePath := ""
+	if params.Body.Config != nil {
+		overrideBucket = params.Body.Config.Bucket
+		overridePath = params.Body.Config.Path
+	}
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
 		ID:          params.Body.ID,
 		Backend:     params.Backend,
+		Bucket:      overrideBucket,
+		Path:        overridePath,
 		Include:     params.Body.Include,
 		Exclude:     params.Body.Exclude,
 		Compression: compressionFromBCfg(params.Body.Config),
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch err.(type) {
-		case errors.Forbidden:
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backup.ErrUnprocessable:
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -120,17 +131,25 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID)
+	overrideBucket := ""
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
+	}
+	overridePath := ""
+	if params.Path != nil {
+		overridePath = *params.Path
+	}
+	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch err.(type) {
-		case errors.Forbidden:
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsCreateStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backup.ErrUnprocessable:
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsCreateStatusUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backup.ErrNotFound:
+		case errors.As(err, &backup.ErrNotFound{}):
 			return backups.NewBackupsCreateStatusNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -154,6 +173,12 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	bucket := ""
+	path := ""
+	if params.Body.Config != nil {
+		bucket = params.Body.Config.Bucket
+		path = params.Body.Config.Path
+	}
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
 		ID:          params.ID,
 		Backend:     params.Backend,
@@ -161,17 +186,19 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		Exclude:     params.Body.Exclude,
 		NodeMapping: params.Body.NodeMapping,
 		Compression: compressionFromRCfg(params.Body.Config),
+		Bucket:      bucket,
+		Path:        path,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch err.(type) {
-		case errors.Forbidden:
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backup.ErrNotFound:
+		case errors.As(err, &backup.ErrNotFound{}):
 			return backups.NewBackupsRestoreNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backup.ErrUnprocessable:
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -187,18 +214,26 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	var overrideBucket string
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
+	}
+	var overridePath string
+	if params.Path != nil {
+		overridePath = *params.Path
+	}
 	status, err := s.manager.RestorationStatus(
-		params.HTTPRequest.Context(), principal, params.Backend, params.ID)
+		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch err.(type) {
-		case errors.Forbidden:
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backup.ErrNotFound:
+		case errors.As(err, &backup.ErrNotFound{}):
 			return backups.NewBackupsRestoreNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backup.ErrUnprocessable:
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -221,14 +256,22 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.Cancel(params.HTTPRequest.Context(), principal, params.Backend, params.ID)
+	overrideBucket := ""
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
+	}
+	overridePath := ""
+	if params.Path != nil {
+		overridePath = *params.Path
+	}
+	err := s.manager.Cancel(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch err.(type) {
-		case errors.Forbidden:
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsCancelForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backup.ErrUnprocessable:
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsCancelUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -248,12 +291,12 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 		params.HTTPRequest.Context(), principal, params.Backend)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch err.(type) {
-		case errors.Forbidden:
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 
-		case backup.ErrUnprocessable:
+		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -293,10 +336,10 @@ func newBackupRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus
 }
 
 func (e *backupRequestsTotal) logError(className string, err error) {
-	switch err.(type) {
-	case errors.Forbidden:
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
 		e.logUserError(className)
-	case backup.ErrUnprocessable, backup.ErrNotFound:
+	case errors.As(err, &backup.ErrUnprocessable{}) || errors.As(err, &backup.ErrNotFound{}):
 		e.logUserError(className)
 	default:
 		e.logServerError(className, err)

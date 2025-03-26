@@ -121,7 +121,7 @@ func TestClient(t *testing.T) {
 			return server.URL, nil
 		}
 
-		expected := &modulecomponents.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
@@ -148,7 +148,7 @@ func TestClient(t *testing.T) {
 			return server.URL, nil
 		}
 
-		expected := &modulecomponents.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
@@ -231,7 +231,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Api-Key", []string{"some-key"})
 
-		expected := &modulecomponents.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
@@ -302,6 +302,24 @@ func TestClient(t *testing.T) {
 		buildURL, err = c.buildURL(context.TODO(), config)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/embeddings", buildURL)
+	})
+
+	t.Run("when X-Azure-* headers are passed", func(t *testing.T) {
+		c := New("", "", "", 0, nullLogger())
+
+		config := ent.VectorizationConfig{
+			IsAzure:    true,
+			ApiVersion: "",
+		}
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Azure-Deployment-Id", []string{"spoofDeployment"})
+		ctxWithValue = context.WithValue(ctxWithValue,
+			"X-Azure-Resource-Name", []string{"spoofResource"})
+
+		buildURL, err := c.buildURL(ctxWithValue, config)
+		require.NoError(t, err)
+		assert.Equal(t, "https://spoofResource.openai.azure.com/openai/deployments/spoofDeployment/embeddings?api-version=", buildURL)
 	})
 
 	t.Run("pass rate limit headers requests", func(t *testing.T) {

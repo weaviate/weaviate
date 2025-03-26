@@ -77,12 +77,13 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 // Objects returns a list of full objects
 func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
-	className schema.ClassName,
+	className schema.ClassName, properties []string,
 ) ([]*storobj.Object, error) {
 	allowList, err := s.docIDs(ctx, filter, additional, className, limit)
 	if err != nil {
 		return nil, err
 	}
+	defer allowList.Close()
 
 	var it docIDsIterator
 	if len(sort) > 0 {
@@ -95,7 +96,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		it = allowList.Iterator()
 	}
 
-	return s.objectsByDocID(ctx, it, additional, limit)
+	return s.objectsByDocID(ctx, it, additional, limit, properties)
 }
 
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
@@ -109,7 +110,7 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 }
 
 func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
-	additional additional.Properties, limit int,
+	additional additional.Properties, limit int, properties []string,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
@@ -127,6 +128,15 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 
 	out := make([]*storobj.Object, outlen)
 	docIDBytes := make([]byte, 8)
+
+	propertyPaths := make([][]string, len(properties))
+	for j := range properties {
+		propertyPaths[j] = []string{properties[j]}
+	}
+
+	props := &storobj.PropertyExtraction{
+		PropertyPaths: propertyPaths,
+	}
 
 	i := 0
 	loop := 0
@@ -150,7 +160,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		if additional.ReferenceQuery {
 			unmarshalled, err = storobj.FromBinaryUUIDOnly(res)
 		} else {
-			unmarshalled, err = storobj.FromBinaryOptional(res, additional)
+			unmarshalled, err = storobj.FromBinaryOptional(res, additional, props)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
@@ -180,16 +190,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	allow, err := s.docIDs(ctx, filter, additional, className, 0)
-	if err != nil {
-		return nil, err
-	}
-	// Some filters, such as NotEqual, return a theoretical range of docIDs
-	// which also includes a buffer in the underlying bitmap, to reduce the
-	// overhead of repopulating the base bitmap. Here we can truncate that
-	// buffer to ensure that the caller is receiving only the possible range
-	// of docIDs
-	return allow.Truncate(s.bitmapFactory.ActualMaxVal()), nil
+	return s.docIDs(ctx, filter, additional, className, 0)
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
@@ -201,16 +202,19 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, err
 	}
 
-	if err := pv.fetchDocIDs(s, limit); err != nil {
+	if err := pv.fetchDocIDs(ctx, s, limit); err != nil {
 		return nil, fmt.Errorf("fetch doc ids for prop/value pair: %w", err)
 	}
 
+	beforeMerge := time.Now()
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_len", len(pv.children))
 	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, fmt.Errorf("merge doc ids by operator: %w", err)
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_took", time.Since(beforeMerge))
 
-	return helpers.NewAllowListFromBitmap(dbm.docIDs), nil
+	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
 func (s *Searcher) extractPropValuePair(filter *filters.Clause,
@@ -880,17 +884,18 @@ func (it *sliceDocIDsIterator) Len() int {
 }
 
 type docBitmap struct {
-	docIDs *sroar.Bitmap
+	docIDs  *sroar.Bitmap
+	release func()
 }
 
 // newUninitializedDocBitmap can be used whenever we can be sure that the first
 // user of the docBitmap will set or replace the bitmap, such as a row reader
 func newUninitializedDocBitmap() docBitmap {
-	return docBitmap{docIDs: nil}
+	return docBitmap{}
 }
 
 func newDocBitmap() docBitmap {
-	return docBitmap{docIDs: sroar.NewBitmap()}
+	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}}
 }
 
 func (dbm *docBitmap) count() int {

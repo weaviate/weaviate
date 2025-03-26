@@ -262,7 +262,7 @@ type ObjectsGetResponseAO2Result struct {
 	Errors *ErrorResponse `json:"errors,omitempty"`
 
 	// status
-	// Enum: [SUCCESS PENDING FAILED]
+	// Enum: [SUCCESS FAILED]
 	Status *string `json:"status,omitempty"`
 }
 
@@ -307,7 +307,7 @@ var objectsGetResponseAO2ResultTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["SUCCESS","PENDING","FAILED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["SUCCESS","FAILED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -319,9 +319,6 @@ const (
 
 	// ObjectsGetResponseAO2ResultStatusSUCCESS captures enum value "SUCCESS"
 	ObjectsGetResponseAO2ResultStatusSUCCESS string = "SUCCESS"
-
-	// ObjectsGetResponseAO2ResultStatusPENDING captures enum value "PENDING"
-	ObjectsGetResponseAO2ResultStatusPENDING string = "PENDING"
 
 	// ObjectsGetResponseAO2ResultStatusFAILED captures enum value "FAILED"
 	ObjectsGetResponseAO2ResultStatusFAILED string = "FAILED"

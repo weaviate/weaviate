@@ -26,12 +26,12 @@ import (
 
 type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error)
 
-func ReturnBatchTokenizer(multiplier float32, moduleName string) TokenizerFuncType {
+func ReturnBatchTokenizer(multiplier float32, moduleName string, lowerCaseInput bool) TokenizerFuncType {
 	return func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
 		texts := make([]string, len(objects))
 		tokenCounts := make([]int, len(objects))
 		var tke *tiktoken.Tiktoken
-		icheck := settings.NewBaseClassSettings(cfg)
+		icheck := settings.NewBaseClassSettings(cfg, lowerCaseInput)
 		modelString := modelToModelString(icheck.Model(), moduleName)
 		if multiplier > 0 {
 			var err error

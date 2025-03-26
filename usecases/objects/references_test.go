@@ -133,10 +133,6 @@ func Test_ReferenceAdd(t *testing.T) {
 		Stage int
 	}{
 		{
-			Name: "locking", Req: req, Stage: 0,
-			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
-		},
-		{
 			Name: "authorization", Req: req, Stage: 0,
 			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
 		},
@@ -206,8 +202,7 @@ func Test_ReferenceAdd(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.Name, func(t *testing.T) {
 			m := newFakeGetManager(zooAnimalSchemaForTest())
-			m.authorizer.Err = tc.ErrAuth
-			m.locks.Err = tc.ErrLock
+			m.authorizer.SetErr(tc.ErrAuth)
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 			if tc.Stage >= 2 {
@@ -292,14 +287,9 @@ func Test_ReferenceUpdate(t *testing.T) {
 			Stage:       1,
 		},
 		{
-			Name: "locking", Req: req,
-			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
-			Stage: 1,
-		},
-		{
 			Name: "authorization", Req: req,
 			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
-			Stage: 1,
+			Stage: 0,
 		},
 		{
 			Name: "get schema",
@@ -351,8 +341,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.Name, func(t *testing.T) {
 			m := newFakeGetManager(zooAnimalSchemaForTest())
-			m.authorizer.Err = tc.ErrAuth
-			m.locks.Err = tc.ErrLock
+			m.authorizer.SetErr(tc.ErrAuth)
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			srcObj := &search.Result{
 				ClassName: cls,
@@ -439,7 +428,6 @@ func Test_ReferenceDelete(t *testing.T) {
 		ErrTargetExists error
 		ErrSrcExists    error
 		ErrAuth         error
-		ErrLock         error
 		ErrSchema       error
 		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> PutObject()
 		Stage int
@@ -456,16 +444,12 @@ func Test_ReferenceDelete(t *testing.T) {
 			SrcNotFound: true, Stage: 2,
 		},
 		{
-			Name: "locking", Req: req,
-			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr, Stage: 2,
-		},
-		{
 			Name: "authorization", Req: req,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr, Stage: 2,
+			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr, Stage: 1,
 		},
 		{
 			Name: "get schema",
-			Req:  req, Stage: 2,
+			Req:  req, Stage: 1,
 			ErrSchema: anyErr,
 			WantCode:  StatusBadRequest,
 		},
@@ -544,8 +528,7 @@ func Test_ReferenceDelete(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.Name, func(t *testing.T) {
 			m := newFakeGetManager(zooAnimalSchemaForTest())
-			m.authorizer.Err = tc.ErrAuth
-			m.locks.Err = tc.ErrLock
+			m.authorizer.SetErr(tc.ErrAuth)
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			srcObj := &search.Result{
 				ClassName: cls,

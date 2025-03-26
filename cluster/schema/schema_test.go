@@ -13,17 +13,45 @@ package schema
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
+
+func TestMakeTenantWithBelongsToNodes(t *testing.T) {
+	const tenant = "tenant"
+	const status = "status"
+
+	physical := sharding.Physical{
+		Status:         status,
+		BelongsToNodes: []string{"node1"},
+	}
+
+	t.Run("Creates valid response", func(t *testing.T) {
+		tenantResp := makeTenantResponse(tenant, physical)
+
+		assert.Equal(t, tenant, tenantResp.Name)
+		assert.Equal(t, status, tenantResp.ActivityStatus)
+		assert.ElementsMatch(t, tenantResp.BelongsToNodes, physical.BelongsToNodes)
+	})
+
+	t.Run("BelongsToNodes is a copy", func(t *testing.T) {
+		tenantResp := makeTenantResponse(tenant, physical)
+
+		assert.NotEqual(t,
+			reflect.ValueOf(tenantResp.BelongsToNodes).Pointer(),
+			reflect.ValueOf(physical.BelongsToNodes).Pointer())
+	})
+}
 
 func Test_schemaCollectionMetrics(t *testing.T) {
 	r := prometheus.NewPedanticRegistry()

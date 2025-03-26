@@ -12,7 +12,6 @@
 package db
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -44,7 +43,23 @@ func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
-	return s.status.Status
+	if s.status.Status != storagestate.StatusReady && s.status.Status != storagestate.StatusIndexing {
+		return s.status.Status
+	}
+
+	if !s.hasAnyVectorIndex() {
+		return s.status.Status
+	}
+
+	status := storagestate.StatusReady
+	_ = s.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+		if queue.Size() > 0 {
+			status = storagestate.StatusIndexing
+		}
+		return nil
+	})
+	s.status.Status = status
+	return status
 }
 
 // Same implem for for a regular shard, this only differ in lazy loaded shards
@@ -54,26 +69,13 @@ func (s *Shard) GetStatusNoLoad() storagestate.Status {
 
 // isReadOnly returns an error if shard is readOnly and nil otherwise
 func (s *Shard) isReadOnly() error {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
 	if s.status.Status == storagestate.StatusReadOnly {
 		return storagestate.ErrStatusReadOnlyWithReason(s.status.Reason)
 	}
 	return nil
-}
-
-func (s *Shard) compareAndSwapStatusIndexingAndReady(old, new string) (storagestate.Status, error) {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	if (old != storagestate.StatusIndexing.String() && old != storagestate.StatusReady.String()) ||
-		(new != storagestate.StatusIndexing.String() && new != storagestate.StatusReady.String()) {
-		return s.status.Status, fmt.Errorf("can only swap between indexing and ready, got %v and %v", old, new)
-	}
-
-	if s.status.Status.String() != old {
-		return s.status.Status, nil
-	}
-
-	return s.status.Status, s.updateStatusUnlocked(new, "")
 }
 
 func (s *Shard) SetStatusReadonly(reason string) error {

@@ -26,11 +26,11 @@ func (m *VoyageAIModule) Arguments() map[string]modulecapabilities.GraphQLArgume
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *VoyageAIModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *VoyageAIModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	return m.searcher.VectorSearches()
 }
 
 var (
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.Searcher(New())
+	_ = modulecapabilities.Searcher[[]float32](New())
 )

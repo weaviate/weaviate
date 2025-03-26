@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package weaviate.v1;
 
+import "v1/aggregate.proto";
 import "v1/batch.proto";
 import "v1/batch_delete.proto";
 import "v1/search_get.proto";
@@ -16,4 +17,5 @@ service Weaviate {
   rpc BatchObjects(BatchObjectsRequest) returns (BatchObjectsReply) {};
   rpc BatchDelete(BatchDeleteRequest) returns (BatchDeleteReply) {};
   rpc TenantsGet(TenantsGetRequest) returns (TenantsGetReply) {};
+  rpc Aggregate(AggregateRequest) returns (AggregateReply) {};
 }

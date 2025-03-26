@@ -343,7 +343,7 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	tenants, err := s.schema.getTenants(cmd.Class, req.Tenants)
+	tenantsResponse, err := s.schema.getTenants(cmd.Class, req.Tenants)
 	if err != nil {
 		// error are handled by the updateSchema, so they are ignored here.
 		// Instead, we log the error to detect tenant status before deleting
@@ -354,6 +354,11 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 			"tenants": req.Tenants,
 			"error":   err.Error(),
 		}).Error("error getting tenants")
+	}
+
+	tenants := make([]*models.Tenant, len(tenantsResponse))
+	for i := range tenantsResponse {
+		tenants[i] = &tenantsResponse[i].Tenant
 	}
 
 	return s.apply(
@@ -406,7 +411,7 @@ func (op applyOp) validate() error {
 // apply does apply commands from RAFT to schema 1st and then db
 func (s *SchemaManager) apply(op applyOp) error {
 	if err := op.validate(); err != nil {
-		return fmt.Errorf("could not validate raft apply op: %s", err)
+		return fmt.Errorf("could not validate raft apply op: %w", err)
 	}
 
 	// schema applied 1st to make sure any validation happen before applying it to db

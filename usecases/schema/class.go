@@ -19,20 +19,22 @@ import (
 	"reflect"
 	"strings"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/replication"
-
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sirupsen/logrus"
+	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -40,7 +42,7 @@ import (
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, err
 	}
 	name = schema.UppercaseClassName(name)
@@ -52,7 +54,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, 0, err
 	}
 
@@ -66,36 +68,27 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	return class, 0, err
 }
 
+// GetCachedClass will return the class from the cache if it exists. Note that the context cache
+// will likely be at the "request" or "operation" level and not be shared between requests.
+// Uses the Handler's getClassMethod to determine how to get the class data.
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(names...)...); err != nil {
 		return nil, err
 	}
 
 	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
-		vclasses, err := h.schemaManager.QueryReadOnlyClasses(names...)
-		if err != nil {
-			return nil, err
-		}
+		return h.classGetter.getClasses(names)
+	}, names...)
+}
 
-		if len(vclasses) == 0 {
-			return nil, nil
-		}
-
-		for _, vclass := range vclasses {
-			if err := h.parser.ParseClass(vclass.Class); err != nil {
-				// remove invalid classes
-				h.logger.WithFields(logrus.Fields{
-					"Class": vclass.Class.Class,
-					"Error": err,
-				}).Warn("parsing class error")
-				delete(vclasses, vclass.Class.Class)
-				continue
-			}
-		}
-
-		return vclasses, nil
+// GetCachedClassNoAuth will return the class from the cache if it exists. Note that the context cache
+// will likely be at the "request" or "operation" level and not be shared between requests.
+// Uses the Handler's getClassMethod to determine how to get the class data.
+func (h *Handler) GetCachedClassNoAuth(ctxWithClassCache context.Context, names ...string) (map[string]versioned.Class, error) {
+	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
+		return h.classGetter.getClasses(names)
 	}, names...)
 }
 
@@ -103,13 +96,25 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
 ) (*models.Class, uint64, error) {
-	err := h.Authorizer.Authorize(principal, "create", "schema/objects")
+	cls.Class = schema.UppercaseClassName(cls.Class)
+	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
+
+	err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	cls.Class = schema.UppercaseClassName(cls.Class)
-	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
+	if err = h.maybeAllowSchemasWithMixedVectors(cls); err != nil {
+		return nil, 0, err
+	}
+
+	classGetterWithAuth := func(name string) (*models.Class, error) {
+		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+			return nil, err
+		}
+		return h.schemaReader.ReadOnlyClass(name), nil
+	}
+
 	if cls.ShardingConfig != nil && schema.MultiTenancyEnabled(cls) {
 		return nil, 0, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
 	} else if cls.MultiTenancyConfig == nil {
@@ -122,7 +127,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	if err := h.validateCanAddClass(ctx, cls, false); err != nil {
+	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, false); err != nil {
 		return nil, 0, err
 	}
 	// migrate only after validation in completed
@@ -136,12 +141,28 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
+	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount()
+	if err != nil {
+		h.logger.WithField("error", err).Error("could not query the collections count")
+	}
+
+	limit := runtime.GetOverrides(h.schemaConfig.MaximumAllowedCollectionsCount, h.schemaConfig.MaximumAllowedCollectionsCountFn)
+
+	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
+		return nil, 0, fmt.Errorf(
+			"cannot create collection: maximum number of collections (%d) reached - "+
+				"please consider switching to multi-tenancy or increasing the collection count limit - "+
+				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
+				"when working with multiple collections and tenants",
+			limit)
+	}
+
 	shardState, err := sharding.InitState(cls.Class,
 		cls.ShardingConfig.(shardingcfg.Config),
 		h.clusterState.LocalName(), h.schemaManager.StorageCandidates(), cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
-		return nil, 0, fmt.Errorf("init sharding state: %w", err)
+		return nil, 0, errors.Wrap(err, "init sharding state")
 	}
 	version, err := h.schemaManager.AddClass(ctx, cls, shardState)
 	if err != nil {
@@ -177,7 +198,12 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return err
 	}
 
-	err = h.validateCanAddClass(ctx, class, true)
+	// no validation of reference for restore
+	classGetterWrapper := func(name string) (*models.Class, error) {
+		return h.schemaReader.ReadOnlyClass(name), nil
+	}
+
+	err = h.validateCanAddClass(ctx, class, classGetterWrapper, true)
 	if err != nil {
 		return err
 	}
@@ -201,7 +227,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 // DeleteClass from the schema
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := h.Authorizer.Authorize(principal, "delete", "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
 	if err != nil {
 		return err
 	}
@@ -215,7 +241,7 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
 	if err != nil || updated == nil {
 		return err
 	}
@@ -301,8 +327,10 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 }
 
 func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
-	// set only when no target vectors configured
-	if !hasTargetVectors(class) {
+	// set legacy vector index defaults only when:
+	// 	- no target vectors are configured
+	//  - OR, there are target vectors configured AND there is a legacy vector configured
+	if !hasTargetVectors(class) || schemachecks.HasLegacyVectorIndex(class) {
 		if class.Vectorizer == "" {
 			class.Vectorizer = h.config.DefaultVectorizerModule
 		}
@@ -533,7 +561,7 @@ func migratePropertyIndexInverted(props ...*models.Property) {
 
 func (h *Handler) validateProperty(
 	class *models.Class, existingPropertyNames map[string]bool,
-	relaxCrossRefValidation bool, props ...*models.Property,
+	relaxCrossRefValidation bool, classGetterWithAuth func(string) (*models.Class, error), props ...*models.Property,
 ) error {
 	for _, property := range props {
 		if _, err := schema.ValidatePropertyName(property.Name); err != nil {
@@ -549,10 +577,10 @@ func (h *Handler) validateProperty(
 		}
 
 		// Validate data type of property.
-		propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.schemaReader.ReadOnlyClass, property.DataType,
+		propertyDataType, err := schema.FindPropertyDataTypeWithRefsAndAuth(classGetterWithAuth, property.DataType,
 			relaxCrossRefValidation, schema.ClassName(class.Class))
 		if err != nil {
-			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
+			return fmt.Errorf("property '%s': invalid dataType: %v: %w", property.Name, property.DataType, err)
 		}
 
 		if propertyDataType.IsNested() {
@@ -606,7 +634,7 @@ func setInvertedConfigDefaults(class *models.Class) {
 }
 
 func (h *Handler) validateCanAddClass(
-	ctx context.Context, class *models.Class,
+	ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
 	if _, err := schema.ValidateClassName(class.Class); err != nil {
@@ -615,7 +643,7 @@ func (h *Handler) validateCanAddClass(
 
 	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		if err := h.validateProperty(class, existingPropertyNames, relaxCrossRefValidation, property); err != nil {
+		if err := h.validateProperty(class, existingPropertyNames, relaxCrossRefValidation, classGetterWithAuth, property); err != nil {
 			return err
 		}
 		existingPropertyNames[strings.ToLower(property.Name)] = true
@@ -666,6 +694,11 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 			case models.PropertyTokenizationKagomeKr:
 				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable")
+				}
+				return nil
+			case models.PropertyTokenizationKagomeJa:
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
+					return fmt.Errorf("the Japanese tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_JA' to 'true' to enable")
 				}
 				return nil
 			}
@@ -730,21 +763,25 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 }
 
 func (h *Handler) validateVectorSettings(class *models.Class) error {
-	if !hasTargetVectors(class) {
-		if err := h.validateVectorizer(class.Vectorizer); err != nil {
-			return err
-		}
+	// legacy vector index is optional, therefore, validate it only if present
+	if class.VectorIndexType != "" {
 		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
 		}
-		return nil
-	}
 
-	if class.Vectorizer != "" {
-		return fmt.Errorf("class.vectorizer %q can not be set if class.vectorConfig is configured", class.Vectorizer)
-	}
-	if class.VectorIndexType != "" {
-		return fmt.Errorf("class.vectorIndexType %q can not be set if class.vectorConfig is configured", class.VectorIndexType)
+		if err := h.validateVectorizer(class.Vectorizer); err != nil {
+			return err
+		}
+
+		if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
+			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer))
+			if err != nil {
+				return fmt.Errorf("class.VectorIndexConfig can not parse: %w", err)
+			}
+			if parsed.IsMultiVector() {
+				return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
+			}
+		}
 	}
 
 	for name, cfg := range class.VectorConfig {
@@ -869,4 +906,17 @@ func validateVectorIndexConfigImmutableFields(initial, updated *models.Class) er
 			accessor: func(c *models.Class) string { return c.VectorIndexType },
 		},
 	}...)
+}
+
+// maybeAllowSchemasWithMixedVectors is a method to disable experimental functionality to create
+// collections that have both legacy and named vectors until development is not finished.
+func (h *Handler) maybeAllowSchemasWithMixedVectors(cls *models.Class) error {
+	featureDisabled := !entcfg.Enabled(os.Getenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS"))
+	isMixedSchema := len(cls.VectorConfig) > 0 && (cls.Vectorizer != "" || cls.VectorIndexConfig != nil || cls.VectorIndexType != "")
+
+	if isMixedSchema && featureDisabled {
+		return errors.Errorf("class %s has configuration for both class level and named vectors which is currently not supported.", cls.Class)
+	}
+
+	return nil
 }

@@ -30,35 +30,38 @@ const (
 type BaseClassSettings struct {
 	cfg                 moduletools.ClassConfig
 	propertyHelper      *classPropertyValuesHelper
+	lowerCaseInput      bool
 	modelParameterNames []string
 }
 
-func NewBaseClassSettings(cfg moduletools.ClassConfig) *BaseClassSettings {
-	return &BaseClassSettings{
-		cfg:                 cfg,
-		propertyHelper:      &classPropertyValuesHelper{},
-		modelParameterNames: []string{"model"},
-	}
-}
-
-func NewBaseClassSettingsWithCustomModel(cfg moduletools.ClassConfig, customModelParameterName string) *BaseClassSettings {
-	return &BaseClassSettings{
-		cfg:                 cfg,
-		propertyHelper:      &classPropertyValuesHelper{},
-		modelParameterNames: []string{"model", customModelParameterName},
-	}
+func NewBaseClassSettings(cfg moduletools.ClassConfig, lowerCaseInput bool) *BaseClassSettings {
+	return &BaseClassSettings{cfg: cfg, propertyHelper: &classPropertyValuesHelper{}, lowerCaseInput: lowerCaseInput}
 }
 
 func NewBaseClassSettingsWithAltNames(cfg moduletools.ClassConfig,
-	moduleName string, altNames []string, customModelParameterName []string,
+	lowerCaseInput bool, moduleName string, altNames []string, customModelParameterName []string,
 ) *BaseClassSettings {
 	modelParameters := append(customModelParameterName, "model")
 
 	return &BaseClassSettings{
 		cfg:                 cfg,
 		propertyHelper:      &classPropertyValuesHelper{moduleName: moduleName, altNames: altNames},
+		lowerCaseInput:      lowerCaseInput,
 		modelParameterNames: modelParameters,
 	}
+}
+
+func NewBaseClassSettingsWithCustomModel(cfg moduletools.ClassConfig, lowerCaseInput bool, customModelParameterName string) *BaseClassSettings {
+	return &BaseClassSettings{
+		cfg:                 cfg,
+		propertyHelper:      &classPropertyValuesHelper{},
+		lowerCaseInput:      lowerCaseInput,
+		modelParameterNames: []string{"model", customModelParameterName},
+	}
+}
+
+func (s BaseClassSettings) LowerCaseInput() bool {
+	return s.lowerCaseInput
 }
 
 func (s BaseClassSettings) PropertyIndexed(propName string) bool {

@@ -23,6 +23,8 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
+
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,22 +32,15 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"gopkg.in/yaml.v2"
 )
 
+// ServerVersion is deprecated. Use `build.Version`. It's there for backward compatiblility.
 // ServerVersion is set when the misc handlers are setup.
 // When misc handlers are setup, the entire swagger spec
 // is already being parsed for the server version. This is
 // a good time for us to set ServerVersion, so that the
 // spec only needs to be parsed once.
 var ServerVersion string
-
-var (
-	// GitHash keeps the current git hash commit information, value injected by the compiler using ldflags -X at build time.
-	GitHash = "unknown"
-	// ImageTag keeps the docker tag the weaviate binary was built in, value injected by the compiler using ldflags -X at build time.
-	ImageTag = "localhost"
-)
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
@@ -86,6 +81,21 @@ type Flags struct {
 	RaftSnapshotThreshold  int      `long:"raft-snap-threshold" description:"number of outstanding log entries before performing a snapshot"`
 	RaftSnapshotInterval   int      `long:"raft-snap-interval" description:"controls how often raft checks if it should perform a snapshot"`
 	RaftMetadataOnlyVoters bool     `long:"raft-metadata-only-voters" description:"configures the voters to store metadata exclusively, without storing any other data"`
+
+	RuntimeOverridesEnabled      bool          `long:"runtime-overrides.enabled" description:"enable runtime overrides config"`
+	RuntimeOverridesPath         string        `long:"runtime-overrides.path" description:"path to runtime overrides config"`
+	RuntimeOverridesLoadInterval time.Duration `long:"runtime-overrides.load-interval" description:"load interval for runtime overrides config"`
+}
+
+type SchemaHandlerConfig struct {
+	MaximumAllowedCollectionsCount   int         `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	MaximumAllowedCollectionsCountFn func() *int `json:"-" yaml:"-"`
+}
+
+type RuntimeOverrides struct {
+	Enabled      bool          `json:"enabled"`
+	Path         string        `json:"path" yaml:"path"`
+	LoadInterval time.Duration `json:"load_interval" yaml:"load_interval"`
 }
 
 // Config outline of the config file
@@ -123,6 +133,8 @@ type Config struct {
 	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
+	ReindexMapToBlockmaxAtStartup       bool                     `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
+	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig     `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
@@ -130,20 +142,67 @@ type Config struct {
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
+	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
+	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
+	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
+	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
+
+	// map[className][]propertyName
+	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
+
+	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 }
 
-type moduleProvider interface {
-	ValidateVectorizer(moduleName string) error
+type MapToBlockamaxConfig struct {
+	SwapBuckets               bool `json:"swap_buckets" yaml:"swap_buckets"`
+	UnswapBuckets             bool `json:"unswap_buckets" yaml:"unswap_buckets"`
+	TidyBuckets               bool `json:"tidy_buckets" yaml:"tidy_buckets"`
+	Rollback                  bool `json:"rollback" yaml:"rollback"`
+	ProcessingDurationSeconds int  `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
+	PauseDurationSeconds      int  `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
 }
 
-// Validate the non-nested parameters. Nested objects must provide their own
+// Validate the configuration
+func (c *Config) Validate() error {
+	if err := c.Authentication.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.Authorization.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if c.Authentication.AnonymousAccess.Enabled && c.Authorization.Rbac.Enabled {
+		return fmt.Errorf("cannot enable anonymous access and rbac authorization")
+	}
+
+	if err := c.Persistence.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.AutoSchema.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.ResourceUsage.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.Raft.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	return nil
+}
+
+// ValidateModules validates the non-nested parameters. Nested objects must provide their own
 // validation methods
-func (c Config) Validate(modProv moduleProvider) error {
+func (c *Config) ValidateModules(modProv moduleProvider) error {
 	if err := c.validateDefaultVectorizerModule(modProv); err != nil {
 		return errors.Wrap(err, "default vectorizer module")
 	}
@@ -155,7 +214,7 @@ func (c Config) Validate(modProv moduleProvider) error {
 	return nil
 }
 
-func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
+func (c *Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 	if c.DefaultVectorizerModule == VectorizerModuleNone {
 		return nil
 	}
@@ -163,7 +222,11 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
 }
 
-func (c Config) validateDefaultVectorDistanceMetric() error {
+type moduleProvider interface {
+	ValidateVectorizer(moduleName string) error
+}
+
+func (c *Config) validateDefaultVectorDistanceMetric() error {
 	switch c.DefaultVectorDistanceMetric {
 	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
@@ -173,7 +236,9 @@ func (c Config) validateDefaultVectorDistanceMetric() error {
 }
 
 type AutoSchema struct {
-	Enabled       bool   `json:"enabled" yaml:"enabled"`
+	Enabled   bool         `json:"enabled" yaml:"enabled"`
+	EnabledFn func() *bool `json:"-" yaml:"-"`
+
 	DefaultString string `json:"defaultString" yaml:"defaultString"`
 	DefaultNumber string `json:"defaultNumber" yaml:"defaultNumber"`
 	DefaultDate   string `json:"defaultDate" yaml:"defaultDate"`
@@ -210,9 +275,10 @@ type Contextionary struct {
 
 // Support independent TLS credentials for gRPC
 type GRPC struct {
-	Port     int    `json:"port" yaml:"port"`
-	CertFile string `json:"certFile" yaml:"certFile"`
-	KeyFile  string `json:"keyFile" yaml:"keyFile"`
+	Port       int    `json:"port" yaml:"port"`
+	CertFile   string `json:"certFile" yaml:"certFile"`
+	KeyFile    string `json:"keyFile" yaml:"keyFile"`
+	MaxMsgSize int    `json:"maxMsgSize" yaml:"maxMsgSize"`
 }
 
 type Profiling struct {
@@ -230,6 +296,7 @@ type Persistence struct {
 	MemtablesMaxActiveDurationSeconds   int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
 	LSMMaxSegmentSize                   int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
 	LSMSegmentsCleanupIntervalSeconds   int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
+	LSMSeparateObjectsCompactions       bool   `json:"lsmSeparateObjectsCompactions" yaml:"lsmSeparateObjectsCompactions"`
 	LSMEnableSegmentsChecksumValidation bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
 	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	HNSWMaxLogSize                      int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
@@ -253,7 +320,28 @@ const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 
+const (
+	DefaultMapToBlockmaxProcessingDurationSeconds = 3 * 60
+	DefaultMapToBlockmaxPauseDurationSeconds      = 60
+)
+
+// MetadataServer is experimental.
+type MetadataServer struct {
+	// When enabled startup will include a "metadata server"
+	// for separation of storage/compute Weaviate.
+	Enabled                   bool   `json:"enabled" yaml:"enabled"`
+	GrpcListenAddress         string `json:"grpc_listen_address" yaml:"grpc_listen_address"`
+	DataEventsChannelCapacity int    `json:"data_events_channel_capacity" yaml:"data_events_channel_capacity"`
+}
+
+const (
+	DefaultMetadataServerGrpcListenAddress         = ":9050"
+	DefaultMetadataServerDataEventsChannelCapacity = 100
+)
+
 const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibility
+
+const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
@@ -311,7 +399,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -343,9 +431,6 @@ type Raft struct {
 
 	EnableOneNodeRecovery bool
 	ForceOneNodeRecovery  bool
-
-	EnableFQDNResolver bool
-	FQDNResolverTLD    string
 }
 
 func (r *Raft) Validate() error {
@@ -470,31 +555,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	// Load config from flags
 	f.fromFlags(flags.Options.(*Flags))
 
-	if err := f.Config.Authentication.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.Authorization.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.Persistence.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.AutoSchema.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.ResourceUsage.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.Raft.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	return nil
+	return f.Config.Validate()
 }
 
 func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, error) {
@@ -509,12 +570,12 @@ func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, erro
 	case "json":
 		err := json.Unmarshal(file, &config)
 		if err != nil {
-			return config, fmt.Errorf("error unmarshalling the json config file: %s", err)
+			return config, fmt.Errorf("error unmarshalling the json config file: %w", err)
 		}
 	case "yaml":
 		err := yaml.Unmarshal(file, &config)
 		if err != nil {
-			return config, fmt.Errorf("error unmarshalling the yaml config file: %s", err)
+			return config, fmt.Errorf("error unmarshalling the yaml config file: %w", err)
 		}
 	default:
 		return config, fmt.Errorf("unsupported config file extension '%s', use .yaml or .json", m[1])
@@ -552,8 +613,20 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 	if flags.RaftMetadataOnlyVoters {
 		f.Config.Raft.MetadataOnlyVoters = true
 	}
+
+	if flags.RuntimeOverridesEnabled {
+		f.Config.RuntimeOverrides.Enabled = flags.RuntimeOverridesEnabled
+	}
+
+	if flags.RuntimeOverridesPath != "" {
+		f.Config.RuntimeOverrides.Path = flags.RuntimeOverridesPath
+	}
+
+	if flags.RuntimeOverridesLoadInterval > 0 {
+		f.Config.RuntimeOverrides.LoadInterval = flags.RuntimeOverridesLoadInterval
+	}
 }
 
 func configErr(err error) error {
-	return fmt.Errorf("invalid config: %v", err)
+	return fmt.Errorf("invalid config: %w", err)
 }

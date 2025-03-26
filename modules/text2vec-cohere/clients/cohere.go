@@ -38,7 +38,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	icheck := ent.NewClassSettings(cfg)
 	res, err := v.client.Vectorize(ctx, input, cohere.Settings{
 		Model:     icheck.Model(),
@@ -51,7 +51,7 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	icheck := ent.NewClassSettings(cfg)
 	return v.client.Vectorize(ctx, input, cohere.Settings{
 		Model:     icheck.Model(),

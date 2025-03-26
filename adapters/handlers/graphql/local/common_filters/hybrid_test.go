@@ -16,11 +16,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
 func TestHybrid(t *testing.T) {
-	var nilweights map[string]float32
+	var nilweights []float32
 	var ss []searchparams.WeightedSearchResult
 	cases := []struct {
 		input             map[string]interface{}
@@ -29,35 +30,35 @@ func TestHybrid(t *testing.T) {
 		error             bool
 	}{
 		{
-			input:             map[string]interface{}{"vector": []interface{}{1.0, 2.0, 3.0}},
+			input:             map[string]interface{}{"vector": []float32{1.0, 2.0, 3.0}},
 			output:            &searchparams.HybridSearch{Vector: []float32{1.0, 2.0, 3.0}, SubSearches: ss, Type: "hybrid", Alpha: 0.75, FusionAlgorithm: 1},
 			outputCombination: nil,
 		},
 		{
-			input:             map[string]interface{}{"vector": []interface{}{1.0, 2.0, 3.0}, "targetVectors": []interface{}{"target1", "target2"}},
+			input:             map[string]interface{}{"vector": []float32{1.0, 2.0, 3.0}, "targetVectors": []interface{}{"target1", "target2"}},
 			output:            &searchparams.HybridSearch{Vector: []float32{1.0, 2.0, 3.0}, TargetVectors: []string{"target1", "target2"}, SubSearches: ss, Type: "hybrid", Alpha: 0.75, FusionAlgorithm: 1},
 			outputCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: nilweights},
 		},
 		{
-			input:             map[string]interface{}{"targetVectors": []interface{}{"target1", "target2"}, "searches": []interface{}{map[string]interface{}{"nearVector": map[string]interface{}{"vector": []interface{}{1.0, 2.0, 3.0}}}}},
-			output:            &searchparams.HybridSearch{NearVectorParams: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"target1": {1.0, 2.0, 3.0}, "target2": {1.0, 2.0, 3.0}}}, TargetVectors: []string{"target1", "target2"}, SubSearches: ss, Type: "hybrid", Alpha: 0.75, FusionAlgorithm: 1},
+			input:             map[string]interface{}{"targetVectors": []interface{}{"target1", "target2"}, "searches": []interface{}{map[string]interface{}{"nearVector": map[string]interface{}{"vector": []float32{float32(1.0), float32(2.0), float32(3.0)}}}}},
+			output:            &searchparams.HybridSearch{NearVectorParams: &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}, []float32{1, 2, 3}}}, TargetVectors: []string{"target1", "target2"}, SubSearches: ss, Type: "hybrid", Alpha: 0.75, FusionAlgorithm: 1},
 			outputCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: nilweights},
 		},
 		{
-			input:             map[string]interface{}{"targetVectors": []interface{}{"target1", "target2"}, "searches": []interface{}{map[string]interface{}{"nearVector": map[string]interface{}{"vectorPerTarget": map[string][]float32{"target1": {1.0, 2.0, 3.0}, "target2": {1.0, 2.0}}}}}},
-			output:            &searchparams.HybridSearch{NearVectorParams: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"target1": {1.0, 2.0, 3.0}, "target2": {1.0, 2.0}}}, TargetVectors: []string{"target1", "target2"}, SubSearches: ss, Type: "hybrid", Alpha: 0.75, FusionAlgorithm: 1},
+			input:             map[string]interface{}{"targetVectors": []interface{}{"target1", "target2"}, "searches": []interface{}{map[string]interface{}{"nearVector": map[string]interface{}{"vectorPerTarget": map[string]interface{}{"target1": []float32{1.0, 2.0, 3.0}, "target2": []float32{1.0, 2.0}}}}}},
+			output:            &searchparams.HybridSearch{NearVectorParams: &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}, []float32{1, 2}}}, TargetVectors: []string{"target1", "target2"}, SubSearches: ss, Type: "hybrid", Alpha: 0.75, FusionAlgorithm: 1},
 			outputCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: nilweights},
 		},
 	}
 
 	for _, tt := range cases {
 		t.Run("near vector", func(t *testing.T) {
-			nearVector, outputCombination, err := ExtractHybridSearch(tt.input, false)
+			hybrid, outputCombination, err := ExtractHybridSearch(tt.input, false)
 			if tt.error {
 				require.NotNil(t, err)
 			} else {
 				require.Nil(t, err)
-				require.Equal(t, tt.output, nearVector)
+				require.Equal(t, tt.output, hybrid)
 				require.Equal(t, tt.outputCombination, outputCombination)
 			}
 		})

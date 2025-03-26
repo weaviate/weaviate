@@ -1,6 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-DOCKER_REPO="semitechnologies/weaviate"
+set -euo pipefail
+
+DOCKER_REPO_WEAVIATE="semitechnologies/weaviate"
 
 only_build_amd64=false
 only_build_arm64=false
@@ -19,6 +21,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 function release() {
+  DOCKER_REPO=$DOCKER_REPO_WEAVIATE
 
   # for multi-platform build
   if [ "$only_build_amd64" == "false" ] && [ "$only_build_arm64" == "false" ]; then
@@ -27,12 +30,17 @@ function release() {
 
   docker buildx create --use
 
+  # nightly tag was added to be pushed on merges to main branch, latest tag is used to get latest released version
   tag_latest="${DOCKER_REPO}:latest"
   tag_exact=
   tag_preview=
   tag_preview_semver=
+  tag_nightly=
 
-  git_hash=$(echo "$GITHUB_SHA" | cut -c1-7)
+  git_revision=$(echo "$GITHUB_SHA" | cut -c1-7)
+  git_branch="$GITHUB_HEAD_REF"
+  build_user="ci"
+  build_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
   # Determine architecture and platform
   arch=""
@@ -47,12 +55,13 @@ function release() {
   fi
 
   weaviate_version="$(jq -r '.info.version' < openapi-specs/schema.json)"
-  if [  "$GITHUB_REF_TYPE" == "tag" ]; then
-        if [ "$GITHUB_REF_NAME" != "v$weaviate_version" ]; then
-            echo "The release tag ($GITHUB_REF_NAME) and Weaviate version (v$weaviate_version) are not equal! Can't release."
-            return 1
-        fi
-        tag_exact="${DOCKER_REPO}:${weaviate_version}"
+  if [ "$GITHUB_REF_TYPE" == "tag" ]; then
+      if [ "$GITHUB_REF_NAME" != "v$weaviate_version" ]; then
+          echo "The release tag ($GITHUB_REF_NAME) and Weaviate version (v$weaviate_version) are not equal! Can't release."
+          return 1
+      fi
+      tag_exact="${DOCKER_REPO}:${weaviate_version}"
+      git_branch="$GITHUB_REF_NAME"
   else
     if [ -n "$arch" ]; then
       tag_preview_semver="${DOCKER_REPO}:${weaviate_version}-${git_revision}.${arch}"
@@ -61,9 +70,14 @@ function release() {
     fi
     pr_title="$(echo -n "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -c -s '[:alnum:]' '-' | sed 's/-$//g')"
     if [ "$pr_title" == "" ]; then
-      prefix="$(echo -n $GITHUB_REF_NAME | sed 's/\//-/g')"
-      tag_preview="${DOCKER_REPO}:${prefix}-${git_hash}"
-      weaviate_version="${prefix}-${git_hash}"
+      git_branch="$GITHUB_REF_NAME"
+      branch_name="$(echo -n $GITHUB_REF_NAME | sed 's/\//-/g')"
+      tag_preview="${DOCKER_REPO}:${branch_name}-${git_revision}"
+      weaviate_version="${branch_name}-${git_revision}"
+      git_branch="$GITHUB_HEAD_REF"
+      if [ "$branch_name" == "main" ]; then
+        tag_nightly="${DOCKER_REPO}:nightly"
+      fi
     else
       if [ -n "$arch" ]; then
         tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_revision}.${arch}"
@@ -92,6 +106,9 @@ function release() {
     # preview tag on PR builds
     args+=("-t=$tag_preview")
     args+=("-t=$tag_preview_semver")
+    if [ -n "$tag_nightly" ]; then
+      args+=("-t=$tag_nightly")
+    fi
   fi
 
   docker buildx build "${args[@]}" . || exit 1

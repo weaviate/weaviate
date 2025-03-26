@@ -123,16 +123,19 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasSearchableIndex(prop) {
-		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
-		if s.versioner.Version() < 2 {
+		strategy := lsmkv.DefaultSearchableStrategy()
+		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(strategy))
+		if strategy == lsmkv.StrategyMapCollection && s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketSearchableFromPropNameLSM(prop.Name),
-			searchableBucketOpts...,
-		); err != nil {
+		bucketName := helpers.BucketSearchableFromPropNameLSM(prop.Name)
+		if err := s.store.CreateOrLoadBucket(ctx, bucketName, searchableBucketOpts...); err != nil {
 			return err
+		}
+
+		if actualStrategy := s.store.Bucket(bucketName).Strategy(); actualStrategy == lsmkv.StrategyInverted {
+			s.markSearchableBlockmaxProperties(prop.Name)
 		}
 	}
 
@@ -213,15 +216,14 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) addDimensionsProperty(ctx context.Context) error {
+func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
-	// Note: this data would fit the "Set" type better, but since the "Map" type
-	// is currently optimized better, it is more efficient to use a Map here.
 	err := s.store.CreateOrLoadBucket(ctx,
-		helpers.DimensionsBucketLSM,
+		name,
+		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
@@ -229,6 +231,20 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		s.segmentCleanupConfig(),
 	)
+	if err != nil {
+		return fmt.Errorf("create dimensions bucket: %w", err)
+	}
+	return nil
+}
+
+func (s *Shard) addDimensionsProperty(ctx context.Context) error {
+	if err := s.isReadOnly(); err != nil {
+		return err
+	}
+
+	// Note: this data would fit the "Set" type better, but since the "Map" type
+	// is currently optimized better, it is more efficient to use a Map here.
+	err := s.createDimensionsBucket(ctx, helpers.DimensionsBucketLSM)
 	if err != nil {
 		return fmt.Errorf("create dimensions tracking property: %w", err)
 	}
@@ -276,4 +292,17 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		s.segmentCleanupConfig(),
 	)
+}
+
+func (s *Shard) markSearchableBlockmaxProperties(propNames ...string) {
+	s.searchableBlockmaxPropNamesLock.Lock()
+	s.searchableBlockmaxPropNames = append(s.searchableBlockmaxPropNames, propNames...)
+	s.searchableBlockmaxPropNamesLock.Unlock()
+}
+
+func (s *Shard) getSearchableBlockmaxProperties() []string {
+	// since slice is only appended, it should be safe to return it that way
+	s.searchableBlockmaxPropNamesLock.Lock()
+	defer s.searchableBlockmaxPropNamesLock.Unlock()
+	return s.searchableBlockmaxPropNames
 }

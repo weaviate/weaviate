@@ -22,6 +22,8 @@ import (
 
 	"github.com/pkg/errors"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
+	"golang.org/x/sync/errgroup"
+
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -32,25 +34,30 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
+	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
+	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
+	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2colbert-jinaai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
-	"golang.org/x/sync/errgroup"
+	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 )
 
 const (
@@ -101,21 +108,32 @@ type Compose struct {
 	withWeaviateCluster        bool
 	withWeaviateClusterSize    int
 
-	withWeaviateAuth              bool
-	withWeaviateBasicAuth         bool
-	withWeaviateBasicAuthUsername string
-	withWeaviateBasicAuthPassword string
-	withSUMTransformers           bool
-	withCentroid                  bool
-	withCLIP                      bool
-	withGoogleApiKey              string
-	withBind                      bool
-	withImg2Vec                   bool
-	withRerankerTransformers      bool
-	withOllamaVectorizer          bool
-	withOllamaGenerative          bool
-	weaviateEnvs                  map[string]string
-	removeEnvs                    map[string]struct{}
+	withWeaviateAuth               bool
+	withWeaviateBasicAuth          bool
+	withWeaviateBasicAuthUsername  string
+	withWeaviateBasicAuthPassword  string
+	withWeaviateApiKey             bool
+	weaviateApiKeyUsers            []ApiKeyUser
+	weaviateAdminlistAdminUsers    []string
+	weaviateAdminlistReadOnlyUsers []string
+	withWeaviateDynamicUsers       bool
+	withWeaviateRbac               bool
+	weaviateRbacAdmins             []string
+	weaviateRbacRootGroups         []string
+	weaviateRbacViewers            []string
+	withSUMTransformers            bool
+	withCentroid                   bool
+	withCLIP                       bool
+	withGoogleApiKey               string
+	withBind                       bool
+	withImg2Vec                    bool
+	withRerankerTransformers       bool
+	withOllamaVectorizer           bool
+	withOllamaGenerative           bool
+	withAutoschema                 bool
+	withMockOIDC                   bool
+	weaviateEnvs                   map[string]string
+	removeEnvs                     map[string]struct{}
 }
 
 func New() *Compose {
@@ -226,6 +244,12 @@ func (d *Compose) WithMulti2VecCohere(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2VecNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecnvidia.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecVoyageAI(apiKey string) *Compose {
 	d.weaviateEnvs["VOYAGEAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecvoyageai.Name)
@@ -295,6 +319,11 @@ func (d *Compose) WithText2VecHuggingFace() *Compose {
 	return d
 }
 
+func (d *Compose) WithText2VecWeaviate() *Compose {
+	d.enableModules = append(d.enableModules, modweaviateembed.Name)
+	return d
+}
+
 func (d *Compose) WithGenerativeOpenAI(openAIApiKey, openAIOrganization, azureApiKey string) *Compose {
 	d.weaviateEnvs["OPENAI_APIKEY"] = openAIApiKey
 	d.weaviateEnvs["OPENAI_ORGANIZATION"] = openAIOrganization
@@ -303,9 +332,33 @@ func (d *Compose) WithGenerativeOpenAI(openAIApiKey, openAIOrganization, azureAp
 	return d
 }
 
+func (d *Compose) WithGenerativeNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativenvidia.Name)
+	return d
+}
+
 func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modjinaai.Name)
+	return d
+}
+
+func (d *Compose) WithText2ColBERTJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modtext2colbertjinaai.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankernvidia.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modnvidia.Name)
 	return d
 }
 
@@ -420,8 +473,73 @@ func (d *Compose) WithWeaviateAuth() *Compose {
 	return d.With1NodeCluster()
 }
 
+func (d *Compose) WithAdminListAdmins(users ...string) *Compose {
+	d.weaviateAdminlistAdminUsers = users
+	return d
+}
+
+func (d *Compose) WithAdminListUsers(users ...string) *Compose {
+	d.weaviateAdminlistReadOnlyUsers = users
+	return d
+}
+
 func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	d.weaviateEnvs[name] = value
+	return d
+}
+
+func (d *Compose) WithMockOIDC() *Compose {
+	d.withMockOIDC = true
+	return d
+}
+
+func (d *Compose) WithApiKey() *Compose {
+	d.withWeaviateApiKey = true
+	return d
+}
+
+func (d *Compose) WithUserApiKey(username, key string) *Compose {
+	if !d.withWeaviateApiKey {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateApiKeyUsers = append(d.weaviateApiKeyUsers, ApiKeyUser{
+		Username: username,
+		Key:      key,
+	})
+	return d
+}
+
+func (d *Compose) WithRBAC() *Compose {
+	d.withWeaviateRbac = true
+	return d
+}
+
+func (d *Compose) WithDynamicUsers() *Compose {
+	d.withWeaviateDynamicUsers = true
+	return d
+}
+
+func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacAdmins = append(d.weaviateRbacAdmins, usernames...)
+	return d
+}
+
+func (d *Compose) WithRbacRootGroups(groups ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacRootGroups = append(d.weaviateRbacRootGroups, groups...)
+	return d
+}
+
+func (d *Compose) WithRbacViewers(usernames ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacViewers = append(d.weaviateRbacViewers, usernames...)
 	return d
 }
 
@@ -429,7 +547,11 @@ func (d *Compose) WithoutWeaviateEnvs(names ...string) *Compose {
 	for _, name := range names {
 		d.removeEnvs[name] = struct{}{}
 	}
+	return d
+}
 
+func (d *Compose) WithAutoschema() *Compose {
+	d.withAutoschema = true
 	return d
 }
 
@@ -611,6 +733,16 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
+	if d.withMockOIDC {
+		container, err := startMockOIDC(ctx, networkName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", MockOIDC)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
 
 	if d.withWeaviateCluster {
 		cs, err := d.startCluster(ctx, d.withWeaviateClusterSize, envSettings)
@@ -697,6 +829,55 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
+	}
+	if len(d.weaviateAdminlistAdminUsers) > 0 {
+		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
+		settings["AUTHORIZATION_ADMINLIST_USERS"] = strings.Join(d.weaviateAdminlistAdminUsers, ",")
+		if len(d.weaviateAdminlistReadOnlyUsers) > 0 {
+			settings["AUTHORIZATION_ADMINLIST_READONLY_USERS"] = strings.Join(d.weaviateAdminlistReadOnlyUsers, ",")
+		}
+	}
+
+	if d.withWeaviateApiKey {
+		usernames := make([]string, 0, len(d.weaviateApiKeyUsers))
+		keys := make([]string, 0, len(d.weaviateApiKeyUsers))
+
+		for _, user := range d.weaviateApiKeyUsers {
+			usernames = append(usernames, user.Username)
+			keys = append(keys, user.Key)
+		}
+		if len(keys) > 0 {
+			settings["AUTHENTICATION_APIKEY_ALLOWED_KEYS"] = strings.Join(keys, ",")
+			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
+		}
+		if len(usernames) > 0 {
+			settings["AUTHENTICATION_APIKEY_USERS"] = strings.Join(usernames, ",")
+			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
+		}
+	}
+
+	if d.withWeaviateRbac {
+		settings["AUTHORIZATION_RBAC_ENABLED"] = "true"
+		settings["AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"] = "false" // incompatible
+
+		if len(d.weaviateRbacAdmins) > 0 {
+			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
+		}
+		if len(d.weaviateRbacViewers) > 0 {
+			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
+		}
+
+		if len(d.weaviateRbacRootGroups) > 0 {
+			settings["AUTHORIZATION_RBAC_ROOT_GROUPS"] = strings.Join(d.weaviateRbacRootGroups, ",")
+		}
+	}
+
+	if d.withWeaviateDynamicUsers {
+		settings["AUTHENTICATION_DYNAMIC_USERS_ENABLED"] = "true"
+	}
+
+	if d.withAutoschema {
+		settings["AUTOSCHEMA_ENABLED"] = "true"
 	}
 
 	settings["RAFT_PORT"] = "8300"

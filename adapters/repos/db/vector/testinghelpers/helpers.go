@@ -23,11 +23,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -83,7 +83,7 @@ func readSiftFloat(file string, maxObjects int, vectorLengthFloat int) [][]float
 	vectorBytes := make([]byte, bytesPerF+vectorLengthFloat*bytesPerF)
 	for i := 0; i >= 0; i++ {
 		_, err = f.Read(vectorBytes)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
 			panic(err)
@@ -177,21 +177,37 @@ func ReadQueries(queriesSize int) [][]float32 {
 	return queries
 }
 
+// nil vectors are ignored, this allows for deleting vectors or supplying
+// sparse sets where not every id has a vec
 func BruteForce(logger logrus.FieldLogger, vectors [][]float32, query []float32, k int, distance DistanceFunction) ([]uint64, []float32) {
 	type distanceAndIndex struct {
 		distance float32
 		index    uint64
+		deleted  bool
 	}
 
 	distances := make([]distanceAndIndex, len(vectors))
 
 	compressionhelpers.Concurrently(logger, uint64(len(vectors)), func(i uint64) {
+		if vectors[i] == nil {
+			distances[i] = distanceAndIndex{deleted: true}
+			return
+		}
+
 		dist := distance(query, vectors[i])
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,
 		}
 	})
+
+	withoutDeletes := make([]distanceAndIndex, 0, len(distances))
+	for _, d := range distances {
+		if !d.deleted {
+			withoutDeletes = append(withoutDeletes, d)
+		}
+	}
+	distances = withoutDeletes
 
 	sort.Slice(distances, func(a, b int) bool {
 		return distances[a].distance < distances[b].distance
@@ -278,7 +294,9 @@ func NewDummyStore(t testing.TB) *lsmkv.Store {
 	logger, _ := test.NewNullLogger()
 	storeDir := t.TempDir()
 	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	return store
 }

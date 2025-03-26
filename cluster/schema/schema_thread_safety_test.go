@@ -14,6 +14,7 @@ package schema
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -123,7 +124,7 @@ func testConcurrentReadWrite(t *testing.T, s *schema) {
 					},
 				}
 				err := s.addClass(class, &sharding.State{}, uint64(j))
-				if err != nil && err != ErrClassExists {
+				if err != nil && !errors.Is(err, ErrClassExists) {
 					t.Errorf("unexpected error adding class: %v", err)
 				}
 				time.Sleep(time.Microsecond) // Simulate some work

@@ -117,17 +117,20 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMinActiveSeconds:           m.db.config.MemtablesMinActiveSeconds,
 			MemtablesMaxActiveSeconds:           m.db.config.MemtablesMaxActiveSeconds,
 			SegmentsCleanupIntervalSeconds:      m.db.config.SegmentsCleanupIntervalSeconds,
+			SeparateObjectsCompactions:          m.db.config.SeparateObjectsCompactions,
 			CycleManagerRoutinesFactor:          m.db.config.CycleManagerRoutinesFactor,
 			MaxSegmentSize:                      m.db.config.MaxSegmentSize,
 			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill:             m.db.config.HNSWWaitForCachePrefill,
+			HNSWFlatSearchConcurrency:           m.db.config.HNSWFlatSearchConcurrency,
+			HNSWAcornFilterRatio:                m.db.config.HNSWAcornFilterRatio,
 			VisitedListPoolMaxSize:              m.db.config.VisitedListPoolMaxSize,
 			TrackVectorDimensions:               m.db.config.TrackVectorDimensions,
 			AvoidMMap:                           m.db.config.AvoidMMap,
 			DisableLazyLoadShards:               m.db.config.DisableLazyLoadShards,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
 			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
-			ReplicationFactor:                   NewAtomicInt64(class.ReplicationConfig.Factor),
+			ReplicationFactor:                   class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                    m.db.shardLoadLimiter,
@@ -139,7 +142,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.indexCheckpoints,
+		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor)
 	if err != nil {
 		return errors.Wrap(err, "create index")
@@ -675,12 +678,8 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 		return errors.Errorf("cannot update replication factor of non-existing index for %s", className)
 	}
 
-	{
-		idx.Config.ReplicationFactor.Store(cfg.Factor)
-
-		if err := idx.updateAsyncReplicationConfig(ctx, cfg.AsyncEnabled); err != nil {
-			return fmt.Errorf("update async replication for class %q: %w", className, err)
-		}
+	if err := idx.updateReplicationConfig(ctx, cfg); err != nil {
+		return fmt.Errorf("update replication config for class %q: %w", className, err)
 	}
 
 	return nil
@@ -697,22 +696,26 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
+		err := index.ForEachShard(func(name string, shard ShardLike) error {
+			return shard.resetDimensionsLSM()
+		})
+		if err != nil {
+			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
+			return err
+		}
+
 		// Iterate over all shards
-		if err := index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
+		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			if shard.hasTargetVectors() {
-				for vecName, vec := range object.Vectors {
-					if err := shard.extendDimensionTrackerForVecLSM(len(vec), object.DocID, vecName); err != nil {
-						return err
-					}
+			return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+				if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
+					return fmt.Errorf("failed to extend dimension tracker for vector %q: %w", targetVector, err)
 				}
-			} else {
-				if err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID); err != nil {
-					return err
-				}
-			}
-			return nil
-		}); err != nil {
+				return nil
+			})
+		})
+		if err != nil {
+			m.logger.WithField("action", "reindex").WithError(err).Warn("could not extend vector dimensions")
 			return err
 		}
 	}
@@ -793,24 +796,47 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 	return nil
 }
 
-func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
+func (m *Migrator) InvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {
 	var errs errorcompounder.ErrorCompounder
-	errs.Add(m.doInvertedReindex(ctx, taskNames...))
-	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNames...))
+	errs.Add(m.doInvertedReindex(ctx, taskNamesWithArgs))
+	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNamesWithArgs))
 	return errs.ToError()
 }
 
-func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) error {
-	tasksProviders := map[string]func() ShardInvertedReindexTask{
-		"ShardInvertedReindexTaskSetToRoaringSet": func() ShardInvertedReindexTask {
-			return &ShardInvertedReindexTaskSetToRoaringSet{}
-		},
+func (m *Migrator) ReindexerV2(tasksNames []string, args map[string]any) (*ReindexerV2, error) {
+	reindexer := NewReindexerV2(m.logger, m.db.indices, &m.db.indexLock)
+	for _, name := range tasksNames {
+		if err := reindexer.RegisterTask(name, args[name]); err != nil {
+			return nil, err
+		}
 	}
+	return reindexer, nil
+}
 
+func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {
 	tasks := map[string]ShardInvertedReindexTask{}
-	for _, taskName := range taskNames {
-		if taskProvider, ok := tasksProviders[taskName]; ok {
-			tasks[taskName] = taskProvider()
+	for name, args := range taskNamesWithArgs {
+		switch name {
+		case "ShardInvertedReindexTaskSetToRoaringSet":
+			tasks[name] = &ShardInvertedReindexTaskSetToRoaringSet{}
+		case "ShardInvertedReindexTask_SpecifiedIndex":
+			if args == nil {
+				return fmt.Errorf("no args given for %q reindex task", name)
+			}
+			argsMap, ok := args.(map[string][]string)
+			if !ok {
+				return fmt.Errorf("invalid args given for %q reindex task", name)
+			}
+			classNamesWithPropertyNames := map[string]map[string]struct{}{}
+			for class, props := range argsMap {
+				classNamesWithPropertyNames[class] = map[string]struct{}{}
+				for _, prop := range props {
+					classNamesWithPropertyNames[class][prop] = struct{}{}
+				}
+			}
+			tasks[name] = &ShardInvertedReindexTask_SpecifiedIndex{
+				classNamesWithPropertyNames: classNamesWithPropertyNames,
+			}
 		}
 	}
 
@@ -846,16 +872,8 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 	return eg.Wait()
 }
 
-func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, taskNames ...string) error {
-	taskName := "ShardInvertedReindexTaskMissingTextFilterable"
-	taskFound := false
-	for _, name := range taskNames {
-		if name == taskName {
-			taskFound = true
-			break
-		}
-	}
-	if !taskFound {
+func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, taskNamesWithArgs map[string]any) error {
+	if _, ok := taskNamesWithArgs["ShardInvertedReindexTaskMissingTextFilterable"]; !ok {
 		return nil
 	}
 

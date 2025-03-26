@@ -18,16 +18,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -115,6 +115,19 @@ func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
 	return res, nil
 }
 
+func (f *fakeSchemaManager) GetCachedClassNoAuth(ctx context.Context, names ...string,
+) (map[string]versioned.Class, error) {
+	res := map[string]versioned.Class{}
+	for _, name := range names {
+		cls, err := f.GetClass(ctx, nil, name)
+		if err != nil {
+			return res, err
+		}
+		res[name] = versioned.Class{Class: cls}
+	}
+	return f.GetCachedClass(ctx, nil, names...)
+}
+
 func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
 	c, err := f.GetClass(context.TODO(), nil, name)
 	if err != nil {
@@ -143,7 +156,7 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, merge bool, newProps ...*models.Property,
+	class *models.Class, className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
 	existing := map[string]int{}
 	var existedClass *models.Class
@@ -178,36 +191,12 @@ func (f *fakeSchemaManager) AddTenants(ctx context.Context,
 	return 0, nil
 }
 
-func (f *fakeSchemaManager) MultiTenancy(class string) models.MultiTenancyConfig {
-	return models.MultiTenancyConfig{Enabled: f.tenantsEnabled}
-}
-
 func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return nil
 }
 
 func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
-}
-
-type fakeLocks struct {
-	Err error
-}
-
-func (f *fakeLocks) LockConnector() (func() error, error) {
-	return func() error { return nil }, f.Err
-}
-
-func (f *fakeLocks) LockSchema() (func() error, error) {
-	return func() error { return nil }, f.Err
-}
-
-type fakeAuthorizer struct {
-	Err error
-}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return f.Err
 }
 
 type fakeVectorRepo struct {
@@ -250,12 +239,13 @@ func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, fi
 
 func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Results, *Error) {
 	args := f.Called(q)
-	res, err := args.Get(0).([]search.Result), args.Error(1).(*Error)
-	return res, err
+	var customEr *Error
+	errors.As(args.Error(1), &customEr)
+	return args.Get(0).([]search.Result), customEr
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
-	vectors models.Vectors, repl *additional.ReplicationProperties, schemaVersion uint64,
+	vectors map[string][]float32, multiVectors map[string][][]float32, repl *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
@@ -318,7 +308,7 @@ func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -337,7 +327,7 @@ func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -356,7 +346,7 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 

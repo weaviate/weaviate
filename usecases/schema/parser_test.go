@@ -138,16 +138,6 @@ func TestParser(t *testing.T) {
 	}
 }
 
-type fakeModulesProvider struct{}
-
-func (m fakeModulesProvider) IsReranker(name string) bool {
-	return strings.Contains(name, "reranker")
-}
-
-func (m fakeModulesProvider) IsGenerative(name string) bool {
-	return strings.Contains(name, "generative")
-}
-
 func Test_asMap(t *testing.T) {
 	t.Run("not nil", func(t *testing.T) {
 		m, err := propertyAsMap(&models.Property{
@@ -173,4 +163,18 @@ func Test_asMap(t *testing.T) {
 		_, ok = nps[0]["description"]
 		require.False(t, ok)
 	})
+}
+
+type fakeModulesProvider struct{}
+
+func (m fakeModulesProvider) IsReranker(name string) bool {
+	return strings.Contains(name, "reranker")
+}
+
+func (m fakeModulesProvider) IsGenerative(name string) bool {
+	return strings.Contains(name, "generative")
+}
+
+func (m fakeModulesProvider) IsMultiVector(name string) bool {
+	return strings.Contains(name, "colbert")
 }

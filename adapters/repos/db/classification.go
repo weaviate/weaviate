@@ -54,6 +54,7 @@ func (db *DB) GetUnclassified(ctx context.Context, className string,
 				"interpretation": true,
 			},
 		},
+		Properties: props,
 	})
 
 	return res, err
@@ -80,7 +81,7 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 			Vector: true,
 		},
 		Properties: props,
-	}, []string{""}, [][]float32{vector})
+	}, []string{""}, []models.Vector{vector})
 
 	return res, err
 }
@@ -91,6 +92,10 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 	class string, properties []string, k int,
 	filter *libfilters.LocalFilter,
 ) ([]classification.NeighborRef, error) {
+	props := make(search.SelectProperties, len(properties))
+	for i, prop := range properties {
+		props[i] = search.SelectProperty{Name: prop}
+	}
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorGreaterThan, 0)
 	res, err := db.VectorSearch(ctx, dto.GetParams{
@@ -102,7 +107,8 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 		AdditionalProperties: additional.Properties{
 			Vector: true,
 		},
-	}, []string{""}, [][]float32{vector})
+		Properties: props,
+	}, []string{""}, []models.Vector{vector})
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate neighbors: search neighbors")
 	}

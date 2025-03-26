@@ -18,6 +18,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -39,19 +40,24 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	compressionBQ   = "bq"
-	compressionPQ   = "pq"
-	compressionSQ   = "sq"
-	compressionNone = "none"
+	compressionBQ        = "bq"
+	compressionPQ        = "pq"
+	compressionSQ        = "sq"
+	compressionNone      = "none"
+	defaultCachePageSize = 32
 )
 
 type flat struct {
 	id                  string
 	targetVector        string
+	rootPath            string
 	dims                int32
+	metadata            *bolt.DB
+	metadataLock        *sync.RWMutex
 	store               *lsmkv.Store
 	logger              logrus.FieldLogger
 	distancerProvider   distancer.Provider
@@ -85,8 +91,10 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	index := &flat{
 		id:                   cfg.ID,
 		targetVector:         cfg.TargetVector,
+		rootPath:             cfg.RootPath,
 		logger:               logger,
 		distancerProvider:    cfg.DistanceProvider,
+		metadataLock:         &sync.RWMutex{},
 		rescore:              extractCompressionRescore(uc),
 		pqResults:            common.NewPqMaxPool(100),
 		compression:          extractCompression(uc),
@@ -100,7 +108,11 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 
 	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(
-			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
+			index.getBQVector, uc.VectorCacheMaxObjects, defaultCachePageSize, cfg.Logger, 0, cfg.AllocChecker)
+	}
+
+	if err := index.initMetadata(); err != nil {
+		return nil, err
 	}
 
 	return index, nil
@@ -174,6 +186,10 @@ func (index *flat) isBQCached() bool {
 
 func (index *flat) Compressed() bool {
 	return index.compression != compressionNone
+}
+
+func (index *flat) Multivector() bool {
+	return false
 }
 
 func (index *flat) getBucketName() string {
@@ -295,7 +311,12 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	}
 
 	index.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&index.dims, int32(len(vector)))
+		size := int32(len(vector))
+		atomic.StoreInt32(&index.dims, size)
+		err := index.setDimensions(size)
+		if err != nil {
+			index.logger.WithError(err).Error("could not set dimensions")
+		}
 
 		if index.isBQ() {
 			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
@@ -322,6 +343,14 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	return nil
 }
 
+func (index *flat) AddMulti(ctx context.Context, docID uint64, vectors [][]float32) error {
+	return errors.Errorf("AddMulti is not supported for flat index")
+}
+
+func (index *flat) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
+	return errors.Errorf("AddMultiBatch is not supported for flat index")
+}
+
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
 		if index.isBQCached() {
@@ -341,6 +370,10 @@ func (index *flat) Delete(ids ...uint64) error {
 		}
 	}
 	return nil
+}
+
+func (index *flat) DeleteMulti(ids ...uint64) error {
+	return errors.Errorf("DeleteMulti is not supported for flat index")
 }
 
 func (index *flat) searchTimeRescore(k int) int {
@@ -363,6 +396,10 @@ func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, 
 	default:
 		return index.searchByVector(ctx, vector, k, allow)
 	}
+}
+
+func (index *flat) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("SearchByMultiVector is not supported for flat index")
 }
 
 func (index *flat) searchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -548,24 +585,41 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
 	}
 	all := index.bqCache.Len()
 
+	out := make([][]uint64, index.bqCache.PageSize())
+	errs := make([]error, index.bqCache.PageSize())
+
 	// since keys are sorted, once key/id get greater than max allowed one
 	// further search can be stopped
-	for ; id < uint64(all) && (allow == nil || id <= allowMax); id++ {
-		if allow == nil || allow.Contains(id) {
-			vec, err := index.bqCache.Get(context.Background(), id)
-			if err != nil {
-				return err
+	for id < uint64(all) && (allow == nil || id <= allowMax) {
+
+		vecs, errs, start, end := index.bqCache.GetAllInCurrentLock(context.Background(), id, out, errs)
+
+		for i, vec := range vecs {
+			if i < (int(end) - int(start)) {
+				currentId := start + uint64(i)
+
+				if (currentId < uint64(all)) && (allow == nil || allow.Contains(currentId)) {
+
+					err := errs[i]
+					if err != nil {
+						return err
+					}
+					if len(vec) == 0 {
+						continue
+					}
+					distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
+					if err != nil {
+						return err
+					}
+					index.insertToHeap(heap, limit, currentId, distance)
+
+				}
 			}
-			if len(vec) == 0 {
-				continue
-			}
-			distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
-			if err != nil {
-				return err
-			}
-			index.insertToHeap(heap, limit, id, distance)
 		}
+
+		id = end
 	}
+
 	return nil
 }
 
@@ -667,6 +721,12 @@ func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
 	return resultIDs, resultDist, nil
 }
 
+func (index *flat) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32,
+	targetDistance float32, maxLimit int64, allow helpers.AllowList,
+) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("SearchByMultiVectorDistance is not supported for flat index")
+}
+
 func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(flatent.UserConfig)
 	if !ok {
@@ -683,7 +743,9 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 }
 
 func (index *flat) Drop(ctx context.Context) error {
-	// nothing to do here
+	if err := index.removeMetadataFile(); err != nil {
+		return err
+	}
 	// Shard::drop will take care of handling store's buckets
 	return nil
 }
@@ -695,7 +757,6 @@ func (index *flat) Flush() error {
 }
 
 func (index *flat) Shutdown(ctx context.Context) error {
-	// nothing to do here
 	// Shard::shutdown will take care of handling store's buckets
 	return nil
 }
@@ -705,12 +766,32 @@ func (index *flat) SwitchCommitLogs(context.Context) error {
 }
 
 func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	// nothing to do here
-	// Shard::ListBackupFiles will take care of handling store's buckets
-	return []string{}, nil
+	var files []string
+
+	metadataFile := index.getMetadataFile()
+	fullPath := filepath.Join(index.rootPath, metadataFile)
+
+	if _, err := os.Stat(fullPath); err == nil {
+		relPath, err := filepath.Rel(basePath, fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get relative path: %w", err)
+		}
+		// If the file doesn't exist, we simply don't add it to the list
+		files = append(files, relPath)
+	}
+
+	return files, nil
+}
+
+func (index *flat) GetKeys(id uint64) (uint64, uint64, error) {
+	return 0, 0, errors.Errorf("GetKeys is not supported for flat index")
 }
 
 func (i *flat) ValidateBeforeInsert(vector []float32) error {
+	return nil
+}
+
+func (i *flat) ValidateMultiBeforeInsert(vector [][]float32) error {
 	return nil
 }
 
@@ -777,7 +858,7 @@ func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return index.distancerProvider.SingleDist(x, y)
 }
 
-func (index *flat) ContainsNode(id uint64) bool {
+func (index *flat) ContainsDoc(id uint64) bool {
 	var bucketName string
 
 	// logic modeled after SearchByVector which indicates that the PQ bucket is
@@ -795,14 +876,14 @@ func (index *flat) ContainsNode(id uint64) bool {
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
 	v, err := index.store.Bucket(bucketName).Get(idBytes)
-	if v == nil || err == entlsmkv.NotFound {
+	if v == nil || errors.Is(err, entlsmkv.NotFound) {
 		return false
 	}
 
 	return true
 }
 
-func (index *flat) Iterate(fn func(id uint64) bool) {
+func (index *flat) Iterate(fn func(docID uint64) bool) {
 	var bucketName string
 
 	// logic modeled after SearchByVector which indicates that the PQ bucket is
@@ -952,6 +1033,10 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		}
 	}
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
+}
+
+func (index *flat) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
+	return common.QueryVectorDistancer{}
 }
 
 func (index *flat) Stats() (common.IndexStats, error) {

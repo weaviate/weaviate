@@ -78,28 +78,28 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	return resp, err
 }
 
-func (c *replicationClient) DigestObjectsInTokenRange(ctx context.Context,
-	host, index, shard string, initialToken, finalToken uint64, limit int,
-) (result []replica.RepairResponse, lastTokenRead uint64, err error) {
-	body, err := json.Marshal(replica.DigestObjectsInTokenRangeReq{
-		InitialToken: initialToken,
-		FinalToken:   finalToken,
-		Limit:        limit,
+func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
+	host, index, shard string, initialUUID, finalUUID strfmt.UUID, limit int,
+) (result []replica.RepairResponse, err error) {
+	body, err := json.Marshal(replica.DigestObjectsInRangeReq{
+		InitialUUID: initialUUID,
+		FinalUUID:   finalUUID,
+		Limit:       limit,
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("marshal digest objects in range input: %w", err)
+		return nil, fmt.Errorf("marshal digest objects in range input: %w", err)
 	}
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", "digestsInTokenRange", bytes.NewReader(body), 0)
+		"", "digestsInRange", bytes.NewReader(body), 0)
 	if err != nil {
-		return nil, 0, fmt.Errorf("create http request: %w", err)
+		return nil, fmt.Errorf("create http request: %w", err)
 	}
 
-	var resp replica.DigestObjectsInTokenRangeResp
+	var resp replica.DigestObjectsInRangeResp
 	err = c.do(c.timeoutUnit*20, req, body, &resp, 9)
-	return resp.Digests, resp.LastTokenRead, err
+	return resp.Digests, err
 }
 
 func (c *replicationClient) HashTreeLevel(ctx context.Context,

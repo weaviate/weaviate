@@ -22,6 +22,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/dynusers"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
 	"github.com/prometheus/client_golang/prometheus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -30,6 +34,7 @@ import (
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
+	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -138,8 +143,10 @@ type Config struct {
 	// WARNING: This should be run on *actual* one node cluster only.
 	ForceOneNodeRecovery bool
 
-	EnableFQDNResolver bool
-	FQDNResolverTLD    string
+	// 	AuthzController to manage RBAC commands and apply it to casbin
+	AuthzController authorization.Controller
+
+	DynamicUserController apikey.DynamicUser
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -182,6 +189,13 @@ type Store struct {
 	// schemaManager is responsible for applying changes committed by RAFT to the schema representation & querying the
 	// schema
 	schemaManager *schema.SchemaManager
+
+	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
+	authZManager *rbacRaft.Manager
+
+	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
+	dynUserManager *dynusers.Manager
+
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
@@ -189,31 +203,22 @@ type Store struct {
 }
 
 func NewFSM(cfg Config, reg prometheus.Registerer) Store {
-	// We have different resolver in raft so that depending on the environment we can resolve a node-id to an IP using
-	// different methods.
-	var raftResolver types.RaftResolver
-	raftResolver = resolver.NewRaft(resolver.RaftConfig{
-		NodeToAddress:     cfg.NodeToAddressResolver,
-		RaftPort:          cfg.RaftPort,
-		IsLocalHost:       cfg.IsLocalHost,
-		NodeNameToPortMap: cfg.NodeNameToPortMap,
-	})
-	if cfg.EnableFQDNResolver {
-		raftResolver = resolver.NewFQDN(resolver.FQDNConfig{
-			TLD:               cfg.FQDNResolverTLD,
+	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+
+	return Store{
+		cfg:          cfg,
+		log:          cfg.Logger,
+		candidates:   make(map[string]string, cfg.BootstrapExpect),
+		applyTimeout: time.Second * 20,
+		raftResolver: resolver.NewRaft(resolver.RaftConfig{
+			NodeToAddress:     cfg.NodeToAddressResolver,
 			RaftPort:          cfg.RaftPort,
 			IsLocalHost:       cfg.IsLocalHost,
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
-		})
-	}
-
-	return Store{
-		cfg:           cfg,
-		log:           cfg.Logger,
-		candidates:    make(map[string]string, cfg.BootstrapExpect),
-		applyTimeout:  time.Second * 20,
-		raftResolver:  raftResolver,
-		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger),
+		}),
+		schemaManager:  schemaManager,
+		authZManager:   rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
+		dynUserManager: dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
 	}
 }
 

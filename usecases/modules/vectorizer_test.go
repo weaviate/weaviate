@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -161,6 +162,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 			ModuleConfig: map[string]interface{}{
 				modName: map[string]interface{}{},
 			},
+			Vectorizer:        "text2vec-contextionary",
 			VectorIndexConfig: hnsw.UserConfig{},
 		}
 		sch := schema.Schema{
@@ -180,6 +182,41 @@ func TestProvider_UpdateVector(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
+	t.Run("with missing vectorizer modconfig", func(t *testing.T) {
+		ctx := context.Background()
+		class := &models.Class{
+			Class:             "SomeClass",
+			VectorIndexConfig: hnsw.UserConfig{},
+			Vectorizer:        "text2vec-contextionary",
+		}
+		mod := newDummyModule("", "")
+		logger, _ := test.NewNullLogger()
+
+		p := NewProvider(logger)
+		p.Register(mod)
+		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
+
+		obj := &models.Object{Class: class.Class, ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, class, (&fakeObjectsRepo{}).Object, logger)
+		expectedErr := fmt.Sprintf("no moduleconfig for class %v present", class.Class)
+		assert.EqualError(t, err, expectedErr)
+	})
+
+	t.Run("with no vectors configuration", func(t *testing.T) {
+		ctx := context.Background()
+		class := &models.Class{
+			Class:      "SomeClass",
+			Vectorizer: "none",
+		}
+
+		logger, _ := test.NewNullLogger()
+		p := NewProvider(logger)
+
+		obj := &models.Object{Class: class.Class, ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, class, (&fakeObjectsRepo{}).Object, logger)
+		require.NoError(t, err)
+	})
+
 	t.Run("with ReferenceVectorizer", func(t *testing.T) {
 		ctx := context.Background()
 		modName := "some-vzr"
@@ -190,6 +227,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 			ModuleConfig: map[string]interface{}{
 				modName: struct{}{},
 			},
+			Vectorizer:        "text2vec-contextionary",
 			VectorIndexConfig: hnsw.UserConfig{},
 		}
 
@@ -208,26 +246,6 @@ func TestProvider_UpdateVector(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
-	t.Run("with nonexistent class", func(t *testing.T) {
-		ctx := context.Background()
-		class := &models.Class{
-			Class:             "SomeClass",
-			VectorIndexConfig: hnsw.UserConfig{},
-		}
-		mod := newDummyModule("", "")
-		repo := &fakeObjectsRepo{}
-		logger, _ := test.NewNullLogger()
-
-		p := NewProvider(logger)
-		p.Register(mod)
-		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
-
-		obj := &models.Object{Class: "Other Class", ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, class, repo.Object, logger)
-		expectedErr := fmt.Sprintf("no moduleconfig for class %v present", class.Class)
-		assert.EqualError(t, err, expectedErr)
-	})
-
 	t.Run("with nonexistent vector index config type", func(t *testing.T) {
 		ctx := context.Background()
 		modName := "some-vzr"
@@ -238,6 +256,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 			ModuleConfig: map[string]interface{}{
 				modName: struct{}{},
 			},
+			Vectorizer:        "text2vec-contextionary",
 			VectorIndexConfig: struct{}{},
 		}
 		sch := schema.Schema{Objects: &models.Schema{
@@ -255,7 +274,41 @@ func TestProvider_UpdateVector(t *testing.T) {
 		err := p.UpdateVector(ctx, obj, class, repo.Object, logger)
 		expectedErr := "vector index config (struct {}) is not of type HNSW, " +
 			"but objects manager is restricted to HNSW"
-		assert.EqualError(t, err, expectedErr)
+		require.ErrorContains(t, err, expectedErr)
+	})
+
+	t.Run("with ColBERT Vectorizer", func(t *testing.T) {
+		ctx := context.Background()
+		modName := "colbert"
+		className := "SomeClass"
+		mod := newDummyModule(modName, modulecapabilities.Text2ColBERT)
+		class := models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"colbert": {
+					Vectorizer:        map[string]interface{}{modName: map[string]interface{}{}},
+					VectorIndexConfig: hnsw.UserConfig{Multivector: hnsw.MultivectorConfig{Enabled: true}},
+					VectorIndexType:   "hnsw",
+				},
+			},
+		}
+		sch := schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{&class},
+			},
+		}
+		repo := &fakeObjectsRepo{}
+		logger, _ := test.NewNullLogger()
+
+		p := NewProvider(logger)
+		p.Register(mod)
+		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+
+		obj := &models.Object{Class: className, ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, &class, repo.Object, logger)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, obj.Vectors)
+		assert.Equal(t, [][]float32{{0.11, 0.22, 0.33}, {0.11, 0.22, 0.33}}, obj.Vectors["colbert"])
 	})
 }
 

@@ -59,7 +59,7 @@ func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassCo
 	// rank results
 	result, err := p.client.Rank(ctx, query, documents, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("error ranking with cohere: %w", err)
+		return nil, fmt.Errorf("client rank: %w", err)
 	}
 
 	// add scores to results

@@ -9,6 +9,7 @@ linters:
     - govet
     - unused
     - nolintlint
+    - errorlint
     - forbidigo
 linters-settings:
   forbidigo:
@@ -32,6 +33,20 @@ linters-settings:
     # Presence of "default" case in switch statements satisfies exhaustiveness,
     # even if all enum members are not listed.
     default-signifies-exhaustive: true
+  errorlint:
+    # Check whether fmt.Errorf uses the %w verb for formatting errors.
+    # See the https://github.com/polyfloyd/go-errorlint for caveats.
+    # Default: true
+    errorf: true
+    # Permit more than 1 %w verb, valid per Go 1.20 (Requires errorf:true)
+    # Default: true
+    errorf-multi: true
+    # Check for plain type assertions and type switches.
+    # Default: true
+    asserts: true
+    # Check for plain error comparisons.
+    # Default: true
+    comparison: true
 issues:
   exclude-rules:
     # Exclude some staticcheck messages
@@ -52,8 +67,12 @@ issues:
       text: "composites"
     - linters:
         - staticcheck
-      path: adapters/handlers/grpc/v1/filters.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
+      path: ^adapters/handlers/grpc/v1\/(?:[^\/]+\/)*[^\/]+\.go$
+      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API implementation
+    - linters:
+        - staticcheck
+      path: ^test/acceptance/grpc\/[^\/]+\.go$
+      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API implementation
     - linters:
         - staticcheck
       path: adapters/handlers/grpc/v1/prepare_reply.go

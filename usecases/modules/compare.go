@@ -13,8 +13,10 @@ package modules
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -22,10 +24,89 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 )
 
-func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecapabilities.Vectorizer, object *models.Object, class *models.Class, sourceProperties []string, targetVector string, findObjectFn modulecapabilities.FindObjectFn) (bool, models.AdditionalProperties, []float32) {
+func reVectorize(ctx context.Context,
+	cfg moduletools.ClassConfig,
+	mod modulecapabilities.Vectorizer[[]float32],
+	object *models.Object,
+	class *models.Class,
+	sourceProperties []string,
+	targetVector string,
+	findObjectFn modulecapabilities.FindObjectFn,
+) (bool, models.AdditionalProperties, []float32, error) {
+	shouldReVectorize, oldObject := reVectorizeEmbeddings(ctx, cfg, mod, object, class, sourceProperties, findObjectFn)
+	if shouldReVectorize {
+		return shouldReVectorize, nil, nil, nil
+	}
+
+	if targetVector == "" {
+		return false, oldObject.AdditionalProperties, oldObject.Vector, nil
+	} else {
+		vector, err := getVector(oldObject.Vectors[targetVector])
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("get vector: %w", err)
+		}
+		return false, oldObject.AdditionalProperties, vector, nil
+	}
+}
+
+func getVector(v models.Vector) ([]float32, error) {
+	switch vector := v.(type) {
+	case nil:
+		return nil, nil
+	case []float32:
+		return vector, nil
+	default:
+		return nil, fmt.Errorf("unrecognized vector type: %T", v)
+	}
+}
+
+func reVectorizeMulti(ctx context.Context,
+	cfg moduletools.ClassConfig,
+	mod modulecapabilities.Vectorizer[[][]float32],
+	object *models.Object,
+	class *models.Class,
+	sourceProperties []string,
+	targetVector string,
+	findObjectFn modulecapabilities.FindObjectFn,
+) (bool, models.AdditionalProperties, [][]float32, error) {
+	shouldReVectorize, oldObject := reVectorizeEmbeddings(ctx, cfg, mod, object, class, sourceProperties, findObjectFn)
+	if shouldReVectorize {
+		return shouldReVectorize, nil, nil, nil
+	}
+
+	if targetVector == "" {
+		return false, oldObject.AdditionalProperties, nil, nil
+	} else {
+		multiVector, err := getMultiVector(oldObject.Vectors[targetVector])
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("get multi vector: %w", err)
+		}
+		return false, oldObject.AdditionalProperties, multiVector, nil
+	}
+}
+
+func getMultiVector(v models.Vector) ([][]float32, error) {
+	switch vector := v.(type) {
+	case nil:
+		return nil, nil
+	case [][]float32:
+		return vector, nil
+	default:
+		return nil, fmt.Errorf("unrecognized multi vector type: %T", v)
+	}
+}
+
+func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
+	cfg moduletools.ClassConfig,
+	mod modulecapabilities.Vectorizer[T],
+	object *models.Object,
+	class *models.Class,
+	sourceProperties []string,
+	findObjectFn modulecapabilities.FindObjectFn,
+) (bool, *search.Result) {
 	textProps, mediaProps, err := mod.VectorizableProperties(cfg)
 	if err != nil {
-		return true, nil, nil
+		return true, nil
 	}
 
 	type compareProps struct {
@@ -86,13 +167,9 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 	if len(propsToCompare) == 0 {
 		oldObject, err := findObjectFn(ctx, class.Class, object.ID, nil, additional.Properties{}, object.Tenant)
 		if err != nil || oldObject == nil {
-			return true, nil, nil
+			return true, nil
 		}
-		if targetVector == "" {
-			return false, oldObject.AdditionalProperties, oldObject.Vector
-		} else {
-			return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector]
-		}
+		return false, oldObject
 	}
 
 	returnProps := make(search.SelectProperties, 0, len(propsToCompare))
@@ -101,7 +178,7 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 	}
 	oldObject, err := findObjectFn(ctx, class.Class, object.ID, returnProps, additional.Properties{}, object.Tenant)
 	if err != nil || oldObject == nil {
-		return true, nil, nil
+		return true, nil
 	}
 	oldProps := oldObject.Schema.(map[string]interface{})
 	var newProps map[string]interface{}
@@ -115,7 +192,7 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 		valOld, isPresentOld := oldProps[propStruct.Name]
 
 		if isPresentNew != isPresentOld {
-			return true, nil, nil
+			return true, nil
 		}
 
 		if !isPresentNew {
@@ -133,23 +210,18 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 			}
 
 			if len(valOld.([]string)) != len(valNew.([]string)) {
-				return true, nil, nil
+				return true, nil
 			}
 			for i, val := range valOld.([]string) {
 				if val != valNew.([]string)[i] {
-					return true, nil, nil
+					return true, nil
 				}
 			}
 		} else {
 			if valOld != valNew {
-				return true, nil, nil
+				return true, nil
 			}
 		}
 	}
-
-	if targetVector == "" {
-		return false, oldObject.AdditionalProperties, oldObject.Vector
-	} else {
-		return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector]
-	}
+	return false, oldObject
 }

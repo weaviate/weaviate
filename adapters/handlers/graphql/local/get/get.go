@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 type ModulesProvider interface {
@@ -34,13 +35,13 @@ type ModulesProvider interface {
 
 // Build the Local.Get part of the graphql tree
 func Build(schema *schema.Schema, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider,
+	modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) (*graphql.Field, error) {
 	if len(schema.Objects.Classes) == 0 {
 		return nil, utils.ErrEmptySchema
 	}
 
-	cb := newClassBuilder(schema, logger, modulesProvider)
+	cb := newClassBuilder(schema, logger, modulesProvider, authorizer)
 
 	var err error
 	var objects *graphql.Object

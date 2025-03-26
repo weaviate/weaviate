@@ -17,8 +17,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
@@ -30,22 +28,16 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	t.metrics.QueriesAggregateInc(params.ClassName.String())
 	defer t.metrics.QueriesAggregateDec(params.ClassName.String())
 
-	err := t.authorizer.Authorize(principal, "get", "traversal/*")
-	if err != nil {
-		return nil, err
-	}
-
-	unlock, err := t.locks.LockConnector()
-	if err != nil {
-		return nil, enterrors.NewErrLockConnector(err)
-	}
-	defer unlock()
-
 	inspector := newTypeInspector(t.schemaGetter.ReadOnlyClass)
+
+	// validate here, because filters can contain references that need to be authorized
+	if err := t.validateFilters(principal, params.Filters); err != nil {
+		return nil, errors.Wrap(err, "invalid 'where' filter")
+	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		className := params.ClassName.String()
-		err = t.nearParamsVector.validateNearParams(params.NearVector,
+		err := t.nearParamsVector.validateNearParams(params.NearVector,
 			params.NearObject, params.ModuleParams, className)
 		if err != nil {
 			return nil, err
@@ -63,7 +55,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		}
 
 		searchVector, err := t.nearParamsVector.vectorFromParams(ctx,
-			params.NearVector, params.NearObject, params.ModuleParams, className, params.Tenant, targetVectors[0])
+			params.NearVector, params.NearObject, params.ModuleParams, className, params.Tenant, targetVectors[0], 0)
 		if err != nil {
 			return nil, err
 		}
@@ -85,7 +77,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		if len(params.Hybrid.TargetVectors) == 1 {
 			targetVectors = params.Hybrid.TargetVectors[:1]
 		}
-		targetVectors, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(), params.ClassName.String(), targetVectors)
+		targetVectors, err := t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(), params.ClassName.String(), targetVectors)
 		if err != nil {
 			return nil, err
 		}
@@ -105,11 +97,6 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		params.Certainty = certainty
 	}
 
-	if params.Filters != nil {
-		if err := filters.ValidateFilters(t.schemaGetter.ReadOnlyClass, params.Filters); err != nil {
-			return nil, errors.Wrap(err, "invalid 'where' filter")
-		}
-	}
 	var mp *modules.Provider
 
 	if t.nearParamsVector.modulesProvider != nil {

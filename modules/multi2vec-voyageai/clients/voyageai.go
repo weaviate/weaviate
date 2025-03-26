@@ -54,7 +54,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationCLIPResult, error) {
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
 	return v.client.VectorizeMultiModal(ctx, texts, images, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),
@@ -66,7 +66,7 @@ func (v *vectorizer) Vectorize(ctx context.Context,
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context,
 	input []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationCLIPResult, error) {
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
 	return v.client.VectorizeMultiModal(ctx, input, nil, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),
@@ -78,7 +78,7 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context,
 
 func (v *vectorizer) VectorizeImageQuery(ctx context.Context,
 	images []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationCLIPResult, error) {
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
 	return v.client.VectorizeMultiModal(ctx, nil, images, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),

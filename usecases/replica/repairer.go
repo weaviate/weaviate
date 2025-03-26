@@ -43,10 +43,10 @@ var (
 
 // repairer tries to detect inconsistencies and repair objects when reading them from replicas
 type repairer struct {
-	class            string
-	deletionStrategy string
-	client           finderClient // needed to commit and abort operation
-	logger           logrus.FieldLogger
+	class               string
+	getDeletionStrategy func() string
+	client              finderClient // needed to commit and abort operation
+	logger              logrus.FieldLogger
 }
 
 // repairOne repairs a single object (used by Finder::GetOne)
@@ -57,12 +57,14 @@ func (r *repairer) repairOne(ctx context.Context,
 	contentIdx int,
 ) (_ *storobj.Object, err error) {
 	var (
-		deleted      bool
-		deletionTime int64
-		lastUTime    int64
-		winnerIdx    int
-		cl           = r.client
+		deleted          bool
+		deletionTime     int64
+		lastUTime        int64
+		winnerIdx        int
+		cl               = r.client
+		deletionStrategy = r.getDeletionStrategy()
 	)
+
 	for i, x := range votes {
 		if x.o.Deleted {
 			deleted = true
@@ -77,7 +79,7 @@ func (r *repairer) repairOne(ctx context.Context,
 		}
 	}
 
-	if deleted && r.deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
+	if deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 		gr := enterrors.NewErrorGroupWrapper(r.logger)
 		for _, vote := range votes {
 			if vote.o.Deleted && vote.UTime == deletionTime {
@@ -107,7 +109,7 @@ func (r *repairer) repairOne(ctx context.Context,
 		return nil, gr.Wait()
 	}
 
-	if deleted && r.deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+	if deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
 		return nil, errConflictExistOrDeleted
 	}
 
@@ -122,7 +124,7 @@ func (r *repairer) repairOne(ctx context.Context,
 			return nil, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 		}
 		if updates.UpdateTime() != lastUTime {
-			return nil, fmt.Errorf("fetch new state from %s: %w, %v", winner.sender, errConflictObjectChanged, err)
+			return nil, fmt.Errorf("fetch new state from %s: %w, %w", winner.sender, errConflictObjectChanged, err)
 		}
 	}
 
@@ -137,15 +139,22 @@ func (r *repairer) repairOne(ctx context.Context,
 		gr.Go(func() error {
 			var latestObject *models.Object
 			var vector []float32
-			var vectors models.Vectors
+			var vectors map[string][]float32
+			var multiVectors map[string][][]float32
 
 			if !updates.Deleted {
 				latestObject = &updates.Object.Object
 				vector = updates.Object.Vector
 				if updates.Object.Vectors != nil {
-					vectors = make(models.Vectors, len(updates.Object.Vectors))
-					for i, v := range updates.Object.Vectors {
-						vectors[i] = v
+					vectors = make(map[string][]float32, len(updates.Object.Vectors))
+					for targetVector, v := range updates.Object.Vectors {
+						vectors[targetVector] = v
+					}
+				}
+				if updates.Object.MultiVectors != nil {
+					multiVectors = make(map[string][][]float32, len(updates.Object.MultiVectors))
+					for targetVector, v := range updates.Object.MultiVectors {
+						multiVectors[targetVector] = v
 					}
 				}
 			}
@@ -157,6 +166,7 @@ func (r *repairer) repairOne(ctx context.Context,
 				LatestObject:            latestObject,
 				Vector:                  vector,
 				Vectors:                 vectors,
+				MultiVectors:            multiVectors,
 				StaleUpdateTime:         vote.UTime,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
@@ -189,12 +199,14 @@ func (r *repairer) repairExist(ctx context.Context,
 	st rState,
 ) (_ bool, err error) {
 	var (
-		deleted      bool
-		deletionTime int64
-		lastUTime    int64
-		winnerIdx    int
-		cl           = r.client
+		deleted          bool
+		deletionTime     int64
+		lastUTime        int64
+		winnerIdx        int
+		cl               = r.client
+		deletionStrategy = r.getDeletionStrategy()
 	)
+
 	for i, x := range votes {
 		if x.o.Deleted {
 			deleted = true
@@ -209,7 +221,7 @@ func (r *repairer) repairExist(ctx context.Context,
 		}
 	}
 
-	if deleted && r.deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
+	if deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 		gr := enterrors.NewErrorGroupWrapper(r.logger)
 
 		for _, vote := range votes {
@@ -240,7 +252,7 @@ func (r *repairer) repairExist(ctx context.Context,
 		return false, gr.Wait()
 	}
 
-	if deleted && r.deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+	if deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
 		return false, errConflictExistOrDeleted
 	}
 
@@ -251,7 +263,7 @@ func (r *repairer) repairExist(ctx context.Context,
 		return false, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 	}
 	if resp.UpdateTime() != lastUTime {
-		return false, fmt.Errorf("fetch new state from %s: %w, %v", winner.sender, errConflictObjectChanged, err)
+		return false, fmt.Errorf("fetch new state from %s: %w, %w", winner.sender, errConflictObjectChanged, err)
 	}
 
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
@@ -266,15 +278,22 @@ func (r *repairer) repairExist(ctx context.Context,
 		gr.Go(func() error {
 			var latestObject *models.Object
 			var vector []float32
-			var vectors models.Vectors
+			var vectors map[string][]float32
+			var multiVectors map[string][][]float32
 
 			if !resp.Deleted {
 				latestObject = &resp.Object.Object
 				vector = resp.Object.Vector
 				if resp.Object.Vectors != nil {
-					vectors = make(models.Vectors, len(resp.Object.Vectors))
-					for i, v := range resp.Object.Vectors {
-						vectors[i] = v
+					vectors = make(map[string][]float32, len(resp.Object.Vectors))
+					for targetVector, v := range resp.Object.Vectors {
+						vectors[targetVector] = v
+					}
+				}
+				if resp.Object.MultiVectors != nil {
+					multiVectors = make(map[string][][]float32, len(resp.Object.MultiVectors))
+					for targetVector, v := range resp.Object.MultiVectors {
+						multiVectors[targetVector] = v
 					}
 				}
 			}
@@ -286,6 +305,7 @@ func (r *repairer) repairExist(ctx context.Context,
 				LatestObject:            latestObject,
 				Vector:                  vector,
 				Vectors:                 vectors,
+				MultiVectors:            multiVectors,
 				StaleUpdateTime:         vote.UTime,
 			}}
 
@@ -321,7 +341,8 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		nVotes            = len(votes)
 		// The input objects cannot be used for repair because
 		// their attributes might have been filtered out
-		reFetchSet = make(map[int]struct{})
+		reFetchSet       = make(map[int]struct{})
+		deletionStrategy = r.getDeletionStrategy()
 	)
 
 	// find most recent objects
@@ -423,7 +444,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				continue
 			}
 
-			if x.Deleted && r.deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
+			if x.Deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 				alreadyDeleted := false
 
 				if rid == contentIdx {
@@ -448,7 +469,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				continue
 			}
 
-			if x.Deleted && r.deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+			if x.Deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
 				// note: conflict is not resolved
 				continue
 			}
@@ -458,7 +479,8 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 			if x.T != cTime && vote.Count[j] == nVotes {
 				var latestObject *models.Object
 				var vector []float32
-				var vectors models.Vectors
+				var vectors map[string][]float32
+				var multiVectors map[string][][]float32
 
 				deleted := x.Deleted && lastDeletionTimes[j] == x.T
 
@@ -466,9 +488,15 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 					latestObject = &result[j].Object
 					vector = result[j].Vector
 					if result[j].Vectors != nil {
-						vectors = make(models.Vectors, len(result[j].Vectors))
-						for i, v := range result[j].Vectors {
-							vectors[i] = v
+						vectors = make(map[string][]float32, len(result[j].Vectors))
+						for targetVector, v := range result[j].Vectors {
+							vectors[targetVector] = v
+						}
+					}
+					if result[j].MultiVectors != nil {
+						multiVectors = make(map[string][][]float32, len(result[j].MultiVectors))
+						for targetVector, v := range result[j].MultiVectors {
+							multiVectors[targetVector] = v
 						}
 					}
 				}
@@ -480,6 +508,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 					LatestObject:            latestObject,
 					Vector:                  vector,
 					Vectors:                 vectors,
+					MultiVectors:            multiVectors,
 					StaleUpdateTime:         cTime,
 				}
 				query = append(query, &obj)

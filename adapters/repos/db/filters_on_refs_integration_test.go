@@ -198,7 +198,7 @@ func TestRefFilters(t *testing.T) {
 
 		for _, thing := range objects {
 			t.Run(fmt.Sprintf("add %s", thing.ID), func(t *testing.T) {
-				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil, nil, 0)
+				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil, nil, nil, 0)
 				require.Nil(t, err)
 			})
 		}
@@ -649,7 +649,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		}
 
 		for _, obj := range objects {
-			require.Nil(t, repo.PutObject(context.Background(), obj, []float32{0.1}, nil, nil, 0))
+			require.Nil(t, repo.PutObject(context.Background(), obj, []float32{0.1}, nil, nil, nil, 0))
 		}
 	})
 
@@ -776,7 +776,7 @@ func getParamsWithFilter(className string, filter *filters.LocalFilter) dto.GetP
 		Filters: filter,
 		// we don't care about actually resolving the ref as long as filtering
 		// on it worked
-		Properties: nil,
+		Properties: search.SelectProperties{{Name: "name"}, {Name: "code"}},
 		Pagination: &filters.Pagination{
 			Offset: 0,
 			Limit:  10,

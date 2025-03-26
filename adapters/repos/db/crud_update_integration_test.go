@@ -72,7 +72,7 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil, 0)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 
@@ -96,7 +96,8 @@ func TestUpdateJourney(t *testing.T) {
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
-			}, []string{""}, [][]float32{searchVector})
+				Properties: search.SelectProperties{{Name: "name"}},
+			}, []string{""}, []models.Vector{searchVector})
 
 			expectedInAnyOrder := []interface{}{
 				"element-0", "element-1", "element-2", "element-3",
@@ -155,7 +156,7 @@ func TestUpdateJourney(t *testing.T) {
 			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{}, additional.Properties{}, "")
 			require.Nil(t, err)
 
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil, 0)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil, nil, 0)
 			require.Nil(t, err)
 
 			tracker := getTracker(repo, "UpdateTestClass")
@@ -175,7 +176,8 @@ func TestUpdateJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		}, []string{""}, [][]float32{searchVector})
+			Properties: search.SelectProperties{{Name: "name"}},
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",
@@ -217,7 +219,7 @@ func TestUpdateJourney(t *testing.T) {
 			require.Nil(t, err)
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil, 0)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil, nil, 0)
 			require.Nil(t, err)
 
 			tracker := getTracker(repo, "UpdateTestClass")
@@ -237,7 +239,8 @@ func TestUpdateJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		}, []string{""}, [][]float32{searchVector})
+			Properties: search.SelectProperties{{Name: "name"}},
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",

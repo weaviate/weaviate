@@ -44,6 +44,8 @@ type Module struct {
 	*s3Client
 	logger   logrus.FieldLogger
 	dataPath string
+	bucket   string
+	path     string
 }
 
 func New() *Module {
@@ -71,6 +73,7 @@ func (m *Module) Init(ctx context.Context,
 ) error {
 	m.logger = params.GetLogger()
 	m.dataPath = params.GetStorageProvider().DataPath()
+
 	bucket := os.Getenv(s3Bucket)
 	if bucket == "" {
 		return errors.Errorf("backup init: '%s' must be set", s3Bucket)
@@ -78,7 +81,7 @@ func (m *Module) Init(ctx context.Context,
 	// SSL on by default
 	useSSL := strings.ToLower(os.Getenv(s3UseSSL)) != "false"
 	config := newConfig(os.Getenv(s3Endpoint), bucket, os.Getenv(s3Path), useSSL)
-	client, err := newClient(config, m.logger, m.dataPath)
+	client, err := newClient(config, m.logger, m.dataPath, m.bucket, m.path)
 	if err != nil {
 		return errors.Wrap(err, "initialize S3 backup module")
 	}

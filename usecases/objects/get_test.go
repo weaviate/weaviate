@@ -21,11 +21,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -53,16 +55,15 @@ func Test_GetAction(t *testing.T) {
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
-		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
 		cfg.Config.QueryDefaults.Limit = 20
 		cfg.Config.QueryMaximumResults = 200
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
 		metrics = &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger,
+		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil)
 	}
@@ -292,7 +293,7 @@ func Test_GetAction(t *testing.T) {
 							"featureProjection": getDefaultParam("featureProjection"),
 						},
 					}, nil, "")
-				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection"), err)
+				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection").Error(), err.Error())
 			})
 
 			t.Run("semantic path", func(t *testing.T) {
@@ -311,7 +312,7 @@ func Test_GetAction(t *testing.T) {
 							"semanticPath": getDefaultParam("semanticPath"),
 						},
 					}, nil, "")
-				assert.Equal(t, errors.New("get extend: unknown capability: semanticPath"), err)
+				assert.Equal(t, errors.New("get extend: unknown capability: semanticPath").Error(), err.Error())
 			})
 
 			t.Run("nearest neighbors", func(t *testing.T) {
@@ -682,16 +683,15 @@ func Test_GetThing(t *testing.T) {
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
-		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
 		cfg.Config.QueryDefaults.Limit = 20
 		cfg.Config.QueryMaximumResults = 200
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger,
+		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil)
 	}
@@ -777,7 +777,7 @@ func Test_GetThing(t *testing.T) {
 							"featureProjection": getDefaultParam("featureProjection"),
 						},
 					}, nil, "")
-				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection"), err)
+				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection").Error(), err.Error())
 			})
 
 			t.Run("nearest neighbors", func(t *testing.T) {
@@ -1059,8 +1059,7 @@ type fakeGetManager struct {
 	repo            *fakeVectorRepo
 	extender        *fakeExtender
 	projector       *fakeProjector
-	authorizer      *fakeAuthorizer
-	locks           *fakeLocks
+	authorizer      *mocks.FakeAuthorizer
 	metrics         *fakeMetrics
 	modulesProvider *fakeModulesProvider
 }
@@ -1070,8 +1069,7 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 		repo:            new(fakeVectorRepo),
 		extender:        new(fakeExtender),
 		projector:       new(fakeProjector),
-		authorizer:      new(fakeAuthorizer),
-		locks:           new(fakeLocks),
+		authorizer:      mocks.NewMockAuthorizer(),
 		metrics:         new(fakeMetrics),
 		modulesProvider: new(fakeModulesProvider),
 	}
@@ -1083,13 +1081,14 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 	schemaManager := &fakeSchemaManager{
 		GetSchemaResponse: schema,
 	}
+
 	cfg := &config.WeaviateConfig{}
 	cfg.Config.QueryDefaults.Limit = 20
 	cfg.Config.QueryMaximumResults = 200
 	cfg.Config.TrackVectorDimensions = true
 	logger, _ := test.NewNullLogger()
 	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
-	r.Manager = NewManager(r.locks, schemaManager, cfg, logger,
+	r.Manager = NewManager(schemaManager, cfg, logger,
 		r.authorizer, r.repo, r.modulesProvider, r.metrics, nil)
 
 	return r

@@ -703,11 +703,14 @@ func (f fakeFactory) AddShard(shard string, nodes []string) {
 func (f fakeFactory) newReplicator() *Replicator {
 	nodeResolver := newFakeNodeResolver(f.Nodes)
 	shardingState := newFakeShardingState("A", f.Shard2replicas, nodeResolver)
+	getDeletionStrategy := func() string {
+		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
+	}
 	return NewReplicator(
 		f.CLS,
 		shardingState,
 		nodeResolver,
-		models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+		getDeletionStrategy,
 		struct {
 			rClient
 			wClient
@@ -722,8 +725,11 @@ func (f fakeFactory) newFinder(thisNode string) *Finder {
 		Class:        f.CLS,
 		NodeName:     thisNode,
 	}
+	getDeletionStrategy := func() string {
+		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
+	}
 	return NewFinder(f.CLS, resolver, f.RClient, f.log,
-		time.Microsecond*1, time.Millisecond*128, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+		time.Microsecond*1, time.Millisecond*128, getDeletionStrategy)
 }
 
 func (f fakeFactory) assertLogContains(t *testing.T, key string, xs ...string) {

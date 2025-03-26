@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -62,17 +63,16 @@ func Test_UpdateAction(t *testing.T) {
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
-		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
 		cfg.Config.QueryDefaults.Limit = 20
 		cfg.Config.QueryMaximumResults = 200
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
 		metrics := &fakeMetrics{}
 		modulesProvider = getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
-		manager = NewManager(locks, schemaManager, cfg,
+		manager = NewManager(schemaManager, cfg,
 			logger, authorizer, db, modulesProvider, metrics, nil)
 	}
 

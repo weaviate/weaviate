@@ -20,24 +20,96 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (s *Shard) Queue() *IndexQueue {
-	return s.queue
+// ForEachVectorIndex iterates through each vector index initialized in the shard (named and legacy).
+// Iteration stops at the first return of non-nil error.
+func (s *Shard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
+	// As we expect the mutex to be write-locked very rarely, we allow the callback
+	// to be invoked under the lock. If we find contention here, we should make a copy of the indexes
+	// before iterating over them.
+	s.vectorIndexMu.RLock()
+	defer s.vectorIndexMu.RUnlock()
+
+	for targetVector, idx := range s.vectorIndexes {
+		if idx == nil {
+			continue
+		}
+
+		if err := f(targetVector, idx); err != nil {
+			return err
+		}
+	}
+	if s.vectorIndex != nil {
+		if err := f("", s.vectorIndex); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (s *Shard) Queues() map[string]*IndexQueue {
-	return s.queues
+// ForEachVectorQueue iterates through each vector index queue initialized in the shard (named and legacy).
+// Iteration stops at the first return of non-nil error.
+func (s *Shard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
+	// As we expect the mutex to be write-locked very rarely, we allow the callback
+	// to be invoked under the lock. If we find contention here, we should make a copy of the queues
+	// before iterating over them.
+	s.vectorIndexMu.RLock()
+	defer s.vectorIndexMu.RUnlock()
+
+	for targetVector, q := range s.queues {
+		if q == nil {
+			continue
+		}
+
+		if err := f(targetVector, q); err != nil {
+			return err
+		}
+	}
+	if s.queue != nil {
+		if err := f("", s.queue); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (s *Shard) VectorIndex() VectorIndex {
-	return s.vectorIndex
+// GetVectorIndexQueue retrieves a vector index queue associated with the targetVector.
+// Empty targetVector is treated as a request to access a queue for the legacy vector index.
+func (s *Shard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
+	s.vectorIndexMu.RLock()
+	defer s.vectorIndexMu.RUnlock()
+
+	if targetVector == "" {
+		return s.queue, s.queue != nil
+	}
+
+	queue, ok := s.queues[targetVector]
+	return queue, ok
 }
 
-func (s *Shard) VectorIndexes() map[string]VectorIndex {
-	return s.vectorIndexes
+// GetVectorIndex retrieves a vector index queue associated with the targetVector.
+// Empty targetVector is treated as a request to access a queue for the legacy vector index.
+func (s *Shard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
+	s.vectorIndexMu.RLock()
+	defer s.vectorIndexMu.RUnlock()
+
+	if targetVector == "" {
+		return s.vectorIndex, s.vectorIndex != nil
+	}
+
+	index, ok := s.vectorIndexes[targetVector]
+	return index, ok
 }
 
-func (s *Shard) VectorIndexForName(targetVector string) VectorIndex {
-	return s.vectorIndexes[targetVector]
+func (s *Shard) hasLegacyVectorIndex() bool {
+	_, ok := s.GetVectorIndex("")
+	return ok
+}
+
+func (s *Shard) hasAnyVectorIndex() bool {
+	s.vectorIndexMu.RLock()
+	defer s.vectorIndexMu.RUnlock()
+
+	return len(s.vectorIndexes) > 0 || s.vectorIndex != nil
 }
 
 func (s *Shard) Versioner() *shardVersioner {

@@ -4,7 +4,9 @@
 
 ###############################################################################
 # Base build image
-FROM golang:1.22-alpine AS build_base
+# NOTE using 1.22-alpine3.20 because of error similar to: https://github.com/docker/buildx/issues/2028
+# please update tag when this issue is fixed
+FROM golang:1.22-alpine3.20 AS build_base
 RUN apk add bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 ENV GO111MODULE=on
@@ -17,8 +19,10 @@ RUN go mod download
 # This image builds the weaviate server
 FROM build_base AS server_builder
 ARG TARGETARCH
-ARG GITHASH="unknown"
-ARG DOCKER_IMAGE_TAG="unknown"
+ARG GIT_BRANCH="unknown"
+ARG GIT_REVISION="unknown"
+ARG BUILD_USER="unknown"
+ARG BUILD_DATE="unknown"
 ARG EXTRA_BUILD_ARGS=""
 ARG CGO_ENABLED=1
 # Allow disabling CGO when compiling for arm64
@@ -26,11 +30,14 @@ ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" \
-      -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"' \
-      -X github.com/weaviate/weaviate/usecases/config.ImageTag='"$DOCKER_IMAGE_TAG"'' \
+      -X github.com/weaviate/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
+      -X github.com/weaviate/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
+      -X github.com/weaviate/weaviate/usecases/build.BuildUser='"$BUILD_USER"' \
+      -X github.com/weaviate/weaviate/usecases/build.BuildDate='"$BUILD_DATE"'' \
       -o /weaviate-server ./cmd/weaviate-server
 
 ###############################################################################
+
 # This creates an image that can be used to fake an api for telemetry acceptance test purposes
 FROM build_base AS telemetry_mock_api
 COPY . .

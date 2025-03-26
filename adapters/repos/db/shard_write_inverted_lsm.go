@@ -12,14 +12,17 @@
 package db
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
@@ -87,8 +90,18 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		if bucketValue == nil {
 			return errors.Errorf("no bucket searchable for prop '%s' found", property.Name)
 		}
+		propLen := float32(0)
 
-		propLen := float32(len(property.Items))
+		if bucketValue.Strategy() == lsmkv.StrategyInverted {
+			// Iterating over all items to calculate the property length, which is the sum of all term frequencies
+			for _, item := range property.Items {
+				propLen += item.TermFrequency
+			}
+		} else {
+			// This is the old way of calculating the property length, which counts terms that show up multiple times only once,
+			// which is not standard for BM25
+			propLen = float32(len(property.Items))
+		}
 		for _, item := range property.Items {
 			key := item.Data
 			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
@@ -110,6 +123,10 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 			}
 		}
+	}
+
+	if err := s.onAddToPropertyValueIndex(docID, &property); err != nil {
+		return err
 	}
 
 	return nil
@@ -168,7 +185,7 @@ func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) l
 }
 
 func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
-	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyInverted)
 
 	return bucket.MapSet(key, pair)
 }
@@ -251,45 +268,81 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 }
 
 func (s *Shard) extendDimensionTrackerLSM(
-	dimLength int, docID uint64,
+	dimLength int, docID uint64, targetVector string,
 ) error {
-	return s.addToDimensionBucket(dimLength, docID, "", false)
+	return s.addToDimensionBucket(dimLength, docID, targetVector, false)
 }
 
-func (s *Shard) extendDimensionTrackerForVecLSM(
-	dimLength int, docID uint64, vecName string,
-) error {
-	if vecName == "" {
-		return fmt.Errorf("vector name can not be empty")
+var uniqueCounter atomic.Uint64
+
+// GenerateUniqueString generates a random string of the specified length
+func GenerateUniqueString(length int) (string, error) {
+	uniqueCounter.Add(1)
+	return fmt.Sprintf("%v", uniqueCounter.Load()), nil
+}
+
+// Empty the dimensions bucket, quickly and efficiently
+func (s *Shard) resetDimensionsLSM() error {
+	// Load the current one, or an empty one if it doesn't exist
+	err := s.store.CreateOrLoadBucket(context.Background(),
+		helpers.DimensionsBucketLSM,
+		s.memtableDirtyConfig(),
+		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
+		lsmkv.WithPread(s.index.Config.AvoidMMap),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		s.segmentCleanupConfig(),
+	)
+	if err != nil {
+		return fmt.Errorf("create dimensions bucket: %w", err)
 	}
-	return s.addToDimensionBucket(dimLength, docID, vecName, false)
+
+	// Fetch the actual bucket
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
+	}
+
+	// Create random bucket name
+	name, err := GenerateUniqueString(32)
+	if err != nil {
+		return errors.Wrap(err, "generate unique bucket name")
+	}
+
+	// Create a new bucket with the unique name
+	err = s.createDimensionsBucket(context.Background(), name)
+	if err != nil {
+		return errors.Wrap(err, "create temporary dimensions bucket")
+	}
+
+	// Replace the old bucket with the new one
+	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, name)
+	if err != nil {
+		return errors.Wrap(err, "replace dimensions bucket")
+	}
+
+	return nil
 }
 
-// Key (dimensionality) | Value Doc IDs
-// 128 | 1,2,4,5,17
-// 128 | 1,2,4,5,17, Tombstone 4,
-
+// Key (target vector name and dimensionality) | Value Doc IDs
+// targetVector,128 | 1,2,4,5,17
+// targetVector,128 | 1,2,4,5,17, Tombstone 4,
 func (s *Shard) removeDimensionsLSM(
-	dimLength int, docID uint64,
+	dimLength int, docID uint64, targetVector string,
 ) error {
-	return s.addToDimensionBucket(dimLength, docID, "", true)
-}
-
-func (s *Shard) removeDimensionsForVecLSM(
-	dimLength int, docID uint64, vecName string,
-) error {
-	if vecName == "" {
-		return fmt.Errorf("vector name can not be empty")
-	}
-	return s.addToDimensionBucket(dimLength, docID, vecName, true)
+	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
 }
 
 func (s *Shard) addToDimensionBucket(
 	dimLength int, docID uint64, vecName string, tombstone bool,
 ) error {
+	err := s.addDimensionsProperty(context.Background())
+	if err != nil {
+		return errors.Wrap(err, "add dimensions property")
+	}
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		return errors.Errorf("no bucket dimensions")
+		return errors.Errorf("add dimension bucket: no bucket dimensions")
 	}
 
 	tv := []byte(vecName)
@@ -306,6 +359,14 @@ func (s *Shard) addToDimensionBucket(
 		Value:     []byte{},
 		Tombstone: tombstone,
 	})
+}
+
+func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
+	ec := errorcompounder.New()
+	for i := range s.callbacksAddToPropertyValueIndex {
+		ec.Add(s.callbacksAddToPropertyValueIndex[i](s, docID, property))
+	}
+	return ec.ToError()
 }
 
 func isMetaCountProperty(property inverted.Property) bool {

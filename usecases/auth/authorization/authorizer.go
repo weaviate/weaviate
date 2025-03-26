@@ -13,24 +13,18 @@ package authorization
 
 import (
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // Authorizer always makes a yes/no decision on a specific resource. Which
 // authorization technique is used in the background (e.g. RBAC, adminlist,
 // ...) is hidden through this interface
 type Authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
-}
-
-// New Authorizer based on the application-wide config
-func New(cfg config.Config) Authorizer {
-	if cfg.Authorization.AdminList.Enabled {
-		return adminlist.New(cfg.Authorization.AdminList)
-	}
-
-	return &DummyAuthorizer{}
+	Authorize(principal *models.Principal, verb string, resources ...string) error
+	// AuthorizeSilent Silent authorization without audit logs
+	AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error
+	// FilterAuthorizedResources authorize the passed resources with best effort approach, it will return
+	// list of allowed resources, if none, it will return an empty slice
+	FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error)
 }
 
 // DummyAuthorizer is a pluggable Authorizer which can be used if no specific
@@ -40,6 +34,14 @@ type DummyAuthorizer struct{}
 
 // Authorize on the DummyAuthorizer will allow any subject access to any
 // resource
-func (d *DummyAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
+func (d *DummyAuthorizer) Authorize(principal *models.Principal, verb string, resources ...string) error {
 	return nil
+}
+
+func (d *DummyAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
+	return nil
+}
+
+func (d *DummyAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	return resources, nil
 }

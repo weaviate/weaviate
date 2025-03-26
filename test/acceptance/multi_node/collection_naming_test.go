@@ -14,7 +14,6 @@ package multi_node
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -23,8 +22,7 @@ import (
 )
 
 func TestCollectionNamingGQL(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	compose, err := docker.New().
 		With3NodeCluster().

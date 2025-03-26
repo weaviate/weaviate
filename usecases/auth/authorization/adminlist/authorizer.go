@@ -12,6 +12,8 @@
 package adminlist
 
 import (
+	"fmt"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
@@ -38,7 +40,7 @@ func New(cfg Config) *Authorizer {
 
 // Authorize will give full access (to any resource!) if the user is part of
 // the admin list or no access at all if they are not
-func (a *Authorizer) Authorize(principal *models.Principal, verb, resource string) error {
+func (a *Authorizer) Authorize(principal *models.Principal, verb string, resources ...string) error {
 	if principal == nil {
 		principal = newAnonymousPrincipal()
 	}
@@ -53,7 +55,7 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb, resource strin
 		}
 	}
 
-	if verb == "get" || verb == "list" {
+	if verb == "R" {
 		if _, ok := a.readOnlyUsers[principal.Username]; ok {
 			return nil
 		}
@@ -64,7 +66,19 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb, resource strin
 		}
 	}
 
-	return errors.NewForbidden(principal, verb, resource)
+	return fmt.Errorf("adminlist: %w", errors.NewForbidden(principal, verb, resources...))
+}
+
+func (a *Authorizer) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
+	return a.Authorize(principal, verb, resources...)
+}
+
+func (a *Authorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	if err := a.Authorize(principal, verb, resources...); err != nil {
+		return nil, err
+	}
+
+	return resources, nil
 }
 
 func (a *Authorizer) addAdminUserList(users []string) {

@@ -74,15 +74,27 @@ type BackupsRestoreStatusParams struct {
 
 	/* Backend.
 
-	   Backup backend name e.g. filesystem, gcs, s3.
+	   Backup backend name e.g. `filesystem`, `gcs`, `s3`, `azure`.
 	*/
 	Backend string
+
+	/* Bucket.
+
+	   Name of the bucket, container, volume, etc
+	*/
+	Bucket *string
 
 	/* ID.
 
 	   The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	*/
 	ID string
+
+	/* Path.
+
+	   The path within the bucket
+	*/
+	Path *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -148,6 +160,17 @@ func (o *BackupsRestoreStatusParams) SetBackend(backend string) {
 	o.Backend = backend
 }
 
+// WithBucket adds the bucket to the backups restore status params
+func (o *BackupsRestoreStatusParams) WithBucket(bucket *string) *BackupsRestoreStatusParams {
+	o.SetBucket(bucket)
+	return o
+}
+
+// SetBucket adds the bucket to the backups restore status params
+func (o *BackupsRestoreStatusParams) SetBucket(bucket *string) {
+	o.Bucket = bucket
+}
+
 // WithID adds the id to the backups restore status params
 func (o *BackupsRestoreStatusParams) WithID(id string) *BackupsRestoreStatusParams {
 	o.SetID(id)
@@ -157,6 +180,17 @@ func (o *BackupsRestoreStatusParams) WithID(id string) *BackupsRestoreStatusPara
 // SetID adds the id to the backups restore status params
 func (o *BackupsRestoreStatusParams) SetID(id string) {
 	o.ID = id
+}
+
+// WithPath adds the path to the backups restore status params
+func (o *BackupsRestoreStatusParams) WithPath(path *string) *BackupsRestoreStatusParams {
+	o.SetPath(path)
+	return o
+}
+
+// SetPath adds the path to the backups restore status params
+func (o *BackupsRestoreStatusParams) SetPath(path *string) {
+	o.Path = path
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -172,9 +206,43 @@ func (o *BackupsRestoreStatusParams) WriteToRequest(r runtime.ClientRequest, reg
 		return err
 	}
 
+	if o.Bucket != nil {
+
+		// query param bucket
+		var qrBucket string
+
+		if o.Bucket != nil {
+			qrBucket = *o.Bucket
+		}
+		qBucket := qrBucket
+		if qBucket != "" {
+
+			if err := r.SetQueryParam("bucket", qBucket); err != nil {
+				return err
+			}
+		}
+	}
+
 	// path param id
 	if err := r.SetPathParam("id", o.ID); err != nil {
 		return err
+	}
+
+	if o.Path != nil {
+
+		// query param path
+		var qrPath string
+
+		if o.Path != nil {
+			qrPath = *o.Path
+		}
+		qPath := qrPath
+		if qPath != "" {
+
+			if err := r.SetQueryParam("path", qPath); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {

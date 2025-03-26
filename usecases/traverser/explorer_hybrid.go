@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -71,7 +72,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 }
 
 // Do a nearvector search.  The results will be used in the hybrid algorithm
-func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector []*searchparams.NearVector) ([]*search.Result, string, error) {
+func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector *searchparams.NearVector) ([]*search.Result, string, error) {
 	params.Pagination.Offset = 0
 	if params.Pagination.Limit < hybrid.DefaultLimit {
 		params.Pagination.Limit = hybrid.DefaultLimit
@@ -83,7 +84,7 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	if err != nil {
 		return nil, "", err
 	}
-	var vector []float32
+	var vector models.Vector
 	if len(searchVectors) > 0 {
 		vector = searchVectors[0]
 	}
@@ -157,7 +158,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 		return nil, "", err
 	}
 
-	var vector []float32
+	var vector models.Vector
 	if len(vectors) > 0 {
 		vector = vectors[0]
 	}
@@ -251,7 +252,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					searchVectors[i] = params.HybridSearch.NearVectorParams
 					searchVectors[i].TargetVectors = []string{targetVector}
 				}
-				res, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, searchVectors)
+				res, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
 				errorText = "nearVectorSubSearch"
 			} else {
 				sch := e.schemaGetter.GetSchemaSkipAuth()
@@ -260,10 +261,17 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					return fmt.Errorf("class %q not found", params.ClassName)
 				}
 
-				searchVectors := make([]*searchparams.NearVector, len(targetVectors))
-				if len(params.HybridSearch.Vector) > 0 {
+				searchVectors := &searchparams.NearVector{}
+				searchVectors.Vectors = make([]models.Vector, len(targetVectors))
+				searchVectors.TargetVectors = make([]string, len(targetVectors))
+				isVectorEmpty, isVectorEmptyErr := dto.IsVectorEmpty(params.HybridSearch.Vector)
+				if isVectorEmptyErr != nil {
+					return fmt.Errorf("is hybrid vector empty: %w", isVectorEmptyErr)
+				}
+				if !isVectorEmpty {
 					for i, targetVector := range targetVectors {
-						searchVectors[i] = &searchparams.NearVector{VectorPerTarget: map[string][]float32{targetVector: params.HybridSearch.Vector}, TargetVectors: []string{targetVector}}
+						searchVectors.TargetVectors[i] = targetVector
+						searchVectors.Vectors[i] = params.HybridSearch.Vector
 					}
 				} else {
 					eg2 := enterrors.NewErrorGroupWrapper(e.logger)
@@ -272,8 +280,19 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 						i := i
 						targetVector := targetVector
 						eg2.Go(func() error {
+							isMultiVector, err := e.modulesProvider.IsTargetVectorMultiVector(params.ClassName, targetVector)
+							if err != nil {
+								return fmt.Errorf("hybrid: is target vector multi vector: %w", err)
+							}
+							if isMultiVector {
+								searchVectors.TargetVectors[i] = targetVector
+								searchVector, err := e.modulesProvider.MultiVectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
+								searchVectors.Vectors[i] = searchVector
+								return err
+							}
+							searchVectors.TargetVectors[i] = targetVector
 							searchVector, err := e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
-							searchVectors[i] = &searchparams.NearVector{VectorPerTarget: map[string][]float32{targetVector: searchVector}, TargetVectors: []string{targetVector}}
+							searchVectors.Vectors[i] = searchVector
 							return err
 						})
 					}

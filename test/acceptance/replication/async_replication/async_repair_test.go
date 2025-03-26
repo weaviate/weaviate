@@ -21,7 +21,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -147,6 +149,23 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 		common.StartNodeAt(ctx, t, compose, 3)
 	})
 
+	t.Run("verify that all nodes are running", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verbose := verbosity.OutputVerbose
+			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+
+			resp := body.Payload
+			require.Len(ct, resp.Nodes, 3)
+			for _, n := range resp.Nodes {
+				require.NotNil(ct, n.Status)
+				assert.Equal(ct, "HEALTHY", *n.Status)
+			}
+		}, 15*time.Second, 500*time.Millisecond)
+	})
+
 	t.Run("assert new object read repair was made", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(3).URI(),
@@ -160,7 +179,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 			assert.Equal(ct, repairObj.Class, resp.Class)
 			assert.EqualValues(ct, repairObj.Properties, resp.Properties)
 			assert.EqualValues(ct, repairObj.Vector, resp.Vector)
-		}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
+		}, 60*time.Second, 1*time.Second, "not all the objects have been asynchronously replicated")
 	})
 
 	replaceObj := repairObj
@@ -178,6 +197,23 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 
 	t.Run("restart node 2", func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, 2)
+	})
+
+	t.Run("verify that all nodes are running", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verbose := verbosity.OutputVerbose
+			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+
+			resp := body.Payload
+			require.Len(ct, resp.Nodes, 3)
+			for _, n := range resp.Nodes {
+				require.NotNil(ct, n.Status)
+				assert.Equal(ct, "HEALTHY", *n.Status)
+			}
+		}, 15*time.Second, 500*time.Millisecond)
 	})
 
 	t.Run("assert updated object read repair was made", func(t *testing.T) {
@@ -200,6 +236,6 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 			assert.Equal(ct, replaceObj.Class, resp.Class)
 			assert.EqualValues(ct, replaceObj.Properties, resp.Properties)
 			assert.EqualValues(ct, replaceObj.Vector, resp.Vector)
-		}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
+		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }

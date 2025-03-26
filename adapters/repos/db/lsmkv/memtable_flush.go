@@ -45,8 +45,9 @@ func (m *Memtable) flush() error {
 	if err != nil {
 		return err
 	}
+	bufw := bufio.NewWriter(f)
 	segmentFile := segmentindex.NewSegmentFile(
-		segmentindex.WithBufferedWriter(bufio.NewWriter(f)),
+		segmentindex.WithBufferedWriter(bufw),
 		segmentindex.WithChecksumsDisabled(!m.enableChecksumValidation),
 	)
 
@@ -79,7 +80,10 @@ func (m *Memtable) flush() error {
 		if keys, err = m.flushDataMap(segmentFile); err != nil {
 			return err
 		}
-
+	case StrategyInverted:
+		if keys, _, err = m.flushDataInverted(bufw, f); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("cannot flush strategy %s", m.strategy)
 	}
@@ -91,13 +95,27 @@ func (m *Memtable) flush() error {
 			ScratchSpacePath:    m.path + ".scratch.d",
 		}
 
-		if _, err := segmentFile.WriteIndexes(indexes); err != nil {
-			return err
+		// TODO: Currently no checksum validation support for StrategyInverted.
+		//       This condition can be removed once support is added, and for
+		//       all strategies we can simply `segmentFile.WriteIndexes(indexes)`
+		if m.strategy == StrategyInverted {
+			if _, err := indexes.WriteTo(bufw); err != nil {
+				return err
+			}
+		} else {
+			if _, err := segmentFile.WriteIndexes(indexes); err != nil {
+				return err
+			}
 		}
 	}
 
-	if _, err := segmentFile.WriteChecksum(); err != nil {
-		return err
+	// TODO: Currently no checksum validation support for StrategyInverted.
+	//       This condition can be removed once support is added, and for
+	//       all strategies we can simply `segmentFile.WriteChecksum()`
+	if m.strategy != StrategyInverted {
+		if _, err := segmentFile.WriteChecksum(); err != nil {
+			return err
+		}
 	}
 
 	if err := f.Sync(); err != nil {

@@ -88,6 +88,30 @@ func ClassNamedContextionaryVectorizer() *models.Class {
 	return classNamedVectors(defaultClassName, vc)
 }
 
+func ClassMixedContextionaryVectorizer() *models.Class {
+	vc := map[string]models.VectorConfig{
+		"contextionary_all": {
+			Vectorizer: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
+			VectorIndexType: "hnsw",
+		},
+		"title": {
+			Vectorizer: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": false,
+					"properties":         []string{"title"},
+				},
+			},
+			VectorIndexType: "hnsw",
+		},
+	}
+
+	return classBase(defaultClassName, "text2vec-contextionary", vc)
+}
+
 func ClassContextionaryVectorizerWithName(className string) *models.Class {
 	return class(className, "text2vec-contextionary")
 }

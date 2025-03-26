@@ -209,7 +209,7 @@ func (tests testCases) AssertNoError(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			logger, _ := logrus.NewNullLogger()
 			modules := usecaseModules.NewProvider(logger)
-			localSchema, err := Build(&test.localSchema, nil, config.Config{}, modules)
+			localSchema, err := Build(&test.localSchema, nil, config.Config{}, modules, nil)
 			require.Nil(t, err, test.name)
 
 			schemaObject := graphql.ObjectConfig{
@@ -243,7 +243,7 @@ func (tests testCases) AssertErrorLogs(t *testing.T, expectedMsg string) {
 		t.Run(test.name, func(t *testing.T) {
 			logger, logsHook := logrus.NewNullLogger()
 			modules := usecaseModules.NewProvider(logger)
-			localSchema, err := Build(&test.localSchema, logger, config.Config{}, modules)
+			localSchema, err := Build(&test.localSchema, logger, config.Config{}, modules, nil)
 			require.Nil(t, err, test.name)
 
 			schemaObject := graphql.ObjectConfig{

@@ -535,6 +535,7 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 	return &Property{
 		Name:               prop.Name,
 		Items:              items,
+		Length:             len(value),
 		HasFilterableIndex: HasFilterableIndex(prop),
 		HasSearchableIndex: HasSearchableIndex(prop),
 		HasRangeableIndex:  HasRangeableIndex(prop),

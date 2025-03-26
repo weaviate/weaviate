@@ -14,6 +14,7 @@ package raft
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -57,7 +58,7 @@ func (h RaftHandler) JoinNode(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&joinRequest)
 	if err != nil {
 		errString := err.Error()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// Nicer error message than "EOF"
 			errString = "request body is empty"
 		}
@@ -116,7 +117,7 @@ func (h RaftHandler) RemoveNode(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&removeRequest)
 	if err != nil {
 		errString := err.Error()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// Nicer error message than "EOF"
 			errString = "request body is empty"
 		}

@@ -29,6 +29,9 @@ var (
 	Alpha                  float32
 	Ranking                string
 	Vectorizer             bool
+	Limit                  int
+	AdditionalExplanations bool
+	PrintDetailedResults   bool
 )
 
 const (
@@ -42,6 +45,9 @@ const (
 	DefaultAlpha                  = 0
 	DefaultRanking                = "ranked_fusion"
 	DefaultVectorizer             = false
+	DefaultLimit                  = 100
+	DefaultAdditionalExplanations = false
+	DefaultPrintDetailedResults   = false
 )
 
 var rootCmd = &cobra.Command{

@@ -57,7 +57,9 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	runId := uuid.New().String()
 
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return 0, 0, err
 	}
@@ -82,6 +84,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	}
 	index, err := New(Config{
 		ID:               runId,
+		RootPath:         dirName,
 		DistanceProvider: distancer,
 	}, flatent.UserConfig{
 		PQ: pq,
@@ -90,6 +93,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	if err != nil {
 		return 0, 0, err
 	}
+	defer index.Shutdown(context.Background())
 
 	if concurrentCacheReads != 0 {
 		index.concurrentCacheReads = concurrentCacheReads
@@ -285,13 +289,16 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 				Enabled: tt.bq, Cache: tt.cache, RescoreLimit: 10,
 			}
 			store, err := lsmkv.New(dirName, dirName, logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop())
 			require.Nil(t, err)
 
 			distancr := distancer.NewCosineDistanceProvider()
 
 			index, err := New(Config{
 				ID:               "id",
+				RootPath:         t.TempDir(),
 				DistanceProvider: distancr,
 			}, flatent.UserConfig{
 				PQ: pq,

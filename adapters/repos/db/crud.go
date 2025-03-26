@@ -13,11 +13,12 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -30,10 +31,11 @@ import (
 )
 
 func (db *DB) PutObject(ctx context.Context, obj *models.Object,
-	vector []float32, vectors models.Vectors, repl *additional.ReplicationProperties,
+	vector []float32, vectors map[string][]float32, multivectors map[string][][]float32,
+	repl *additional.ReplicationProperties,
 	schemaVersion uint64,
 ) error {
-	object := storobj.FromObject(obj, vector, vectors)
+	object := storobj.FromObject(obj, vector, vectors, multivectors)
 	idx := db.GetIndex(object.Class())
 	if idx == nil {
 		return fmt.Errorf("import into non-existing index for %s", object.Class())
@@ -89,7 +91,7 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 	for indexID, queries := range byIndex {
 		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenant)
 		if err != nil {
-			return nil, errors.Wrapf(err, "index %q", indexID)
+			return nil, fmt.Errorf("index %q: %w", indexID, err)
 		}
 
 		for i, obj := range indexRes {
@@ -137,11 +139,11 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 		res, err := index.objectByID(ctx, id, props, additional, nil, tenant)
 		if err != nil {
 			db.indexLock.RUnlock()
-			switch err.(type) {
-			case objects.ErrMultiTenancy:
+			switch {
+			case errors.As(err, &objects.ErrMultiTenancy{}):
 				return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
 			default:
-				return nil, errors.Wrapf(err, "search index %s", index.ID())
+				return nil, fmt.Errorf("search index %s: %w", index.ID(), err)
 			}
 		}
 
@@ -171,11 +173,12 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 
 	obj, err := idx.objectByID(ctx, id, props, addl, repl, tenant)
 	if err != nil {
-		switch err.(type) {
-		case objects.ErrMultiTenancy:
+		var errMultiTenancy objects.ErrMultiTenancy
+		switch {
+		case errors.As(err, &errMultiTenancy):
 			return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", idx.ID(), err))
 		default:
-			return nil, errors.Wrapf(err, "search index %s", idx.ID())
+			return nil, fmt.Errorf("search index %s: %w", idx.ID(), err)
 		}
 	}
 	var r *search.Result
@@ -194,7 +197,7 @@ func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenant)).
 		Do(ctx, []search.Result{*obj}, props, additional)
 	if err != nil {
-		return nil, errors.Wrap(err, "resolve cross-refs")
+		return nil, fmt.Errorf("resolve cross-refs: %w", err)
 	}
 
 	return &res[0], nil
@@ -224,11 +227,11 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	for _, index := range db.indices {
 		ok, err := index.exists(ctx, id, repl, "")
 		if err != nil {
-			switch err.(type) {
-			case objects.ErrMultiTenancy:
+			switch {
+			case errors.As(err, &objects.ErrMultiTenancy{}):
 				return false, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
 			default:
-				return false, errors.Wrapf(err, "search index %s", index.ID())
+				return false, fmt.Errorf("search index %s: %w", index.ID(), err)
 			}
 		}
 		if ok {
@@ -265,7 +268,7 @@ func (db *DB) Merge(ctx context.Context, merge objects.MergeDocument,
 
 	err := idx.mergeObject(ctx, merge, repl, tenant, schemaVersion)
 	if err != nil {
-		return errors.Wrapf(err, "merge into index %s", idx.ID())
+		return fmt.Errorf("merge into index %s: %w", idx.ID(), err)
 	}
 
 	return nil

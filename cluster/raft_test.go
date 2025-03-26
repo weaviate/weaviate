@@ -114,6 +114,11 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.NotNil(t, readOnlyVClass[cls.Class].Class)
 	assert.Equal(t, cls, readOnlyVClass[cls.Class].Class)
 
+	// QueryClassVersions
+	classVersions, err := srv.QueryClassVersions(cls.Class)
+	assert.NoError(t, err)
+	assert.Equal(t, readOnlyVClass[cls.Class].Version, classVersions[cls.Class])
+
 	// QuerySchema
 	getSchema, err := srv.QuerySchema()
 	assert.NoError(t, err)
@@ -124,25 +129,31 @@ func TestRaftEndpoints(t *testing.T) {
 	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsAll)
-	assert.Equal(t, []*models.Tenant{{
-		Name:           "T0",
-		ActivityStatus: models.TenantActivityStatusHOT,
+	assert.Equal(t, []*models.TenantResponse{{
+		Tenant: models.Tenant{
+			Name:           "T0",
+			ActivityStatus: models.TenantActivityStatusHOT,
+		},
+		BelongsToNodes: []string{},
 	}}, getTenantsAll)
 
 	// QueryTenants one
 	getTenantsOne, _, err := srv.QueryTenants(cls.Class, []string{"T0"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsOne)
-	assert.Equal(t, []*models.Tenant{{
-		Name:           "T0",
-		ActivityStatus: models.TenantActivityStatusHOT,
+	assert.Equal(t, []*models.TenantResponse{{
+		Tenant: models.Tenant{
+			Name:           "T0",
+			ActivityStatus: models.TenantActivityStatusHOT,
+		},
+		BelongsToNodes: []string{},
 	}}, getTenantsOne)
 
 	// QueryTenants one
 	getTenantsNone, _, err := srv.QueryTenants(cls.Class, []string{"T"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsNone)
-	assert.Equal(t, []*models.Tenant{}, getTenantsNone)
+	assert.Equal(t, []*models.TenantResponse{}, getTenantsNone)
 
 	// Query ShardTenant
 	getTenantShards, _, err := srv.QueryTenantsShards(cls.Class, "T0")

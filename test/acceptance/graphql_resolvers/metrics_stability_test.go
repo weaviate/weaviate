@@ -95,25 +95,27 @@ func queryMetricsClass(t *testing.T, classIndex int) {
 			nil)
 
 	// vector search
-	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth,
-		fmt.Sprintf(
-			"{  Get { %s(nearVector:{vector: [0.3,0.3,0.7,0.7]}, limit:5) { some_text } } }",
-			metricsClassName(classIndex),
-		),
-	)
-	objs := result.Get("Get", metricsClassName(classIndex)).AsSlice()
-	assert.Len(t, objs, 5)
+	assert.EventuallyWithT(t, func(collectT *assert.CollectT) {
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth,
+			fmt.Sprintf(
+				"{  Get { %s(nearVector:{vector: [0.3,0.3,0.7,0.7]}, limit:5) { some_text } } }",
+				metricsClassName(classIndex),
+			),
+		)
+		objs := result.Get("Get", metricsClassName(classIndex)).AsSlice()
+		assert.Len(collectT, objs, 5)
+	}, 15*time.Second, 500*time.Millisecond)
 
 	// filtered vector search (which has specific metrics)
 	// vector search
-	result = graphqlhelper.AssertGraphQL(t, helper.RootAuth,
+	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth,
 		fmt.Sprintf(
 			"{  Get { %s(nearVector:{vector:[0.3,0.3,0.7,0.7]}, limit:5, where: %s) { some_text } } }",
 			metricsClassName(classIndex),
 			`{operator:Equal, valueText: "individually", path:["some_text"]}`,
 		),
 	)
-	objs = result.Get("Get", metricsClassName(classIndex)).AsSlice()
+	objs := result.Get("Get", metricsClassName(classIndex)).AsSlice()
 	assert.Len(t, objs, 1)
 }
 
@@ -150,6 +152,8 @@ func importMetricsClass(t *testing.T, classIndex int) {
 
 		createObjectsBatch(t, batch)
 	}
+
+	waitForIndexing(t, metricsClassName(classIndex))
 }
 
 func cleanupMetricsClasses(t *testing.T, start, end int) {

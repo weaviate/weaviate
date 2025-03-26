@@ -68,7 +68,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	settings := ent.NewClassSettings(cfg)
 	return v.client.Vectorize(ctx, input, voyageai.Settings{
 		BaseURL:  settings.BaseURL(),
@@ -79,7 +79,7 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string, cfg moduleto
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
 	return v.client.VectorizeQuery(ctx, input, voyageai.Settings{
 		BaseURL:  settings.BaseURL(),

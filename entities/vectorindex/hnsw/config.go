@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/schema/config"
@@ -31,6 +32,11 @@ const (
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
 
+	FilterStrategySweeping = "sweeping"
+	FilterStrategyAcorn    = "acorn"
+
+	DefaultFilterStrategy = FilterStrategySweeping
+
 	// Fail validation if those criteria are not met
 	MinmumMaxConnections = 4
 	MinmumEFConstruction = 4
@@ -38,20 +44,22 @@ const (
 
 // UserConfig bundles all values settable by a user in the per-class settings
 type UserConfig struct {
-	Skip                   bool     `json:"skip"`
-	CleanupIntervalSeconds int      `json:"cleanupIntervalSeconds"`
-	MaxConnections         int      `json:"maxConnections"`
-	EFConstruction         int      `json:"efConstruction"`
-	EF                     int      `json:"ef"`
-	DynamicEFMin           int      `json:"dynamicEfMin"`
-	DynamicEFMax           int      `json:"dynamicEfMax"`
-	DynamicEFFactor        int      `json:"dynamicEfFactor"`
-	VectorCacheMaxObjects  int      `json:"vectorCacheMaxObjects"`
-	FlatSearchCutoff       int      `json:"flatSearchCutoff"`
-	Distance               string   `json:"distance"`
-	PQ                     PQConfig `json:"pq"`
-	BQ                     BQConfig `json:"bq"`
-	SQ                     SQConfig `json:"sq"`
+	Skip                   bool              `json:"skip"`
+	CleanupIntervalSeconds int               `json:"cleanupIntervalSeconds"`
+	MaxConnections         int               `json:"maxConnections"`
+	EFConstruction         int               `json:"efConstruction"`
+	EF                     int               `json:"ef"`
+	DynamicEFMin           int               `json:"dynamicEfMin"`
+	DynamicEFMax           int               `json:"dynamicEfMax"`
+	DynamicEFFactor        int               `json:"dynamicEfFactor"`
+	VectorCacheMaxObjects  int               `json:"vectorCacheMaxObjects"`
+	FlatSearchCutoff       int               `json:"flatSearchCutoff"`
+	Distance               string            `json:"distance"`
+	PQ                     PQConfig          `json:"pq"`
+	BQ                     BQConfig          `json:"bq"`
+	SQ                     SQConfig          `json:"sq"`
+	FilterStrategy         string            `json:"filterStrategy"`
+	Multivector            MultivectorConfig `json:"multivector"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -62,6 +70,10 @@ func (u UserConfig) IndexType() string {
 
 func (u UserConfig) DistanceName() string {
 	return u.Distance
+}
+
+func (u UserConfig) IsMultiVector() bool {
+	return u.Multivector.Enabled
 }
 
 // SetDefaults in the user-specifyable part of the config
@@ -96,11 +108,20 @@ func (u *UserConfig) SetDefaults() {
 		TrainingLimit: DefaultSQTrainingLimit,
 		RescoreLimit:  DefaultSQRescoreLimit,
 	}
+	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategyAcorn {
+		u.FilterStrategy = FilterStrategyAcorn
+	} else {
+		u.FilterStrategy = FilterStrategySweeping
+	}
+	u.Multivector = MultivectorConfig{
+		Enabled:     DefaultMultivectorEnabled,
+		Aggregation: DefaultMultivectorAggregation,
+	}
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}) (config.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults()
 
@@ -191,6 +212,16 @@ func ParseAndValidateConfig(input interface{}) (config.VectorIndexConfig, error)
 		return uc, err
 	}
 
+	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "filterStrategy", func(v string) {
+		uc.FilterStrategy = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := parseMultivectorMap(asMap, &uc.Multivector, isMultiVector); err != nil {
+		return uc, err
+	}
+
 	return uc, uc.validate()
 }
 
@@ -208,6 +239,10 @@ func (u *UserConfig) validate() error {
 			"efConstruction must be a positive integer with a minimum of %d",
 			MinmumMaxConnections,
 		))
+	}
+
+	if u.FilterStrategy != FilterStrategySweeping && u.FilterStrategy != FilterStrategyAcorn {
+		errMsgs = append(errMsgs, "filterStrategy must be either 'sweeping' or 'acorn'")
 	}
 
 	if len(errMsgs) > 0 {
@@ -235,5 +270,12 @@ func (u *UserConfig) validate() error {
 func NewDefaultUserConfig() UserConfig {
 	uc := UserConfig{}
 	uc.SetDefaults()
+	return uc
+}
+
+func NewDefaultMultiVectorUserConfig() UserConfig {
+	uc := UserConfig{}
+	uc.SetDefaults()
+	uc.Multivector = MultivectorConfig{Enabled: true}
 	return uc
 }

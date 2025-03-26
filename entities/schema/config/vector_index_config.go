@@ -16,22 +16,26 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 )
 
 type VectorIndexConfig interface {
 	IndexType() string
 	DistanceName() string
+	IsMultiVector() bool
 }
 
 func TypeAssertVectorIndex(class *models.Class, targetVectors []string) ([]VectorIndexConfig, error) {
-	if len(class.VectorConfig) == 0 {
+	if len(class.VectorConfig) == 0 || (schemachecks.HasLegacyVectorIndex(class) && len(targetVectors) == 0) {
 		vectorIndexConfig, ok := class.VectorIndexConfig.(VectorIndexConfig)
 		if !ok {
 			return nil, fmt.Errorf("class '%s' vector index: config is not schema.VectorIndexConfig: %T",
 				class.Class, class.VectorIndexConfig)
 		}
 		return []VectorIndexConfig{vectorIndexConfig}, nil
-	} else if len(class.VectorConfig) == 1 {
+	}
+
+	if len(class.VectorConfig) == 1 {
 		var vectorConfig models.VectorConfig
 		for _, v := range class.VectorConfig {
 			vectorConfig = v
@@ -43,24 +47,24 @@ func TypeAssertVectorIndex(class *models.Class, targetVectors []string) ([]Vecto
 				class.Class, class.VectorIndexConfig)
 		}
 		return []VectorIndexConfig{vectorIndexConfig}, nil
-	} else {
-		if len(targetVectors) == 0 {
-			return nil, errors.Errorf("multiple vector configs found for class '%s', but no target vector specified", class.Class)
-		}
-
-		configs := make([]VectorIndexConfig, 0, len(targetVectors))
-		for _, targetVector := range targetVectors {
-			vectorConfig, ok := class.VectorConfig[targetVector]
-			if !ok {
-				return nil, errors.Errorf("vector config not found for target vector: %s", targetVector)
-			}
-			vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(VectorIndexConfig)
-			if !ok {
-				return nil, fmt.Errorf("targetVector '%s' vector index: config is not schema.VectorIndexConfig: %T",
-					targetVector, class.VectorIndexConfig)
-			}
-			configs = append(configs, vectorIndexConfig)
-		}
-		return configs, nil
 	}
+
+	if len(targetVectors) == 0 {
+		return nil, errors.Errorf("multiple vector configs found for class '%s', but no target vector specified", class.Class)
+	}
+
+	configs := make([]VectorIndexConfig, 0, len(targetVectors))
+	for _, targetVector := range targetVectors {
+		vectorConfig, ok := class.VectorConfig[targetVector]
+		if !ok {
+			return nil, errors.Errorf("vector config not found for target vector: %s", targetVector)
+		}
+		vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(VectorIndexConfig)
+		if !ok {
+			return nil, fmt.Errorf("targetVector '%s' vector index: config is not schema.VectorIndexConfig: %T",
+				targetVector, class.VectorIndexConfig)
+		}
+		configs = append(configs, vectorIndexConfig)
+	}
+	return configs, nil
 }

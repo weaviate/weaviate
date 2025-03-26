@@ -96,11 +96,14 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
 
-	// Object bucket must be available, initHashTree depends on it
+	// Object bucket must be available, initAsyncReplication depends on it
 	if s.index.asyncReplicationEnabled() {
-		err = s.initHashTree()
+		s.asyncReplicationRWMux.Lock()
+		defer s.asyncReplicationRWMux.Unlock()
+
+		err = s.initAsyncReplication()
 		if err != nil {
-			return fmt.Errorf("init shard %q: shard hashtree: %w", s.ID(), err)
+			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}
 	} else if s.index.replicationEnabled() {
 		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
@@ -121,7 +124,9 @@ func (s *Shard) initLSMStore() error {
 	}
 
 	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
-		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
+		s.cycleCallbacks.compactionCallbacks,
+		s.cycleCallbacks.compactionAuxCallbacks,
+		s.cycleCallbacks.flushCallbacks)
 	if err != nil {
 		return fmt.Errorf("init lsmkv store at %s: %w", s.pathLSM(), err)
 	}
@@ -178,7 +183,8 @@ func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 		return fmt.Errorf("init index counter: %w", err)
 	}
 	s.counter = counter
-	s.bitmapFactory = roaringset.NewBitmapFactory(s.counter.Get, s.index.logger)
+	// counter is incremented whenever new docID is fetched, therefore last docID is lower by 1
+	s.bitmapFactory = roaringset.NewBitmapFactory(func() uint64 { return s.counter.Get() - 1 })
 
 	dataPresent := s.counter.PreviewNext() != 0
 	versionPath := path.Join(s.path(), "version")

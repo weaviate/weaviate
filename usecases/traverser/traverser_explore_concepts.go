@@ -27,11 +27,6 @@ func (t *Traverser) Explore(ctx context.Context,
 		params.Limit = 20
 	}
 
-	err := t.authorizer.Authorize(principal, "get", "traversal/*")
-	if err != nil {
-		return nil, err
-	}
-
 	// to conduct a cross-class vector search, all classes must
 	// be configured with the same vector index distance type.
 	// additionally, certainty cannot be passed to Explore when

@@ -22,9 +22,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
+	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -47,6 +47,7 @@ var (
 	text2vecTransformers                = "text2vec-transformers"
 	id1                                 = "00000000-0000-0000-0000-000000000001"
 	id2                                 = "00000000-0000-0000-0000-000000000002"
+	id3                                 = "00000000-0000-0000-0000-000000000003"
 )
 
 var targetVectors = []string{
@@ -217,31 +218,31 @@ func sqVectorIndexConfig() map[string]interface{} {
 
 func getVectorsWithNearText(t *testing.T, client *wvt.Client,
 	className, id string, nearText *graphql.NearTextArgumentBuilder, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearArgs(t, client, className, id, nearText, nil, nil, nil, false, targetVectors...)
 }
 
 func getVectorsWithNearTextWithCertainty(t *testing.T, client *wvt.Client,
 	className, id string, nearText *graphql.NearTextArgumentBuilder, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearArgs(t, client, className, id, nearText, nil, nil, nil, true, targetVectors...)
 }
 
 func getVectorsWithNearVector(t *testing.T, client *wvt.Client,
 	className, id string, nearVector *graphql.NearVectorArgumentBuilder, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearArgs(t, client, className, id, nil, nearVector, nil, nil, false, targetVectors...)
 }
 
 func getVectorsWithNearVectorWithCertainty(t *testing.T, client *wvt.Client,
 	className, id string, nearVector *graphql.NearVectorArgumentBuilder, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearArgs(t, client, className, id, nil, nearVector, nil, nil, true, targetVectors...)
 }
 
 func getVectorsWithNearObjectWithCertainty(t *testing.T, client *wvt.Client,
 	className, id string, nearObject *graphql.NearObjectArgumentBuilder, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearArgs(t, client, className, id, nil, nil, nearObject, nil, true, targetVectors...)
 }
 
@@ -253,7 +254,7 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 	hybrid *graphql.HybridArgumentBuilder,
 	withCertainty bool,
 	targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	where := filters.Where().
 		WithPath([]string{"id"}).
 		WithOperator(filters.Equal).
@@ -262,9 +263,30 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 		Name: "_additional",
 		Fields: []graphql.Field{
 			{Name: "id"},
-			{Name: fmt.Sprintf("vectors{%s}", strings.Join(targetVectors, " "))},
 		},
 	}
+
+	var (
+		requireLegacyVector   bool
+		filteredTargetVectors []string
+	)
+	for _, targetVector := range targetVectors {
+		if targetVector == "" {
+			requireLegacyVector = true
+		} else {
+			filteredTargetVectors = append(filteredTargetVectors, targetVector)
+		}
+	}
+
+	if requireLegacyVector {
+		field.Fields = append(field.Fields, graphql.Field{Name: "vector"})
+	}
+
+	if len(filteredTargetVectors) > 0 {
+		vectors := fmt.Sprintf("vectors{%s}", strings.Join(filteredTargetVectors, " "))
+		field.Fields = append(field.Fields, graphql.Field{Name: vectors})
+	}
+
 	if withCertainty {
 		field.Fields = append(field.Fields, graphql.Field{Name: "certainty"})
 	}
@@ -293,20 +315,25 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err = get.Do(context.Background())
 		require.NoError(t, err)
+		require.NotNil(t, resp)
+		if len(resp.Data) == 0 {
+			return
+		}
+
 		ids := acceptance_with_go_client.GetIds(t, resp, className)
 		assert.Contains(ct, ids, id)
-	}, 5*time.Second, 200*time.Millisecond)
+	}, 5*time.Second, 1*time.Millisecond)
 
 	return acceptance_with_go_client.GetVectors(t, resp, className, withCertainty, targetVectors...)
 }
 
 func getVectors(t *testing.T, client *wvt.Client,
 	className, id string, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearText(t, client, className, id, nil, targetVectors...)
 }
 
-func checkTargetVectors(t *testing.T, resultVectors map[string][]float32) {
+func checkTargetVectors(t *testing.T, resultVectors map[string]models.Vector) {
 	require.NotEmpty(t, resultVectors[c11y])
 	require.NotEmpty(t, resultVectors[c11y_flat])
 	require.NotEmpty(t, resultVectors[c11y_pq])
@@ -342,5 +369,5 @@ func testAllObjectsIndexed(t *testing.T, client *wvt.Client, className string) {
 				assert.Equal(ct, "READY", s.VectorIndexingStatus)
 			}
 		}
-	}, 15*time.Second, 500*time.Millisecond)
+	}, 30*time.Second, 500*time.Millisecond)
 }

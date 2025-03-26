@@ -63,7 +63,7 @@ func (z *zip) Close() error {
 	var err1, err2, err3 error
 	err1 = z.w.Close()
 	err2 = z.gzw.Close()
-	if err := z.pipeWriter.Close(); err != nil && err != io.ErrClosedPipe {
+	if err := z.pipeWriter.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 		err3 = err
 	}
 	if err1 != nil || err2 != nil || err3 != nil {
@@ -155,7 +155,7 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 	header.Name = relPath
 	header.ChangeTime = info.ModTime()
 	if err := z.w.WriteHeader(header); err != nil {
-		return written, fmt.Errorf("write header %s: %w", relPath, err)
+		return written, fmt.Errorf("write backup header in file %s: %s: %w", z.sourcePath, relPath, err)
 	}
 	// write bytes
 	written, err = io.Copy(z.w, r)
@@ -204,7 +204,7 @@ func (u *unzip) init() error {
 
 func (u *unzip) Close() (err error) {
 	var err1, err2 error
-	if err := u.pipeReader.Close(); err != nil && err != io.ErrClosedPipe {
+	if err := u.pipeReader.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 		err1 = err
 	}
 	if u.gzr != nil {

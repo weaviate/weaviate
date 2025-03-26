@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type fakeBatchClient struct {
@@ -30,13 +31,13 @@ type fakeBatchClient struct {
 	rateLimit        *modulecomponents.RateLimits
 }
 
-func (c *fakeBatchClient) VectorizeQuery(ctx context.Context, input []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, error) {
+func (c *fakeBatchClient) VectorizeQuery(ctx context.Context, input []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult[[]float32], error) {
 	panic("implement me")
 }
 
 func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
@@ -87,7 +88,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 		vectors[i] = []float32{0, 1, 2, 3}
 	}
 	c.rateLimit.LastOverwrite = time.Now()
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Vector:     vectors,
 		Dimensions: 4,
 		Text:       text,
@@ -158,5 +159,9 @@ func (f fakeClassConfig) VectorizePropertyName(propertyName string) bool {
 }
 
 func (f fakeClassConfig) Properties() []string {
+	return nil
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
 	return nil
 }

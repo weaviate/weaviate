@@ -17,10 +17,11 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"
+
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -189,13 +190,47 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.StoreSchemaV1()
 		}
-	case api.ApplyRequest_TYPE_UPSERT_USER, api.ApplyRequest_TYPE_DELETE_USER, api.ApplyRequest_TYPE_ROTATE_USER_API_KEY, api.ApplyRequest_TYPE_SUSPEND_USER, api.ApplyRequest_TYPE_ACTIVATE_USER:
-		const msg = "received command for dynamic user management which is only supported in 1.30+. RAFT message is skipped."
-		st.log.WithFields(logrus.Fields{
-			"type":  cmd.Type,
-			"class": cmd.Class,
-			"more":  msg,
-		}).Error("unknown command")
+	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
+		f = func() {
+			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_ROLES:
+		f = func() {
+			ret.Error = st.authZManager.DeleteRoles(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REMOVE_PERMISSIONS:
+		f = func() {
+			ret.Error = st.authZManager.RemovePermissions(&cmd)
+		}
+	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
+		f = func() {
+			ret.Error = st.authZManager.AddRolesForUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:
+		f = func() {
+			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
+		}
+
+	case api.ApplyRequest_TYPE_UPSERT_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.CreateUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.DeleteUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_ROTATE_USER_API_KEY:
+		f = func() {
+			ret.Error = st.dynUserManager.RotateKey(&cmd)
+		}
+	case api.ApplyRequest_TYPE_SUSPEND_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.SuspendUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_ACTIVATE_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.ActivateUser(&cmd)
+		}
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
