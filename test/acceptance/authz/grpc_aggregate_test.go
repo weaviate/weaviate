@@ -34,7 +34,10 @@ func TestAuthzAggregateWithGRPC(t *testing.T) {
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	customUser2 := "custom-user2"
+	customKey2 := "custom-key2"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey, customUser2: customKey2}, nil)
 	defer down()
 
 	grpcClient := helper.ClientGRPC(t)
@@ -134,9 +137,9 @@ func TestAuthzAggregateWithGRPC(t *testing.T) {
 				WithTenant("tenant1").
 				Permission(),
 		}})
-		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
+		helper.AssignRoleToUser(t, adminKey, roleName, customUser2)
 
-		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
+		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey2))
 		resp, err := grpcClient.Aggregate(ctx, &protocol.AggregateRequest{
 			Collection:   articles.ArticlesClass().Class,
 			Tenant:       "tenant1",
