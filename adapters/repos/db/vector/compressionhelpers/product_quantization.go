@@ -391,7 +391,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) error {
 				return
 			}
 			mutex.Unlock()
-			pq.kms[i] = NewKMeans(
+			pq.kms[i] = NewKMeansEncoder(
 				pq.ks,
 				pq.ds,
 				int(i),
