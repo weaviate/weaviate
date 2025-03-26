@@ -139,7 +139,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		UsersGetOwnInfoHandler: users.GetOwnInfoHandlerFunc(func(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetOwnInfo has not yet been implemented")
 		}),
-		GetReplicationStatusReplicaRequestHandler: GetReplicationStatusReplicaRequestHandlerFunc(func(params GetReplicationStatusReplicaRequestParams, principal *models.Principal) middleware.Responder {
+		GetReplicationStatusReplicaRequestHandler: replication.GetReplicationStatusReplicaRequestHandlerFunc(func(params replication.GetReplicationStatusReplicaRequestParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation GetReplicationStatusReplicaRequest has not yet been implemented")
 		}),
 		AuthzGetRoleHandler: authz.GetRoleHandlerFunc(func(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
@@ -421,7 +421,7 @@ type WeaviateAPI struct {
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
 	UsersGetOwnInfoHandler users.GetOwnInfoHandler
 	// GetReplicationStatusReplicaRequestHandler sets the operation handler for the get replication status replica request operation
-	GetReplicationStatusReplicaRequestHandler GetReplicationStatusReplicaRequestHandler
+	GetReplicationStatusReplicaRequestHandler replication.GetReplicationStatusReplicaRequestHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
 	AuthzGetRoleHandler authz.GetRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
@@ -1048,7 +1048,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/replication/{id}/status"] = NewGetReplicationStatusReplicaRequest(o.context, o.GetReplicationStatusReplicaRequestHandler)
+	o.handlers["GET"]["/replication/{id}/status"] = replication.NewGetReplicationStatusReplicaRequest(o.context, o.GetReplicationStatusReplicaRequestHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
