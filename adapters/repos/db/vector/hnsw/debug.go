@@ -18,7 +18,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -35,17 +34,16 @@ func (h *hnsw) Dump(labels ...string) {
 	fmt.Printf("Max Level: %d\n", h.currentMaximumLayer)
 	fmt.Printf("Tombstones %v\n", h.tombstones)
 	fmt.Printf("\nNodes and Connections:\n")
-	var buf []uint64
-	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
-		fmt.Printf("  Node %d (level %d)\n", node.ID(), node.Level())
-
-		for level := range node.MaxLevel() {
-			buf = node.CopyLevel(buf, level)
-			fmt.Printf("    Level %d: Connections: %v\n", level, buf)
+	for _, node := range h.nodes {
+		if node == nil {
+			continue
 		}
 
-		return true
-	})
+		fmt.Printf("  Node %d (level %d)\n", node.id, node.level)
+		for level, conns := range node.connections {
+			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
+		}
+	}
 
 	fmt.Printf("--------------------------------------------------\n")
 }
@@ -59,16 +57,18 @@ func (h *hnsw) DumpJSON(labels ...string) {
 		CurrentMaximumLayer: h.currentMaximumLayer,
 		Tombstones:          h.tombstones,
 	}
-	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
+	for _, node := range h.nodes {
+		if node == nil {
+			continue
+		}
+
 		dumpNode := JSONDumpNode{
-			ID:          node.ID(),
-			Level:       node.Level(),
-			Connections: node.CopyConnections(),
+			ID:          node.id,
+			Level:       node.level,
+			Connections: node.connections,
 		}
 		dump.Nodes = append(dump.Nodes, dumpNode)
-
-		return true
-	})
+	}
 
 	out, err := json.Marshal(dump)
 	if err != nil {
@@ -133,7 +133,11 @@ func NewFromJSONDump(dumpBytes []byte, vecForID common.VectorForID[float32]) (*h
 	index.tombstones = dump.Tombstones
 
 	for _, n := range dump.Nodes {
-		index.nodes.Set(graph.NewVertexWithConnections(n.ID, n.Level, n.Connections))
+		index.nodes[n.ID] = &vertex{
+			id:          n.ID,
+			level:       n.Level,
+			connections: n.Connections,
+		}
 	}
 
 	return index, nil
@@ -165,12 +169,14 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID common.VectorForID[float32]) 
 	index.tombstones = dump.Tombstones
 
 	for _, n := range dump.Nodes {
-		connections := make([][]uint64, len(n.Connections))
-		for level, conns := range n.Connections {
-			connections[level] = conns
+		index.nodes[n.ID] = &vertex{
+			id:          n.ID,
+			level:       n.Level,
+			connections: make([][]uint64, len(n.Connections)),
 		}
-
-		index.nodes.Set(graph.NewVertexWithConnections(n.ID, n.Level, connections))
+		for level, conns := range n.Connections {
+			index.nodes[n.ID].connections[level] = conns
+		}
 	}
 
 	return index, nil
@@ -183,23 +189,26 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID common.VectorForID[float32]) 
 // production. However, keeping this method around may be valuable for future
 // investigations where the amount of links may be a problem.
 func (h *hnsw) ValidateLinkIntegrity() {
-	h.Lock()
-	defer h.Unlock()
+	h.RLock()
+	defer h.RUnlock()
 
-	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
-		for level := range node.MaxLevel() {
+	for i, node := range h.nodes {
+		if node == nil {
+			continue
+		}
+
+		for level, conns := range node.connections {
 			m := h.maximumConnections
 			if level == 0 {
 				m = h.maximumConnectionsLayerZero
 			}
 
-			if node.LevelLen(level) > m {
-				h.logger.Warnf("node %d at level %d has %d connections", node.ID(), level, node.LevelLen(level))
+			if len(conns) > m {
+				h.logger.Warnf("node %d at level %d has %d connections", i, level, len(conns))
 			}
-		}
 
-		return true
-	})
+		}
+	}
 
 	h.logger.Infof("completed link integrity check")
 }
