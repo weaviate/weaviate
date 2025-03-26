@@ -354,12 +354,17 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 		defer inMemCursor.Close()
 
 		for k, v := inMemCursor.First(); k != nil; k, v = inMemCursor.Next() {
-			obj, err := storobj.FromBinaryUUIDOnly(v)
-			if err != nil {
-				return fmt.Errorf("cannot unmarshal object: %w", err)
-			}
-			if err := f(obj); err != nil {
-				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				obj, err := storobj.FromBinaryUUIDOnly(v)
+				if err != nil {
+					return fmt.Errorf("cannot unmarshal object: %w", err)
+				}
+				if err := f(obj); err != nil {
+					return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+				}
 			}
 		}
 
@@ -370,12 +375,17 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 	}
 
 	for k, v := onDiskCursor.First(); k != nil; k, v = onDiskCursor.Next() {
-		obj, err := storobj.FromBinaryUUIDOnly(v)
-		if err != nil {
-			return fmt.Errorf("cannot unmarshal object: %w", err)
-		}
-		if err := f(obj); err != nil {
-			return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			obj, err := storobj.FromBinaryUUIDOnly(v)
+			if err != nil {
+				return fmt.Errorf("cannot unmarshal object: %w", err)
+			}
+			if err := f(obj); err != nil {
+				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+			}
 		}
 	}
 
