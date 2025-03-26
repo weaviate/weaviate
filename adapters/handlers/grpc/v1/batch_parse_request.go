@@ -43,6 +43,7 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 	for i, obj := range objectsBatch {
 		var props map[string]interface{}
 
+		obj.Collection = schema.UppercaseClassName(obj.Collection)
 		class, err := authorizedGetClass(obj.Collection, obj.Tenant)
 		if err != nil {
 			objectErrors[i] = err
@@ -159,6 +160,7 @@ func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_Mul
 			return fmt.Errorf("target is a single-target reference, need multi-target %v", prop.DataType)
 		}
 		beacons := make([]interface{}, len(refMulti.Uuids))
+		refMulti.TargetCollection = schema.UppercaseClassName(refMulti.TargetCollection)
 		for j, uid := range refMulti.Uuids {
 			beacons[j] = map[string]interface{}{"beacon": BEACON_START + refMulti.TargetCollection + "/" + uid}
 		}

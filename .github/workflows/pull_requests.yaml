@@ -197,7 +197,7 @@ jobs:
           fi
   Modules-Acceptance-Tests-large:
     name: modules-acceptance-tests-large
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
@@ -345,7 +345,7 @@ jobs:
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-large:
     name: acceptance-tests-large
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     strategy:
       fail-fast: false
       matrix:
@@ -403,7 +403,7 @@ jobs:
           verbose: true
   Compile-and-upload-binaries:
     name: compile-and-upload-binaries
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -483,7 +483,7 @@ jobs:
     needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
     name: push-docker
     timeout-minutes: 30
-    runs-on: ubuntu-latest-8-cores
+    runs-on: DB-ubuntu-24.04-8-cores
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub

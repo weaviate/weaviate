@@ -125,6 +125,7 @@ type Handler struct {
 
 	logger                  logrus.FieldLogger
 	Authorizer              authorization.Authorizer
+	schemaConfig            *config.SchemaHandlerConfig
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
@@ -141,7 +142,8 @@ func NewHandler(
 	schemaReader SchemaReader,
 	schemaManager SchemaManager,
 	validator validator,
-	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, schemaConfig *config.SchemaHandlerConfig,
+	config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
@@ -151,6 +153,7 @@ func NewHandler(
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
+		schemaConfig:            schemaConfig,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
 		parser:                  parser,

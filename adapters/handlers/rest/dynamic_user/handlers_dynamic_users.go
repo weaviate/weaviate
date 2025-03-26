@@ -49,8 +49,8 @@ type DynamicUserAndRolesGetter interface {
 }
 
 const (
-	userNameMaxLength = 64
-	userNameRegexCore = `[A-Za-z][-_0-9A-Za-z]{0,254}`
+	userNameMaxLength = 128
+	userNameRegexCore = `[A-Za-z][-_0-9A-Za-z@.]{0,128}`
 )
 
 const (
@@ -197,7 +197,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	if h.staticUserExists(params.UserID) {
-		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v already exists", params.UserID)))
+		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' already exists", params.UserID)))
 	}
 	if h.isRootUser(params.UserID) {
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot delete root user")))
@@ -209,7 +209,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	if len(existingUser) > 0 {
-		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v already exists", params.UserID)))
+		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' already exists", params.UserID)))
 	}
 
 	var apiKey, hash, userIdentifier string
@@ -256,7 +256,7 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 	}
 
 	if h.staticUserExists(params.UserID) {
-		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
 	}
 
 	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
@@ -290,7 +290,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 	}
 
 	if h.staticUserExists(params.UserID) {
-		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
 	}
 
 	if h.isRootUser(params.UserID) {
@@ -332,8 +332,12 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("dynamic user management is not enabled")))
 	}
 
+	if params.UserID == principal.Username {
+		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' cannot self-deactivate", params.UserID)))
+	}
+
 	if h.staticUserExists(params.UserID) {
-		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
 	}
 
 	if h.isRootUser(params.UserID) {
@@ -350,7 +354,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 	}
 
 	if !existingUser[params.UserID].Active {
-		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("user already deactivated")))
+		return users.NewDeactivateUserConflict()
 	}
 
 	revokeKey := false
@@ -375,7 +379,7 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 	}
 
 	if h.staticUserExists(params.UserID) {
-		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user %v is static user", params.UserID)))
+		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
 	}
 
 	if h.isRootUser(params.UserID) {
@@ -392,7 +396,7 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 	}
 
 	if existingUser[params.UserID].Active {
-		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("user already activated")))
+		return users.NewActivateUserConflict()
 	}
 
 	if err := h.dynamicUser.ActivateUser(params.UserID); err != nil {

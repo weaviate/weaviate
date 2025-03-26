@@ -37,6 +37,7 @@ import (
 	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
@@ -335,6 +336,12 @@ func (d *Compose) WithGenerativeOpenAI(openAIApiKey, openAIOrganization, azureAp
 func (d *Compose) WithGenerativeNvidia(apiKey string) *Compose {
 	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativenvidia.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeXAI(apiKey string) *Compose {
+	d.weaviateEnvs["XAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativexai.Name)
 	return d
 }
 
@@ -873,7 +880,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 
 	if d.withWeaviateDynamicUsers {
-		settings["DYNAMIC_USERS_ENABLED"] = "true"
+		settings["AUTHENTICATION_DYNAMIC_USERS_ENABLED"] = "true"
 	}
 
 	if d.withAutoschema {

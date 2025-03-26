@@ -170,7 +170,7 @@ func (c *DynamicApiKey) ValidateAndExtract(key, userIdentifier string) (*models.
 	}
 
 	if c.users[userId] != nil && !c.users[userId].Active {
-		return nil, fmt.Errorf("user suspended")
+		return nil, fmt.Errorf("user deactivated")
 	}
 	if _, ok := c.userKeyRevoked[userId]; ok {
 		return nil, fmt.Errorf("key is revoked")

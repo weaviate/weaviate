@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -58,7 +59,9 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
 	allowCreateClass bool, classes map[string]versioned.Class, objects ...*models.Object,
 ) (uint64, error) {
-	if !m.config.Enabled {
+	enabled := runtime.GetOverrides(m.config.Enabled, m.config.EnabledFn)
+
+	if !enabled {
 		return 0, nil
 	}
 
@@ -76,8 +79,6 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			// stop performing auto schema
 			return 0, ErrInvalidUserInput{validation.ErrorMissingClass}
 		}
-
-		object.Class = schema.UppercaseClassName(object.Class)
 
 		vclass := classes[object.Class]
 
@@ -104,7 +105,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 				return 0, err
 			}
 
-			classes[schema.UppercaseClassName(object.Class)] = versioned.Class{Class: schemaClass, Version: schemaVersion}
+			classes[object.Class] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
@@ -117,7 +118,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 				if err != nil {
 					return 0, err
 				}
-				classes[schema.UppercaseClassName(object.Class)] = versioned.Class{Class: schemaClass, Version: schemaVersion}
+				classes[object.Class] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 				classcache.RemoveClassFromContext(ctx, object.Class)
 			}
 		}
@@ -507,7 +508,7 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	// skip invalid classes, non-MT classes, no auto tenant creation classes
 	var maxSchemaVersion uint64
 	for className, tenantNames := range classTenants {
-		vclass, exists := fetchedClasses[schema.UppercaseClassName(className)]
+		vclass, exists := fetchedClasses[className]
 		if !exists || // invalid class
 			vclass.Class == nil { // class is nil
 			continue

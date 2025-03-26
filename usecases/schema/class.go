@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -33,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -102,6 +104,10 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
+	if err = h.maybeAllowSchemasWithMixedVectors(cls); err != nil {
+		return nil, 0, err
+	}
+
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
@@ -140,13 +146,15 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		h.logger.WithField("error", err).Error("could not query the collections count")
 	}
 
-	if h.config.MaximumAllowedCollectionsCount != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= h.config.MaximumAllowedCollectionsCount {
+	limit := runtime.GetOverrides(h.schemaConfig.MaximumAllowedCollectionsCount, h.schemaConfig.MaximumAllowedCollectionsCountFn)
+
+	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
 		return nil, 0, fmt.Errorf(
 			"cannot create collection: maximum number of collections (%d) reached - "+
 				"please consider switching to multi-tenancy or increasing the collection count limit - "+
 				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
 				"when working with multiple collections and tenants",
-			h.config.MaximumAllowedCollectionsCount)
+			limit)
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
@@ -321,9 +329,8 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
 	// set legacy vector index defaults only when:
 	// 	- no target vectors are configured
-	//  - OR, there are target vectors configured AND there are hints that legacy index is also needed
-	legacyVectorIndexConfigured := class.Vectorizer != "" || class.VectorIndexType != "" || class.VectorIndexConfig != nil
-	if !hasTargetVectors(class) || legacyVectorIndexConfigured {
+	//  - OR, there are target vectors configured AND there is a legacy vector configured
+	if !hasTargetVectors(class) || schemachecks.HasLegacyVectorIndex(class) {
 		if class.Vectorizer == "" {
 			class.Vectorizer = h.config.DefaultVectorizerModule
 		}
@@ -899,4 +906,17 @@ func validateVectorIndexConfigImmutableFields(initial, updated *models.Class) er
 			accessor: func(c *models.Class) string { return c.VectorIndexType },
 		},
 	}...)
+}
+
+// maybeAllowSchemasWithMixedVectors is a method to disable experimental functionality to create
+// collections that have both legacy and named vectors until development is not finished.
+func (h *Handler) maybeAllowSchemasWithMixedVectors(cls *models.Class) error {
+	featureDisabled := !entcfg.Enabled(os.Getenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS"))
+	isMixedSchema := len(cls.VectorConfig) > 0 && (cls.Vectorizer != "" || cls.VectorIndexConfig != nil || cls.VectorIndexType != "")
+
+	if isMixedSchema && featureDisabled {
+		return errors.Errorf("class %s has configuration for both class level and named vectors which is currently not supported.", cls.Class)
+	}
+
+	return nil
 }
