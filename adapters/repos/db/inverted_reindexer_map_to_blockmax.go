@@ -47,11 +47,11 @@ type mapToBlockmaxConfig struct {
 }
 
 type ShardInvertedReindexTask_MapToBlockmax struct {
-	logger            logrus.FieldLogger
-	newReindexTracker func(lsmPath string) (reindexTracker, error)
-	keyParser         indexKeyParser
-	objectsIterator   func(objectsBucket *lsmkv.Bucket, lastKey indexKey, callback func(key, value []byte) (proceed bool, err error)) (finished bool, err error)
-	config            mapToBlockmaxConfig
+	logger               logrus.FieldLogger
+	newReindexTracker    func(lsmPath string) (reindexTracker, error)
+	keyParser            indexKeyParser
+	objectsIteratorAsync objectsIteratorAsync
+	config               mapToBlockmaxConfig
 }
 
 func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
@@ -59,7 +59,7 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 	processingDuration, pauseDuration time.Duration,
 ) *ShardInvertedReindexTask_MapToBlockmax {
 	keyParser := &uuidKeyParser{}
-	objectsIterator := uuidObjectsIterator
+	objectsIteratorAsync := uuidObjectsIteratorAsync
 
 	logger = logger.WithField("task", "MapToBlockmax")
 	newReindexTracker := func(lsmPath string) (reindexTracker, error) {
@@ -71,10 +71,10 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 	}
 
 	return &ShardInvertedReindexTask_MapToBlockmax{
-		logger:            logger,
-		newReindexTracker: newReindexTracker,
-		keyParser:         keyParser,
-		objectsIterator:   objectsIterator,
+		logger:               logger,
+		newReindexTracker:    newReindexTracker,
+		keyParser:            keyParser,
+		objectsIteratorAsync: objectsIteratorAsync,
 		config: mapToBlockmaxConfig{
 			swapBuckets:                   swapBuckets,
 			unswapBuckets:                 unswapBuckets,
@@ -897,11 +897,8 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 		}
 	}()
 
-	addProps := additional.Properties{}
-	propExtraction := storobj.NewPropExtraction()
-
 	store := shard.Store()
-	objectsBucket := store.Bucket(helpers.ObjectsBucketLSM)
+	propExtraction := storobj.NewPropExtraction()
 	bucketsByPropName := map[string]*lsmkv.Bucket{}
 	for _, prop := range props {
 		propExtraction.Add(prop)
@@ -909,60 +906,47 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 		bucketsByPropName[prop] = store.Bucket(bucketName)
 	}
 
-	var processingStarted time.Time
-	finished, err := t.objectsIterator(objectsBucket, lastStoredKey, func(key, value []byte) (bool, error) {
-		if err := ctx.Err(); err != nil {
-			return false, fmt.Errorf("context check (iterator): %w", err)
-		}
-		if processingStarted.IsZero() {
-			processingStarted = time.Now()
-		}
+	breakCh := make(chan bool, 1)
+	breakCh <- false
+	finished := false
 
-		ik := t.keyParser.FromBytes(key)
-		obj, err := storobj.FromBinaryOptional(value, addProps, propExtraction)
-		if err != nil {
-			return false, fmt.Errorf("unmarshalling object %q: %w", ik.String(), err)
-		}
+	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
+		propExtraction, reindexStarted, breakCh)
 
-		if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
-			props, _, err := shard.AnalyzeObject(obj)
-			if err != nil {
-				return false, fmt.Errorf("analyzing object %q: %w", ik.String(), err)
-			}
-
-			for _, invprop := range props {
-				if bucket, ok := bucketsByPropName[invprop.Name]; ok {
-					propLen := t.calcPropLenInverted(invprop.Items)
-					for _, item := range invprop.Items {
-						pair := shard.pairPropertyWithFrequency(obj.DocID, item.TermFrequency, propLen)
-						if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
-							return false, fmt.Errorf("adding object %q prop %q: %w", ik.String(), invprop.Name, err)
+	for md := range mdCh {
+		if md == nil {
+			finished = true
+		} else if md.err != nil {
+			err = md.err
+			return zerotime, err
+		} else if err = ctx.Err(); err != nil {
+			breakCh <- true
+			err = fmt.Errorf("context check (loop): %w", err)
+			return zerotime, err
+		} else {
+			if len(md.props) > 0 {
+				for _, invprop := range md.props {
+					if bucket, ok := bucketsByPropName[invprop.Name]; ok {
+						propLen := t.calcPropLenInverted(invprop.Items)
+						for _, item := range invprop.Items {
+							pair := shard.pairPropertyWithFrequency(md.docID, item.TermFrequency, propLen)
+							if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
+								breakCh <- true
+								err = fmt.Errorf("adding object %q prop %q: %w", md.key.String(), invprop.Name, err)
+								return zerotime, err
+							}
 						}
 					}
 				}
+				indexedCount++
 			}
-			indexedCount++
-		}
+			processedCount++
+			lastProcessedKey = md.key
 
-		lastProcessedKey = ik.Clone()
-		processedCount++
-
-		// check execution time every X objects processed to pause
-		if processedCount%t.config.checkProcessingEveryNoObjects == 0 {
-			if time.Since(processingStarted) > t.config.processingDuration {
-				if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
-					return false, fmt.Errorf("marking reindex progress (iterator): %w", err)
-				}
-				lastStoredKey = lastProcessedKey.Clone()
-				processedCount = 0
-				indexedCount = 0
-				return false, nil
-			}
+			// check execution time every X objects processed to close the cursor and pause shard's migration
+			breakCh <- processedCount%t.config.checkProcessingEveryNoObjects == 0 &&
+				time.Since(processingStarted) > t.config.processingDuration
 		}
-		return true, nil
-	})
-	if err != nil {
-		return zerotime, err
 	}
 	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
 		if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
@@ -970,8 +954,6 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Cont
 			return zerotime, err
 		}
 		lastStoredKey = lastProcessedKey.Clone()
-		processedCount = 0
-		indexedCount = 0
 	}
 	if finished {
 		if err = rt.markReindexed(); err != nil {
@@ -1027,34 +1009,74 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLi
 	return props, nil
 }
 
-func uuidObjectsIterator(objectsBucket *lsmkv.Bucket, lastKey indexKey,
-	callback func(key, value []byte) (proceed bool, err error),
-) (finished bool, err error) {
-	cursor := objectsBucket.CursorOnDisk()
-	defer cursor.Close()
+type migrationData struct {
+	key   indexKey
+	docID uint64
+	props []inverted.Property
+	err   error
+}
 
-	var k, v []byte
-	if lastKey == nil {
-		k, v = cursor.First()
-	} else {
-		key := lastKey.Bytes()
-		k, v = cursor.Seek(key)
-		if bytes.Equal(k, key) {
-			k, v = cursor.Next()
-		}
-	}
+type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+) (time.Time, <-chan *migrationData)
 
-	for ; k != nil; k, v = cursor.Next() {
-		proceed, err := callback(k, v)
-		if err != nil {
-			return false, err
+func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey,
+	propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+) (time.Time, <-chan *migrationData) {
+	startedCh := make(chan time.Time)
+	mdCh := make(chan *migrationData)
+
+	enterrors.GoWrapper(func() {
+		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
+		defer cursor.Close()
+
+		startedCh <- time.Now() // after cursor created (necessary locks acquired)
+		addProps := additional.Properties{}
+
+		var k, v []byte
+		if lastKey == nil {
+			k, v = cursor.First()
+		} else {
+			key := lastKey.Bytes()
+			k, v = cursor.Seek(key)
+			if bytes.Equal(k, key) {
+				k, v = cursor.Next()
+			}
 		}
-		if !proceed {
-			k, _ = cursor.Next()
-			break
+
+		for ; k != nil; k, v = cursor.Next() {
+			ik := keyParse(k)
+			obj, err := storobj.FromBinaryOptional(v, addProps, propExtraction)
+			if err != nil {
+				mdCh <- &migrationData{err: fmt.Errorf("unmarshalling object %q: %w", ik.String(), err)}
+				break
+			}
+
+			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
+				props, _, err := shard.AnalyzeObject(obj)
+				if err != nil {
+					mdCh <- &migrationData{err: fmt.Errorf("analyzing object %q: %w", ik.String(), err)}
+					break
+				}
+
+				if <-breakCh {
+					break
+				}
+				mdCh <- &migrationData{key: ik.Clone(), props: props, docID: obj.DocID}
+			} else {
+				if <-breakCh {
+					break
+				}
+				mdCh <- &migrationData{key: ik.Clone()}
+			}
 		}
-	}
-	return k == nil, nil
+		if k == nil {
+			<-breakCh
+			mdCh <- nil
+		}
+		close(mdCh)
+	}, logger)
+
+	return <-startedCh, mdCh
 }
 
 type reindexTracker interface {
