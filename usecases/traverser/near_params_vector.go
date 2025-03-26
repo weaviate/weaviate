@@ -114,7 +114,7 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 
 	// either nearObject or nearVector or module search param has to be set,
 	// so if we land here, something has gone very wrong
-	return []float32{}, errors.Errorf("targetFromParams was called without any known params present")
+	return []float32{}, errors.Errorf("vectorFromParams was called without any known params present")
 }
 
 func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVector,
@@ -143,11 +143,11 @@ func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVecto
 
 	if v.modulesProvider != nil {
 		if len(moduleParams) > 1 {
-			params := []string{}
+			params := make([]string, 0, len(moduleParams))
 			for p := range moduleParams {
 				params = append(params, fmt.Sprintf("'%s'", p))
 			}
-			return errors.Errorf("found more then one module param: %s which are conflicting "+
+			return errors.Errorf("found more than one module params: %s which are conflicting "+
 				"choose one instead", strings.Join(params, ", "))
 		}
 
