@@ -279,7 +279,11 @@ func (h *hnsw) restoreDocMappings() error {
 func (h *hnsw) populateKeys() {
 	for docID, nodeIDs := range h.docIDVectors {
 		for relativeID, nodeID := range nodeIDs {
-			h.cache.SetKeys(nodeID, docID, uint64(relativeID))
+			if h.compressed.Load() {
+				h.compressor.SetKeys(nodeID, docID, uint64(relativeID))
+			} else {
+				h.cache.SetKeys(nodeID, docID, uint64(relativeID))
+			}
 		}
 	}
 }
