@@ -260,6 +260,10 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit
 	}
 
+	if vectorIndexUserConfigs == nil {
+		vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{}
+	}
+
 	index := &Index{
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,

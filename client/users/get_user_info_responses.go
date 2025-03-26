@@ -80,7 +80,7 @@ GetUserInfoOK describes a response with status code 200, with default header val
 Info about the user
 */
 type GetUserInfoOK struct {
-	Payload *models.UserInfo
+	Payload *models.DBUserInfo
 }
 
 // IsSuccess returns true when this get user info o k response has a 2xx status code
@@ -121,13 +121,13 @@ func (o *GetUserInfoOK) String() string {
 	return fmt.Sprintf("[GET /users/db/{user_id}][%d] getUserInfoOK  %+v", 200, o.Payload)
 }
 
-func (o *GetUserInfoOK) GetPayload() *models.UserInfo {
+func (o *GetUserInfoOK) GetPayload() *models.DBUserInfo {
 	return o.Payload
 }
 
 func (o *GetUserInfoOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.UserInfo)
+	o.Payload = new(models.DBUserInfo)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
