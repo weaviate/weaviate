@@ -760,7 +760,8 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			visitedRes.Visit(elem.ID)
 		}
 
-		for len(pendingConnsSlice.Slice) > i && rreResets < h.filterReentries {
+		acornReentries := int(h.acornReentries.Load())
+		for len(pendingConnsSlice.Slice) > i && rreResets < acornReentries {
 			//search next seed
 			currentExp := pendingConnsSlice.Slice[i]
 			i++
