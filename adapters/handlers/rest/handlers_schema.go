@@ -13,7 +13,6 @@ package rest
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -309,9 +308,16 @@ func (s *schemaHandlers) getTenant(
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	tenants, err := s.manager.GetConsistentTenants(ctx, principal, params.ClassName, *params.Consistency, []string{params.TenantName})
+	tenant, err := s.manager.GetConsistentTenant(ctx, principal, params.ClassName, *params.Consistency, params.TenantName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
+		if errors.Is(err, schemaUC.ErrNotFound) {
+			return schema.NewTenantsGetOneNotFound()
+		}
+		if errors.Is(err, schemaUC.ErrUnexpectedMultiple) {
+			return schema.NewTenantsGetOneInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsGetOneForbidden().
@@ -321,19 +327,8 @@ func (s *schemaHandlers) getTenant(
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
-	if len(tenants) == 0 {
-		s.metricRequestsTotal.logUserError(params.ClassName)
-		return schema.NewTenantsGetOneNotFound()
-	}
-	// we shouldn't ever get more than 1 tenant here, just adding handling to be safe
-	if len(tenants) > 1 {
-		return schema.NewTenantsGetOneInternalServerError().
-			WithPayload(errPayloadFromSingleErr(
-				fmt.Errorf("internal error: multiple tenants found: %v", tenants)))
-	}
-	// at this point we know we have exactly 1 tenant
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsGetOneOK().WithPayload(tenants[0])
+	return schema.NewTenantsGetOneOK().WithPayload(tenant)
 }
 
 func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
