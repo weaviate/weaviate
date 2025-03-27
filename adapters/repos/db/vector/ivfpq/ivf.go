@@ -32,9 +32,10 @@ import (
 
 const (
 	targetProbe        = 250
-	ivfProbing         = 3_000
+	ivfProbing         = 1_000
 	rescoreConcurrency = 10
 	bucketThreshold    = 1000
+	dims               = 1536
 )
 
 type bucket struct {
@@ -324,11 +325,21 @@ func (i *FlatPQ) distanceToVector(searchVec []float32, id uint64) (float32, erro
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
 	buf, _ := i.store.Bucket("vectors").Get(idBytes)
-	vector := make([]float32, 1536)
+	vector := make([]float32, dims)
 	binary.Read(bytes.NewReader(buf), binary.LittleEndian, &vector)
 	return i.distancer.SingleDist(searchVec, vector)
 }
 
 func (i *FlatPQ) BytesRead() int {
 	return i.bytesRead
+}
+
+func (i *FlatPQ) ActiveBuckets() int {
+	total := 0
+	for _, bucket := range i.buckets {
+		if bucket != nil {
+			total++
+		}
+	}
+	return total
 }

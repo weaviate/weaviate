@@ -188,11 +188,13 @@ func TestIVF(t *testing.T) {
 	var ivf *ivfpq.FlatPQ
 	//file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-100k-openai-ada002.hdf5", hdf5.F_ACC_RDONLY)
 	file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
+	//file, err := hdf5.OpenFile("/Users/abdel/Documents/datasets/sphere-10M-meta-dpr.hdf5", hdf5.F_ACC_RDONLY)
 	assert.Nil(t, err)
 	// defer file.Close()
 	dataset, err := file.OpenDataset("train")
 	// defer dataset.Close()
 	vectors := make([][]float32, 1_000_000)
+	//vectors := make([][]float32, 10_000_000)
 	batchSize := uint(1_000)
 	dataspace := dataset.Space()
 	byteSize := getHDF5ByteSize(dataset)
@@ -249,7 +251,7 @@ func TestIVF(t *testing.T) {
 		if i == 100_000 {
 			go func() {
 				defer wg1.Done()
-				ivf = ivfpq.NewFlatPQ(vectors[:100_000], distancer.NewCosineDistanceProvider(), 2, 128, testinghelpers.NewDummyStore(t))
+				ivf = ivfpq.NewFlatPQ(vectors[:100_000], distancer.NewDotProductProvider(), 3, 128, testinghelpers.NewDummyStore(t))
 				log.Println("PQ trained...")
 			}()
 		}
@@ -324,5 +326,6 @@ func TestIVF(t *testing.T) {
 	log.Println("Recall: ", recall)
 	log.Println("Memory: ", ivf.MemoryInUse()/1024/1024, "MB")
 	log.Println("Average bytes read per query: ", float32(ivf.BytesRead())/1024/1024/float32(rows), "MB")
-	assert.Nil(t, ivf)
+	log.Println("Active buckets: ", ivf.ActiveBuckets())
+	assert.NotNil(t, nil)
 }
