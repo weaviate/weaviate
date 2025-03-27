@@ -35,8 +35,9 @@ type ShardReindexerV3 interface {
 
 type ShardReindexTaskV3 interface {
 	Name() string
-	OnBeforeLsmInit(ctx context.Context, shard ShardLike) error
-	OnAfterLsmInit(ctx context.Context, shard ShardLike) error
+	OnBeforeLsmInit(ctx context.Context, shard *Shard) error
+	OnAfterLsmInit(ctx context.Context, shard *Shard) error
+	// TODO alisza:blockmax change to *Shard?
 	OnAfterLsmInitAsync(ctx context.Context, shard ShardLike) (rerunAt time.Time, err error)
 }
 

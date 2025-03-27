@@ -61,7 +61,7 @@ type LazyLoadShard struct {
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
-	shardLoadLimiter ShardLoadLimiter, reindexer ShardReindexerV3,
+	shardLoadLimiter ShardLoadLimiter, shardReindexer ShardReindexerV3,
 ) *LazyLoadShard {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -76,7 +76,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			jobQueueCh:       jobQueueCh,
 			scheduler:        index.scheduler,
 			indexCheckpoints: indexCheckpoints,
-			reindexer:        reindexer,
+			shardReindexer:   shardReindexer,
 		},
 		memMonitor:       memMonitor,
 		shardLoadLimiter: shardLoadLimiter,
@@ -91,11 +91,7 @@ type deferredShardOpts struct {
 	jobQueueCh       chan job
 	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
-	reindexer        ShardReindexerV3
-
-	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
-	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
-	searchableInvertedPropNames           []string
+	shardReindexer   ShardReindexerV3
 }
 
 func (l *LazyLoadShard) mustLoad() {
@@ -127,15 +123,12 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
-		l.shardOpts.indexCheckpoints, l.shardOpts.reindexer)
+		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
 		return errors.New(msg)
 	}
-	shard.callbacksAddToPropertyValueIndex = l.shardOpts.callbacksAddToPropertyValueIndex
-	shard.callbacksRemoveFromPropertyValueIndex = l.shardOpts.callbacksRemoveFromPropertyValueIndex
-	shard.markSearchableBlockmaxProperties(l.shardOpts.searchableInvertedPropNames...)
 
 	l.shard = shard
 	l.loaded = true
@@ -715,37 +708,4 @@ func (l *LazyLoadShard) Activity() int32 {
 
 func (l *LazyLoadShard) pathLSM() string {
 	return shardPathLSM(l.shardOpts.index.path(), l.shardOpts.name)
-}
-
-func (l *LazyLoadShard) RegisterAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {
-	l.mutex.Lock()
-	if !l.loaded {
-		l.shardOpts.callbacksAddToPropertyValueIndex = append(l.shardOpts.callbacksAddToPropertyValueIndex, callback)
-		l.mutex.Unlock()
-		return
-	}
-	l.mutex.Unlock()
-	l.shard.RegisterAddToPropertyValueIndex(callback)
-}
-
-func (l *LazyLoadShard) RegisterDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
-	l.mutex.Lock()
-	if !l.loaded {
-		l.shardOpts.callbacksRemoveFromPropertyValueIndex = append(l.shardOpts.callbacksRemoveFromPropertyValueIndex, callback)
-		l.mutex.Unlock()
-		return
-	}
-	l.mutex.Unlock()
-	l.shard.RegisterDeleteFromPropertyValueIndex(callback)
-}
-
-func (l *LazyLoadShard) markSearchableBlockmaxProperties(propNames ...string) {
-	l.mutex.Lock()
-	if !l.loaded {
-		l.shardOpts.searchableInvertedPropNames = append(l.shardOpts.searchableInvertedPropNames, propNames...)
-		l.mutex.Unlock()
-		return
-	}
-	l.mutex.Unlock()
-	l.shard.markSearchableBlockmaxProperties(propNames...)
 }
