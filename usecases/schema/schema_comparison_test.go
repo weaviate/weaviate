@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -150,8 +149,7 @@ func Test_SchemaComparison_VariousMismatches(t *testing.T) {
 					},
 					Description: "foo",
 					InvertedIndexConfig: &models.InvertedIndexConfig{
-						IndexPropertyLength:   true,
-						UseInvertedSearchable: config.DefaultUseInvertedSearchable,
+						IndexPropertyLength: true,
 					},
 					ModuleConfig: "bar",
 					ReplicationConfig: &models.ReplicationConfig{
@@ -210,8 +208,7 @@ func Test_SchemaComparison_VariousMismatches(t *testing.T) {
 						},
 					},
 					InvertedIndexConfig: &models.InvertedIndexConfig{
-						IndexTimestamps:       true,
-						UseInvertedSearchable: config.DefaultUseInvertedSearchable,
+						IndexTimestamps: true,
 					},
 					ReplicationConfig: &models.ReplicationConfig{
 						Factor: 8,
