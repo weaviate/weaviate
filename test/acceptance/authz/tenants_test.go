@@ -20,6 +20,7 @@ import (
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"google.golang.org/grpc/codes"
@@ -27,7 +28,7 @@ import (
 )
 
 func TestAuthZTenants(t *testing.T) {
-	// adminUser := "admin-user"
+	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
@@ -41,20 +42,19 @@ func TestAuthZTenants(t *testing.T) {
 	updateTenantAction := authorization.UpdateTenants
 
 	ctx := context.Background()
-	// compose, err := docker.New().WithWeaviate().
-	// 	WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
-	// 	WithRBAC().WithRbacAdmins(adminUser).
-	// 	WithBackendFilesystem().
-	// 	Start(ctx)
-	// require.NoError(t, err)
-	// defer func() {
-	// 	require.NoError(t, compose.Terminate(ctx))
-	// }()
+	compose, err := docker.New().WithWeaviateWithGRPC().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).
+		WithBackendFilesystem().
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
 
-	// helper.SetupClient(compose.GetWeaviate().URI())
-	// defer helper.ResetClient()
-	helper.SetupClient("localhost:8081")
-	helper.SetupGRPCClient(t, "localhost:50052")
+	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
+	defer helper.ResetClient()
 
 	className := "AuthzTenantTestClass"
 	deleteObjectClass(t, className, adminAuth)
