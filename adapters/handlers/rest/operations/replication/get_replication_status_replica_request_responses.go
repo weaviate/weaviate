@@ -139,15 +139,15 @@ func (o *GetReplicationStatusReplicaRequestNotFound) WriteResponse(rw http.Respo
 	rw.WriteHeader(404)
 }
 
-// GetReplicationStatusReplicaRequestInternalServerErrorCode is the HTTP code returned for type GetReplicationStatusReplicaRequestInternalServerError
-const GetReplicationStatusReplicaRequestInternalServerErrorCode int = 500
+// GetReplicationStatusReplicaRequestNotImplementedCode is the HTTP code returned for type GetReplicationStatusReplicaRequestNotImplemented
+const GetReplicationStatusReplicaRequestNotImplementedCode int = 501
 
 /*
-GetReplicationStatusReplicaRequestInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+GetReplicationStatusReplicaRequestNotImplemented An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
-swagger:response getReplicationStatusReplicaRequestInternalServerError
+swagger:response getReplicationStatusReplicaRequestNotImplemented
 */
-type GetReplicationStatusReplicaRequestInternalServerError struct {
+type GetReplicationStatusReplicaRequestNotImplemented struct {
 
 	/*
 	  In: Body
@@ -155,27 +155,27 @@ type GetReplicationStatusReplicaRequestInternalServerError struct {
 	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
-// NewGetReplicationStatusReplicaRequestInternalServerError creates GetReplicationStatusReplicaRequestInternalServerError with default headers values
-func NewGetReplicationStatusReplicaRequestInternalServerError() *GetReplicationStatusReplicaRequestInternalServerError {
+// NewGetReplicationStatusReplicaRequestNotImplemented creates GetReplicationStatusReplicaRequestNotImplemented with default headers values
+func NewGetReplicationStatusReplicaRequestNotImplemented() *GetReplicationStatusReplicaRequestNotImplemented {
 
-	return &GetReplicationStatusReplicaRequestInternalServerError{}
+	return &GetReplicationStatusReplicaRequestNotImplemented{}
 }
 
-// WithPayload adds the payload to the get replication status replica request internal server error response
-func (o *GetReplicationStatusReplicaRequestInternalServerError) WithPayload(payload *models.ErrorResponse) *GetReplicationStatusReplicaRequestInternalServerError {
+// WithPayload adds the payload to the get replication status replica request not implemented response
+func (o *GetReplicationStatusReplicaRequestNotImplemented) WithPayload(payload *models.ErrorResponse) *GetReplicationStatusReplicaRequestNotImplemented {
 	o.Payload = payload
 	return o
 }
 
-// SetPayload sets the payload to the get replication status replica request internal server error response
-func (o *GetReplicationStatusReplicaRequestInternalServerError) SetPayload(payload *models.ErrorResponse) {
+// SetPayload sets the payload to the get replication status replica request not implemented response
+func (o *GetReplicationStatusReplicaRequestNotImplemented) SetPayload(payload *models.ErrorResponse) {
 	o.Payload = payload
 }
 
 // WriteResponse to the client
-func (o *GetReplicationStatusReplicaRequestInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *GetReplicationStatusReplicaRequestNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(500)
+	rw.WriteHeader(501)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

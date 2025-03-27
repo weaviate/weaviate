@@ -57,8 +57,8 @@ func (o *GetReplicationStatusReplicaRequestReader) ReadResponse(response runtime
 			return nil, err
 		}
 		return nil, result
-	case 500:
-		result := NewGetReplicationStatusReplicaRequestInternalServerError()
+	case 501:
+		result := NewGetReplicationStatusReplicaRequestNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -260,63 +260,63 @@ func (o *GetReplicationStatusReplicaRequestNotFound) readResponse(response runti
 	return nil
 }
 
-// NewGetReplicationStatusReplicaRequestInternalServerError creates a GetReplicationStatusReplicaRequestInternalServerError with default headers values
-func NewGetReplicationStatusReplicaRequestInternalServerError() *GetReplicationStatusReplicaRequestInternalServerError {
-	return &GetReplicationStatusReplicaRequestInternalServerError{}
+// NewGetReplicationStatusReplicaRequestNotImplemented creates a GetReplicationStatusReplicaRequestNotImplemented with default headers values
+func NewGetReplicationStatusReplicaRequestNotImplemented() *GetReplicationStatusReplicaRequestNotImplemented {
+	return &GetReplicationStatusReplicaRequestNotImplemented{}
 }
 
 /*
-GetReplicationStatusReplicaRequestInternalServerError describes a response with status code 500, with default header values.
+GetReplicationStatusReplicaRequestNotImplemented describes a response with status code 501, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
-type GetReplicationStatusReplicaRequestInternalServerError struct {
+type GetReplicationStatusReplicaRequestNotImplemented struct {
 	Payload *models.ErrorResponse
 }
 
-// IsSuccess returns true when this get replication status replica request internal server error response has a 2xx status code
-func (o *GetReplicationStatusReplicaRequestInternalServerError) IsSuccess() bool {
+// IsSuccess returns true when this get replication status replica request not implemented response has a 2xx status code
+func (o *GetReplicationStatusReplicaRequestNotImplemented) IsSuccess() bool {
 	return false
 }
 
-// IsRedirect returns true when this get replication status replica request internal server error response has a 3xx status code
-func (o *GetReplicationStatusReplicaRequestInternalServerError) IsRedirect() bool {
+// IsRedirect returns true when this get replication status replica request not implemented response has a 3xx status code
+func (o *GetReplicationStatusReplicaRequestNotImplemented) IsRedirect() bool {
 	return false
 }
 
-// IsClientError returns true when this get replication status replica request internal server error response has a 4xx status code
-func (o *GetReplicationStatusReplicaRequestInternalServerError) IsClientError() bool {
+// IsClientError returns true when this get replication status replica request not implemented response has a 4xx status code
+func (o *GetReplicationStatusReplicaRequestNotImplemented) IsClientError() bool {
 	return false
 }
 
-// IsServerError returns true when this get replication status replica request internal server error response has a 5xx status code
-func (o *GetReplicationStatusReplicaRequestInternalServerError) IsServerError() bool {
+// IsServerError returns true when this get replication status replica request not implemented response has a 5xx status code
+func (o *GetReplicationStatusReplicaRequestNotImplemented) IsServerError() bool {
 	return true
 }
 
-// IsCode returns true when this get replication status replica request internal server error response a status code equal to that given
-func (o *GetReplicationStatusReplicaRequestInternalServerError) IsCode(code int) bool {
-	return code == 500
+// IsCode returns true when this get replication status replica request not implemented response a status code equal to that given
+func (o *GetReplicationStatusReplicaRequestNotImplemented) IsCode(code int) bool {
+	return code == 501
 }
 
-// Code gets the status code for the get replication status replica request internal server error response
-func (o *GetReplicationStatusReplicaRequestInternalServerError) Code() int {
-	return 500
+// Code gets the status code for the get replication status replica request not implemented response
+func (o *GetReplicationStatusReplicaRequestNotImplemented) Code() int {
+	return 501
 }
 
-func (o *GetReplicationStatusReplicaRequestInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] getReplicationStatusReplicaRequestInternalServerError  %+v", 500, o.Payload)
+func (o *GetReplicationStatusReplicaRequestNotImplemented) Error() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] getReplicationStatusReplicaRequestNotImplemented  %+v", 501, o.Payload)
 }
 
-func (o *GetReplicationStatusReplicaRequestInternalServerError) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] getReplicationStatusReplicaRequestInternalServerError  %+v", 500, o.Payload)
+func (o *GetReplicationStatusReplicaRequestNotImplemented) String() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] getReplicationStatusReplicaRequestNotImplemented  %+v", 501, o.Payload)
 }
 
-func (o *GetReplicationStatusReplicaRequestInternalServerError) GetPayload() *models.ErrorResponse {
+func (o *GetReplicationStatusReplicaRequestNotImplemented) GetPayload() *models.ErrorResponse {
 	return o.Payload
 }
 
-func (o *GetReplicationStatusReplicaRequestInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *GetReplicationStatusReplicaRequestNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

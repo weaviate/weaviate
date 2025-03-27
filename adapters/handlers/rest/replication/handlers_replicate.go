@@ -55,5 +55,5 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 
 func (h *replicationHandler) getReplicateStatus(params replication.GetReplicationStatusReplicaRequestParams, principal *models.Principal) middleware.Responder {
 	return replication.NewGetReplicationStatusReplicaRequestInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(
-		errors.New(fmt.Sprintf("replicate status for id %s not available", params.ID))))
+		errors.New(fmt.Sprintf("retrieving replication status for id %s not yes implemented", params.ID))))
 }
