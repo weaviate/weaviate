@@ -103,7 +103,7 @@ type SecondaryKeyOption func(s secondaryIndexKeys) error
 
 func WithSecondaryKey(pos int, key []byte) SecondaryKeyOption {
 	return func(s secondaryIndexKeys) error {
-		if pos > len(s) {
+		if pos >= len(s) {
 			return errors.Errorf("set secondary index %d on an index of length %d",
 				pos, len(s))
 		}
