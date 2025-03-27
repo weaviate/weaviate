@@ -23,7 +23,7 @@ import (
 )
 
 func TestDynUserConcurrency(t *testing.T) {
-	dynUsers := NewDynamicApiKey()
+	dynUsers := NewDBUser()
 
 	numUsers := 10
 
@@ -48,7 +48,7 @@ func TestDynUserConcurrency(t *testing.T) {
 }
 
 func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
-	dynUsers := NewDynamicApiKey()
+	dynUsers := NewDBUser()
 	userId := "id"
 
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")
@@ -78,7 +78,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 }
 
 func TestUpdateUser(t *testing.T) {
-	dynUsers := NewDynamicApiKey()
+	dynUsers := NewDBUser()
 	userId := "id"
 
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")

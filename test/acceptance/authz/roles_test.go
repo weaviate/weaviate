@@ -1064,7 +1064,7 @@ func TestRolesUserExistence(t *testing.T) {
 	adminUser := "admin-user"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDynamicUsers().
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
 		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
 	require.Nil(t, err)
 
@@ -1130,7 +1130,7 @@ func TestGetRolesForUserPermission(t *testing.T) {
 	customUser := "custom-user"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "a").WithDynamicUsers().
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "a").WithDbUsers().
 		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
 	require.Nil(t, err)
 

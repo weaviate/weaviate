@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-type DynamicUser interface {
+type DBUsers interface {
 	CreateUser(userId, secureHash, userIdentifier string) error
 	DeleteUser(userId string) error
 	ActivateUser(userId string) error
@@ -38,7 +38,7 @@ type User struct {
 	InternalIdentifier string
 }
 
-type DynamicApiKey struct {
+type DBUser struct {
 	sync.RWMutex
 	weakKeyStorageById   map[string][sha256.Size]byte
 	secureKeyStorageById map[string]string
@@ -48,8 +48,8 @@ type DynamicApiKey struct {
 	userKeyRevoked       map[string]struct{}
 }
 
-func NewDynamicApiKey() *DynamicApiKey {
-	return &DynamicApiKey{
+func NewDBUser() *DBUser {
+	return &DBUser{
 		weakKeyStorageById:   make(map[string][sha256.Size]byte),
 		secureKeyStorageById: make(map[string]string),
 		identifierToId:       make(map[string]string),
@@ -59,7 +59,7 @@ func NewDynamicApiKey() *DynamicApiKey {
 	}
 }
 
-func (c *DynamicApiKey) CreateUser(userId, secureHash, userIdentifier string) error {
+func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string) error {
 	c.Lock()
 	defer c.Unlock()
 	_, secureKeyExists := c.secureKeyStorageById[userId]
@@ -77,7 +77,7 @@ func (c *DynamicApiKey) CreateUser(userId, secureHash, userIdentifier string) er
 	return nil
 }
 
-func (c *DynamicApiKey) RotateKey(userId, secureHash string) error {
+func (c *DBUser) RotateKey(userId, secureHash string) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -87,7 +87,7 @@ func (c *DynamicApiKey) RotateKey(userId, secureHash string) error {
 	return nil
 }
 
-func (c *DynamicApiKey) DeleteUser(userId string) error {
+func (c *DBUser) DeleteUser(userId string) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -100,7 +100,7 @@ func (c *DynamicApiKey) DeleteUser(userId string) error {
 	return nil
 }
 
-func (c *DynamicApiKey) ActivateUser(userId string) error {
+func (c *DBUser) ActivateUser(userId string) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -108,7 +108,7 @@ func (c *DynamicApiKey) ActivateUser(userId string) error {
 	return nil
 }
 
-func (c *DynamicApiKey) DeactivateUser(userId string, revokeKey bool) error {
+func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 	c.Lock()
 	defer c.Unlock()
 	if revokeKey {
@@ -118,7 +118,7 @@ func (c *DynamicApiKey) DeactivateUser(userId string, revokeKey bool) error {
 	return nil
 }
 
-func (c *DynamicApiKey) GetUsers(userIds ...string) (map[string]*User, error) {
+func (c *DBUser) GetUsers(userIds ...string) (map[string]*User, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -136,7 +136,7 @@ func (c *DynamicApiKey) GetUsers(userIds ...string) (map[string]*User, error) {
 	return users, nil
 }
 
-func (c *DynamicApiKey) CheckUserIdentifierExists(userIdentifier string) (bool, error) {
+func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -144,7 +144,7 @@ func (c *DynamicApiKey) CheckUserIdentifierExists(userIdentifier string) (bool, 
 	return ok, nil
 }
 
-func (c *DynamicApiKey) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {
+func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -179,7 +179,7 @@ func (c *DynamicApiKey) ValidateAndExtract(key, userIdentifier string) (*models.
 	return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
 }
 
-func (c *DynamicApiKey) validateWeakHash(key []byte, weakHash [32]byte) error {
+func (c *DBUser) validateWeakHash(key []byte, weakHash [32]byte) error {
 	keyHash := sha256.Sum256(key)
 	if subtle.ConstantTimeCompare(keyHash[:], weakHash[:]) != 1 {
 		return fmt.Errorf("invalid token")
@@ -188,7 +188,7 @@ func (c *DynamicApiKey) validateWeakHash(key []byte, weakHash [32]byte) error {
 	return nil
 }
 
-func (c *DynamicApiKey) validateStrongHash(key, secureHash, userId string) error {
+func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 	match, err := argon2id.ComparePasswordAndHash(key, secureHash)
 	if err != nil {
 		return err

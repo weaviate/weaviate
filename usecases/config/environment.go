@@ -165,8 +165,8 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DYNAMIC_USERS_ENABLED")) {
-		config.Authentication.DynamicUsers.Enabled = true
+	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
+		config.Authentication.DBUsers.Enabled = true
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
