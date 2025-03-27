@@ -23,8 +23,6 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 func TestAuthZTenants(t *testing.T) {
@@ -223,17 +221,17 @@ func TestAuthZTenants(t *testing.T) {
 		cleanup := setupRUDTests(readSpecificTenantRoleName)
 		defer cleanup()
 
-		err := readTenantGRPC(t, ctx, className, tenants[0].Name, customKey)
+		_, err := readTenantGRPC(t, ctx, className, tenants[0].Name, customKey)
 		require.Nil(t, err)
 	})
 
-	t.Run("Fail to get specific tenant using grpc without needed permission", func(t *testing.T) {
+	t.Run("Return no tenants via grpc when one is forbidden", func(t *testing.T) {
 		cleanup := setupRUDTests(readSpecificTenantRoleName)
 		defer cleanup()
 
-		err := readTenantGRPC(t, ctx, className, tenants[1].Name, customKey)
-		require.NotNil(t, err)
-		require.Equal(t, status.Code(err), codes.PermissionDenied)
+		res, err := readTenantGRPC(t, ctx, className, tenants[1].Name, customKey)
+		require.Nil(t, err)
+		require.Len(t, res.Tenants, 0)
 	})
 
 	t.Run("Get filtered tenants using rest", func(t *testing.T) {

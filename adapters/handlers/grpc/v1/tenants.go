@@ -39,17 +39,9 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 			if len(requestedNames) == 0 {
 				return nil, fmt.Errorf("must specify at least one tenant name")
 			}
-			if len(requestedNames) == 1 {
-				tenantResponse, err := s.schemaManager.GetConsistentTenant(ctx, principal, req.Collection, true, requestedNames[0])
-				if err != nil {
-					return nil, err
-				}
-				tenantResponses = []*models.TenantResponse{tenantResponse}
-			} else {
-				tenantResponses, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, true, requestedNames)
-				if err != nil {
-					return nil, err
-				}
+			tenantResponses, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, true, requestedNames)
+			if err != nil {
+				return nil, err
 			}
 		default:
 			return nil, fmt.Errorf("unknown tenant parameter %v", req.Params)
