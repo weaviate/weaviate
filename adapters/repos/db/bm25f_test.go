@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -44,8 +45,9 @@ func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedI
 		Stopwords: &models.StopwordConfig{
 			Preset: stopWordPreset,
 		},
-		IndexNullState:      true,
-		IndexPropertyLength: true,
+		IndexNullState:        true,
+		IndexPropertyLength:   true,
+		UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 	}
 }
 

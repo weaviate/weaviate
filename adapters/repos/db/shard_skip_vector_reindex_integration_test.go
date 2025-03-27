@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -47,9 +48,10 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 	class := &models.Class{
 		Class: "TestClass",
 		InvertedIndexConfig: &models.InvertedIndexConfig{
-			IndexTimestamps:     true,
-			IndexNullState:      true,
-			IndexPropertyLength: true,
+			IndexTimestamps:       true,
+			IndexNullState:        true,
+			IndexPropertyLength:   true,
+			UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 		},
 		Properties: []*models.Property{
 			{

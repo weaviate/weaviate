@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -325,7 +326,8 @@ func invertedConfig() *models.InvertedIndexConfig {
 		Stopwords: &models.StopwordConfig{
 			Preset: "none",
 		},
-		IndexNullState:      true,
-		IndexPropertyLength: true,
+		IndexNullState:        true,
+		IndexPropertyLength:   true,
+		UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 	}
 }
