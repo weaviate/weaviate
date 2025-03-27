@@ -69,8 +69,7 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 		compressor.Preload(1, []float32{-0.5, 0.5})
 		compressor.Preload(2, []float32{0.25, 0.7})
 		compressor.Preload(3, []float32{0.5, 0.5})
-		distancer, returnFn := compressor.NewDistancer([]float32{0.1, -0.2})
-		defer returnFn()
+		distancer := compressor.NewDistancer([]float32{0.1, -0.2})
 
 		d, err := distancer.DistanceToNode(1)
 		assert.Nil(t, err)
@@ -146,7 +145,7 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 			memwatch.NewDummyMonitor(),
 		)
 		require.Nil(t, err)
-		d, _ := compressor.NewDistancer(storedVec)
+		d := compressor.NewDistancer(storedVec)
 		_, err = d.DistanceToFloat(mismatchedVec)
 		assert.EqualError(t, err, "2 vs 3: vector lengths don't match")
 	})

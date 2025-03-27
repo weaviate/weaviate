@@ -28,9 +28,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32
 	entryPointID := h.entryPointID
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		var returnFn compressionhelpers.ReturnDistancerFn
-		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
-		defer returnFn()
+		compressorDistancer = h.compressor.NewDistancer(searchVec)
 	}
 	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
 	var e storobj.ErrNotFound

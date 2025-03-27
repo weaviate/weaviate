@@ -38,8 +38,7 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		distancer, returnFn := h.compressor.NewDistancer(queryVector)
-		defer returnFn()
+		distancer := h.compressor.NewDistancer(queryVector)
 		compressorDistancer = distancer
 	}
 
@@ -110,14 +109,13 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 
 	beforeRescore := time.Now()
 	if h.shouldRescore() {
-		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
+		compressorDistancer := h.compressor.NewDistancer(queryVector)
 		if err := h.rescore(ctx, results, k, compressorDistancer); err != nil {
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "flat_search_rescore")
 			took := time.Since(beforeRescore)
 			helpers.AnnotateSlowQueryLog(ctx, "flat_search_rescore_took", took)
 			return nil, nil, fmt.Errorf("flat search: %w", err)
 		}
-		fn()
 		took := time.Since(beforeRescore)
 		helpers.AnnotateSlowQueryLog(ctx, "flat_search_rescore_took", took)
 	}

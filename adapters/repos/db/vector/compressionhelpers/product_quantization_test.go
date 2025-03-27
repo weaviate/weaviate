@@ -249,3 +249,44 @@ func Test_PQDistanceError(t *testing.T) {
 	msg := "ProductQuantizer.DistanceBetweenCompressedVectors: inconsistent compressed vectors lengths"
 	assert.EqualError(t, err, msg)
 }
+
+func BenchmarkPQLatency(b *testing.B) {
+	dimensions := 1536
+	vectors_size := 100
+	queries_size := 1
+	centroids := 100
+	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, int(dimensions))
+	distanceProvider := distancer.NewDotProductProvider()
+
+	cfg := ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeKMeans,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		Centroids: centroids,
+		Segments:  192,
+	}
+	pq, err := compressionhelpers.NewProductQuantizer(
+		cfg,
+		distanceProvider,
+		dimensions,
+		logger,
+	)
+	assert.Nil(b, err)
+	pq.Fit(vectors)
+	encoded := make([][]byte, vectors_size)
+	for i := 0; i < vectors_size; i++ {
+		encoded[i] = pq.Encode(vectors[i])
+	}
+
+	b.ResetTimer()
+	distancer := pq.NewDistancer(queries[0])
+	for i := 0; i < b.N; i++ {
+		distancer.Distance(encoded[i%vectors_size])
+	}
+}
+
+// NewDistancer          1403964	       914.8 ns/op	       0 B/op	       0 allocs/op
+// NewDotProductProvider 10157622	       115.5 ns/op	       0 B/op	       0 allocs/op
+// NewDotProductProvi*** 12531109	        95.29 ns/op	       0 B/op	       0 allocs/op

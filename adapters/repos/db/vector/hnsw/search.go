@@ -204,9 +204,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	var floatDistancer distancer.Distancer
 	if h.compressed.Load() {
 		if compressorDistancer == nil {
-			var returnFn compressionhelpers.ReturnDistancerFn
-			compressorDistancer, returnFn = h.compressor.NewDistancer(queryVector)
-			defer returnFn()
+			compressorDistancer = h.compressor.NewDistancer(queryVector)
 		}
 	} else {
 		floatDistancer = h.distancerProvider.New(queryVector)
@@ -598,9 +596,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		var returnFn compressionhelpers.ReturnDistancerFn
-		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
-		defer returnFn()
+		compressorDistancer = h.compressor.NewDistancer(searchVec)
 	}
 	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
 	var e storobj.ErrNotFound
@@ -836,7 +832,7 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	queryVector = h.normalizeVec(queryVector)
 	if h.compressed.Load() {
-		dist, returnFn := h.compressor.NewDistancer(queryVector)
+		dist := h.compressor.NewDistancer(queryVector)
 		f := func(nodeID uint64) (float32, error) {
 			l := h.nodes.Len()
 			if int(nodeID) > l {
@@ -845,7 +841,7 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 
 			return dist.DistanceToNode(nodeID)
 		}
-		return common.QueryVectorDistancer{DistanceFunc: f, CloseFunc: returnFn}
+		return common.QueryVectorDistancer{DistanceFunc: f, CloseFunc: func() {}}
 
 	} else {
 		distancer := h.distancerProvider.New(queryVector)
