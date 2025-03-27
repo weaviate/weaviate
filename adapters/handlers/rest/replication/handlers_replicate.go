@@ -55,5 +55,5 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 
 func (h *replicationHandler) getReplicateStatus(params replication.GetReplicationStatusReplicaRequestParams, principal *models.Principal) middleware.Responder {
 	return replication.NewGetReplicationStatusReplicaRequestNotImplemented().WithPayload(cerrors.ErrPayloadFromSingleErr(
-		errors.New(fmt.Sprintf("retrieving replication status for id %s not yet implemented", params.ID))))
+		fmt.Errorf("retrieving replication status for id %s not yet implemented", params.ID)))
 }
