@@ -142,12 +142,6 @@ func readTenant(t *testing.T, class string, tenant string, key string) error {
 	return err
 }
 
-func readTenants(t *testing.T, class string, key string) error {
-	params := clschema.NewTenantsGetParams().WithClassName(class)
-	_, err := helper.Client(t).Schema.TenantsGet(params, helper.CreateAuth(key))
-	return err
-}
-
 func readTenantGRPC(t *testing.T, ctx context.Context, class, tenant, key string) error {
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", key))
 	_, err := helper.ClientGRPC(t).TenantsGet(ctx, &protocol.TenantsGetRequest{
@@ -159,12 +153,12 @@ func readTenantGRPC(t *testing.T, ctx context.Context, class, tenant, key string
 	return err
 }
 
-func readTenantsReturn(t *testing.T, class string, key string) (*clschema.TenantsGetOK, error) {
+func readTenants(t *testing.T, class string, key string) (*clschema.TenantsGetOK, error) {
 	params := clschema.NewTenantsGetParams().WithClassName(class)
 	return helper.Client(t).Schema.TenantsGet(params, helper.CreateAuth(key))
 }
 
-func readTenantsGRPCReturn(t *testing.T, ctx context.Context, class string, key string) (*protocol.TenantsGetReply, error) {
+func readTenantsGRPC(t *testing.T, ctx context.Context, class string, key string) (*protocol.TenantsGetReply, error) {
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", key))
 	return helper.ClientGRPC(t).TenantsGet(ctx, &protocol.TenantsGetRequest{
 		Collection: class,

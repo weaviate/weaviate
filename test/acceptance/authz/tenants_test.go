@@ -213,10 +213,10 @@ func TestAuthZTenants(t *testing.T) {
 		require.True(t, errors.As(err, &forbiddenExists))
 
 		// tests for tenant filtering
-		readTenants, err := readTenantsReturn(t, className, customKey)
+		res, err := readTenants(t, className, customKey)
 		require.Nil(t, err)
-		require.Len(t, readTenants.Payload, 1)
-		require.Equal(t, tenants[0].Name, readTenants.Payload[0].Name)
+		require.Len(t, res.Payload, 1)
+		require.Equal(t, tenants[0].Name, res.Payload[0].Name)
 	})
 
 	t.Run("Get specific tenant using grpc", func(t *testing.T) {
@@ -240,7 +240,7 @@ func TestAuthZTenants(t *testing.T) {
 		cleanup := setupRUDTests(readSpecificTenantRoleName)
 		defer cleanup()
 
-		res, err := readTenantsReturn(t, className, customKey)
+		res, err := readTenants(t, className, customKey)
 		require.Nil(t, err)
 		require.Len(t, res.Payload, 1)
 		require.Equal(t, tenants[0].Name, res.Payload[0].Name)
@@ -250,7 +250,7 @@ func TestAuthZTenants(t *testing.T) {
 		cleanup := setupRUDTests(readSpecificTenantRoleName)
 		defer cleanup()
 
-		res, err := readTenantsGRPCReturn(t, ctx, className, customKey)
+		res, err := readTenantsGRPC(t, ctx, className, customKey)
 		require.Nil(t, err)
 		require.Len(t, res.Tenants, 1)
 		require.Equal(t, tenants[0].Name, res.Tenants[0].Name)
