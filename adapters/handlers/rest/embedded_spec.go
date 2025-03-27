@@ -3506,8 +3506,11 @@ func init() {
     "/replication/replicate/{id}/status": {
       "get": {
         "description": "Returns the status of a shard replica move operation for a given shard, identified by the provided id.",
+        "tags": [
+          "replication"
+        ],
         "summary": "Get the status of a shard replica move operation",
-        "operationId": "getReplicationStatusReplicaRequest",
+        "operationId": "replicateStatus",
         "parameters": [
           {
             "type": "string",
@@ -3555,7 +3558,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.status"
+        ]
       }
     },
     "/schema": {
@@ -11051,8 +11057,11 @@ func init() {
     "/replication/replicate/{id}/status": {
       "get": {
         "description": "Returns the status of a shard replica move operation for a given shard, identified by the provided id.",
+        "tags": [
+          "replication"
+        ],
         "summary": "Get the status of a shard replica move operation",
-        "operationId": "getReplicationStatusReplicaRequest",
+        "operationId": "replicateStatus",
         "parameters": [
           {
             "type": "string",
@@ -11100,7 +11109,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.status"
+        ]
       }
     },
     "/schema": {

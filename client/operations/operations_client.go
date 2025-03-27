@@ -41,8 +41,6 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
-	GetReplicationStatusReplicaRequest(params *GetReplicationStatusReplicaRequestParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetReplicationStatusReplicaRequestOK, error)
-
 	WeaviateRoot(params *WeaviateRootParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateRootOK, error)
 
 	WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownLivenessOK, error)
@@ -50,47 +48,6 @@ type ClientService interface {
 	WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownReadinessOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
-}
-
-/*
-GetReplicationStatusReplicaRequest gets the status of a shard replica move operation
-
-Returns the status of a shard replica move operation for a given shard, identified by the provided id.
-*/
-func (a *Client) GetReplicationStatusReplicaRequest(params *GetReplicationStatusReplicaRequestParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetReplicationStatusReplicaRequestOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewGetReplicationStatusReplicaRequestParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "getReplicationStatusReplicaRequest",
-		Method:             "GET",
-		PathPattern:        "/replication/replicate/{id}/status",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &GetReplicationStatusReplicaRequestReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*GetReplicationStatusReplicaRequestOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for getReplicationStatusReplicaRequest: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
 }
 
 /*
