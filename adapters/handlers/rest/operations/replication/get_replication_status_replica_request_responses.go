@@ -138,3 +138,48 @@ func (o *GetReplicationStatusReplicaRequestNotFound) WriteResponse(rw http.Respo
 
 	rw.WriteHeader(404)
 }
+
+// GetReplicationStatusReplicaRequestInternalServerErrorCode is the HTTP code returned for type GetReplicationStatusReplicaRequestInternalServerError
+const GetReplicationStatusReplicaRequestInternalServerErrorCode int = 500
+
+/*
+GetReplicationStatusReplicaRequestInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response getReplicationStatusReplicaRequestInternalServerError
+*/
+type GetReplicationStatusReplicaRequestInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetReplicationStatusReplicaRequestInternalServerError creates GetReplicationStatusReplicaRequestInternalServerError with default headers values
+func NewGetReplicationStatusReplicaRequestInternalServerError() *GetReplicationStatusReplicaRequestInternalServerError {
+
+	return &GetReplicationStatusReplicaRequestInternalServerError{}
+}
+
+// WithPayload adds the payload to the get replication status replica request internal server error response
+func (o *GetReplicationStatusReplicaRequestInternalServerError) WithPayload(payload *models.ErrorResponse) *GetReplicationStatusReplicaRequestInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get replication status replica request internal server error response
+func (o *GetReplicationStatusReplicaRequestInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetReplicationStatusReplicaRequestInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

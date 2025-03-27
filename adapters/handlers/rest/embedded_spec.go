@@ -3548,6 +3548,12 @@ func init() {
           },
           "404": {
             "description": "Shard replica move operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -11090,6 +11096,12 @@ func init() {
           },
           "404": {
             "description": "Shard replica move operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }

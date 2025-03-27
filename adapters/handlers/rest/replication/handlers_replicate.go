@@ -13,6 +13,7 @@ package replication
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -50,4 +51,9 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}).Info("replicate operation registered")
 
 	return replication.NewReplicateOK()
+}
+
+func (h *replicationHandler) getReplicateStatus(params replication.GetReplicationStatusReplicaRequestParams, principal *models.Principal) middleware.Responder {
+	return replication.NewGetReplicationStatusReplicaRequestInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(
+		errors.New(fmt.Sprintf("replicate status for id %s not available", params.ID))))
 }
