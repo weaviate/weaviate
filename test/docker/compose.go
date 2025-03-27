@@ -117,7 +117,7 @@ type Compose struct {
 	weaviateApiKeyUsers            []ApiKeyUser
 	weaviateAdminlistAdminUsers    []string
 	weaviateAdminlistReadOnlyUsers []string
-	withWeaviateDynamicUsers       bool
+	withWeaviateDbUsers            bool
 	withWeaviateRbac               bool
 	weaviateRbacAdmins             []string
 	weaviateRbacRootGroups         []string
@@ -521,8 +521,8 @@ func (d *Compose) WithRBAC() *Compose {
 	return d
 }
 
-func (d *Compose) WithDynamicUsers() *Compose {
-	d.withWeaviateDynamicUsers = true
+func (d *Compose) WithDbUsers() *Compose {
+	d.withWeaviateDbUsers = true
 	return d
 }
 
@@ -879,8 +879,8 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		}
 	}
 
-	if d.withWeaviateDynamicUsers {
-		settings["AUTHENTICATION_DYNAMIC_USERS_ENABLED"] = "true"
+	if d.withWeaviateDbUsers {
+		settings["AUTHENTICATION_DB_USERS_ENABLED"] = "true"
 	}
 
 	if d.withAutoschema {

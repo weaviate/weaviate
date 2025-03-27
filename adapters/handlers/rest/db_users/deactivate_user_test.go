@@ -9,14 +9,14 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic_user
+package db_users
 
 import (
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user/mocks"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -43,8 +43,8 @@ func TestSuccessDeactivate(t *testing.T) {
 			dynUser.On("DeactivateUser", "user", test.revokeKey).Return(nil)
 
 			h := dynUserHandler{
-				dynamicUser: dynUser,
-				authorizer:  authorizer, dynUserEnabled: true,
+				dbUsers:    dynUser,
+				authorizer: authorizer, dbUserEnabled: true,
 			}
 
 			res := h.deactivateUser(users.DeactivateUserParams{UserID: "user", Body: users.DeactivateUserBody{RevokeKey: &test.revokeKey}}, principal)
@@ -62,8 +62,8 @@ func TestDeactivateNotFound(t *testing.T) {
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer, dynUserEnabled: true,
+		dbUsers:    dynUser,
+		authorizer: authorizer, dbUserEnabled: true,
 	}
 
 	res := h.deactivateUser(users.DeactivateUserParams{UserID: "user"}, principal)
@@ -94,10 +94,10 @@ func TestDeactivateBadParameters(t *testing.T) {
 			}
 
 			h := dynUserHandler{
-				dynamicUser:          dynUser,
+				dbUsers:              dynUser,
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static-user"}},
-				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}}, dynUserEnabled: true,
+				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}}, dbUserEnabled: true,
 			}
 
 			res := h.deactivateUser(users.DeactivateUserParams{UserID: test.user}, principal)
@@ -116,10 +116,10 @@ func TestDoubleDeactivate(t *testing.T) {
 	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{user: {Id: user, Active: false}}, nil)
 
 	h := dynUserHandler{
-		dynamicUser:          dynUser,
+		dbUsers:              dynUser,
 		authorizer:           authorizer,
 		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static-user"}},
-		rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}}, dynUserEnabled: true,
+		rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}}, dbUserEnabled: true,
 	}
 
 	res := h.deactivateUser(users.DeactivateUserParams{UserID: user}, principal)
@@ -133,9 +133,9 @@ func TestSuspendNoDynamic(t *testing.T) {
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
-		dynamicUser:    mocks.NewDynamicUserAndRolesGetter(t),
-		authorizer:     authorizer,
-		dynUserEnabled: false,
+		dbUsers:       mocks.NewDynamicUserAndRolesGetter(t),
+		authorizer:    authorizer,
+		dbUserEnabled: false,
 	}
 
 	res := h.deactivateUser(users.DeactivateUserParams{UserID: "user"}, principal)
