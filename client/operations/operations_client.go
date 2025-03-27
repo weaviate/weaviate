@@ -65,7 +65,7 @@ func (a *Client) GetReplicationStatusReplicaRequest(params *GetReplicationStatus
 	op := &runtime.ClientOperation{
 		ID:                 "getReplicationStatusReplicaRequest",
 		Method:             "GET",
-		PathPattern:        "/replication/{id}/status",
+		PathPattern:        "/replication/replicate/{id}/status",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

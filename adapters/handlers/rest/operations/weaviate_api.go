@@ -1048,7 +1048,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/replication/{id}/status"] = replication.NewGetReplicationStatusReplicaRequest(o.context, o.GetReplicationStatusReplicaRequestHandler)
+	o.handlers["GET"]["/replication/replicate/{id}/status"] = replication.NewGetReplicationStatusReplicaRequest(o.context, o.GetReplicationStatusReplicaRequestHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

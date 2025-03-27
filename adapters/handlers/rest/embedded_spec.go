@@ -3503,7 +3503,7 @@ func init() {
         ]
       }
     },
-    "/replication/{id}/status": {
+    "/replication/replicate/{id}/status": {
       "get": {
         "description": "Returns the status of a shard replica move operation for a given shard, identified by the provided id.",
         "summary": "Get the status of a shard replica move operation",
@@ -11045,7 +11045,7 @@ func init() {
         ]
       }
     },
-    "/replication/{id}/status": {
+    "/replication/replicate/{id}/status": {
       "get": {
         "description": "Returns the status of a shard replica move operation for a given shard, identified by the provided id.",
         "summary": "Get the status of a shard replica move operation",

@@ -51,7 +51,7 @@ func (o *GetReplicationStatusReplicaRequestURL) SetBasePath(bp string) {
 func (o *GetReplicationStatusReplicaRequestURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/replication/{id}/status"
+	var _path = "/replication/replicate/{id}/status"
 
 	id := o.ID
 	if id != "" {

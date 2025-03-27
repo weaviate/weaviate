@@ -49,7 +49,7 @@ func NewGetReplicationStatusReplicaRequest(ctx *middleware.Context, handler GetR
 }
 
 /*
-	GetReplicationStatusReplicaRequest swagger:route GET /replication/{id}/status getReplicationStatusReplicaRequest
+	GetReplicationStatusReplicaRequest swagger:route GET /replication/replicate/{id}/status getReplicationStatusReplicaRequest
 
 # Get the status of a shard replica move operation
 

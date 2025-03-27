@@ -107,11 +107,11 @@ func (o *GetReplicationStatusReplicaRequestOK) Code() int {
 }
 
 func (o *GetReplicationStatusReplicaRequestOK) Error() string {
-	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] getReplicationStatusReplicaRequestOK  %+v", 200, o.Payload)
 }
 
 func (o *GetReplicationStatusReplicaRequestOK) String() string {
-	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] getReplicationStatusReplicaRequestOK  %+v", 200, o.Payload)
 }
 
 func (o *GetReplicationStatusReplicaRequestOK) GetPayload() *GetReplicationStatusReplicaRequestOKBody {
@@ -175,11 +175,11 @@ func (o *GetReplicationStatusReplicaRequestBadRequest) Code() int {
 }
 
 func (o *GetReplicationStatusReplicaRequestBadRequest) Error() string {
-	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] getReplicationStatusReplicaRequestBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetReplicationStatusReplicaRequestBadRequest) String() string {
-	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] getReplicationStatusReplicaRequestBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetReplicationStatusReplicaRequestBadRequest) GetPayload() *models.ErrorResponse {
@@ -242,11 +242,11 @@ func (o *GetReplicationStatusReplicaRequestNotFound) Code() int {
 }
 
 func (o *GetReplicationStatusReplicaRequestNotFound) Error() string {
-	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestNotFound ", 404)
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] getReplicationStatusReplicaRequestNotFound ", 404)
 }
 
 func (o *GetReplicationStatusReplicaRequestNotFound) String() string {
-	return fmt.Sprintf("[GET /replication/{id}/status][%d] getReplicationStatusReplicaRequestNotFound ", 404)
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] getReplicationStatusReplicaRequestNotFound ", 404)
 }
 
 func (o *GetReplicationStatusReplicaRequestNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
