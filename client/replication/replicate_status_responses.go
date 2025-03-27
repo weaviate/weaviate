@@ -51,8 +51,20 @@ func (o *ReplicateStatusReader) ReadResponse(response runtime.ClientResponse, co
 			return nil, err
 		}
 		return nil, result
+	case 401:
+		result := NewReplicateStatusUnauthorized()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 404:
 		result := NewReplicateStatusNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 500:
+		result := NewReplicateStatusInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -144,7 +156,7 @@ func NewReplicateStatusBadRequest() *ReplicateStatusBadRequest {
 /*
 ReplicateStatusBadRequest describes a response with status code 400, with default header values.
 
-Malformed replica move operation id
+Malformed request.
 */
 type ReplicateStatusBadRequest struct {
 	Payload *models.ErrorResponse
@@ -204,6 +216,62 @@ func (o *ReplicateStatusBadRequest) readResponse(response runtime.ClientResponse
 	return nil
 }
 
+// NewReplicateStatusUnauthorized creates a ReplicateStatusUnauthorized with default headers values
+func NewReplicateStatusUnauthorized() *ReplicateStatusUnauthorized {
+	return &ReplicateStatusUnauthorized{}
+}
+
+/*
+ReplicateStatusUnauthorized describes a response with status code 401, with default header values.
+
+Unauthorized or invalid credentials.
+*/
+type ReplicateStatusUnauthorized struct {
+}
+
+// IsSuccess returns true when this replicate status unauthorized response has a 2xx status code
+func (o *ReplicateStatusUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this replicate status unauthorized response has a 3xx status code
+func (o *ReplicateStatusUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this replicate status unauthorized response has a 4xx status code
+func (o *ReplicateStatusUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this replicate status unauthorized response has a 5xx status code
+func (o *ReplicateStatusUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this replicate status unauthorized response a status code equal to that given
+func (o *ReplicateStatusUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the replicate status unauthorized response
+func (o *ReplicateStatusUnauthorized) Code() int {
+	return 401
+}
+
+func (o *ReplicateStatusUnauthorized) Error() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] replicateStatusUnauthorized ", 401)
+}
+
+func (o *ReplicateStatusUnauthorized) String() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] replicateStatusUnauthorized ", 401)
+}
+
+func (o *ReplicateStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
 // NewReplicateStatusNotFound creates a ReplicateStatusNotFound with default headers values
 func NewReplicateStatusNotFound() *ReplicateStatusNotFound {
 	return &ReplicateStatusNotFound{}
@@ -256,6 +324,74 @@ func (o *ReplicateStatusNotFound) String() string {
 }
 
 func (o *ReplicateStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewReplicateStatusInternalServerError creates a ReplicateStatusInternalServerError with default headers values
+func NewReplicateStatusInternalServerError() *ReplicateStatusInternalServerError {
+	return &ReplicateStatusInternalServerError{}
+}
+
+/*
+ReplicateStatusInternalServerError describes a response with status code 500, with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type ReplicateStatusInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this replicate status internal server error response has a 2xx status code
+func (o *ReplicateStatusInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this replicate status internal server error response has a 3xx status code
+func (o *ReplicateStatusInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this replicate status internal server error response has a 4xx status code
+func (o *ReplicateStatusInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this replicate status internal server error response has a 5xx status code
+func (o *ReplicateStatusInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this replicate status internal server error response a status code equal to that given
+func (o *ReplicateStatusInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the replicate status internal server error response
+func (o *ReplicateStatusInternalServerError) Code() int {
+	return 500
+}
+
+func (o *ReplicateStatusInternalServerError) Error() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] replicateStatusInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ReplicateStatusInternalServerError) String() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] replicateStatusInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ReplicateStatusInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ReplicateStatusInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

@@ -73,7 +73,7 @@ func (o *ReplicateStatusOK) WriteResponse(rw http.ResponseWriter, producer runti
 const ReplicateStatusBadRequestCode int = 400
 
 /*
-ReplicateStatusBadRequest Malformed replica move operation id
+ReplicateStatusBadRequest Malformed request.
 
 swagger:response replicateStatusBadRequest
 */
@@ -114,6 +114,31 @@ func (o *ReplicateStatusBadRequest) WriteResponse(rw http.ResponseWriter, produc
 	}
 }
 
+// ReplicateStatusUnauthorizedCode is the HTTP code returned for type ReplicateStatusUnauthorized
+const ReplicateStatusUnauthorizedCode int = 401
+
+/*
+ReplicateStatusUnauthorized Unauthorized or invalid credentials.
+
+swagger:response replicateStatusUnauthorized
+*/
+type ReplicateStatusUnauthorized struct {
+}
+
+// NewReplicateStatusUnauthorized creates ReplicateStatusUnauthorized with default headers values
+func NewReplicateStatusUnauthorized() *ReplicateStatusUnauthorized {
+
+	return &ReplicateStatusUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *ReplicateStatusUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(401)
+}
+
 // ReplicateStatusNotFoundCode is the HTTP code returned for type ReplicateStatusNotFound
 const ReplicateStatusNotFoundCode int = 404
 
@@ -137,6 +162,51 @@ func (o *ReplicateStatusNotFound) WriteResponse(rw http.ResponseWriter, producer
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
+}
+
+// ReplicateStatusInternalServerErrorCode is the HTTP code returned for type ReplicateStatusInternalServerError
+const ReplicateStatusInternalServerErrorCode int = 500
+
+/*
+ReplicateStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response replicateStatusInternalServerError
+*/
+type ReplicateStatusInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewReplicateStatusInternalServerError creates ReplicateStatusInternalServerError with default headers values
+func NewReplicateStatusInternalServerError() *ReplicateStatusInternalServerError {
+
+	return &ReplicateStatusInternalServerError{}
+}
+
+// WithPayload adds the payload to the replicate status internal server error response
+func (o *ReplicateStatusInternalServerError) WithPayload(payload *models.ErrorResponse) *ReplicateStatusInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the replicate status internal server error response
+func (o *ReplicateStatusInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ReplicateStatusInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // ReplicateStatusNotImplementedCode is the HTTP code returned for type ReplicateStatusNotImplemented
