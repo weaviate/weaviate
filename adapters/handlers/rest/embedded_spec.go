@@ -698,14 +698,13 @@ func init() {
         ]
       }
     },
-    "/authz/roles/{id}/users": {
+    "/authz/roles/{id}/user-assignments": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
-        "operationId": "getUsersForRoleDeprecated",
-        "deprecated": true,
+        "summary": "get users assigned to role",
+        "operationId": "getUsersForRole",
         "parameters": [
           {
             "type": "string",
@@ -721,7 +720,19 @@ func init() {
             "schema": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "object",
+                "required": [
+                  "name",
+                  "userType"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string"
+                  },
+                  "userType": {
+                    "$ref": "#/definitions/UserTypeOutput"
+                  }
+                }
               }
             }
           },
@@ -755,30 +766,19 @@ func init() {
         ]
       }
     },
-    "/authz/roles/{id}/users/{userType}": {
+    "/authz/roles/{id}/users": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get users or a keys assigned to role",
-        "operationId": "getUsersForRole",
+        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getUsersForRoleDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "description": "role name",
             "name": "id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "enum": [
-              "oidc",
-              "db"
-            ],
-            "type": "string",
-            "description": "The type of user",
-            "name": "userType",
             "in": "path",
             "required": true
           }
@@ -853,7 +853,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserType"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -926,7 +926,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserType"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -4348,7 +4348,7 @@ func init() {
         "tags": [
           "users"
         ],
-        "summary": "list all users",
+        "summary": "list all db users",
         "operationId": "listAllUsers",
         "responses": {
           "200": {
@@ -4356,7 +4356,7 @@ func init() {
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/UserInfo"
+                "$ref": "#/definitions/DBUserInfo"
               }
             }
           },
@@ -4401,7 +4401,7 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/DBUserInfo"
             }
           },
           "401": {
@@ -5606,6 +5606,40 @@ func init() {
         }
       }
     },
+    "DBUserInfo": {
+      "type": "object",
+      "required": [
+        "userId",
+        "dbUserType",
+        "roles",
+        "active"
+      ],
+      "properties": {
+        "active": {
+          "description": "activity status of the returned user",
+          "type": "boolean"
+        },
+        "dbUserType": {
+          "description": "type of the returned user",
+          "type": "string",
+          "enum": [
+            "db_dynamic",
+            "db_static"
+          ]
+        },
+        "roles": {
+          "description": "The role names associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "userId": {
+          "description": "The user id of the given user",
+          "type": "string"
+        }
+      }
+    },
     "Deprecation": {
       "type": "object",
       "properties": {
@@ -6451,7 +6485,7 @@ func init() {
           }
         },
         "userType": {
-          "$ref": "#/definitions/UserType"
+          "$ref": "#/definitions/UserTypeInput"
         },
         "username": {
           "description": "The username that was extracted either from the authentication information",
@@ -7057,40 +7091,6 @@ func init() {
         }
       }
     },
-    "UserInfo": {
-      "type": "object",
-      "required": [
-        "userId",
-        "dbUserType",
-        "roles",
-        "active"
-      ],
-      "properties": {
-        "active": {
-          "description": "activity status of the returned user",
-          "type": "boolean"
-        },
-        "dbUserType": {
-          "description": "type of the returned user",
-          "type": "string",
-          "enum": [
-            "dynamic",
-            "static"
-          ]
-        },
-        "roles": {
-          "description": "The role names associated to the user",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "userId": {
-          "description": "The user id of the given user",
-          "type": "string"
-        }
-      }
-    },
     "UserOwnInfo": {
       "type": "object",
       "required": [
@@ -7118,11 +7118,20 @@ func init() {
         }
       }
     },
-    "UserType": {
+    "UserTypeInput": {
       "description": "the type of user",
       "type": "string",
       "enum": [
         "db",
+        "oidc"
+      ]
+    },
+    "UserTypeOutput": {
+      "description": "the type of user",
+      "type": "string",
+      "enum": [
+        "db_static",
+        "db_dynamic",
         "oidc"
       ]
     },
@@ -8124,14 +8133,13 @@ func init() {
         ]
       }
     },
-    "/authz/roles/{id}/users": {
+    "/authz/roles/{id}/user-assignments": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
-        "operationId": "getUsersForRoleDeprecated",
-        "deprecated": true,
+        "summary": "get users assigned to role",
+        "operationId": "getUsersForRole",
         "parameters": [
           {
             "type": "string",
@@ -8147,7 +8155,7 @@ func init() {
             "schema": {
               "type": "array",
               "items": {
-                "type": "string"
+                "$ref": "#/definitions/GetUsersForRoleOKBodyItems0"
               }
             }
           },
@@ -8181,30 +8189,19 @@ func init() {
         ]
       }
     },
-    "/authz/roles/{id}/users/{userType}": {
+    "/authz/roles/{id}/users": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get users or a keys assigned to role",
-        "operationId": "getUsersForRole",
+        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getUsersForRoleDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "description": "role name",
             "name": "id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "enum": [
-              "oidc",
-              "db"
-            ],
-            "type": "string",
-            "description": "The type of user",
-            "name": "userType",
             "in": "path",
             "required": true
           }
@@ -8279,7 +8276,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserType"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -8352,7 +8349,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserType"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -11896,7 +11893,7 @@ func init() {
         "tags": [
           "users"
         ],
-        "summary": "list all users",
+        "summary": "list all db users",
         "operationId": "listAllUsers",
         "responses": {
           "200": {
@@ -11904,7 +11901,7 @@ func init() {
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/UserInfo"
+                "$ref": "#/definitions/DBUserInfo"
               }
             }
           },
@@ -11949,7 +11946,7 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/DBUserInfo"
             }
           },
           "401": {
@@ -13309,6 +13306,40 @@ func init() {
         }
       }
     },
+    "DBUserInfo": {
+      "type": "object",
+      "required": [
+        "userId",
+        "dbUserType",
+        "roles",
+        "active"
+      ],
+      "properties": {
+        "active": {
+          "description": "activity status of the returned user",
+          "type": "boolean"
+        },
+        "dbUserType": {
+          "description": "type of the returned user",
+          "type": "string",
+          "enum": [
+            "db_dynamic",
+            "db_static"
+          ]
+        },
+        "roles": {
+          "description": "The role names associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "userId": {
+          "description": "The user id of the given user",
+          "type": "string"
+        }
+      }
+    },
     "Deprecation": {
       "type": "object",
       "properties": {
@@ -13398,6 +13429,21 @@ func init() {
           "type": "number",
           "format": "float",
           "x-nullable": true
+        }
+      }
+    },
+    "GetUsersForRoleOKBodyItems0": {
+      "type": "object",
+      "required": [
+        "name",
+        "userType"
+      ],
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "userType": {
+          "$ref": "#/definitions/UserTypeOutput"
         }
       }
     },
@@ -14287,7 +14333,7 @@ func init() {
           }
         },
         "userType": {
-          "$ref": "#/definitions/UserType"
+          "$ref": "#/definitions/UserTypeInput"
         },
         "username": {
           "description": "The username that was extracted either from the authentication information",
@@ -14893,40 +14939,6 @@ func init() {
         }
       }
     },
-    "UserInfo": {
-      "type": "object",
-      "required": [
-        "userId",
-        "dbUserType",
-        "roles",
-        "active"
-      ],
-      "properties": {
-        "active": {
-          "description": "activity status of the returned user",
-          "type": "boolean"
-        },
-        "dbUserType": {
-          "description": "type of the returned user",
-          "type": "string",
-          "enum": [
-            "dynamic",
-            "static"
-          ]
-        },
-        "roles": {
-          "description": "The role names associated to the user",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "userId": {
-          "description": "The user id of the given user",
-          "type": "string"
-        }
-      }
-    },
     "UserOwnInfo": {
       "type": "object",
       "required": [
@@ -14954,11 +14966,20 @@ func init() {
         }
       }
     },
-    "UserType": {
+    "UserTypeInput": {
       "description": "the type of user",
       "type": "string",
       "enum": [
         "db",
+        "oidc"
+      ]
+    },
+    "UserTypeOutput": {
+      "description": "the type of user",
+      "type": "string",
+      "enum": [
+        "db_static",
+        "db_dynamic",
         "oidc"
       ]
     },

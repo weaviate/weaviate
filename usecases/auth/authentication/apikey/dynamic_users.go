@@ -176,7 +176,7 @@ func (c *DynamicApiKey) ValidateAndExtract(key, userIdentifier string) (*models.
 		return nil, fmt.Errorf("key is revoked")
 	}
 
-	return &models.Principal{Username: userId, UserType: models.UserTypeDb}, nil
+	return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
 }
 
 func (c *DynamicApiKey) validateWeakHash(key []byte, weakHash [32]byte) error {

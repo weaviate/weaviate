@@ -283,6 +283,7 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 		blockDataIdx:      0,
 		decoded:           true,
 		freqDecoded:       true,
+		exhausted:         true,
 	}
 
 	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
