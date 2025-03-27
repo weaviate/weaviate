@@ -50,14 +50,14 @@ func BM25FinvertedConfig(k1, b float32, stopWordPreset string, useInvertedSearch
 	}
 }
 
-func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
+func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32, useInvertedSearchable bool,
 ) []string {
 	vFalse := false
 	vTrue := true
 
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none", false),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none", useInvertedSearchable),
 		Class:               "MyClass",
 
 		Properties: []*models.Property{
@@ -166,14 +166,14 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 }
 
 // DuplicatedFrom SetupClass to make sure this new test does not alter the results of the existing one
-func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
+func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32, useInvertedSearchable bool,
 ) []string {
 	vFalse := false
 	vTrue := true
 
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none", false),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none", useInvertedSearchable),
 		Class:               "FilterClass",
 
 		Properties: []*models.Property{
@@ -242,7 +242,7 @@ func TestBM25FJourney(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75)
+	props := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, false)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -492,7 +492,7 @@ func TestBM25FSingleProp(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, false)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -535,7 +535,7 @@ func TestBM25FWithFilters(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, false)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -599,7 +599,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClassForFilterScoringTest(t, repo, schemaGetter, logger, 1.2, 0.75)
+	props := SetupClassForFilterScoringTest(t, repo, schemaGetter, logger, 1.2, 0.75, false)
 
 	idx := repo.GetIndex("FilterClass")
 	require.NotNil(t, idx)
@@ -659,7 +659,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, false)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -728,7 +728,7 @@ func TestBM25FCompare(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, false)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -836,15 +836,14 @@ func Test_propertyHasSearchableIndex(t *testing.T) {
 	})
 }
 
-func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32, preset string,
-) (string, []string) {
+func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32, preset string, useInvertedSearchable bool) (string, []string) {
 	vFalse := false
 	vTrue := true
 
 	className := "DocumentsPreset_" + preset
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b, preset, false),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, preset, useInvertedSearchable),
 		Class:               className,
 
 		Properties: []*models.Property{
@@ -914,7 +913,7 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	classNone, props := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "none")
+	classNone, props := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "none", false)
 	idxNone := repo.GetIndex(schema.ClassName(classNone))
 	require.NotNil(t, idxNone)
 
@@ -948,7 +947,7 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		resNoStopwords, resNoScores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit, nil, "", 0, props)
 		require.Nil(t, err)
 
-		classEn, properties := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "en")
+		classEn, properties := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "en", false)
 		idxEn := repo.GetIndex(schema.ClassName(classEn))
 		require.NotNil(t, idxEn)
 		kwrStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "an example on losing the business"}

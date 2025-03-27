@@ -49,7 +49,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75)
+	props := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, true)
 
 	idx := repo.GetIndex("MyClass")
 
@@ -311,7 +311,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, true)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -365,7 +365,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, true)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -440,7 +440,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClassForFilterScoringTest(t, repo, schemaGetter, logger, 1.2, 0.75)
+	props := SetupClassForFilterScoringTest(t, repo, schemaGetter, logger, 1.2, 0.75, true)
 
 	idx := repo.GetIndex("FilterClass")
 	require.NotNil(t, idx)
@@ -511,7 +511,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, true)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -576,7 +576,7 @@ func TestBM25FCompareBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, true)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -671,7 +671,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 
 	for _, location := range []string{"memory", "disk"} {
 
-		classNone, props := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "none")
+		classNone, props := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "none", true)
 		idxNone := repo.GetIndex(schema.ClassName(classNone))
 		require.NotNil(t, idxNone)
 
@@ -703,7 +703,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 			resNoStopwords, resNoScores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit, nil, "", 0, props)
 			require.Nil(t, err)
 
-			classEn, properties := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "en")
+			classEn, properties := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "en", true)
 			idxEn := repo.GetIndex(schema.ClassName(classEn))
 			require.NotNil(t, idxEn)
 
