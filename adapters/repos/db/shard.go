@@ -168,10 +168,6 @@ type ShardLike interface {
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
-
-	RegisterAddToPropertyValueIndex(callback onAddToPropertyValueIndex)
-	RegisterDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex)
-	markSearchableBlockmaxProperties(propNames ...string)
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -423,10 +419,10 @@ func (s *Shard) Activity() int32 {
 	return s.activityTracker.Load()
 }
 
-func (s *Shard) RegisterAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {
+func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {
 	s.callbacksAddToPropertyValueIndex = append(s.callbacksAddToPropertyValueIndex, callback)
 }
 
-func (s *Shard) RegisterDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
+func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
 	s.callbacksRemoveFromPropertyValueIndex = append(s.callbacksRemoveFromPropertyValueIndex, callback)
 }
