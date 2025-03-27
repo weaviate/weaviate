@@ -54,6 +54,8 @@ const (
 	DefaultBM25b  = float32(0.75)
 )
 
+var DefaultUseInvertedSearchable = os.Getenv("USE_INVERTED_SEARCHABLE") == "" || os.Getenv("USE_INVERTED_SEARCHABLE") == "true"
+
 const (
 	DefaultMaxImportGoroutinesFactor = float64(1.5)
 

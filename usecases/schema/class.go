@@ -611,7 +611,9 @@ func (h *Handler) validateProperty(
 
 func setInvertedConfigDefaults(class *models.Class) {
 	if class.InvertedIndexConfig == nil {
-		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
+		class.InvertedIndexConfig = &models.InvertedIndexConfig{
+			UseInvertedSearchable: config.DefaultUseInvertedSearchable,
+		}
 	}
 
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
