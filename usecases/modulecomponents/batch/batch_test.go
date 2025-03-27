@@ -278,7 +278,7 @@ func TestBatchRequestLimit(t *testing.T) {
 }
 
 func TestBatchTokenLimitZero(t *testing.T) {
-	client := &fakeBatchClientWithRL{
+	client := &fakeBatchClientWithRL[[]float32]{
 		defaultResetRate: 1,
 		defaultRPM:       500,
 		// token limits are all 0
