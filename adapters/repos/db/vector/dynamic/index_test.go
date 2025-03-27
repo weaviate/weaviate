@@ -19,7 +19,6 @@ import (
 	"strconv"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -60,7 +59,7 @@ func TestDynamic(t *testing.T) {
 	distancer := distancer.NewL2SquaredProvider()
 	truths := make([][]uint64, queries_size)
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
 	})
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
 	fuc := flatent.UserConfig{}
@@ -102,7 +101,7 @@ func TestDynamic(t *testing.T) {
 	assert.True(t, shouldUpgrade)
 	assert.Equal(t, vectors_size, at)
 	assert.False(t, dynamic.Upgraded())
-	recall1, latency1 := recallAndLatency(ctx, queries, k, dynamic, truths)
+	recall1, latency1 := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	fmt.Println(recall1, latency1)
 	assert.True(t, recall1 > 0.99)
 	wg := sync.WaitGroup{}
@@ -114,7 +113,7 @@ func TestDynamic(t *testing.T) {
 	wg.Wait()
 	shouldUpgrade, _ = dynamic.ShouldUpgrade()
 	assert.False(t, shouldUpgrade)
-	recall2, latency2 := recallAndLatency(ctx, queries, k, dynamic, truths)
+	recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	fmt.Println(recall2, latency2)
 	assert.True(t, recall2 > 0.9)
 	assert.True(t, latency1 > latency2)
@@ -156,39 +155,10 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func recallAndLatency(ctx context.Context, queries [][]float32, k int, index VectorIndex, truths [][]uint64) (float32, float32) {
-	var relevant uint64
-	retrieved := k * len(queries)
-
-	var querying time.Duration = 0
-	mutex := &sync.Mutex{}
-	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		before := time.Now()
-		results, _, _ := index.SearchByVector(ctx, queries[i], k, nil)
-		ellapsed := time.Since(before)
-		hits := testinghelpers.MatchesInLists(truths[i], results)
-		mutex.Lock()
-		querying += ellapsed
-		relevant += hits
-		mutex.Unlock()
-	})
-
-	recall := float32(relevant) / float32(retrieved)
-	latency := float32(querying.Microseconds()) / float32(len(queries))
-	return recall, latency
-}
-
 func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice) ([]float32, error) {
 	return func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
 		copy(container.Slice, vectors[int(id)])
 		return vectors[int(id)], nil
-	}
-}
-
-func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
-	return func(x, y []float32) float32 {
-		dist, _ := provider.SingleDist(x, y)
-		return dist
 	}
 }
 
@@ -213,7 +183,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 	distancer := distancer.NewL2SquaredProvider()
 	truths := make([][]uint64, queries_size)
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
 	})
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
 	fuc := flatent.UserConfig{}
@@ -264,7 +234,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 		assert.True(t, shouldUpgrade)
 		assert.Equal(t, vectors_size, at)
 		assert.False(t, v.Upgraded())
-		recall1, latency1 := recallAndLatency(ctx, queries, k, v, truths)
+		recall1, latency1 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		fmt.Println(recall1, latency1)
 		assert.True(t, recall1 > 0.99)
 		wg := sync.WaitGroup{}
@@ -275,7 +245,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 		wg.Wait()
 		shouldUpgrade, _ = v.ShouldUpgrade()
 		assert.False(t, shouldUpgrade)
-		recall2, latency2 := recallAndLatency(ctx, queries, k, v, truths)
+		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		fmt.Println(recall2, latency2)
 		assert.True(t, recall2 > 0.9)
 		assert.True(t, latency1 > latency2)

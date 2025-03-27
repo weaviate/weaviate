@@ -18,13 +18,20 @@ import (
 	"path"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+var logger, _ = test.NewNullLogger()
 
 func Test_RestartFromZeroSegments(t *testing.T) {
 	testPath := t.TempDir()
@@ -73,4 +80,69 @@ func Test_RestartFromZeroSegments(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 
 	assert.Nil(t, err)
+}
+
+func TestBackup_IntegrationHnsw(t *testing.T) {
+	ctx := context.Background()
+	dimensions := 20
+	vectors_size := 10_000
+	queries_size := 100
+	k := 10
+
+	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+	truths := make([][]uint64, queries_size)
+	distancer := distancer.NewL2SquaredProvider()
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
+	})
+
+	dirName := t.TempDir()
+	indexID := "restore-integration-test"
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	hnswuc := hnswent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        64,
+		EF:                    32,
+		VectorCacheMaxObjects: 1_000_000,
+	}
+
+	config := Config{
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logger,
+		DistanceProvider: distancer,
+		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logger, noopCallback)
+		},
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			vec := vectors[int(id)]
+			if vec == nil {
+				return nil, storobj.NewErrNotFoundf(id, "nil vec")
+			}
+			return vec, nil
+		},
+		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+	}
+
+	store := testinghelpers.NewDummyStore(t)
+
+	idx, err := New(config, hnswuc, cyclemanager.NewCallbackGroupNoop(), store)
+	require.Nil(t, err)
+	idx.PostStartup()
+
+	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
+		idx.Add(ctx, i, vectors[i])
+	})
+	recall1, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths)
+	assert.True(t, recall1 > 0.9)
+
+	assert.Nil(t, idx.Flush())
+	assert.Nil(t, idx.Shutdown(context.Background()))
+
+	idx, err = New(config, hnswuc, cyclemanager.NewCallbackGroupNoop(), store)
+	require.Nil(t, err)
+	idx.PostStartup()
+
+	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths)
+	assert.Equal(t, recall1, recall2)
 }
