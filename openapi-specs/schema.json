@@ -820,6 +820,80 @@
         "path"
       ]
     },
+    "ReplicationReplicateReplicaRequest": {
+        "description": "Request body to add a replica of given shard of a given collection",
+        "properties": {
+            "sourceNodeName": {
+                "description": "The node containing the replica",
+                "type": "string"
+            },
+            "destinationNodeName": {
+                "description": "The node to add a copy of the replica on",
+                "type": "string"
+            },
+            "collectionId": {
+                "description": "The collection name holding the shard",
+                "type": "string"
+            },
+            "shardId": {
+                "description": "The shard id holding the replica to be copied",
+                "type": "string"
+            }
+        },
+        "type": "object",
+        "required": [
+            "sourceNodeName",
+            "destinationNodeName",
+            "collectionId",
+            "shardId"
+        ]
+    },
+    "ReplicationDisableReplicaRequest": {
+        "description": "Request body to disable (soft-delete) a replica of given shard of a given collection",
+        "properties": {
+            "nodeName": {
+                "description": "The node containing the replica to be disabled",
+                "type": "string"
+            },
+            "collectionId": {
+                "description": "The collection name holding the replica to be disabled",
+                "type": "string"
+            },
+            "shardId": {
+                "description": "The shard id holding the replica to be disabled",
+                "type": "string"
+            }
+        },
+        "type": "object",
+        "required": [
+            "nodeName",
+            "collectionId",
+            "shardId"
+        ]
+    },
+    "ReplicationDeleteReplicaRequest": {
+        "description": "Request body to delete a replica of given shard of a given collection",
+        "properties": {
+            "nodeName": {
+                "description": "The node containing the replica to be deleted",
+                "type": "string"
+            },
+            "collectionId": {
+                "description": "The collection name holding the replica to be delete",
+                "type": "string"
+            },
+            "shardId": {
+                "description": "The shard id holding the replica to be deleted",
+                "type": "string"
+            }
+        },
+        "type": "object",
+        "required": [
+            "nodeName",
+            "collectionId",
+            "shardId"
+        ]
+    },
     "PeerUpdate": {
       "description": "A single peer in the network.",
       "properties": {
@@ -2694,6 +2768,60 @@
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
+      }
+    },
+    "/replication/replicate": {
+      "post": {
+        "summary": "Start the async operation to replicate a replica between two nodes",
+        "operationId": "replicate",
+        "x-serviceIds": [
+          "weaviate.replication.replicate"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication operation registered successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/users/own-info": {

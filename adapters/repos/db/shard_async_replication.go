@@ -30,6 +30,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/interval"
@@ -846,7 +847,7 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 		}
 
 		// filter out too recent local digests to avoid object propagation when all the nodes may be alive
-		localDigests := make([]replica.RepairResponse, 0, len(allLocalDigests))
+		localDigests := make([]types.RepairResponse, 0, len(allLocalDigests))
 
 		maxUpdateTime := time.Now().Add(-config.propagationDelay).UnixMilli()
 
@@ -871,7 +872,7 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 			return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
 		}
 
-		localDigestsByUUID := make(map[string]replica.RepairResponse, len(localDigests))
+		localDigestsByUUID := make(map[string]types.RepairResponse, len(localDigests))
 
 		for _, d := range localDigests {
 			localDigestsByUUID[d.ID] = d
@@ -1018,9 +1019,9 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 	return localObjectsCount, remoteObjectsCount, objectsToPropagate, nil
 }
 
-func (s *Shard) propagateObjects(ctx context.Context, config asyncReplicationConfig, host string, objs []*objects.VObject) (res []replica.RepairResponse, err error) {
+func (s *Shard) propagateObjects(ctx context.Context, config asyncReplicationConfig, host string, objs []*objects.VObject) (res []types.RepairResponse, err error) {
 	type workerResponse struct {
-		resp []replica.RepairResponse
+		resp []types.RepairResponse
 		err  error
 	}
 

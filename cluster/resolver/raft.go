@@ -30,8 +30,8 @@ const (
 )
 
 type raft struct {
-	// NodeToAddress allows the raft to also be used to resolve node-ids to ip addresses.
-	NodeToAddress
+	// ClusterStateReader allows the raft to also be used to the current cluster state
+	ClusterStateReader
 
 	// RaftPort is the configured RAFT port in the cluster that the resolver will append to the node id.
 	RaftPort int
@@ -48,18 +48,18 @@ type raft struct {
 
 func NewRaft(cfg RaftConfig) *raft {
 	return &raft{
-		NodeToAddress:     cfg.NodeToAddress,
-		RaftPort:          cfg.RaftPort,
-		IsLocalCluster:    cfg.IsLocalHost,
-		NodeNameToPortMap: cfg.NodeNameToPortMap,
-		notResolvedNodes:  make(map[raftImpl.ServerID]struct{}),
+		ClusterStateReader: cfg.ClusterStateReader,
+		RaftPort:           cfg.RaftPort,
+		IsLocalCluster:     cfg.IsLocalHost,
+		NodeNameToPortMap:  cfg.NodeNameToPortMap,
+		notResolvedNodes:   make(map[raftImpl.ServerID]struct{}),
 	}
 }
 
 // ServerAddr resolves server ID to a RAFT address
 func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) {
 	// Get the address from the node id
-	addr := a.NodeToAddress.NodeAddress(string(id))
+	addr := a.ClusterStateReader.NodeAddress(string(id))
 
 	// Update the internal notResolvedNodes if the addr if empty, otherwise delete it from the map
 	a.nodesLock.Lock()

@@ -50,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
@@ -58,6 +59,8 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
+	"github.com/weaviate/weaviate/cluster/replication/copier"
+	"github.com/weaviate/weaviate/cluster/router"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -156,6 +159,7 @@ type vectorRepo interface {
 	classification.VectorRepo
 	scaler.BackUpper
 	SetSchemaGetter(schemaUC.SchemaGetter)
+	SetRouter(*router.Router)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 }
@@ -474,6 +478,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
+	replicaCopier := copier.New(remoteIndexClient, appState.Cluster, dataPath, appState.DB)
 	rConfig := rCluster.Config{
 		WorkDir:                filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                 nodeName,
@@ -494,7 +499,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		DB:                     nil,
 		Parser:                 schemaParser,
 		NodeNameToPortMap:      server2port,
-		NodeToAddressResolver:  appState.Cluster,
 		NodeSelector:           appState.Cluster,
 		Logger:                 appState.Logger,
 		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
@@ -503,6 +507,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
 		AuthzController:        appState.AuthzController,
 		DynamicUserController:  appState.APIKey.Dynamic,
+		ReplicaCopier:          replicaCopier,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -558,6 +563,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	enterrors.GoWrapper(func() { clusterapi.Serve(appState) }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
+	vectorRepo.SetRouter(appState.ClusterService.NewRouter(appState.Logger))
 	explorer.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
 
@@ -840,6 +846,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Metrics,
 		appState.Authorizer,
 		appState.Logger)
+	replicationHandlers.SetupHandlers(api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
 
 	dynamic_user.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization.Rbac, appState.Logger)
 

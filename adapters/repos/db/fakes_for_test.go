@@ -18,6 +18,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/dto"
 
 	"github.com/go-openapi/strfmt"
@@ -262,6 +263,16 @@ func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	return nil
 }
 
+func (f *fakeRemoteClient) PauseAndListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error) {
+	return nil, nil
+}
+
+func (f *fakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, shardName,
+	fileName string,
+) (io.ReadCloser, error) {
+	return nil, nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) AllHostnames() []string {
@@ -345,7 +356,7 @@ func (*fakeReplicationClient) FetchObject(ctx context.Context, hostName, indexNa
 
 func (*fakeReplicationClient) DigestObjects(ctx context.Context,
 	hostName, indexName, shardName string, ids []strfmt.UUID, numRetries int,
-) (result []replica.RepairResponse, err error) {
+) (result []types.RepairResponse, err error) {
 	return nil, nil
 }
 
@@ -357,7 +368,7 @@ func (*fakeReplicationClient) FetchObjects(ctx context.Context, host,
 
 func (*fakeReplicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, objects []*objects.VObject,
-) ([]replica.RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	return nil, nil
 }
 
@@ -369,7 +380,7 @@ func (*fakeReplicationClient) FindUUIDs(ctx context.Context,
 
 func (c *fakeReplicationClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]replica.RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	return nil, nil
 }
 

@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"go.etcd.io/bbolt"
 
@@ -86,7 +87,7 @@ type ShardLike interface {
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
-	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []replica.RepairResponse, err error)
+	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairResponse, err error)
 	ID() string // Get the shard id
 	drop() error
 	HaltForTransfer(ctx context.Context, offloading bool) error
