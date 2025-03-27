@@ -281,7 +281,8 @@ func TestBatchTokenLimitZero(t *testing.T) {
 	client := &fakeBatchClientWithRL{
 		defaultResetRate: 1,
 		defaultRPM:       500,
-		rateLimit:        &modulecomponents.RateLimits{RemainingRequests: 100, LimitRequests: 100},
+		// token limits are all 0
+		rateLimit: &modulecomponents.RateLimits{RemainingRequests: 100, LimitRequests: 100},
 	}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	longString := "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab"
