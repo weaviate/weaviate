@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -273,6 +275,30 @@ func TestBatchRequestLimit(t *testing.T) {
 			require.Len(t, errs, tt.expectedErrors)
 		})
 	}
+}
+
+func TestBatchTokenLimitZero(t *testing.T) {
+	client := &fakeBatchClientWithRL{
+		defaultResetRate: 1,
+		defaultRPM:       500,
+		rateLimit:        &modulecomponents.RateLimits{RemainingRequests: 100, LimitRequests: 100},
+	}
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	longString := "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab"
+	logger, _ := test.NewNullLogger()
+
+	objs := []*models.Object{
+		{Class: "Car", Properties: map[string]interface{}{"test": "tokens 0"}},
+		{Class: "Car", Properties: map[string]interface{}{"test": "tokens 0" + longString}},
+	}
+	skip := []bool{false, false}
+	texts, tokenCounts := generateTokens(objs)
+
+	v := NewBatchVectorizer(client, time.Second, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
+
+	_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
+	require.Len(t, errs, 0)
+	// finishes without hanging
 }
 
 func generateTokens(objects []*models.Object) ([]string, []int) {

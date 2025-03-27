@@ -55,6 +55,7 @@ func GetRateLimitsFromHeader(l *logrusext.Sampler, header http.Header, isAzure b
 				Warn("rate limit headers are missing or invalid, going to keep using the old values")
 		})
 	}
+
 	return &modulecomponents.RateLimits{
 		LimitRequests:           limitRequests,
 		LimitTokens:             limitTokens,
