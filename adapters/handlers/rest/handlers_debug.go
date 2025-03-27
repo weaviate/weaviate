@@ -416,9 +416,9 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		colName, shardName := parts[0], parts[2]
-		vecIdxID := "main"
+		var targetVector string
 		if len(parts) == 4 {
-			vecIdxID = parts[3]
+			targetVector = parts[3]
 		}
 
 		idx := appState.DB.GetIndex(schema.ClassName(colName))
@@ -441,15 +441,8 @@ func setupDebugHandlers(appState *state.State) {
 		}
 		defer release()
 
-		// Get the vector index
-		var vidx db.VectorIndex
-		if vecIdxID == "main" {
-			vidx = shard.VectorIndex()
-		} else {
-			vidx = shard.VectorIndexes()[vecIdxID]
-		}
-
-		if vidx == nil {
+		vidx, ok := shard.GetVectorIndex(targetVector)
+		if !ok {
 			logger.WithField("shard", shardName).Error("vector index not found")
 			http.Error(w, "vector index not found", http.StatusNotFound)
 			return

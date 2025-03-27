@@ -5,9 +5,14 @@
     "application/json"
   ],
   "definitions": {
-    "UserType": {
+    "UserTypeInput": {
       "type": "string",
       "enum": ["db", "oidc"],
+      "description": "the type of user"
+    },
+    "UserTypeOutput": {
+      "type": "string",
+      "enum": ["db_static", "db_dynamic", "oidc"],
       "description": "the type of user"
     },
     "UserOwnInfo": {
@@ -35,7 +40,7 @@
       },
       "required": ["username"]
     },
-    "UserInfo": {
+    "DBUserInfo": {
       "type": "object",
       "properties": {
         "roles": {
@@ -52,8 +57,8 @@
         "dbUserType":{
           "type": "string",
           "enum": [
-            "dynamic",
-            "static"
+            "db_dynamic",
+            "db_static"
           ],
           "description": "type of the returned user"
         },
@@ -289,7 +294,7 @@
           }
         },
         "userType": {
-          "$ref": "#/definitions/UserType"
+          "$ref": "#/definitions/UserTypeInput"
         }
       }
     },
@@ -2903,7 +2908,7 @@
     },
     "/users/db": {
       "get": {
-        "summary": "list all users",
+        "summary": "list all db users",
         "operationId": "listAllUsers",
         "x-serviceIds": [
           "weaviate.users.db.list_all"
@@ -2917,7 +2922,7 @@
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/UserInfo"
+                "$ref": "#/definitions/DBUserInfo"
               }
             }
           },
@@ -2962,7 +2967,7 @@
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/DBUserInfo"
             }
           },
           "401": {
@@ -3759,10 +3764,9 @@
         }
       }
     },
-    "/authz/roles/{id}/users/{userType}": {
+    "/authz/roles/{id}/user-assignments": {
       "get": {
-        "deprecated": true,
-        "summary": "get users or a keys assigned to role",
+        "summary": "get users assigned to role",
         "operationId": "getUsersForRole",
         "x-serviceIds": [
           "weaviate.authz.get.roles.users"
@@ -3777,14 +3781,6 @@
             "name": "id",
             "required": true,
             "type": "string"
-          },
-          {
-            "in": "path",
-            "name": "userType",
-            "required": true,
-            "type": "string",
-            "enum": ["oidc", "db"],
-            "description": "The type of user"
           }
         ],
         "responses": {
@@ -3793,7 +3789,16 @@
             "schema": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "object",
+                "properties": {
+                  "userId": {
+                    "type": "string"
+                  },
+                  "userType": {
+                    "$ref": "#/definitions/UserTypeOutput"
+                  }
+                },
+                "required": ["name", "userType"]
               }
             }
           },
@@ -3992,7 +3997,7 @@
                   }
                 },
                 "userType": {
-                   "$ref": "#/definitions/UserType"
+                   "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -4065,7 +4070,7 @@
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserType"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }

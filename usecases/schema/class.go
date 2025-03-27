@@ -275,7 +275,6 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	initial := h.schemaReader.ReadOnlyClass(className)
 	var shardingState *sharding.State
 
-	// first layer of defense is basic validation if class already exists
 	if initial != nil {
 		_, err := validateUpdatingMT(initial, updated)
 		if err != nil {
@@ -866,8 +865,9 @@ func validateImmutableFields(initial, updated *models.Class) error {
 
 	for k, v := range updated.VectorConfig {
 		if _, ok := initial.VectorConfig[k]; !ok {
-			return fmt.Errorf("vector config is immutable")
+			continue
 		}
+
 		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
 		}
@@ -895,7 +895,7 @@ func validateImmutableTextFields(previous, next *models.Class,
 	return nil
 }
 
-func validateVectorIndexConfigImmutableFields(initial, updated *models.Class) error {
+func validateLegacyVectorIndexConfigImmutableFields(initial, updated *models.Class) error {
 	return validateImmutableTextFields(initial, updated, []immutableText{
 		{
 			name:     "vectorizer",
@@ -911,12 +911,15 @@ func validateVectorIndexConfigImmutableFields(initial, updated *models.Class) er
 // maybeAllowSchemasWithMixedVectors is a method to disable experimental functionality to create
 // collections that have both legacy and named vectors until development is not finished.
 func (h *Handler) maybeAllowSchemasWithMixedVectors(cls *models.Class) error {
-	featureDisabled := !entcfg.Enabled(os.Getenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS"))
 	isMixedSchema := len(cls.VectorConfig) > 0 && (cls.Vectorizer != "" || cls.VectorIndexConfig != nil || cls.VectorIndexType != "")
 
-	if isMixedSchema && featureDisabled {
+	if isMixedSchema && !h.experimentBackwardsCompatibleNamedVectorsEnabled {
 		return errors.Errorf("class %s has configuration for both class level and named vectors which is currently not supported.", cls.Class)
 	}
 
 	return nil
+}
+
+func experimentBackwardsCompatibleNamedVectorsEnabled() bool {
+	return entcfg.Enabled(os.Getenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS"))
 }

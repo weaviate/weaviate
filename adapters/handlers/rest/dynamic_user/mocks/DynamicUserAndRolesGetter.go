@@ -128,7 +128,7 @@ func (_m *DynamicUserAndRolesGetter) DeleteUser(userId string) error {
 }
 
 // GetRolesForUser provides a mock function with given fields: user, userTypes
-func (_m *DynamicUserAndRolesGetter) GetRolesForUser(user string, userTypes models.UserType) (map[string][]authorization.Policy, error) {
+func (_m *DynamicUserAndRolesGetter) GetRolesForUser(user string, userTypes models.UserTypeInput) (map[string][]authorization.Policy, error) {
 	ret := _m.Called(user, userTypes)
 
 	if len(ret) == 0 {
@@ -137,10 +137,10 @@ func (_m *DynamicUserAndRolesGetter) GetRolesForUser(user string, userTypes mode
 
 	var r0 map[string][]authorization.Policy
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, models.UserType) (map[string][]authorization.Policy, error)); ok {
+	if rf, ok := ret.Get(0).(func(string, models.UserTypeInput) (map[string][]authorization.Policy, error)); ok {
 		return rf(user, userTypes)
 	}
-	if rf, ok := ret.Get(0).(func(string, models.UserType) map[string][]authorization.Policy); ok {
+	if rf, ok := ret.Get(0).(func(string, models.UserTypeInput) map[string][]authorization.Policy); ok {
 		r0 = rf(user, userTypes)
 	} else {
 		if ret.Get(0) != nil {
@@ -148,7 +148,7 @@ func (_m *DynamicUserAndRolesGetter) GetRolesForUser(user string, userTypes mode
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, models.UserType) error); ok {
+	if rf, ok := ret.Get(1).(func(string, models.UserTypeInput) error); ok {
 		r1 = rf(user, userTypes)
 	} else {
 		r1 = ret.Error(1)
