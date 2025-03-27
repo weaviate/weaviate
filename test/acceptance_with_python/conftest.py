@@ -137,7 +137,10 @@ def named_collection(
         if props is None:
             props = ["title1", "title2", "title3"]
 
-        properties = [Property(name=prop, data_type=wvc.config.DataType.TEXT) for prop in props]
+        properties = [
+            Property(name=prop, data_type=wvc.config.DataType.TEXT, vectorize_property_name=False)
+            for prop in props
+        ]
         named_vectors = [
             wvc.config.Configure.NamedVectors.text2vec_contextionary(
                 name=prop.name,
