@@ -55,7 +55,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 
 func (h *replicationHandler) getReplicateStatus(params replication.ReplicateStatusParams, principal *models.Principal) middleware.Responder {
 	if err := h.authorizer.Authorize(principal, authorization.READ, "/replication/replicate/{id}", "/replication/replicate/{id}/status"); err != nil {
-		return replication.NewReplicateStatusUnauthorized()
+		return replication.NewReplicateStatusForbidden()
 	}
 	return replication.NewReplicateStatusNotImplemented().WithPayload(cerrors.ErrPayloadFromSingleErr(
 		fmt.Errorf("retrieving replication status for id %s not yet implemented", params.ID)))

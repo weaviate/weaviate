@@ -57,6 +57,12 @@ func (o *ReplicateStatusReader) ReadResponse(response runtime.ClientResponse, co
 			return nil, err
 		}
 		return nil, result
+	case 403:
+		result := NewReplicateStatusForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 404:
 		result := NewReplicateStatusNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -268,6 +274,74 @@ func (o *ReplicateStatusUnauthorized) String() string {
 }
 
 func (o *ReplicateStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewReplicateStatusForbidden creates a ReplicateStatusForbidden with default headers values
+func NewReplicateStatusForbidden() *ReplicateStatusForbidden {
+	return &ReplicateStatusForbidden{}
+}
+
+/*
+ReplicateStatusForbidden describes a response with status code 403, with default header values.
+
+Forbidden
+*/
+type ReplicateStatusForbidden struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this replicate status forbidden response has a 2xx status code
+func (o *ReplicateStatusForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this replicate status forbidden response has a 3xx status code
+func (o *ReplicateStatusForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this replicate status forbidden response has a 4xx status code
+func (o *ReplicateStatusForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this replicate status forbidden response has a 5xx status code
+func (o *ReplicateStatusForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this replicate status forbidden response a status code equal to that given
+func (o *ReplicateStatusForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the replicate status forbidden response
+func (o *ReplicateStatusForbidden) Code() int {
+	return 403
+}
+
+func (o *ReplicateStatusForbidden) Error() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] replicateStatusForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ReplicateStatusForbidden) String() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}/status][%d] replicateStatusForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ReplicateStatusForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ReplicateStatusForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

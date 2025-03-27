@@ -139,6 +139,51 @@ func (o *ReplicateStatusUnauthorized) WriteResponse(rw http.ResponseWriter, prod
 	rw.WriteHeader(401)
 }
 
+// ReplicateStatusForbiddenCode is the HTTP code returned for type ReplicateStatusForbidden
+const ReplicateStatusForbiddenCode int = 403
+
+/*
+ReplicateStatusForbidden Forbidden
+
+swagger:response replicateStatusForbidden
+*/
+type ReplicateStatusForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewReplicateStatusForbidden creates ReplicateStatusForbidden with default headers values
+func NewReplicateStatusForbidden() *ReplicateStatusForbidden {
+
+	return &ReplicateStatusForbidden{}
+}
+
+// WithPayload adds the payload to the replicate status forbidden response
+func (o *ReplicateStatusForbidden) WithPayload(payload *models.ErrorResponse) *ReplicateStatusForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the replicate status forbidden response
+func (o *ReplicateStatusForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ReplicateStatusForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ReplicateStatusNotFoundCode is the HTTP code returned for type ReplicateStatusNotFound
 const ReplicateStatusNotFoundCode int = 404
 
