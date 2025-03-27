@@ -625,6 +625,10 @@
         "indexPropertyLength": {
           "description": "Index length of properties (default: 'false').",
           "type": "boolean"
+        },
+        "useInvertedSearchable": {
+          "description": "Use inverted format for searchable properties (default: 'true' for new collections).",
+          "type": "boolean"
         }
       },
       "type": "object"
