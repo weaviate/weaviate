@@ -1121,6 +1121,13 @@ func TestRolesUserExistence(t *testing.T) {
 		require.Nil(t, resp2)
 		require.Error(t, err)
 	})
+
+	t.Run("No assignment of root user to oidc when disabled", func(t *testing.T) {
+		users := helper.GetUserForRolesBoth(t, "root", adminKey)
+		for _, user := range users {
+			require.NotEqual(t, *user.UserType, models.UserTypeOutputOidc)
+		}
+	})
 }
 
 func TestGetRolesForUserPermission(t *testing.T) {
