@@ -31,11 +31,10 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedIndexConfig {
+func BM25FinvertedConfig(k1, b float32, stopWordPreset string, useInvertedSearchable bool) *models.InvertedIndexConfig {
 	return &models.InvertedIndexConfig{
 		Bm25: &models.BM25Config{
 			K1: k1,
@@ -47,7 +46,7 @@ func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedI
 		},
 		IndexNullState:        true,
 		IndexPropertyLength:   true,
-		UseInvertedSearchable: config.DefaultUseInvertedSearchable,
+		UseInvertedSearchable: useInvertedSearchable,
 	}
 }
 
@@ -58,7 +57,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none", false),
 		Class:               "MyClass",
 
 		Properties: []*models.Property{
@@ -174,7 +173,7 @@ func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *
 
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none", false),
 		Class:               "FilterClass",
 
 		Properties: []*models.Property{
@@ -790,7 +789,7 @@ func Test_propertyHasSearchableIndex(t *testing.T) {
 
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(1, 1, "none"),
+		InvertedIndexConfig: BM25FinvertedConfig(1, 1, "none", false),
 		Class:               "MyClass",
 
 		Properties: []*models.Property{
@@ -845,7 +844,7 @@ func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaG
 	className := "DocumentsPreset_" + preset
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b, preset),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, preset, false),
 		Class:               className,
 
 		Properties: []*models.Property{
@@ -982,7 +981,7 @@ func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter
 	className := "MultiProps"
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none", false),
 		Class:               className,
 
 		Properties: []*models.Property{

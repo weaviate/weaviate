@@ -64,7 +64,7 @@ var defaultConfig = config.Config{
 func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) []string {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none", true),
 		Class:               "StandardTest",
 		Properties: []*models.Property{
 			{
@@ -209,7 +209,7 @@ func addObj(repo *DB, i int, props map[string]interface{}, vec []float32) error 
 func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) *models.Class {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none", true),
 		Class:               "MyClass",
 		Vectorizer:          "test-vectoriser",
 		Properties: []*models.Property{
