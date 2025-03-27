@@ -33,7 +33,7 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 	}
 
 	h.RLock()
-	nodeSize := uint64(h.nodes.Len())
+	nodeSize := uint64(len(h.nodes))
 	h.RUnlock()
 
 	var compressorDistancer compressionhelpers.CompressorDistancer
@@ -73,7 +73,9 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 					continue
 				}
 
-				c := h.nodes.Get(candidate)
+				h.shardedNodeLocks.RLock(candidate)
+				c := h.nodes[candidate]
+				h.shardedNodeLocks.RUnlock(candidate)
 
 				if c == nil || h.hasTombstone(candidate) {
 					continue

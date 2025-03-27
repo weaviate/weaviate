@@ -21,7 +21,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
@@ -71,38 +70,34 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		}
 	}
 
-	err = res.Nodes.IterE(func(id uint64, node *graph.Vertex) error {
-		if node.Level() > 0 {
+	for _, node := range res.Nodes {
+		if node == nil {
+			// nil nodes occur when we've grown, but not inserted anything yet
+			continue
+		}
+
+		if node.level > 0 {
 			// nodes are implicitly added when they are first linked, if the level is
 			// not zero we know this node was new. If the level is zero it doesn't
 			// matter if it gets added explicitly or implicitly
 			if err := c.AddNode(node); err != nil {
-				return errors.Wrapf(err, "write node %d to commit log", node.ID())
+				return errors.Wrapf(err, "write node %d to commit log", node.id)
 			}
 		}
 
-		maxLevel := node.MaxLevel()
-		var links []uint64
-		for level := 0; level < maxLevel; level++ {
-			links = node.CopyLevel(links, level)
-
-			if res.ReplaceLinks(node.ID(), uint16(level)) {
-				if err := c.SetLinksAtLevel(node.ID(), level, links); err != nil {
+		for level, links := range node.connections {
+			if res.ReplaceLinks(node.id, uint16(level)) {
+				if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
 					return errors.Wrapf(err,
-						"write links for node %d at level %d to commit log", node.ID(), level)
+						"write links for node %d at level %d to commit log", node.id, level)
 				}
 			} else {
-				if err := c.AddLinksAtLevel(node.ID(), uint16(level), links); err != nil {
+				if err := c.AddLinksAtLevel(node.id, uint16(level), links); err != nil {
 					return errors.Wrapf(err,
-						"write links for node %d at level %d to commit log", node.ID(), level)
+						"write links for node %d at level %d to commit log", node.id, level)
 				}
 			}
 		}
-
-		return nil
-	})
-	if err != nil {
-		return err
 	}
 
 	if res.EntrypointChanged {
@@ -203,11 +198,11 @@ func (c *MemoryCondensor) writeUint64Slice(w *bufWriter, in []uint64) error {
 }
 
 // AddNode adds an empty node
-func (c *MemoryCondensor) AddNode(node *graph.Vertex) error {
+func (c *MemoryCondensor) AddNode(node *vertex) error {
 	ec := errorcompounder.New()
 	ec.Add(c.writeCommitType(c.newLog, AddNode))
-	ec.Add(c.writeUint64(c.newLog, node.ID()))
-	ec.Add(c.writeUint16(c.newLog, uint16(node.Level())))
+	ec.Add(c.writeUint64(c.newLog, node.id))
+	ec.Add(c.writeUint16(c.newLog, uint16(node.level)))
 
 	return ec.ToError()
 }
