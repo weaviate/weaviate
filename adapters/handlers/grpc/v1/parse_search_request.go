@@ -57,11 +57,11 @@ type generativeParser interface {
 
 type Parser struct {
 	generative         generativeParser
-	authorizedGetClass func(string) (*models.Class, error)
+	authorizedGetClass classGetterWithAuthzFunc
 }
 
 func NewParser(uses127Api bool,
-	authorizedGetClass func(string) (*models.Class, error),
+	authorizedGetClass classGetterWithAuthzFunc,
 ) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
@@ -348,7 +348,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -670,7 +670,7 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass func(string) (*models.Class, error), className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass classGetterWithAuthzFunc, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
@@ -852,7 +852,7 @@ func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
 		!metadata.IsConsistent)
 }
 
-func getAllNonRefNonBlobProperties(authorizedGetClass func(string) (*models.Class, error), className string) ([]search.SelectProperty, error) {
+func getAllNonRefNonBlobProperties(authorizedGetClass classGetterWithAuthzFunc, className string) ([]search.SelectProperty, error) {
 	var props []search.SelectProperty
 	class, err := authorizedGetClass(className)
 	if err != nil {

@@ -26,6 +26,7 @@ import (
 	nvidiaParams "github.com/weaviate/weaviate/modules/generative-nvidia/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
+	xaiParams "github.com/weaviate/weaviate/modules/generative-xai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 )
 
@@ -150,6 +151,9 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 	case *pb.GenerativeProvider_Friendliai:
 		generative.Options = p.friendliai(query.GetFriendliai())
 		p.providerName = friendliaiParams.Name
+	case *pb.GenerativeProvider_Xai:
+		generative.Options = p.xai(query.GetXai())
+		p.providerName = xaiParams.Name
 	default:
 		// do nothing
 	}
@@ -379,6 +383,23 @@ func (p *Parser) nvidia(in *pb.GenerativeNvidia) map[string]any {
 			Temperature: in.Temperature,
 			TopP:        in.TopP,
 			MaxTokens:   p.int64ToInt(in.MaxTokens),
+		},
+	}
+}
+
+func (p *Parser) xai(in *pb.GenerativeXAI) map[string]any {
+	if in == nil {
+		return nil
+	}
+	return map[string]any{
+		xaiParams.Name: xaiParams.Params{
+			BaseURL:         in.GetBaseUrl(),
+			Model:           in.GetModel(),
+			Temperature:     in.Temperature,
+			TopP:            in.TopP,
+			MaxTokens:       p.int64ToInt(in.MaxTokens),
+			Images:          p.getStringPtrs(in.Images),
+			ImageProperties: p.getStrings(in.ImageProperties),
 		},
 	}
 }

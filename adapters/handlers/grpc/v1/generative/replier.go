@@ -37,6 +37,8 @@ import (
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiClients "github.com/weaviate/weaviate/modules/generative-openai/clients"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
+	xaiClients "github.com/weaviate/weaviate/modules/generative-xai/clients"
+	xaiParams "github.com/weaviate/weaviate/modules/generative-xai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
@@ -298,6 +300,20 @@ func (r *Replier) extractGenerativeMetadata(results map[string]any) (*pb.Generat
 			}
 		}
 		metadata.Kind = &pb.GenerativeMetadata_Nvidia{Nvidia: nvidia}
+	case xaiParams.Name:
+		params := xaiClients.GetResponseParams(results)
+		if params == nil {
+			return nil, fmt.Errorf("could not get request metadata for provider: %s", providerName)
+		}
+		xai := &pb.GenerativeXAIMetadata{}
+		if params.Usage != nil {
+			xai.Usage = &pb.GenerativeXAIMetadata_Usage{
+				PromptTokens:     convertIntPtrToInt64Ptr(params.Usage.PromptTokens),
+				CompletionTokens: convertIntPtrToInt64Ptr(params.Usage.CompletionTokens),
+				TotalTokens:      convertIntPtrToInt64Ptr(params.Usage.TotalTokens),
+			}
+		}
+		metadata.Kind = &pb.GenerativeMetadata_Xai{Xai: xai}
 	default:
 		return nil, fmt.Errorf("provider: %s, not supported", providerName)
 	}

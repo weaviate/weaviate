@@ -17,10 +17,9 @@ import (
 
 	"acceptance_tests_with_client/named_vectors_tests/test_suits"
 
+	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
-
-	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -61,12 +60,15 @@ func TestNamedVectors_SingleNode_Restart(t *testing.T) {
 }
 
 func TestNamedVectors_VerifyMixedSchemaIsRejectedWithoutEnvFlag(t *testing.T) {
+	ctx := context.Background()
 	compose, err := test_suits.ComposeModules().
 		WithWeaviate().
 		Start(context.Background())
 	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
 
-	ctx := context.Background()
 	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
 	require.Nil(t, err)
 
@@ -84,6 +86,38 @@ func TestNamedVectors_VerifyMixedSchemaIsRejectedWithoutEnvFlag(t *testing.T) {
 		}).
 		Do(ctx)
 	require.ErrorContains(t, err, "class MixedVectors has configuration for both class level and named vectors which is currently not supported.")
+}
+
+func TestNamedVectors_VectorCanNotBeAddedWithoutEnvFlag(t *testing.T) {
+	ctx := context.Background()
+	compose, err := test_suits.ComposeModules().
+		WithWeaviate().
+		Start(context.Background())
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
+	require.Nil(t, err)
+
+	class := &models.Class{
+		Class: "MixedVectors",
+		VectorConfig: map[string]models.VectorConfig{
+			"contextionary": {
+				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+				VectorIndexType: "hnsw",
+			},
+		},
+	}
+	require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	class.VectorConfig["transformers"] = models.VectorConfig{
+		Vectorizer:      map[string]interface{}{"text2vec-transformers": map[string]interface{}{}},
+		VectorIndexType: "hnsw",
+	}
+
+	err = client.Schema().ClassUpdater().WithClass(class).Do(ctx)
+	require.ErrorContains(t, err, `additional config for vector \"transformers\"`)
 }
 
 func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
