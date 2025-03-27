@@ -108,6 +108,12 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBefore(ctx context.Context) (
 	return nil
 }
 
+func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByIndex(ctx context.Context, index *Index) (err error) {
+	conf := index.invertedIndexConfig
+	conf.UseInvertedSearchable = true
+	return index.updateInvertedIndexConfig(ctx, conf)
+}
+
 func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Context, shard ShardLike) (err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	logger := t.logger.WithFields(map[string]any{

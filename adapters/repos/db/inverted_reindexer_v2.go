@@ -27,6 +27,7 @@ import (
 type ShardInvertedReindexTaskV2 interface {
 	HasOnBefore() bool
 	OnBefore(ctx context.Context) error
+	OnBeforeByIndex(ctx context.Context, index *Index) error
 	OnBeforeByShard(ctx context.Context, shard ShardLike) error
 	ReindexByShard(ctx context.Context, shard ShardLike) (rerunAt time.Time, err error)
 }
@@ -124,6 +125,19 @@ func (r *ReindexerV2) OnBefore(ctx context.Context) error {
 			}
 
 			collection := index.Config.ClassName.String()
+			if err := task.OnBeforeByIndex(ctx, index); err != nil {
+				errs.Add(fmt.Errorf("OnBeforeByIndex task %q, collection %q: %w",
+					taskName, collection, err))
+				r.skipTasks[taskName] = struct{}{}
+				continue
+			}
+			if err := ctx.Err(); err != nil {
+				errs.Add(fmt.Errorf("OnBeforeByIndex task %q, collection %q: context check (1): %w",
+					taskName, collection, err))
+				r.skipTasks[taskName] = struct{}{}
+				continue
+			}
+
 			if err := index.ForEachShardConcurrently(func(_ string, shard ShardLike) error {
 				if err := task.OnBeforeByShard(ctx, shard); err != nil {
 					errs.Add(fmt.Errorf("OnBeforeByShard task %q, collection %q, shard %q: %w",
