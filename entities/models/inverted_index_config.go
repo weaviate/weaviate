@@ -28,7 +28,6 @@ import (
 //
 // swagger:model InvertedIndexConfig
 type InvertedIndexConfig struct {
-
 	// bm25
 	Bm25 *BM25Config `json:"bm25,omitempty"`
 
@@ -46,6 +45,9 @@ type InvertedIndexConfig struct {
 
 	// stopwords
 	Stopwords *StopwordConfig `json:"stopwords,omitempty"`
+
+	// Use inverted format for searchable properties (default: 'true' for new collections).
+	UseInvertedSearchable bool `json:"useInvertedSearchable,omitempty"`
 }
 
 // Validate validates this inverted index config
@@ -123,7 +125,6 @@ func (m *InvertedIndexConfig) ContextValidate(ctx context.Context, formats strfm
 }
 
 func (m *InvertedIndexConfig) contextValidateBm25(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Bm25 != nil {
 		if err := m.Bm25.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -139,7 +140,6 @@ func (m *InvertedIndexConfig) contextValidateBm25(ctx context.Context, formats s
 }
 
 func (m *InvertedIndexConfig) contextValidateStopwords(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Stopwords != nil {
 		if err := m.Stopwords.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
