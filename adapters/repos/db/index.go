@@ -391,7 +391,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				// break loop by returning error
 				i.logger.
 					WithField("action", "load_all_shards").
-					Errorf("failed to load all shards: %v", i.closingCtx.Err())
+					Errorf("failed to load all shards due to ctx close: %v", i.closingCtx.Err())
 				return
 			case <-ticker.C:
 				select {
@@ -399,7 +399,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 					// break loop by returning error
 					i.logger.
 						WithField("action", "load_all_shards").
-						Errorf("failed to load all shards: %v", i.closingCtx.Err())
+						Errorf("failed to load all shards due to ticker ctx close: %v", i.closingCtx.Err())
 					return
 				default:
 					err := i.loadLocalShardIfActive(shardName)
