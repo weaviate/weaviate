@@ -104,23 +104,11 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	if err = h.maybeAllowSchemasWithMixedVectors(cls); err != nil {
-		return nil, 0, err
-	}
-
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
 		}
 		return h.schemaReader.ReadOnlyClass(name), nil
-	}
-
-	if cls.ShardingConfig != nil && schema.MultiTenancyEnabled(cls) {
-		return nil, 0, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
-	} else if cls.MultiTenancyConfig == nil {
-		cls.MultiTenancyConfig = &models.MultiTenancyConfig{}
-	} else if cls.MultiTenancyConfig.Enabled {
-		cls.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
 	if err := h.setNewClassDefaults(cls, h.config.Replication); err != nil {
@@ -203,7 +191,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
-	err = h.validateCanAddClass(ctx, class, classGetterWrapper, true)
+	err = h.validateClassInvariants(ctx, class, classGetterWrapper, true)
 	if err != nil {
 		return err
 	}
@@ -307,6 +295,14 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
+	if class.ShardingConfig != nil && schema.MultiTenancyEnabled(class) {
+		return fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
+	} else if class.MultiTenancyConfig == nil {
+		class.MultiTenancyConfig = &models.MultiTenancyConfig{}
+	} else if class.MultiTenancyConfig.Enabled {
+		class.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
+	}
+
 	if err := m.setClassDefaults(class, globalCfg); err != nil {
 		return err
 	}
@@ -632,7 +628,17 @@ func setInvertedConfigDefaults(class *models.Class) {
 	}
 }
 
-func (h *Handler) validateCanAddClass(
+func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
+	relaxCrossRefValidation bool,
+) error {
+	if schemachecks.HasLegacyVectorIndex(class) && len(class.VectorConfig) > 0 {
+		return fmt.Errorf("creating a class with both a class level vector index and named vectors is forbidden")
+	}
+
+	return h.validateClassInvariants(ctx, class, classGetterWithAuth, relaxCrossRefValidation)
+}
+
+func (h *Handler) validateClassInvariants(
 	ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
@@ -762,8 +768,7 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 }
 
 func (h *Handler) validateVectorSettings(class *models.Class) error {
-	// legacy vector index is optional, therefore, validate it only if present
-	if class.VectorIndexType != "" {
+	if schemachecks.HasLegacyVectorIndex(class) {
 		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
 		}
@@ -906,18 +911,6 @@ func validateLegacyVectorIndexConfigImmutableFields(initial, updated *models.Cla
 			accessor: func(c *models.Class) string { return c.VectorIndexType },
 		},
 	}...)
-}
-
-// maybeAllowSchemasWithMixedVectors is a method to disable experimental functionality to create
-// collections that have both legacy and named vectors until development is not finished.
-func (h *Handler) maybeAllowSchemasWithMixedVectors(cls *models.Class) error {
-	isMixedSchema := len(cls.VectorConfig) > 0 && (cls.Vectorizer != "" || cls.VectorIndexConfig != nil || cls.VectorIndexType != "")
-
-	if isMixedSchema && !h.experimentBackwardsCompatibleNamedVectorsEnabled {
-		return errors.Errorf("class %s has configuration for both class level and named vectors which is currently not supported.", cls.Class)
-	}
-
-	return nil
 }
 
 func experimentBackwardsCompatibleNamedVectorsEnabled() bool {
