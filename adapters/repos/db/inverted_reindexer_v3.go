@@ -31,6 +31,7 @@ type ShardReindexerV3 interface {
 	RunBeforeLsmInit(ctx context.Context, shard *Shard) error
 	RunAfterLsmInit(ctx context.Context, shard *Shard) error
 	RunAfterLsmInitAsync(ctx context.Context, shard *Shard) error
+	Stop(shard *Shard, cause error)
 }
 
 type ShardReindexTaskV3 interface {
@@ -61,6 +62,8 @@ func (r *shardReindexerV3Noop) RunAfterLsmInitAsync(ctx context.Context, shard *
 	return nil
 }
 
+func (r *shardReindexerV3Noop) Stop(shard *Shard, cause error) {}
+
 // -----------------------------------------------------------------------------
 
 func NewShardReindexerV3(ctx context.Context, logger logrus.FieldLogger,
@@ -73,9 +76,10 @@ func NewShardReindexerV3(ctx context.Context, logger logrus.FieldLogger,
 		queue:    newShardsQueue(),
 		lock:     new(sync.Mutex),
 
-		taskNames:     map[string]struct{}{},
-		tasks:         []ShardReindexTaskV3{},
-		tasksPerShard: map[string][]ShardReindexTaskV3{},
+		taskNames:         map[string]struct{}{},
+		tasks:             []ShardReindexTaskV3{},
+		tasksPerShard:     map[string][]ShardReindexTaskV3{},
+		ctxCancelPerShard: map[string]context.CancelCauseFunc{},
 
 		config: shardsReindexerV3Config{
 			concurrency:          concurrency.NUMCPU_2,
@@ -91,9 +95,10 @@ type shardReindexerV3 struct {
 	queue    *shardsQueue
 	lock     *sync.Mutex
 
-	taskNames     map[string]struct{}
-	tasks         []ShardReindexTaskV3
-	tasksPerShard map[string][]ShardReindexTaskV3
+	taskNames         map[string]struct{}
+	tasks             []ShardReindexTaskV3
+	tasksPerShard     map[string][]ShardReindexTaskV3
+	ctxCancelPerShard map[string]context.CancelCauseFunc
 
 	config shardsReindexerV3Config
 }
@@ -127,16 +132,13 @@ func (r *shardReindexerV3) Init() {
 			}
 
 			eg.Go(func() error {
-				if err := r.runScheduledTask(r.ctx, key); err != nil {
-					r.logger.WithError(err).Errorf("failed running scheduled task")
-				}
-				return nil
+				return r.runScheduledTask(r.ctx, key)
 			})
 		}
 	}, r.logger)
 }
 
-func (r *shardReindexerV3) RunBeforeLsmInit(ctx context.Context, shard *Shard) (err error) {
+func (r *shardReindexerV3) RunBeforeLsmInit(_ context.Context, shard *Shard) (err error) {
 	// TODO aliszka:blockmax merge contexts (reindex + incoming)?
 	mergedCtx := r.ctx
 
@@ -168,7 +170,7 @@ func (r *shardReindexerV3) RunBeforeLsmInit(ctx context.Context, shard *Shard) (
 	return
 }
 
-func (r *shardReindexerV3) RunAfterLsmInit(ctx context.Context, shard *Shard) (err error) {
+func (r *shardReindexerV3) RunAfterLsmInit(_ context.Context, shard *Shard) (err error) {
 	// TODO aliszka:blockmax merge contexts (reindex + incoming)?
 	mergedCtx := r.ctx
 
@@ -200,7 +202,7 @@ func (r *shardReindexerV3) RunAfterLsmInit(ctx context.Context, shard *Shard) (e
 	return
 }
 
-func (r *shardReindexerV3) RunAfterLsmInitAsync(ctx context.Context, shard *Shard) (err error) {
+func (r *shardReindexerV3) RunAfterLsmInitAsync(_ context.Context, shard *Shard) (err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	logger := r.logger.WithFields(map[string]any{
 		"collection": collectionName,
@@ -221,10 +223,19 @@ func (r *shardReindexerV3) RunAfterLsmInitAsync(ctx context.Context, shard *Shar
 		return nil
 	}
 
-	key := toIndexShardKey(shard.Index().Config.ClassName.String(), shard.Name())
+	key := toIndexShardKeyOfShard(shard)
 	r.scheduleTasks(key, r.tasks, time.Now())
 
 	return nil
+}
+
+func (r *shardReindexerV3) Stop(shard *Shard, cause error) {
+	key := toIndexShardKeyOfShard(shard)
+	r.locked(func() {
+		if cancel, ok := r.ctxCancelPerShard[key]; ok {
+			cancel(cause)
+		}
+	})
 }
 
 func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string) (err error) {
@@ -250,29 +261,39 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string) (er
 
 	index := r.getIndex(schema.ClassName(collectionName))
 	if index == nil {
-		err = fmt.Errorf("index for shard %q of collection %q not found", shardName, collectionName)
+		err = fmt.Errorf("index for shard '%s' of collection '%s' not found", shardName, collectionName)
 		return
 	}
 	shard, release, err := index.GetShard(ctx, shardName)
 	if err != nil {
 		r.queue.insert(key, time.Now().Add(r.config.retryOnErrorInterval))
-		err = fmt.Errorf("get shard %q of collection %q: %w", shardName, collectionName, err)
+		err = fmt.Errorf("get shard '%s' of collection '%s': %w", shardName, collectionName, err)
 		return
 	}
 	defer release()
 
 	if shard == nil {
 		r.scheduleTasks(key, nil, time.Time{})
-		err = fmt.Errorf("shard %q of collection %q not found", shardName, collectionName)
+		err = fmt.Errorf("shard '%s' of collection '%s' not found", shardName, collectionName)
 		return
 	}
 
+	shardCtx, shardCancel := context.WithCancelCause(ctx)
+	defer shardCancel(fmt.Errorf("deferred, context cleanup"))
+	r.locked(func() { r.ctxCancelPerShard[key] = shardCancel })
 	// at this point lazy shard should be loaded (there is no unloading), otherwise [RunAfterLsmInitAsync]
 	// would not be called and tasks scheduled for shard
-	rerunAt, err := tasks[0].OnAfterLsmInitAsync(ctx, shard)
+	rerunAt, err := tasks[0].OnAfterLsmInitAsync(shardCtx, shard)
+	r.locked(func() { delete(r.ctxCancelPerShard, key) })
+
 	if err != nil {
-		r.scheduleTasks(key, tasks[1:], time.Now())
-		err = fmt.Errorf("executing task %q on shard %q of collection %q: %w", tasks[0].Name(), shardName, collectionName, err)
+		// if error is due to context cancelled, schedule no tasks for shard
+		if shardCtx.Err() != nil {
+			r.scheduleTasks(key, nil, time.Time{})
+		} else {
+			r.scheduleTasks(key, tasks[1:], time.Now())
+		}
+		err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w", tasks[0].Name(), shardName, collectionName, err)
 		return
 	}
 	if rerunAt.IsZero() {
@@ -295,10 +316,10 @@ func (r *shardReindexerV3) scheduleTasks(key string, tasks []ShardReindexTaskV3,
 	r.queue.insert(key, runAt)
 }
 
-func (r *shardReindexerV3) locked(cb func()) {
+func (r *shardReindexerV3) locked(callback func()) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
-	cb()
+	callback()
 }
 
 // -----------------------------------------------------------------------------
@@ -344,7 +365,7 @@ func (q *shardsQueue) getWhenReady(ctx context.Context) (key string, err error) 
 		select {
 		case <-ctx.Done():
 			timerCtxCancel()
-			return "", fmt.Errorf("context check (shardsQueue): %w", ctx.Err())
+			return "", fmt.Errorf("context check (shardsQueue): %w / %w", ctx.Err(), context.Cause(ctx))
 
 		case <-timerCtx.Done():
 			q.lock.Lock()
@@ -391,6 +412,10 @@ func (q *shardsQueue) infiniteDeadlineCtx() (context.Context, context.CancelFunc
 }
 
 // -----------------------------------------------------------------------------
+
+func toIndexShardKeyOfShard(shard ShardLike) string {
+	return toIndexShardKey(shard.Index().Config.ClassName.String(), shard.Name())
+}
 
 func toIndexShardKey(collectionName, shardName string) string {
 	return collectionName + "//" + shardName

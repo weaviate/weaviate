@@ -70,7 +70,7 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		appState.ReindexCtxCancel()
+		appState.ReindexCtxCancel(fmt.Errorf("abort endpoint"))
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
