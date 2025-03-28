@@ -73,7 +73,7 @@ type State struct {
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
 	ClusterHttpClient  *http.Client
-	ReindexCtxCancel   context.CancelFunc
+	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
 	ClusterService *rCluster.Service
