@@ -302,7 +302,9 @@ func countDimensionsLSM(b *lsmkv.Bucket, key []byte, dimLength int, tombstone bo
 	}
 
 	if tombstone {
-		count = count - 1
+		if count > 0 {
+			count = count - 1
+		}
 	} else {
 		count = count + 1
 	}
