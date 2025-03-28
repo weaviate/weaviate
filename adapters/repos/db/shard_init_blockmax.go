@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -27,7 +28,6 @@ func structToMap(obj interface{}) (newMap map[string]interface{}) {
 
 // There is at least a searchable bucket in the shard
 // that isn't using the block max inverted index
-/* TODO
 func (s *Shard) areAllSearchableBucketsBlockMax() bool {
 	for name, bucket := range s.Store().GetBucketsByName() {
 		_, indexType := GetPropNameAndIndexTypeFromBucketName(name)
@@ -37,7 +37,6 @@ func (s *Shard) areAllSearchableBucketsBlockMax() bool {
 	}
 	return true
 }
-*/
 
 func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager, className string) error {
 	class := sc.SchemaReader.ReadOnlyClass(className)

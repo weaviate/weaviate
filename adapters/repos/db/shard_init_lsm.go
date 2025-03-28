@@ -110,20 +110,15 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	}
 
 	// check if we need to set Inverted Index config to use BlockMax inverted format
-	// TODO actually update the schema
-	/*
-		if !s.index.invertedIndexConfig.UseInvertedSearchable {
-			areAllSearchableBucketsBlockMax := s.areAllSearchableBucketsBlockMax()
-			if !areAllSearchableBucketsBlockMax {
-
-					err := updateToBlockMaxInvertedIndexConfig(ctx, s.index.schema, s.class.Class)
-					if err != nil {
-						return fmt.Errorf("failed to update inverted index config for class %q: %w", class.Name, err)
-					}
-
-			}
+	if !s.index.invertedIndexConfig.UseInvertedSearchable {
+		areAllSearchableBucketsBlockMax := s.areAllSearchableBucketsBlockMax()
+		if areAllSearchableBucketsBlockMax {
+			// TODO(amourao): this is a temporary solution, we need to update the
+			// inverted index config in the schema as well
+			s.index.invertedIndexConfig.UseInvertedSearchable = true
+			// err := updateToBlockMaxInvertedIndexConfig(ctx, s.index.schema, s.class.Class)
 		}
-	*/
+	}
 
 	return nil
 }
