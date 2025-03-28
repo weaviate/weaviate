@@ -2826,8 +2826,8 @@
     },
     "/replication/replicate/{id}/status": {
       "get": {
-        "summary": "Get the status of a shard replica move operation",
-        "description": "Returns the status of a shard replica move operation for a given shard, identified by the provided id.",
+        "summary": "Get the status of a replication operation",
+        "description": "Returns the status a replication operation for a given shard, identified by the provided id.",
         "operationId": "replicateStatus",
         "x-serviceIds": [
           "weaviate.replication.replicate.status"

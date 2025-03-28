@@ -51,9 +51,9 @@ func NewReplicateStatus(ctx *middleware.Context, handler ReplicateStatusHandler)
 /*
 	ReplicateStatus swagger:route GET /replication/replicate/{id}/status replication replicateStatus
 
-# Get the status of a shard replica move operation
+# Get the status of a replication operation
 
-Returns the status of a shard replica move operation for a given shard, identified by the provided id.
+Returns the status a replication operation for a given shard, identified by the provided id.
 */
 type ReplicateStatus struct {
 	Context *middleware.Context
