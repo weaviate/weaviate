@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/meta"
@@ -52,9 +53,24 @@ func SetupGRPCClient(t *testing.T, uri string) {
 
 func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
+
+	// if the schema has mixed vectors, we have to create it in two steps as single step creation is forbidden
+	var capturedVectorConfig map[string]models.VectorConfig
+	if schemachecks.HasLegacyVectorIndex(class) && class.VectorConfig != nil {
+		capturedVectorConfig = class.VectorConfig
+		class.VectorConfig = nil
+	}
+
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+
+	if capturedVectorConfig != nil {
+		class.VectorConfig = capturedVectorConfig
+		updateParams := schema.NewSchemaObjectsUpdateParams().WithClassName(class.Class).WithObjectClass(class)
+		updateResp, err := Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
+		AssertRequestOk(t, updateResp, err, nil)
+	}
 }
 
 func CreateClassAuth(t *testing.T, class *models.Class, key string) {

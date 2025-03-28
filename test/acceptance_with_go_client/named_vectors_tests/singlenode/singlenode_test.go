@@ -59,35 +59,6 @@ func TestNamedVectors_SingleNode_Restart(t *testing.T) {
 	t.Run("restart", test_suits.TestRestart(compose))
 }
 
-func TestNamedVectors_VerifyMixedSchemaIsRejectedWithoutEnvFlag(t *testing.T) {
-	ctx := context.Background()
-	compose, err := test_suits.ComposeModules().
-		WithWeaviate().
-		Start(context.Background())
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
-	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
-	require.Nil(t, err)
-
-	err = client.Schema().ClassCreator().
-		WithClass(&models.Class{
-			Class: "MixedVectors",
-			VectorConfig: map[string]models.VectorConfig{
-				"contextionary": {
-					Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
-					VectorIndexType: "hnsw",
-				},
-			},
-			VectorIndexType: "hnsw",
-			Vectorizer:      "text2vec-contextionary",
-		}).
-		Do(ctx)
-	require.ErrorContains(t, err, "class MixedVectors has configuration for both class level and named vectors which is currently not supported.")
-}
-
 func TestNamedVectors_VectorCanNotBeAddedWithoutEnvFlag(t *testing.T) {
 	ctx := context.Background()
 	compose, err := test_suits.ComposeModules().
