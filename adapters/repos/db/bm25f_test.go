@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -44,8 +45,9 @@ func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedI
 		Stopwords: &models.StopwordConfig{
 			Preset: stopWordPreset,
 		},
-		IndexNullState:      true,
-		IndexPropertyLength: true,
+		IndexNullState:        true,
+		IndexPropertyLength:   true,
+		UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 	}
 }
 
@@ -222,7 +224,7 @@ func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *
 }
 
 func TestBM25FJourney(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "false")
+	config.DefaultUseInvertedSearchable = false
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -472,7 +474,7 @@ func TestBM25FJourney(t *testing.T) {
 }
 
 func TestBM25FSingleProp(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "false")
+	config.DefaultUseInvertedSearchable = false
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -515,7 +517,7 @@ func TestBM25FSingleProp(t *testing.T) {
 }
 
 func TestBM25FWithFilters(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "false")
+	config.DefaultUseInvertedSearchable = false
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -579,7 +581,7 @@ func TestBM25FWithFilters(t *testing.T) {
 }
 
 func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "false")
+	config.DefaultUseInvertedSearchable = false
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -639,7 +641,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 }
 
 func TestBM25FDifferentParamsJourney(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "false")
+	config.DefaultUseInvertedSearchable = false
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -708,7 +710,7 @@ func EqualFloats(t *testing.T, expected, actual float32, significantFigures int)
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
 func TestBM25FCompare(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "false")
+	config.DefaultUseInvertedSearchable = false
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -782,7 +784,7 @@ func TestBM25FCompare(t *testing.T) {
 }
 
 func Test_propertyHasSearchableIndex(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "false")
+	config.DefaultUseInvertedSearchable = false
 	vFalse := false
 	vTrue := true
 
@@ -889,7 +891,7 @@ func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaG
 }
 
 func TestBM25F_ComplexDocuments(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "false")
+	config.DefaultUseInvertedSearchable = false
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -1031,7 +1033,7 @@ func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter
 }
 
 func TestBM25F_SortMultiProp(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "false")
+	config.DefaultUseInvertedSearchable = false
 	dirName := t.TempDir()
 
 	logger := logrus.New()

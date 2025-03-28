@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -167,8 +168,9 @@ func createClassWithEverything(IndexNullState bool, IndexPropertyLength bool) *m
 			Stopwords: &models.StopwordConfig{
 				Preset: "none",
 			},
-			IndexNullState:      IndexNullState,
-			IndexPropertyLength: IndexPropertyLength,
+			IndexNullState:        IndexNullState,
+			IndexPropertyLength:   IndexPropertyLength,
+			UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 		},
 		Class: "EverythingClass",
 		Properties: []*models.Property{
