@@ -280,7 +280,6 @@ func GenerateUniqueString(length int) (string, error) {
 	return fmt.Sprintf("%v", uniqueCounter.Load()), nil
 }
 
-
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
 	ec := errorcompounder.New()
 	for i := range s.callbacksAddToPropertyValueIndex {

@@ -316,7 +316,7 @@ func makeDimensionsKey(quant string, docID uint64) []byte {
 	if quant == "" {
 		quant = "NN"
 	}
-	var key = make([]byte, 10)
+	key := make([]byte, 10)
 	copy(key[:2], quant)
 	binary.BigEndian.PutUint64(key[2:], docID)
 	return key
@@ -330,8 +330,7 @@ func retrieveDimensionsKey(key []byte) (string, uint64) {
 func (s *Shard) addToDimensionBucket(
 	dimLength int, docID uint64, vectorName string, tombstone bool,
 ) error {
-
-	configs   := s.index.GetVectorIndexConfigs()
+	configs := s.index.GetVectorIndexConfigs()
 
 	vectorType := ""
 
@@ -348,7 +347,6 @@ func (s *Shard) addToDimensionBucket(
 			break
 		}
 	}
-
 
 	err := s.addDimensionsProperty(context.Background())
 	if err != nil {
