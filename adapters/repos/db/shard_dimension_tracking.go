@@ -66,8 +66,7 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 			continue
 		}
 		count_arr := bm.ToArray()
-		fmt.Printf("Fetched key %s, count: %v\n", s.name, count_arr)
-		if count_arr == nil || len(count_arr) == 0 {
+		if len(count_arr) == 0 {
 			continue
 		}
 		count := count_arr[0]
@@ -308,7 +307,6 @@ func countDimensionsLSM(b *lsmkv.Bucket, key []byte, dimLength int, tombstone bo
 		count = count + 1
 	}
 
-	fmt.Printf("Setting key: %s, dimensions: %v, count: %d\n", key, dimLength, count)
 	return b.RoaringSetAddOne(key, uint64(count))
 }
 
