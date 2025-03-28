@@ -39,8 +39,8 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 	expectedResponse := []*authz.GetUsersForRoleOKBodyItems0{
 		{UserID: expectedUsers[0], UserType: models.NewUserTypeOutput(models.UserTypeOutputOidc)},
 		{UserID: expectedUsers[1], UserType: models.NewUserTypeOutput(models.UserTypeOutputOidc)},
-		{UserID: expectedUsers[0], UserType: models.NewUserTypeOutput(models.UserTypeOutputDbStatic)},
-		{UserID: expectedUsers[1], UserType: models.NewUserTypeOutput(models.UserTypeOutputDbStatic)},
+		{UserID: expectedUsers[0], UserType: models.NewUserTypeOutput(models.UserTypeOutputDbEnvUser)},
+		{UserID: expectedUsers[1], UserType: models.NewUserTypeOutput(models.UserTypeOutputDbEnvUser)},
 	}
 
 	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)

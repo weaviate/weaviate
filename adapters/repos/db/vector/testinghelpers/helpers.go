@@ -12,6 +12,7 @@
 package testinghelpers
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/gob"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -299,4 +302,38 @@ func NewDummyStore(t testing.TB) *lsmkv.Store {
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	return store
+}
+
+type VectorIndex interface {
+	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+}
+
+func RecallAndLatency(ctx context.Context, queries [][]float32, k int, index VectorIndex, truths [][]uint64) (float32, float32) {
+	var relevant uint64
+	retrieved := k * len(queries)
+
+	var querying time.Duration = 0
+	mutex := &sync.Mutex{}
+	logger, _ := test.NewNullLogger()
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+		before := time.Now()
+		results, _, _ := index.SearchByVector(ctx, queries[i], k, nil)
+		ellapsed := time.Since(before)
+		hits := MatchesInLists(truths[i], results)
+		mutex.Lock()
+		querying += ellapsed
+		relevant += hits
+		mutex.Unlock()
+	})
+
+	recall := float32(relevant) / float32(retrieved)
+	latency := float32(querying.Microseconds()) / float32(len(queries))
+	return recall, latency
+}
+
+func DistanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
+	return func(x, y []float32) float32 {
+		dist, _ := provider.SingleDist(x, y)
+		return dist
+	}
 }

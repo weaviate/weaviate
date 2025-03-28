@@ -698,9 +698,9 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 			}
 			for _, userId := range filteredUsers {
 				if _, ok := dynamicUsers[userId]; ok {
-					response = append(response, &authz.GetUsersForRoleOKBodyItems0{UserID: userId, UserType: models.NewUserTypeOutput(models.UserTypeOutputDbDynamic)})
+					response = append(response, &authz.GetUsersForRoleOKBodyItems0{UserID: userId, UserType: models.NewUserTypeOutput(models.UserTypeOutputDbUser)})
 				} else {
-					response = append(response, &authz.GetUsersForRoleOKBodyItems0{UserID: userId, UserType: models.NewUserTypeOutput(models.UserTypeOutputDbStatic)})
+					response = append(response, &authz.GetUsersForRoleOKBodyItems0{UserID: userId, UserType: models.NewUserTypeOutput(models.UserTypeOutputDbEnvUser)})
 				}
 			}
 

@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -484,9 +486,9 @@ func setupTestManager(t *testing.T, logger *logrus.Logger) (*manager, error) {
 
 	policyPath := filepath.Join(rbacDir, "policy.csv")
 
-	config := rbacconf.Config{
+	conf := rbacconf.Config{
 		Enabled: true,
 	}
 
-	return New(policyPath, config, logger)
+	return New(policyPath, conf, config.Authentication{OIDC: config.OIDC{Enabled: true}}, logger)
 }

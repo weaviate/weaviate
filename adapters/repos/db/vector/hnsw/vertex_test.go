@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package graph
+package hnsw
 
 import (
 	"testing"
@@ -62,14 +62,12 @@ func TestVertex_SetConnections(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &Vertex{
+			v := &vertex{
 				connections: make([][]uint64, 1),
 			}
 			v.connections[0] = tc.initial
-			v.Edit(func(v *VertexEditor) error {
-				v.SetConnectionsAtLevel(0, tc.updated)
-				return nil
-			})
+
+			v.setConnectionsAtLevel(0, tc.updated)
 
 			assert.Equal(t, tc.updated, v.connections[0])
 			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
@@ -119,21 +117,18 @@ func TestVertex_AppendConnection(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &Vertex{
+			v := &vertex{
 				connections: make([][]uint64, 1),
 			}
 			v.connections[0] = tc.initial
 
-			v.Edit(func(v *VertexEditor) error {
-				v.AppendConnectionAtLevel(0, 18, 64)
-				return nil
-			})
+			v.appendConnectionAtLevelNoLock(0, 18, 64)
 
 			newConns := make([]uint64, len(tc.initial)+1)
 			copy(newConns, tc.initial)
 			newConns[len(newConns)-1] = 18
 
-			assert.Equal(t, newConns, v.CopyLevel(nil, 0))
+			assert.Equal(t, newConns, v.connectionsAtLevelNoLock(0))
 			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
 		})
 	}
@@ -182,36 +177,30 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &Vertex{
+			v := &vertex{
 				connections: make([][]uint64, 1),
 			}
 			v.connections[0] = tc.initial
 
-			v.Edit(func(v *VertexEditor) error {
-				v.AppendConnectionAtLevel(0, 18, 63)
-				return nil
-			})
+			v.appendConnectionAtLevelNoLock(0, 18, 63)
 
 			newConns := make([]uint64, len(tc.initial)+1)
 			copy(newConns, tc.initial)
 			newConns[len(newConns)-1] = 18
 
-			assert.Equal(t, newConns, v.CopyLevel(nil, 0))
+			assert.Equal(t, newConns, v.connectionsAtLevelNoLock(0))
 			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
 		})
 	}
 }
 
 func TestVertex_ResetConnections(t *testing.T) {
-	v := &Vertex{
+	v := &vertex{
 		connections: make([][]uint64, 1),
 	}
 	v.connections[0] = makeConnections(4, 4)
 
-	v.Edit(func(v *VertexEditor) error {
-		v.ResetConnectionsAtLevel(0)
-		return nil
-	})
+	v.resetConnectionsAtLevelNoLock(0)
 	assert.Equal(t, 0, len(v.connections[0]))
 	assert.Equal(t, 4, cap(v.connections[0]))
 }
@@ -225,11 +214,11 @@ func makeConnections(length, capacity int) []uint64 {
 }
 
 func TestVertex_Maintenance(t *testing.T) {
-	v := &Vertex{}
+	v := &vertex{}
 
-	assert.False(t, v.IsUnderMaintenance())
-	v.MarkAsMaintenance()
-	assert.True(t, v.IsUnderMaintenance())
-	v.UnmarkAsMaintenance()
-	assert.False(t, v.IsUnderMaintenance())
+	assert.False(t, v.isUnderMaintenance())
+	v.markAsMaintenance()
+	assert.True(t, v.isUnderMaintenance())
+	v.unmarkAsMaintenance()
+	assert.False(t, v.isUnderMaintenance())
 }

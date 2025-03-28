@@ -727,10 +727,10 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			},
 		},
 		{
-			name:         "Enabled dynamic user",
-			auth_env_var: []string{"AUTHENTICATION_DYNAMIC_USERS_ENABLED"},
+			name:         "Enabled db user",
+			auth_env_var: []string{"AUTHENTICATION_DB_USERS_ENABLED"},
 			expected: Authentication{
-				DynamicUsers: DynamicUsers{Enabled: true},
+				DBUsers: DbUsers{Enabled: true},
 			},
 		},
 		{
