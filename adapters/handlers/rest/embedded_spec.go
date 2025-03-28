@@ -3503,6 +3503,82 @@ func init() {
         ]
       }
     },
+    "/replication/replicate/{id}/status": {
+      "get": {
+        "description": "Returns the status of a replication operation for a given shard, identified by the provided id.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the status of a replication operation",
+        "operationId": "replicateStatus",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The shard replica move operation id to get the status for",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The status of the shard replica move operation",
+            "schema": {
+              "type": "object",
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "description": "The current status of the shard replica move operation",
+                  "type": "string",
+                  "enum": [
+                    "READY",
+                    "INDEXING",
+                    "REPLICATION_FINALIZING",
+                    "REPLICATION_HYDRATING",
+                    "REPLICATION_DEHYDRATING"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica move operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.status"
+        ]
+      }
+    },
     "/schema": {
       "get": {
         "description": "Fetch an array of all collection definitions from the schema.",
@@ -10990,6 +11066,82 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.replication.replicate"
+        ]
+      }
+    },
+    "/replication/replicate/{id}/status": {
+      "get": {
+        "description": "Returns the status of a replication operation for a given shard, identified by the provided id.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the status of a replication operation",
+        "operationId": "replicateStatus",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The shard replica move operation id to get the status for",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The status of the shard replica move operation",
+            "schema": {
+              "type": "object",
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "description": "The current status of the shard replica move operation",
+                  "type": "string",
+                  "enum": [
+                    "READY",
+                    "INDEXING",
+                    "REPLICATION_FINALIZING",
+                    "REPLICATION_HYDRATING",
+                    "REPLICATION_DEHYDRATING"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica move operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.status"
         ]
       }
     },

@@ -2824,6 +2824,80 @@
         }
       }
     },
+    "/replication/replicate/{id}/status": {
+      "get": {
+        "summary": "Get the status of a replication operation",
+        "description": "Returns the status of a replication operation for a given shard, identified by the provided id.",
+        "operationId": "replicateStatus",
+        "x-serviceIds": [
+          "weaviate.replication.replicate.status"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The shard replica move operation id to get the status for",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The status of the shard replica move operation",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "description": "The current status of the shard replica move operation",
+                  "enum": [
+                    "READY",
+                    "INDEXING",
+                    "REPLICATION_FINALIZING",
+                    "REPLICATION_HYDRATING",
+                    "REPLICATION_DEHYDRATING"
+                  ]
+                }
+              },
+              "required": ["status"]
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica move operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/users/own-info": {
       "get": {
         "summary": "get info relevant to own user, e.g. username, roles",
