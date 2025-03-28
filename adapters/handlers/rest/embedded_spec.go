@@ -3549,6 +3549,15 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "404": {
             "description": "Shard replica move operation not found"
           },
@@ -11102,6 +11111,15 @@ func init() {
           },
           "400": {
             "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

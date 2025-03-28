@@ -14,7 +14,6 @@ package replication
 import (
 	"errors"
 	"fmt"
-
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
@@ -54,6 +53,18 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 }
 
 func (h *replicationHandler) getReplicateStatus(params replication.ReplicateStatusParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
+		return h.handleForbiddenError()
+	}
+
+	return h.handleNotImplementedError(params)
+}
+
+func (h *replicationHandler) handleForbiddenError() middleware.Responder {
+	return replication.NewReplicateStatusForbidden()
+}
+
+func (h *replicationHandler) handleNotImplementedError(params replication.ReplicateStatusParams) middleware.Responder {
 	return replication.NewReplicateStatusNotImplemented().WithPayload(cerrors.ErrPayloadFromSingleErr(
 		fmt.Errorf("retrieving replication status for id %s not yet implemented", params.ID)))
 }
