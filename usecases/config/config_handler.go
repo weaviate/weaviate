@@ -26,6 +26,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/weaviate/weaviate/deprecations"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -53,6 +54,8 @@ const (
 	DefaultBM25k1 = float32(1.2)
 	DefaultBM25b  = float32(0.75)
 )
+
+var DefaultUseInvertedSearchable = os.Getenv("USE_INVERTED_SEARCHABLE") == "" || entcfg.Enabled(os.Getenv("USE_INVERTED_SEARCHABLE"))
 
 const (
 	DefaultMaxImportGoroutinesFactor = float64(1.5)
