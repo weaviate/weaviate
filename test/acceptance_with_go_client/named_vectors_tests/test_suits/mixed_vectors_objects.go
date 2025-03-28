@@ -251,7 +251,7 @@ func createMixedVectorsSchema(t *testing.T, client *wvt.Client) *models.Class {
 		},
 	}
 
-	class := &models.Class{
+	return createMixedVectorsSchemaHelper(t, client, &models.Class{
 		Class: className,
 		Properties: []*models.Property{
 			{
@@ -285,11 +285,5 @@ func createMixedVectorsSchema(t *testing.T, client *wvt.Client) *models.Class {
 				VectorIndexType: "flat",
 			},
 		},
-	}
-	require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(context.Background()))
-
-	fetchedSchema, err := client.Schema().ClassGetter().WithClassName(class.Class).Do(context.Background())
-	require.NoError(t, err)
-
-	return fetchedSchema
+	})
 }
