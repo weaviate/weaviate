@@ -40,6 +40,8 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 		}
 
 		t.Run("add vector to schema with legacy vector", func(t *testing.T) {
+			require.NoError(t, client.Schema().AllDeleter().Do(ctx))
+
 			class := &models.Class{
 				Class: className,
 				Properties: []*models.Property{
@@ -51,9 +53,6 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 				VectorIndexType: "hnsw",
 				VectorConfig:    map[string]models.VectorConfig{},
 			}
-
-			err = client.Schema().AllDeleter().Do(ctx)
-			require.NoError(t, err)
 
 			// start with a collection that has only a legacy vector
 			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
@@ -119,6 +118,8 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 		})
 
 		t.Run("add vector to schema with named vector", func(t *testing.T) {
+			require.NoError(t, client.Schema().AllDeleter().Do(ctx))
+
 			class := &models.Class{
 				Class: className,
 				Properties: []*models.Property{
@@ -133,10 +134,6 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 					},
 				},
 			}
-
-			err = client.Schema().AllDeleter().Do(ctx)
-			require.NoError(t, err)
-
 			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
 
 			_, err = client.Data().Creator().
