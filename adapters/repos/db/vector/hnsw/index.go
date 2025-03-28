@@ -573,7 +573,7 @@ func (h *hnsw) isEmpty() bool {
 }
 
 func (h *hnsw) isEmptyUnlocked() bool {
-	return h.nodes[h.entryPointID] == nil
+	return h.entryPointID > uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
