@@ -17,6 +17,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 
@@ -31,8 +33,8 @@ type manager struct {
 	logger logrus.FieldLogger
 }
 
-func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger) (*manager, error) {
-	csbin, err := Init(rbac, rbacStoragePath)
+func New(rbacStoragePath string, rbac rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*manager, error) {
+	csbin, err := Init(rbac, rbacStoragePath, authNconf)
 	if err != nil {
 		return nil, err
 	}

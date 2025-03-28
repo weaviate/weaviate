@@ -18,6 +18,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -250,9 +251,9 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		reg := prometheus.NewPedanticRegistry()
 
 		// calling parser => reloading the config
-		loadCount := 0
+		var loadCount atomic.Int64
 		trackedParser := func(buf []byte) (*testConfig, error) {
-			loadCount++
+			loadCount.Add(1)
 			return parseYaml(buf)
 		}
 
@@ -272,7 +273,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		// assert: should have called `parser` only once during initial loading.
-		assert.Equal(t, 1, loadCount)
+		assert.Equal(t, int64(1), loadCount.Load())
 
 		// Now let's change the config file few times
 		var (
@@ -296,7 +297,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 			// give enough time to config manager to reload the previously written config
 			time.Sleep(writeDelay)
 			assert.EventuallyWithT(t, func(c *assert.CollectT) {
-				assert.Equal(c, 1, loadCount)
+				assert.Equal(c, int64(1), loadCount.Load())
 			}, writeDelay, writeDelay/2)
 		}
 
@@ -305,7 +306,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		wg.Wait() // config manager should have stopped correctly.
 
 		// assert: writing same content shouldn't reload the config
-		assert.Equal(t, 1, loadCount) // 1 is the initial loading of config.
+		assert.Equal(t, int64(1), loadCount.Load()) // 1 is the initial loading of config.
 	})
 }
 
