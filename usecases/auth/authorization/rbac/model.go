@@ -15,7 +15,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -73,7 +76,7 @@ func createStorage(filePath string) error {
 	return err
 }
 
-func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer, error) {
+func Init(conf rbacconf.Config, policyPath string, authNconf config.Authentication) (*casbin.SyncedCachedEnforcer, error) {
 	if !conf.Enabled {
 		return nil, nil
 	}
@@ -129,13 +132,16 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 			continue
 		}
 
-		// add root role to db as well as OIDC users - we block db users from being created with the same name
-		if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputDb), conv.PrefixRoleName(authorization.Root)); err != nil {
-			return nil, fmt.Errorf("add role for user: %w", err)
+		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.RootUsers[i]) {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputDb), conv.PrefixRoleName(authorization.Root)); err != nil {
+				return nil, fmt.Errorf("add role for user: %w", err)
+			}
 		}
 
-		if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Root)); err != nil {
-			return nil, fmt.Errorf("add role for user: %w", err)
+		if authNconf.OIDC.Enabled {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Root)); err != nil {
+				return nil, fmt.Errorf("add role for user: %w", err)
+			}
 		}
 	}
 
