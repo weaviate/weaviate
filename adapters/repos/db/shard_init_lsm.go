@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -110,7 +111,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	}
 
 	// check if we need to set Inverted Index config to use BlockMax inverted format
-	if !s.index.invertedIndexConfig.UseInvertedSearchable {
+	if !s.index.invertedIndexConfig.UseInvertedSearchable && config.DefaultUseInvertedSearchable {
 		areAllSearchableBucketsBlockMax := s.areAllSearchableBucketsBlockMax()
 		if areAllSearchableBucketsBlockMax {
 			// TODO(amourao): this is a temporary solution, we need to update the
