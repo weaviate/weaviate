@@ -81,7 +81,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
-	//vector = h.normalizeVec(vector)
+	// vector = h.normalizeVec(vector)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
@@ -858,7 +858,6 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 				return 0.0, errors.Wrap(err, "get muvera vector for docID")
 			}
 		}
-
 	}
 
 	similarity := float32(0.0)

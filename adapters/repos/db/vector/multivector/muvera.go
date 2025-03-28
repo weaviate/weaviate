@@ -157,7 +157,7 @@ func (e *MuveraEncoder) encode(fullVec [][]float32) []float32 {
 	}
 
 	return e.finalProjection(result, e.config.DFinal)
-	//return result
+	// return result
 }
 
 // EncodeQuery encodes a query vector using Muvera
@@ -221,7 +221,7 @@ func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 	}
 
 	return e.finalProjection(result, e.config.DFinal)
-	//return result
+	// return result
 }
 
 // hammingDistance calculates the Hamming distance between two uint64 numbers

@@ -176,8 +176,8 @@ func (f *fakeCache) GetDoc(ctx context.Context, docID uint64) ([][]float32, erro
 	panic("not implemented")
 }
 
-func generateDummyVertices(amount int) *graph.Nodes {
-	out := make([]*graph.Vertex, amount)
+func generateDummyVertices(amount int) []*vertex {
+	out := make([]*vertex, amount)
 
 	for i := range out {
 		out[i] = &vertex{
