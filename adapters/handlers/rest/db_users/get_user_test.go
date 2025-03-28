@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic_user
+package db_users
 
 import (
 	"errors"
@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user/mocks"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -34,8 +34,8 @@ func TestSuccessList(t *testing.T) {
 		userId   string
 		userType models.UserTypeOutput
 	}{
-		{name: "dynamic user", userId: "dynamic", userType: models.UserTypeOutputDbDynamic},
-		{name: "static user", userId: "static", userType: models.UserTypeOutputDbStatic},
+		{name: "dynamic user", userId: "dynamic", userType: models.UserTypeOutputDbUser},
+		{name: "static user", userId: "static", userType: models.UserTypeOutputDbEnvUser},
 	}
 
 	for _, test := range tests {
@@ -44,17 +44,17 @@ func TestSuccessList(t *testing.T) {
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.READ, authorization.Users(test.userId)[0]).Return(nil)
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
-			if test.userType == models.UserTypeOutputDbDynamic {
+			if test.userType == models.UserTypeOutputDbUser {
 				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId}}, nil)
 			}
 			dynUser.On("GetRolesForUser", test.userId, models.UserTypeInputDb).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
 
 			h := dynUserHandler{
-				dynamicUser:          dynUser,
+				dbUsers:              dynUser,
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
-				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}, dynUserEnabled: true,
+				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}, dbUserEnabled: true,
 			}
 
 			res := h.getUser(users.GetUserInfoParams{UserID: test.userId}, principal)
@@ -77,8 +77,8 @@ func TestNotFound(t *testing.T) {
 	dynUser.On("GetUsers", "static").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer, dynUserEnabled: true,
+		dbUsers:    dynUser,
+		authorizer: authorizer, dbUserEnabled: true,
 
 		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
 	}
@@ -96,8 +96,8 @@ func TestNotFoundStatic(t *testing.T) {
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer, dynUserEnabled: true,
+		dbUsers:    dynUser,
+		authorizer: authorizer, dbUserEnabled: true,
 	}
 
 	res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)
@@ -128,7 +128,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 			}
 
 			h := dynUserHandler{
-				dynamicUser: dynUser, authorizer: authorizer, dynUserEnabled: true,
+				dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true,
 			}
 
 			res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)
@@ -147,8 +147,8 @@ func TestListForbidden(t *testing.T) {
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer, dynUserEnabled: true,
+		dbUsers:    dynUser,
+		authorizer: authorizer, dbUserEnabled: true,
 	}
 
 	res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)

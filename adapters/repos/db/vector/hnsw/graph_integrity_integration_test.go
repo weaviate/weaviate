@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -91,8 +90,12 @@ func TestGraphIntegrity(t *testing.T) {
 		wg.Wait()
 	})
 
-	vectorIndex.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
-		conlen := node.LevelLen(0)
+	for _, node := range vectorIndex.nodes {
+		if node == nil {
+			continue
+		}
+
+		conlen := len(node.connections[0])
 
 		// it is debatable how much value this test still adds. It used to check
 		// that a lot of connections are present before we had the heuristic. But
@@ -103,7 +106,5 @@ func TestGraphIntegrity(t *testing.T) {
 		requiredMinimum := 1
 		assert.True(t, conlen >= requiredMinimum, fmt.Sprintf(
 			"have %d connections, but want at least %d", conlen, requiredMinimum))
-
-		return true
-	})
+	}
 }

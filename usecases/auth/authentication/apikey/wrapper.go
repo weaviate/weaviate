@@ -19,7 +19,7 @@ import (
 
 type ApiKey struct {
 	static  *StaticApiKey
-	Dynamic *DynamicApiKey
+	Dynamic *DBUser
 }
 
 func New(cfg config.Config) (*ApiKey, error) {
@@ -29,7 +29,7 @@ func New(cfg config.Config) (*ApiKey, error) {
 	}
 	return &ApiKey{
 		static:  static,
-		Dynamic: NewDynamicApiKey(),
+		Dynamic: NewDBUser(),
 	}, nil
 }
 

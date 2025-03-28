@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic_user
+package db_users
 
 import (
 	"errors"
@@ -20,7 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user/mocks"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -31,7 +31,7 @@ import (
 )
 
 func TestSuccessListAll(t *testing.T) {
-	dynamicUser := "user1"
+	dbUser := "user1"
 	staticUser := "static"
 	tests := []struct {
 		name          string
@@ -39,12 +39,12 @@ func TestSuccessListAll(t *testing.T) {
 		includeStatic bool
 	}{
 		{
-			name:          "only dynamic user",
+			name:          "only db user",
 			principal:     &models.Principal{Username: "not-root"},
 			includeStatic: false,
 		},
 		{
-			name:          "dynamic + static user",
+			name:          "db + static user",
 			principal:     &models.Principal{Username: "root"},
 			includeStatic: true,
 		},
@@ -55,8 +55,8 @@ func TestSuccessListAll(t *testing.T) {
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", test.principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
-			dynUser.On("GetUsers").Return(map[string]*apikey.User{dynamicUser: {Id: dynamicUser}}, nil)
-			dynUser.On("GetRolesForUser", dynamicUser, models.UserTypeInputDb).Return(
+			dynUser.On("GetUsers").Return(map[string]*apikey.User{dbUser: {Id: dbUser}}, nil)
+			dynUser.On("GetRolesForUser", dbUser, models.UserTypeInputDb).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
 			if test.includeStatic {
 				dynUser.On("GetRolesForUser", staticUser, models.UserTypeInputDb).Return(
@@ -64,7 +64,7 @@ func TestSuccessListAll(t *testing.T) {
 			}
 
 			h := dynUserHandler{
-				dynamicUser:          dynUser,
+				dbUsers:              dynUser,
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{staticUser}, AllowedKeys: []string{"static"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
@@ -93,9 +93,9 @@ func TestSuccessListForbidden(t *testing.T) {
 
 	log, _ := test.NewNullLogger()
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer,
-		logger:      log,
+		dbUsers:    dynUser,
+		authorizer: authorizer,
+		logger:     log,
 	}
 
 	// no authorization for anything => response will be empty

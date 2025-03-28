@@ -110,7 +110,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 				}
 				truths := make([][]uint64, queries_size)
 				compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-					truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
+					truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
 				})
 				index.UpdateUserConfig(uc, func() {
 					fmt.Printf("Time to compress: %s\n", time.Since(before))
@@ -149,13 +149,6 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 				wg.Wait()
 			})
 		}
-	}
-}
-
-func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
-	return func(x, y []float32) float32 {
-		dist, _ := provider.SingleDist(x, y)
-		return dist
 	}
 }
 

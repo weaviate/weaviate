@@ -15,7 +15,6 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 )
 
 // NoopCommitLogger implements the CommitLogger interface, but does not
@@ -34,7 +33,7 @@ func (n *NoopCommitLogger) AddSQCompression(data compressionhelpers.SQData) erro
 	return nil
 }
 
-func (n *NoopCommitLogger) AddNode(node *graph.Vertex) error {
+func (n *NoopCommitLogger) AddNode(node *vertex) error {
 	return nil
 }
 

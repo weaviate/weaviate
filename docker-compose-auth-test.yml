@@ -28,5 +28,6 @@ services:
       AUTHENTICATION_APIKEY_ENABLED: "true"
       AUTHENTICATION_APIKEY_ALLOWED_KEYS: 'viewer-key,editor-key,admin-key,custom-key'
       AUTHENTICATION_APIKEY_USERS: 'viewer-user,editor-user,admin-user,custom-user'
+      AUTHENTICATION_DB_USERS_ENABLED: "true"
       AUTHORIZATION_RBAC_ENABLED: "true"
       AUTHORIZATION_RBAC_ROOT_USERS: "admin-user"

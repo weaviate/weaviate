@@ -45,7 +45,9 @@ func GetRateLimitsFromHeader(l *logrusext.Sampler, header http.Header, isAzure b
 	}
 
 	updateWithMissingValues := false
-	if limitRequests < 0 || limitTokens < 0 || remainingRequests < 0 || remainingTokens < 0 {
+	// the absolute limits should never be 0, while it is possible to use up all tokens/requests which results in the
+	// remaining tokens/requests to be 0
+	if limitRequests <= 0 || limitTokens <= 0 || remainingRequests < 0 || remainingTokens < 0 {
 		updateWithMissingValues = true
 
 		// logging all headers as there should not be anything sensitive according to the documentation:
@@ -55,6 +57,7 @@ func GetRateLimitsFromHeader(l *logrusext.Sampler, header http.Header, isAzure b
 				Warn("rate limit headers are missing or invalid, going to keep using the old values")
 		})
 	}
+
 	return &modulecomponents.RateLimits{
 		LimitRequests:           limitRequests,
 		LimitTokens:             limitTokens,

@@ -47,7 +47,7 @@ func TestBackup_Integration(t *testing.T) {
 	truths := make([][]uint64, queries_size)
 	distancer := distancer.NewL2SquaredProvider()
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
 	})
 	logger, _ := test.NewNullLogger()
 
@@ -114,7 +114,7 @@ func TestBackup_Integration(t *testing.T) {
 		wg.Done()
 	})
 	wg.Wait()
-	recall1, _ := recallAndLatency(ctx, queries, k, idx, truths)
+	recall1, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths)
 	assert.True(t, recall1 > 0.9)
 
 	assert.Nil(t, idx.Flush())
@@ -128,7 +128,6 @@ func TestBackup_Integration(t *testing.T) {
 	idx, err = New(config, uc, store)
 	require.Nil(t, err)
 	idx.PostStartup()
-
-	recall2, _ := recallAndLatency(ctx, queries, k, idx, truths)
+	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths)
 	assert.Equal(t, recall1, recall2)
 }
