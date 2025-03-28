@@ -22,12 +22,13 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 type ShardInvertedReindexTaskV2 interface {
 	HasOnBefore() bool
 	OnBefore(ctx context.Context) error
-	OnBeforeByIndex(ctx context.Context, index *Index) error
+	OnBeforeByIndex(ctx context.Context, index *Index, sc *schema.Manager) error
 	OnBeforeByShard(ctx context.Context, shard ShardLike) error
 	ReindexByShard(ctx context.Context, shard ShardLike) (rerunAt time.Time, err error)
 }
@@ -42,7 +43,8 @@ type ReindexerV2 struct {
 	tasks     map[string]ShardInvertedReindexTaskV2
 	skipTasks map[string]struct{}
 
-	config reindexerConfig
+	config        reindexerConfig
+	schemaManager *schema.Manager
 }
 
 type reindexerConfig struct {
@@ -51,15 +53,16 @@ type reindexerConfig struct {
 	waitInterval       time.Duration
 }
 
-func NewReindexerV2(logger logrus.FieldLogger, indexes map[string]*Index, indexLock *sync.RWMutex) *ReindexerV2 {
+func NewReindexerV2(logger logrus.FieldLogger, indexes map[string]*Index, indexLock *sync.RWMutex, schemaManager *schema.Manager) *ReindexerV2 {
 	logger = logger.WithField("action", "reindexV2")
 
 	return &ReindexerV2{
-		logger:    logger,
-		indexes:   indexes,
-		indexLock: indexLock,
-		tasks:     map[string]ShardInvertedReindexTaskV2{},
-		skipTasks: map[string]struct{}{},
+		logger:        logger,
+		indexes:       indexes,
+		indexLock:     indexLock,
+		schemaManager: schemaManager,
+		tasks:         map[string]ShardInvertedReindexTaskV2{},
+		skipTasks:     map[string]struct{}{},
 		config: reindexerConfig{
 			concurrencyIndexes: concurrency.NUMCPU_2,
 			concurrencyShards:  concurrency.NUMCPU,
@@ -125,7 +128,7 @@ func (r *ReindexerV2) OnBefore(ctx context.Context) error {
 			}
 
 			collection := index.Config.ClassName.String()
-			if err := task.OnBeforeByIndex(ctx, index); err != nil {
+			if err := task.OnBeforeByIndex(ctx, index, r.schemaManager); err != nil {
 				errs.Add(fmt.Errorf("OnBeforeByIndex task %q, collection %q: %w",
 					taskName, collection, err))
 				r.skipTasks[taskName] = struct{}{}

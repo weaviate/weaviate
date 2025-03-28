@@ -656,7 +656,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			return nil
 		}
 		if err := runReindexerV2(reindexCtx, waitForMetaStore, migrator, appState.Logger, reindexTasksV2Names,
-			reindexTasksV2Args, reindexFinishedV2); err != nil {
+			reindexTasksV2Args, reindexFinishedV2, appState.SchemaManager); err != nil {
 			os.Exit(1) // fail only in case of error (effectively when reindexer is not created)
 		}
 	}
@@ -697,10 +697,11 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 func runReindexerV2(reindexCtx context.Context, waitForMetaStore func() error,
 	migrator *db.Migrator, logger logrus.FieldLogger,
 	reindexTasksV2Names []string, reindexTasksV2Args map[string]any, reindexFinishedV2 chan<- error,
+	schemaManager *schema.Manager,
 ) error {
 	logger = logger.WithField("action", "reindexV2")
 
-	reindexer, err := migrator.ReindexerV2(reindexTasksV2Names, reindexTasksV2Args)
+	reindexer, err := migrator.ReindexerV2(reindexTasksV2Names, reindexTasksV2Args, schemaManager)
 	if err != nil {
 		logger.WithError(err).Error("creating reindexer")
 		return err
