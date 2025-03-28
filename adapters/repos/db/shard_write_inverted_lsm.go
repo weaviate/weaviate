@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -281,87 +280,6 @@ func GenerateUniqueString(length int) (string, error) {
 	return fmt.Sprintf("%v", uniqueCounter.Load()), nil
 }
 
-// Empty the dimensions bucket, quickly and efficiently
-func (s *Shard) resetDimensionsLSM() error {
-	// Load the current one, or an empty one if it doesn't exist
-	err := s.store.CreateOrLoadBucket(context.Background(),
-		helpers.DimensionsBucketLSM,
-		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
-		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithAllocChecker(s.index.allocChecker),
-		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
-		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
-		s.segmentCleanupConfig(),
-	)
-	if err != nil {
-		return fmt.Errorf("create dimensions bucket: %w", err)
-	}
-
-	// Fetch the actual bucket
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
-	}
-
-	// Create random bucket name
-	name, err := GenerateUniqueString(32)
-	if err != nil {
-		return errors.Wrap(err, "generate unique bucket name")
-	}
-
-	// Create a new bucket with the unique name
-	err = s.createDimensionsBucket(context.Background(), name)
-	if err != nil {
-		return errors.Wrap(err, "create temporary dimensions bucket")
-	}
-
-	// Replace the old bucket with the new one
-	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, name)
-	if err != nil {
-		return errors.Wrap(err, "replace dimensions bucket")
-	}
-
-	return nil
-}
-
-// Key (target vector name and dimensionality) | Value Doc IDs
-// targetVector,128 | 1,2,4,5,17
-// targetVector,128 | 1,2,4,5,17, Tombstone 4,
-func (s *Shard) removeDimensionsLSM(
-	dimLength int, docID uint64, targetVector string,
-) error {
-	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
-}
-
-func (s *Shard) addToDimensionBucket(
-	dimLength int, docID uint64, vecName string, tombstone bool,
-) error {
-	err := s.addDimensionsProperty(context.Background())
-	if err != nil {
-		return errors.Wrap(err, "add dimensions property")
-	}
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return errors.Errorf("add dimension bucket: no bucket dimensions")
-	}
-
-	tv := []byte(vecName)
-	// 8 bytes for doc id (map key)
-	// 4 bytes for dim count (row key)
-	// len(vecName) bytes for vector name (prefix of row key)
-	buf := make([]byte, 12+len(tv))
-	binary.LittleEndian.PutUint64(buf[:8], docID)
-	binary.LittleEndian.PutUint32(buf[8+len(tv):], uint32(dimLength))
-	copy(buf[8:], tv)
-
-	return b.MapSet(buf[8:], lsmkv.MapPair{
-		Key:       buf[:8],
-		Value:     []byte{},
-		Tombstone: tombstone,
-	})
-}
 
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
 	ec := errorcompounder.New()

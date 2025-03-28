@@ -14,18 +14,21 @@ package db
 import (
 	"context"
 	"encoding/binary"
-	"strings"
+	"fmt"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
 type DimensionCategory int
@@ -36,44 +39,40 @@ const (
 	DimensionCategoryBQ
 )
 
-func (s *Shard) Dimensions(ctx context.Context, targetVector string) int {
-	sum, _ := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return dimLength * len(v), dimLength
+func (s *Shard) Dimensions(ctx context.Context, targetVectorType string) int {
+	sum, _ := s.calcTargetVectorDimensions(ctx, targetVectorType, func(dimLength int, v int) (int, int) {
+		return dimLength * v, dimLength
 	})
 	return sum
 }
 
-func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
-	sum, dimensions := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return len(v), dimLength
-	})
-
-	return sum * correctEmptySegments(segments, dimensions)
-}
-
-func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (sum int, dimensions int) {
+func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v int) (int, int)) (sum int, dimensions int) {
+	if targetVector == "" {
+		targetVector = "NN"
+	}
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return 0, 0
 	}
 
-	c := b.MapCursor()
-	defer c.Close()
+	curs := b.CursorRoaringSet()
+	defer curs.Close()
+	for k, v := curs.First(); k != nil; k, v = curs.Next() {
 
-	var (
-		nameLen        = len(targetVector)
-		expectedKeyLen = 4 + nameLen
-	)
+		bm := v
 
-	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
-		// for named vectors we have to additionally check if the key is prefixed with the vector name
-		keyMatches := len(k) == expectedKeyLen && (nameLen == 4 || strings.HasPrefix(string(k), targetVector))
-		if !keyMatches {
+		quant, dimLength := retrieveDimensionsKey(k)
+		if quant != targetVector {
 			continue
 		}
+		count_arr := bm.ToArray()
+		fmt.Printf("Fetched key %s, count: %v\n", s.name, count_arr)
+		if count_arr == nil || len(count_arr) == 0 {
+			continue
+		}
+		count := count_arr[0]
 
-		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
-		size, dim := calcEntry(dimLength, v)
+		size, dim := calcEntry(int(dimLength), int(count))
 		if dimensions == 0 && dim > 0 {
 			dimensions = dim
 		}
@@ -81,6 +80,14 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 	}
 
 	return sum, dimensions
+}
+
+func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
+	sum, dimensions := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v int) (int, int) {
+		return v, dimLength
+	})
+
+	return sum * correctEmptySegments(segments, dimensions)
 }
 
 func (s *Shard) initDimensionTracking() {
@@ -141,8 +148,8 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 			sumDimensions = 0
 		)
 
-		for targetVector, config := range configs {
-			dimensions, segments := s.calcDimensionsAndSegments(ctx, config, targetVector)
+		for _, config := range configs {
+			dimensions, segments := s.calcDimensionsAndSegments(ctx, config)
 			sumDimensions += dimensions
 			sumSegments += segments
 		}
@@ -152,16 +159,16 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 	}
 }
 
-func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) (dims int, segs int) {
+func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig) (dims int, segs int) {
 	switch category, segments := getDimensionCategory(vecCfg); category {
 	case DimensionCategoryPQ:
-		count := s.QuantizedDimensions(ctx, vecName, segments)
+		count := s.QuantizedDimensions(ctx, "PQ", segments)
 		return 0, count
 	case DimensionCategoryBQ:
-		count := s.Dimensions(ctx, vecName) / 8 // BQ has a flat 8x reduction in the dimensions metric
+		count := s.Dimensions(ctx, "BQ") / 8 // BQ has a flat 8x reduction in the dimensions metric
 		return 0, count
 	default:
-		count := s.Dimensions(ctx, vecName)
+		count := s.Dimensions(ctx, "NN")
 		return count, 0
 	}
 }
@@ -226,4 +233,131 @@ func correctEmptySegments(segments int, dimensions int) int {
 		return segments
 	}
 	return common.CalculateOptimalSegments(dimensions)
+}
+
+// Empty the dimensions bucket, quickly and efficiently
+func (s *Shard) resetDimensionsLSM() error {
+	// Load the current one, or an empty one if it doesn't exist
+	err := s.store.CreateOrLoadBucket(context.Background(),
+		helpers.DimensionsBucketLSM,
+		s.memtableDirtyConfig(),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithPread(s.index.Config.AvoidMMap),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		s.segmentCleanupConfig(),
+	)
+	if err != nil {
+		return fmt.Errorf("create dimensions bucket: %w", err)
+	}
+
+	// Fetch the actual bucket
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
+	}
+
+	// Create random bucket name
+	name, err := GenerateUniqueString(32)
+	if err != nil {
+		return errors.Wrap(err, "generate unique bucket name")
+	}
+
+	// Create a new bucket with the unique name
+	err = s.createDimensionsBucket(context.Background(), name)
+	if err != nil {
+		return errors.Wrap(err, "create temporary dimensions bucket")
+	}
+
+	// Replace the old bucket with the new one
+	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, name)
+	if err != nil {
+		return errors.Wrap(err, "replace dimensions bucket")
+	}
+
+	return nil
+}
+
+// Key (target vector name and dimensionality) | Value Doc IDs
+// targetVector,128 | 1,2,4,5,17
+// targetVector,128 | 1,2,4,5,17, Tombstone 4,
+func (s *Shard) removeDimensionsLSM(
+	dimLength int, docID uint64, targetVector string,
+) error {
+	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
+}
+
+func countDimensionsLSM(b *lsmkv.Bucket, key []byte, dimLength int, tombstone bool) error {
+	count := uint64(0)
+	bm, err := b.RoaringSetGet(key)
+	if err != nil {
+		count = 0
+	} else {
+		count_arr := bm.ToArray()
+		if len(count_arr) == 0 {
+			count = 0
+		} else {
+			count = count_arr[0]
+		}
+		b.RoaringSetRemoveOne(key, count)
+	}
+
+	if tombstone {
+		count = count - 1
+	} else {
+		count = count + 1
+	}
+
+	fmt.Printf("Setting key: %s, dimensions: %v, count: %d\n", key, dimLength, count)
+	return b.RoaringSetAddOne(key, uint64(count))
+}
+
+func makeDimensionsKey(quant string, docID uint64) []byte {
+	if quant == "" {
+		quant = "NN"
+	}
+	var key = make([]byte, 10)
+	copy(key[:2], quant)
+	binary.BigEndian.PutUint64(key[2:], docID)
+	return key
+}
+
+func retrieveDimensionsKey(key []byte) (string, uint64) {
+	quant := string(key[:2])
+	return quant, binary.BigEndian.Uint64(key[2:])
+}
+
+func (s *Shard) addToDimensionBucket(
+	dimLength int, docID uint64, vectorName string, tombstone bool,
+) error {
+
+	configs   := s.index.GetVectorIndexConfigs()
+
+	vectorType := ""
+
+	for vecName, config := range configs {
+		if vectorName == vecName {
+			category, _ := getDimensionCategory(config)
+			if category == DimensionCategoryPQ {
+				vectorType = "PQ"
+			} else if category == DimensionCategoryBQ {
+				vectorType = "BQ"
+			} else {
+				vectorType = "NN"
+			}
+			break
+		}
+	}
+
+
+	err := s.addDimensionsProperty(context.Background())
+	if err != nil {
+		return errors.Wrap(err, "add dimensions property")
+	}
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return errors.Errorf("add dimension bucket: no bucket dimensions")
+	}
+
+	return countDimensionsLSM(b, makeDimensionsKey(vectorType, uint64(dimLength)), dimLength, tombstone)
 }
