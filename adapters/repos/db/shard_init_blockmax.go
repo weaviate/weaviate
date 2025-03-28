@@ -56,5 +56,5 @@ func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager
 		class.VectorConfig[i] = tempConfig
 	}
 	class.InvertedIndexConfig.UseInvertedSearchable = true
-	return sc.UpdateClassInternal(ctx, className, class)
+	return schema.UpdateClassInternal(&sc.Handler, ctx, className, class)
 }

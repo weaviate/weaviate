@@ -246,11 +246,11 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	return h.UpdateClassInternal(ctx, className, updated)
+	return UpdateClassInternal(h, ctx, className, updated)
 }
 
 // bypass the auth check for internal class update requests
-func (h *Handler) UpdateClassInternal(ctx context.Context, className string, updated *models.Class,
+func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
 ) error {
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
