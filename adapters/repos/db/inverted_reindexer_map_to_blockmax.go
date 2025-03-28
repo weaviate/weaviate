@@ -14,7 +14,6 @@ package db
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -110,26 +109,9 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBefore(ctx context.Context) (
 	return nil
 }
 
-func StructToMap(obj interface{}) (newMap map[string]interface{}) {
-	data, _ := json.Marshal(obj)  // Convert to a json string
-	json.Unmarshal(data, &newMap) // Convert to a map
-	return
-}
-
 func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByIndex(ctx context.Context, index *Index, sc *schema.Manager) (err error) {
 	if t.config.tidyBuckets {
-		class := sc.SchemaReader.ReadOnlyClass(index.getClass().Class)
-		class.ModuleConfig = StructToMap(class.ModuleConfig)
-		class.VectorIndexConfig = StructToMap(class.VectorIndexConfig)
-		class.ShardingConfig = StructToMap(class.ShardingConfig)
-		for i := range class.VectorConfig {
-			tempConfig := class.VectorConfig[i]
-			tempConfig.VectorIndexConfig = StructToMap(tempConfig.VectorIndexConfig)
-			tempConfig.Vectorizer = StructToMap(tempConfig.Vectorizer)
-			class.VectorConfig[i] = tempConfig
-		}
-		class.InvertedIndexConfig.UseInvertedSearchable = true
-		return sc.UpdateClass(ctx, nil, index.getClass().Class, class)
+		return updateToBlockMaxInvertedIndexConfig(ctx, sc, index.Config.ClassName.String())
 	}
 	return nil
 }
