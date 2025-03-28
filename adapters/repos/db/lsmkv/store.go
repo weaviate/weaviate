@@ -311,11 +311,38 @@ func (s *Store) ListFiles(ctx context.Context, basePath string) ([]string, error
 		return nil, err
 	}
 
-	var files []string
+	migrationFiles, err := s.listMigrationFiles(basePath)
+	if err != nil {
+		return nil, err
+	}
+
+	files := migrationFiles
 	for _, res := range result {
 		files = append(files, res.([]string)...)
 	}
 
+	return files, nil
+}
+
+func (s *Store) listMigrationFiles(basePath string) ([]string, error) {
+	migrationRoot := filepath.Join(s.dir, ".migrations")
+
+	var files []string
+	err := filepath.WalkDir(migrationRoot, func(path string, d os.DirEntry, _ error) error {
+		if d == nil || d.IsDir() {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(basePath, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, relPath)
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Errorf("failed to list files for migrations: %s", err)
+	}
 	return files, nil
 }
 
