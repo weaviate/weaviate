@@ -178,6 +178,7 @@ type hnsw struct {
 	shardName             string
 	VectorForIDThunk      common.VectorForID[float32]
 	MultiVectorForIDThunk common.VectorForID[[]float32]
+	shardedNodeLocks      *common.ShardedRWLocks
 	store                 *lsmkv.Store
 
 	allocChecker            memwatch.AllocChecker

@@ -361,10 +361,10 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.shardedNodeLocks.Unlock(nodeId)
 
 	if h.compressed.Load() && (!h.multivector.Load() || (h.multivector.Load() && h.muvera.Load())) {
-		h.compressor.Preload(id, vector)
+		h.compressor.Preload(nodeId, vector)
 	} else {
 		if h.muvera.Load() || !h.multivector.Load() {
-			h.cache.Preload(id, vector)
+			h.cache.Preload(nodeId, vector)
 		}
 	}
 
@@ -456,10 +456,10 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.shardedNodeLocks.Unlock(node.id)
 
 	if h.compressed.Load() && (!h.multivector.Load() || (h.multivector.Load() && h.muvera.Load())) {
-		h.compressor.Preload(id, nodeVec)
+		h.compressor.Preload(node.id, nodeVec)
 	} else {
 		if h.muvera.Load() || !h.multivector.Load() {
-			h.cache.Preload(id, nodeVec)
+			h.cache.Preload(node.id, nodeVec)
 		}
 	}
 
