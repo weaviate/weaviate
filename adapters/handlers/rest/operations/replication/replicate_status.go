@@ -53,7 +53,7 @@ func NewReplicateStatus(ctx *middleware.Context, handler ReplicateStatusHandler)
 
 # Get the status of a replication operation
 
-Returns the status a replication operation for a given shard, identified by the provided id.
+Returns the status of a replication operation for a given shard, identified by the provided id.
 */
 type ReplicateStatus struct {
 	Context *middleware.Context

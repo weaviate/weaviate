@@ -3505,7 +3505,7 @@ func init() {
     },
     "/replication/replicate/{id}/status": {
       "get": {
-        "description": "Returns the status a replication operation for a given shard, identified by the provided id.",
+        "description": "Returns the status of a replication operation for a given shard, identified by the provided id.",
         "tags": [
           "replication"
         ],
@@ -11071,7 +11071,7 @@ func init() {
     },
     "/replication/replicate/{id}/status": {
       "get": {
-        "description": "Returns the status a replication operation for a given shard, identified by the provided id.",
+        "description": "Returns the status of a replication operation for a given shard, identified by the provided id.",
         "tags": [
           "replication"
         ],

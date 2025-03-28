@@ -90,7 +90,7 @@ func (a *Client) Replicate(params *ReplicateParams, authInfo runtime.ClientAuthI
 /*
 ReplicateStatus gets the status of a replication operation
 
-Returns the status a replication operation for a given shard, identified by the provided id.
+Returns the status of a replication operation for a given shard, identified by the provided id.
 */
 func (a *Client) ReplicateStatus(params *ReplicateStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateStatusOK, error) {
 	// TODO: Validate the params before sending
