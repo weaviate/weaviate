@@ -98,7 +98,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 
 	if h.muvera.Load() {
 		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
-		overfetch := 20
+		overfetch := 30
 		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
 		if err != nil {
 			return nil, nil, err
@@ -722,8 +722,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	beforeRescore := time.Now()
-	if h.shouldRescore() && (h.muvera.Load() || !h.multivector.Load()) {
-		fmt.Println("rescoring")
+	if h.shouldRescore() && !h.multivector.Load() {
 		if err := h.rescore(ctx, res, k, compressorDistancer); err != nil {
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_rescore")
 			took := time.Since(beforeRescore)

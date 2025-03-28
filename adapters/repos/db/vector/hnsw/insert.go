@@ -45,6 +45,10 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 	dims := int(atomic.LoadInt32(&h.dims))
 
+	if h.muvera.Load() {
+		return nil
+	}
+
 	// no vectors exist
 	if dims == 0 {
 		vecDimensions := make(map[int]struct{})
@@ -337,7 +341,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, id uint64, level in
 
 	h.nodes.Set(node)
 
-	if h.compressed.Load() && !h.multivector.Load() {
+	if h.compressed.Load() && (!h.multivector.Load() || (h.multivector.Load() && h.muvera.Load())) {
 		h.compressor.Preload(id, vector)
 	} else {
 		if h.muvera.Load() || !h.multivector.Load() {
@@ -431,7 +435,7 @@ func (h *hnsw) insertInitialElement(id uint64, nodeVec []float32) error {
 
 	h.nodes.Set(node)
 
-	if h.compressed.Load() && !h.multivector.Load() {
+	if h.compressed.Load() && (!h.multivector.Load() || (h.multivector.Load() && h.muvera.Load())) {
 		h.compressor.Preload(id, nodeVec)
 	} else {
 		if h.muvera.Load() || !h.multivector.Load() {

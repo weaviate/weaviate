@@ -11,6 +11,7 @@ type MuveraConfig struct {
 	NumClusters  int // Number of clusters for K-means or number of bits for SimHash
 	Dimensions   int // Dimensions of each vector (128 in the Python implementation)
 	DProjections int // Number of projections for D-Projections
+	DFinal       int // Number of projections for final projection
 	Repetitions  int // Number of repetitions (20 in the Python implementation)
 }
 
@@ -20,7 +21,8 @@ func DefaultMuveraConfig() MuveraConfig {
 		KSim:         3,
 		NumClusters:  8,
 		Dimensions:   128,
-		DProjections: 16,
+		DProjections: 8,
+		DFinal:       1000, // DProjections * NumClusters * Repetitions
 		Repetitions:  20,
 	}
 }
@@ -30,6 +32,7 @@ type MuveraEncoder struct {
 	config    MuveraConfig
 	gaussians [][]float32 // Random Gaussian vectors for SimHash projection
 	S         [][]float32 // Random projection matrix with ±1 entries
+	Sfinal    [][]float32 // Random projection matrix with ±1 entries
 }
 
 // NewMuveraEncoder creates a new Muvera encoder
@@ -53,6 +56,19 @@ func NewMuveraEncoder(config MuveraConfig) *MuveraEncoder {
 				encoder.S[i][j] = 1.0
 			} else {
 				encoder.S[i][j] = -1.0
+			}
+		}
+	}
+
+	encoder.Sfinal = make([][]float32, config.DFinal)
+	for i := 0; i < config.DFinal; i++ {
+		dim := config.DProjections * config.NumClusters * config.Repetitions
+		encoder.Sfinal[i] = make([]float32, dim)
+		for j := 0; j < dim; j++ {
+			if rand.Float64() < 0.5 {
+				encoder.Sfinal[i][j] = 1.0
+			} else {
+				encoder.Sfinal[i][j] = -1.0
 			}
 		}
 	}
@@ -109,6 +125,20 @@ func (e *MuveraEncoder) projectVec(vec [][]float32, dprojections int) [][]float3
 	return projectedVec
 }
 
+func (e *MuveraEncoder) finalProjection(vec []float32, dfinal int) []float32 {
+	projectedVec := make([]float32, dfinal)
+	scale := 1.0 / float32(math.Sqrt(float64(dfinal)))
+
+	for i := 0; i < dfinal; i++ {
+		var sum float32
+		for j := 0; j < len(vec); j++ {
+			sum += vec[j] * e.Sfinal[i][j]
+		}
+		projectedVec[i] = scale * sum
+	}
+	return projectedVec
+}
+
 func (e *MuveraEncoder) encode(fullVec [][]float32) []float32 {
 	result := make([]float32, e.config.Repetitions*e.config.NumClusters*e.config.DProjections)
 
@@ -126,7 +156,8 @@ func (e *MuveraEncoder) encode(fullVec [][]float32) []float32 {
 		}
 	}
 
-	return result.projectFlattenedVec()
+	return e.finalProjection(result, e.config.DFinal)
+	//return result
 }
 
 // EncodeQuery encodes a query vector using Muvera
@@ -189,7 +220,8 @@ func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 		}
 	}
 
-	return result
+	return e.finalProjection(result, e.config.DFinal)
+	//return result
 }
 
 // hammingDistance calculates the Hamming distance between two uint64 numbers

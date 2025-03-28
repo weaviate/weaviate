@@ -75,7 +75,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			}
 
 			var err error
-			if !h.multivector.Load() {
+			if !h.multivector.Load() || (h.multivector.Load() && h.muvera.Load()) {
 				h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
 					h.allocChecker)
@@ -90,7 +90,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			}
 		} else if cfg.SQ.Enabled {
 			var err error
-			if !h.multivector.Load() {
+			if !h.multivector.Load() || (h.multivector.Load() && h.muvera.Load()) {
 				h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
 					h.allocChecker)
@@ -107,7 +107,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		h.compressor.PersistCompression(h.commitLog)
 	} else {
 		var err error
-		if !h.multivector.Load() {
+		if !h.multivector.Load() || (h.multivector.Load() && h.muvera.Load()) {
 			h.compressor, err = compressionhelpers.NewBQCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)
 		} else {
@@ -118,7 +118,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			return err
 		}
 	}
-	if !h.multivector.Load() {
+	if !h.multivector.Load() || (h.multivector.Load() && h.muvera.Load()) {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
 				if data[index] == nil {
