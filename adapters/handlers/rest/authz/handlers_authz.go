@@ -127,6 +127,10 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is invalid")))
 	}
 
+	if err := validatePermissions(params.Body.Permissions...); err != nil {
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role permissions are invalid: %w", err)))
+	}
+
 	policies, err := conv.RolesToPolicies(params.Body)
 	if err != nil {
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid role: %w", err)))
