@@ -41,11 +41,11 @@ func (m UserTypeOutput) Pointer() *UserTypeOutput {
 
 const (
 
-	// UserTypeOutputDbStatic captures enum value "db_static"
-	UserTypeOutputDbStatic UserTypeOutput = "db_static"
+	// UserTypeOutputDbUser captures enum value "db_user"
+	UserTypeOutputDbUser UserTypeOutput = "db_user"
 
-	// UserTypeOutputDbDynamic captures enum value "db_dynamic"
-	UserTypeOutputDbDynamic UserTypeOutput = "db_dynamic"
+	// UserTypeOutputDbEnvUser captures enum value "db_env_user"
+	UserTypeOutputDbEnvUser UserTypeOutput = "db_env_user"
 
 	// UserTypeOutputOidc captures enum value "oidc"
 	UserTypeOutputOidc UserTypeOutput = "oidc"
@@ -56,7 +56,7 @@ var userTypeOutputEnum []interface{}
 
 func init() {
 	var res []UserTypeOutput
-	if err := json.Unmarshal([]byte(`["db_static","db_dynamic","oidc"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["db_user","db_env_user","oidc"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

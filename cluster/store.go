@@ -147,7 +147,7 @@ type Config struct {
 	// 	AuthzController to manage RBAC commands and apply it to casbin
 	AuthzController authorization.Controller
 
-	DynamicUserController apikey.DynamicUser
+	DynamicUserController apikey.DBUsers
 
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier

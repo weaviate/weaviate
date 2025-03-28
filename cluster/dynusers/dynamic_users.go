@@ -24,11 +24,11 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	dynUser apikey.DynamicUser
+	dynUser apikey.DBUsers
 	logger  logrus.FieldLogger
 }
 
-func NewManager(dynUser apikey.DynamicUser, logger logrus.FieldLogger) *Manager {
+func NewManager(dynUser apikey.DBUsers, logger logrus.FieldLogger) *Manager {
 	return &Manager{dynUser: dynUser, logger: logger}
 }
 

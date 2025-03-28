@@ -46,7 +46,7 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 		obj.Collection = schema.UppercaseClassName(obj.Collection)
 		class, err := authorizedGetClass(obj.Collection, obj.Tenant)
 		if err != nil {
-			objectErrors[insertCounter] = err
+			objectErrors[i] = err
 			continue
 		}
 
