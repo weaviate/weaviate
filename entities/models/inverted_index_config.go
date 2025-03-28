@@ -46,6 +46,9 @@ type InvertedIndexConfig struct {
 
 	// stopwords
 	Stopwords *StopwordConfig `json:"stopwords,omitempty"`
+
+	// Use inverted format for searchable properties (default: 'true' for new collections).
+	UseInvertedSearchable bool `json:"useInvertedSearchable,omitempty"`
 }
 
 // Validate validates this inverted index config
