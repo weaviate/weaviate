@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -172,12 +173,13 @@ type hnsw struct {
 	// to define the rescoring concurrency.
 	rescoreConcurrency int
 
-	compressActionLock *sync.RWMutex
-	className          string
-	shardName          string
-	VectorForIDThunk   common.VectorForID[float32]
-	shardedNodeLocks   *common.ShardedRWLocks
-	store              *lsmkv.Store
+	compressActionLock    *sync.RWMutex
+	className             string
+	shardName             string
+	VectorForIDThunk      common.VectorForID[float32]
+	MultiVectorForIDThunk common.VectorForID[[]float32]
+	shardedNodeLocks      *common.ShardedRWLocks
+	store                 *lsmkv.Store
 
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
@@ -185,10 +187,12 @@ type hnsw struct {
 	visitedListPoolMaxSize int
 
 	// only used for multivector mode
-	multivector  atomic.Bool
-	docIDVectors map[uint64][]uint64
-	vecIDcounter uint64
-	maxDocID     uint64
+	multivector   atomic.Bool
+	muvera        atomic.Bool
+	muveraEncoder *multivector.MuveraEncoder
+	docIDVectors  map[uint64][]uint64
+	vecIDcounter  uint64
+	maxDocID      uint64
 }
 
 type CommitLogger interface {
@@ -246,11 +250,11 @@ func New(cfg Config, uc ent.UserConfig,
 
 	var vectorCache cache.Cache[float32]
 
-	if uc.Multivector.Enabled {
+	if uc.Multivector.Enabled && !uc.Multivector.Muvera {
 		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	} else {
-		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
+		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
 			normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
@@ -298,6 +302,7 @@ func New(cfg Config, uc ent.UserConfig,
 		compressActionLock:        &sync.RWMutex{},
 		className:                 cfg.ClassName,
 		VectorForIDThunk:          cfg.VectorForIDThunk,
+		MultiVectorForIDThunk:     cfg.MultiVectorForIDThunk,
 		TempVectorForIDThunk:      cfg.TempVectorForIDThunk,
 		TempMultiVectorForIDThunk: cfg.TempMultiVectorForIDThunk,
 		pqConfig:                  uc.PQ,
@@ -315,6 +320,7 @@ func New(cfg Config, uc ent.UserConfig,
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
+	index.muvera.Store(uc.Multivector.Muvera)
 
 	if uc.BQ.Enabled {
 		var err error
@@ -337,9 +343,20 @@ func New(cfg Config, uc ent.UserConfig,
 
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
-		err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
-		if err != nil {
-			return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
+		if !uc.Multivector.Muvera {
+			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			if err != nil {
+				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
+			}
+		} else {
+			index.muveraEncoder = multivector.NewMuveraEncoder(multivector.DefaultMuveraConfig())
+			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_muvera_vectors", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			if err != nil {
+				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
+			}
+			if err := index.muveraEncoder.InitSimHash(); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -357,6 +374,70 @@ func New(cfg Config, uc ent.UserConfig,
 
 	return index, nil
 }
+
+/*func Float32FromCompressedBytes(muveraBytes []byte) []float32 {
+	slice := make([]float32, len(muveraBytes)/4)
+	for i := range slice {
+		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(muveraBytes[i*4:]))
+	}
+	return slice
+}
+
+func (h *hnsw) getMuveraVectorForID(ctx context.Context, docID uint64) ([]float32, error) {
+	docIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(docIDBytes, docID)
+	muveraVector, err := h.store.Bucket("muvera_vectors").Get(docIDBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "Getting vector for id")
+	}
+	if len(muveraVector) == 0 {
+		return nil, storobj.NewErrNotFoundf(docID, "getCompressedVectorForID")
+	}
+
+	return Float32FromCompressedBytes(muveraVector), nil
+}
+
+func (h *hnsw) encodeMultiVector() error {
+	vectors := h.cache.All()
+	filteredVectors := make([][]float32, 0, len(vectors))
+	for _, v := range vectors {
+		if len(v) > 0 {
+			filteredVectors = append(filteredVectors, v)
+		}
+	}
+	if err := h.encoder.Fit([][][]float32{filteredVectors}); err != nil {
+		return err
+	}
+	// Iterate over all the keys of the docIDVectors map
+	muveraVectors := make([][]float32, 0, len(h.docIDVectors))
+	var vecs [][]float32
+	var muveraVec []float32
+	docIDs := make([]uint64, 0, len(h.docIDVectors))
+	for docID := range h.docIDVectors {
+		docIDs = append(docIDs, docID)
+		vecs, err = h.cache.GetDoc(context.Background(), docID)
+		if err != nil {
+			return err
+		}
+		muveraVec = h.encoder.EncodeDoc(vecs)
+		muveraVectors = append(muveraVectors, muveraVec)
+	}
+	h.cache.Drop()
+	h.cache = cache.NewShardedFloat32LockCache(h.getMuveraVectorForID, h.MultiVectorForIDThunk, 1e12, 1, h.logger,
+		true, cache.DefaultDeletionInterval, h.allocChecker)
+	h.vectorForID = h.cache.Get
+	h.multiVectorForID = h.cache.MultiGet
+	h.cache.Grow(uint64(h.nodes.Len()))
+	compressionhelpers.Concurrently(h.logger, uint64(len(muveraVectors)),
+		func(index uint64) {
+			if muveraVectors[index] == nil {
+				return
+			}
+			h.cache.Preload(docIDs[index], muveraVectors[index])
+		})
+	h.muvera.Store(true)
+	return nil
+}*/
 
 // TODO: use this for incoming replication
 // func (h *hnsw) insertFromExternal(nodeId, targetLevel int, neighborsAtLevel map[int][]uint32) {
@@ -589,7 +670,6 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 		return 0, fmt.Errorf(
 			"got a nil or zero-length vector as search vector")
 	}
-
 	return h.distancerProvider.SingleDist(vecA, vecB)
 }
 
@@ -688,7 +768,7 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
 }
 
 func (h *hnsw) ContainsDoc(docID uint64) bool {
-	if h.Multivector() {
+	if h.Multivector() && !h.muvera.Load() {
 		h.RLock()
 		vecIds, exists := h.docIDVectors[docID]
 		h.RUnlock()
@@ -705,7 +785,7 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 }
 
 func (h *hnsw) Iterate(fn func(docID uint64) bool) {
-	if h.Multivector() {
+	if h.Multivector() && !h.muvera.Load() {
 		h.iterateMulti(fn)
 		return
 	}
