@@ -13,6 +13,7 @@ package rest
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -326,6 +327,11 @@ func (s *schemaHandlers) getTenant(
 			return schema.NewTenantsGetOneUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
+	}
+	if tenant == nil {
+		s.metricRequestsTotal.logUserError(params.ClassName)
+		return schema.NewTenantsGetOneUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("tenant '%s' not found when it should have been", params.TenantName)))
 	}
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewTenantsGetOneOK().WithPayload(tenant)
