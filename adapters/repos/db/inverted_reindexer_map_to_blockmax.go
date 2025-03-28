@@ -52,6 +52,7 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 	}
 
 	return &ShardReindexTask_MapToBlockmax{
+		name:                 name,
 		logger:               logger,
 		newReindexTracker:    newReindexTracker,
 		keyParser:            keyParser,
@@ -158,7 +159,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 	}
 
 	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("context check (1): %w", err)
+		err = fmt.Errorf("context check (1): %w / %w", err, context.Cause(ctx))
 		return
 	}
 
@@ -174,7 +175,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 	}
 
 	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("context check (2): %w", err)
+		err = fmt.Errorf("context check (2): %w / %w", err, context.Cause(ctx))
 		return
 	}
 
@@ -209,7 +210,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 	}
 
 	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("context check (3): %w", err)
+		err = fmt.Errorf("context check (3): %w / %w", err, context.Cause(ctx))
 		return
 	}
 
@@ -378,7 +379,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	}).Debug("reindexing")
 
 	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("context check (1): %w", err)
+		err = fmt.Errorf("context check (1): %w / %w", err, context.Cause(ctx))
 		return zerotime, err
 	}
 
@@ -388,7 +389,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	}
 
 	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("context check (2): %w", err)
+		err = fmt.Errorf("context check (2): %w / %w", err, context.Cause(ctx))
 		return zerotime, err
 	}
 
@@ -427,7 +428,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 			return zerotime, err
 		} else if err = ctx.Err(); err != nil {
 			breakCh <- true
-			err = fmt.Errorf("context check (loop): %w", err)
+			err = fmt.Errorf("context check (loop): %w / %w", err, context.Cause(ctx))
 			return zerotime, err
 		} else {
 			if len(md.props) > 0 {
@@ -438,7 +439,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 							pair := shard.pairPropertyWithFrequency(md.docID, item.TermFrequency, propLen)
 							if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
 								breakCh <- true
-								err = fmt.Errorf("adding object %q prop %q: %w", md.key.String(), invprop.Name, err)
+								err = fmt.Errorf("adding object '%s' prop '%s': %w", md.key.String(), invprop.Name, err)
 								return zerotime, err
 							}
 						}
@@ -493,7 +494,7 @@ func (t *ShardReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ctx contex
 			for {
 				propSegmentPathsToMove, needsRecover, err := t.getSegmentPathsToMove(reindexBucketPath, ingestBucketPath)
 				if err != nil {
-					return fmt.Errorf("buckets %q & %q: %w", reindexBucketName, ingestBucketName, err)
+					return fmt.Errorf("buckets '%s' & '%s': %w", reindexBucketName, ingestBucketName, err)
 				}
 
 				if needsRecover {
@@ -619,7 +620,7 @@ func (t *ShardReindexTask_MapToBlockmax) swapIngestAndMapBuckets(ctx context.Con
 					return err
 				}
 				if err := rt.markSwappedProp(propName); err != nil {
-					return fmt.Errorf("marking reindex swapped for %q: %w", propName, err)
+					return fmt.Errorf("marking reindex swapped for '%s': %w", propName, err)
 				}
 				return nil
 			})
@@ -669,7 +670,7 @@ func (t *ShardReindexTask_MapToBlockmax) unswapIngestAndMapBuckets(ctx context.C
 					return err
 				}
 				if err := rt.unmarkSwappedProp(propName); err != nil {
-					return fmt.Errorf("unmarking reindex swapped for %q: %w", propName, err)
+					return fmt.Errorf("unmarking reindex swapped for '%s': %w", propName, err)
 				}
 				return nil
 			})
@@ -774,11 +775,11 @@ func (t *ShardReindexTask_MapToBlockmax) recoverReindexBucket(ctx context.Contex
 
 	logger.WithField("bucket", bucketName).Debug("recover wals, loading bucket")
 	if err := store.CreateOrLoadBucket(ctx, bucketName, bucketOpts...); err != nil {
-		return fmt.Errorf("bucket %q: %w", bucketName, err)
+		return fmt.Errorf("bucket '%s': %w", bucketName, err)
 	}
 	logger.WithField("bucket", bucketName).Debug("recover wals, shutting down bucket")
 	if err := store.ShutdownBucket(ctx, bucketName); err != nil {
-		return fmt.Errorf("bucket %q: %w", bucketName, err)
+		return fmt.Errorf("bucket '%s': %w", bucketName, err)
 	}
 	logger.WithField("bucket", bucketName).Debug("recover wals, shut down bucket")
 
@@ -850,7 +851,7 @@ func (t *ShardReindexTask_MapToBlockmax) duplicateToBuckets(shard *Shard, props 
 		for _, item := range property.Items {
 			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 			if err := s.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
-				return fmt.Errorf("adding prop %q to bucket %q: %w", item.Data, bucketName, err)
+				return fmt.Errorf("adding prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
 			}
 		}
 		return nil
@@ -867,7 +868,7 @@ func (t *ShardReindexTask_MapToBlockmax) duplicateToBuckets(shard *Shard, props 
 		bucket := s.store.Bucket(bucketName)
 		for _, item := range property.Items {
 			if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
-				return fmt.Errorf("deleting prop %q from bucket %q: %w", item.Data, bucketName, err)
+				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)
 			}
 		}
 		return nil
@@ -1024,14 +1025,14 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 			ik := keyParse(k)
 			obj, err := storobj.FromBinaryOptional(v, addProps, propExtraction)
 			if err != nil {
-				mdCh <- &migrationData{err: fmt.Errorf("unmarshalling object %q: %w", ik.String(), err)}
+				mdCh <- &migrationData{err: fmt.Errorf("unmarshalling object '%s': %w", ik.String(), err)}
 				break
 			}
 
 			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
 				props, _, err := shard.AnalyzeObject(obj)
 				if err != nil {
-					mdCh <- &migrationData{err: fmt.Errorf("analyzing object %q: %w", ik.String(), err)}
+					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
 					break
 				}
 

@@ -583,7 +583,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	var reindexCtx context.Context
-	reindexCtx, appState.ReindexCtxCancel = context.WithCancel(context.Background())
+	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(context.Background())
 	reindexer := configureReindexer(appState, reindexCtx)
 	repo.WithReindexer(reindexer)
 
@@ -823,7 +823,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// stop reindexing on server shutdown
-		appState.ReindexCtxCancel()
+		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
