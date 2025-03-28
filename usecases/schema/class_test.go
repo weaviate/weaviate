@@ -86,8 +86,8 @@ func Test_AddClass(t *testing.T) {
 		fakeSchemaManager.AssertExpectations(t)
 	})
 
-	t.Run("happy path, mixed vectors", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	t.Run("mixed vector schema creation", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
 
 		class := &models.Class{
 			Class: "NewClass",
@@ -105,13 +105,9 @@ func Test_AddClass(t *testing.T) {
 				},
 			},
 		}
-		fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 
 		_, _, err := handler.AddClass(ctx, nil, class)
-		require.NoError(t, err)
-
-		fakeSchemaManager.AssertExpectations(t)
+		require.ErrorContains(t, err, "creating a class with both a class level vector index and named vectors is forbidden")
 	})
 
 	t.Run("with empty class name", func(t *testing.T) {
@@ -1751,19 +1747,25 @@ func Test_UpdateClass(t *testing.T) {
 					Class:           "InitialName",
 					Vectorizer:      "text2vec-contextionary",
 					VectorIndexType: hnswT,
-					VectorConfig: map[string]models.VectorConfig{
-						"initial": {
-							VectorIndexType: hnswT,
-							Vectorizer: map[string]interface{}{
-								"text2vec-contextionary": map[string]interface{}{},
-							},
-						},
-					},
 				},
 				update: &models.Class{
 					Class: "InitialName",
+				},
+				expectedError: fmt.Errorf("vectorizer is immutable"),
+			},
+			{
+				name: "adding named vector with reserved named on a collection with legacy index",
+				initial: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+				},
+				update: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
 					VectorConfig: map[string]models.VectorConfig{
-						"initial": {
+						schema.DefaultNamedVectorName: {
 							VectorIndexType: hnswT,
 							Vectorizer: map[string]interface{}{
 								"text2vec-contextionary": map[string]interface{}{},
@@ -1771,7 +1773,7 @@ func Test_UpdateClass(t *testing.T) {
 						},
 					},
 				},
-				expectedError: fmt.Errorf("vectorizer is immutable"),
+				expectedError: fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", schema.DefaultNamedVectorName),
 			},
 		}
 
@@ -2202,23 +2204,7 @@ func TestExperimentBackwardsCompatibleNamedVectorsGuard(t *testing.T) {
 		ctx                    = context.Background()
 		handler, schemaManager = newTestHandler(t, &fakeDB{})
 	)
-	handler.experimentBackwardsCompatibleNamedVectorsEnabled = false
 	handler.parser.experimentBackwardsCompatibleNamedVectorsEnabled = false
-
-	t.Run("adding class with mixed vectors", func(t *testing.T) {
-		_, _, err := handler.AddClass(ctx, nil, &models.Class{
-			Class:           className,
-			VectorIndexType: "hnsw",
-			Vectorizer:      "text2vec-contextionary",
-			VectorConfig: map[string]models.VectorConfig{
-				"vec1": {
-					Vectorizer:      map[string]any{"text2vec-contextionary": map[string]any{}},
-					VectorIndexType: hnswT,
-				},
-			},
-		})
-		require.ErrorContains(t, err, "class TestClass has configuration for both class level and named vectors which is currently not supported.")
-	})
 
 	t.Run("updating class with named vectors", func(t *testing.T) {
 		store := NewFakeStore()

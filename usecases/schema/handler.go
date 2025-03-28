@@ -134,8 +134,6 @@ type Handler struct {
 	scaleOut                scaleOut
 	parser                  Parser
 	classGetter             *ClassGetter
-
-	experimentBackwardsCompatibleNamedVectorsEnabled bool
 }
 
 // NewHandler creates a new handler
@@ -169,8 +167,6 @@ func NewHandler(
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
 		classGetter:             classGetter,
-
-		experimentBackwardsCompatibleNamedVectorsEnabled: experimentBackwardsCompatibleNamedVectorsEnabled(),
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)

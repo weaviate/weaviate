@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic_user
+package db_users
 
 import (
 	"errors"
@@ -35,15 +35,15 @@ import (
 
 type dynUserHandler struct {
 	authorizer           authorization.Authorizer
-	dynamicUser          DynamicUserAndRolesGetter
+	dbUsers              DbUserAndRolesGetter
 	staticApiKeysConfigs config.StaticAPIKey
 	rbacConfig           rbacconf.Config
 	logger               logrus.FieldLogger
-	dynUserEnabled       bool
+	dbUserEnabled        bool
 }
 
-type DynamicUserAndRolesGetter interface {
-	apikey.DynamicUser
+type DbUserAndRolesGetter interface {
+	apikey.DBUsers
 	GetRolesForUser(user string, userTypes models.UserTypeInput) (map[string][]authorization.Policy, error)
 	RevokeRolesForUser(userName string, roles ...string) error
 }
@@ -55,13 +55,13 @@ const (
 
 var validateUserNameRegex = regexp.MustCompile(`^` + userNameRegexCore + `$`)
 
-func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesGetter, authorizer authorization.Authorizer, authConfig config.Authentication, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
+func SetupHandlers(api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, authorizer authorization.Authorizer, authConfig config.Authentication, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:           authorizer,
-		dynamicUser:          dynamicUser,
+		dbUsers:              dbUsers,
 		staticApiKeysConfigs: authConfig.APIKey,
-		dynUserEnabled:       authConfig.DynamicUsers.Enabled,
+		dbUserEnabled:        authConfig.DBUsers.Enabled,
 		rbacConfig:           rbacConfig,
 		logger:               logger,
 	}
@@ -78,14 +78,14 @@ func SetupHandlers(api *operations.WeaviateAPI, dynamicUser DynamicUserAndRolesG
 func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
 	isRootUser := h.isRequestFromRootUser(principal)
 
-	allDynamicUsers, err := h.dynamicUser.GetUsers()
+	allDbUsers, err := h.dbUsers.GetUsers()
 	if err != nil {
 		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	allUsers := make([]*apikey.User, 0, len(allDynamicUsers))
-	for _, dynamicUser := range allDynamicUsers {
-		allUsers = append(allUsers, dynamicUser)
+	allUsers := make([]*apikey.User, 0, len(allDbUsers))
+	for _, dbUser := range allDbUsers {
+		allUsers = append(allUsers, dbUser)
 	}
 
 	resourceFilter := filter.New[*apikey.User](h.authorizer, h.rbacConfig)
@@ -100,8 +100,8 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 	)
 
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
-	for _, dynamicUser := range filteredUsers {
-		response, err = h.addToListAllResponse(response, dynamicUser.Id, string(models.UserTypeOutputDbDynamic), dynamicUser.Active)
+	for _, dbUser := range filteredUsers {
+		response, err = h.addToListAllResponse(response, dbUser.Id, string(models.UserTypeOutputDbUser), dbUser.Active)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -109,7 +109,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 
 	if isRootUser {
 		for _, staticUser := range h.staticApiKeysConfigs.Users {
-			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbStatic), true)
+			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true)
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 			}
@@ -120,7 +120,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 }
 
 func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool) ([]*models.DBUserInfo, error) {
-	roles, err := h.dynamicUser.GetRolesForUser(id, models.UserTypeInputDb)
+	roles, err := h.dbUsers.GetRolesForUser(id, models.UserTypeInputDb)
 	if err != nil {
 		return response, err
 	}
@@ -148,19 +148,19 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 
 	active := true
 	if !isStaticUser {
-		existingDynamicUsers, err := h.dynamicUser.GetUsers(params.UserID)
+		existingDbUsers, err := h.dbUsers.GetUsers(params.UserID)
 		if err != nil {
 			return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
 		}
 
-		if len(existingDynamicUsers) == 0 {
+		if len(existingDbUsers) == 0 {
 			return users.NewGetUserInfoNotFound()
 		}
-		user := existingDynamicUsers[params.UserID]
+		user := existingDbUsers[params.UserID]
 		active = user.Active
 	}
 
-	existedRoles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypeInputDb)
+	existedRoles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
 	if err != nil {
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("get roles: %w", err)))
 	}
@@ -170,9 +170,9 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		roles = append(roles, roleName)
 	}
 
-	userType := string(models.UserTypeOutputDbDynamic)
+	userType := string(models.UserTypeOutputDbUser)
 	if isStaticUser {
-		userType = string(models.UserTypeOutputDbStatic)
+		userType = string(models.UserTypeOutputDbEnvUser)
 	}
 
 	return users.NewGetUserInfoOK().WithPayload(&models.DBUserInfo{UserID: &params.UserID, Roles: roles, DbUserType: &userType, Active: &active})
@@ -187,8 +187,8 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if !h.dynUserEnabled {
-		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("dynamic user management is not enabled")))
+	if !h.dbUserEnabled {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
 	if h.staticUserExists(params.UserID) {
@@ -198,7 +198,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot delete root user")))
 	}
 
-	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
+	existingUser, err := h.dbUsers.GetUsers(params.UserID)
 	if err != nil {
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
 	}
@@ -219,7 +219,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 
-		exists, err := h.dynamicUser.CheckUserIdentifierExists(userIdentifier)
+		exists, err := h.dbUsers.CheckUserIdentifierExists(userIdentifier)
 		if err != nil {
 			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -234,7 +234,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		count++
 	}
 
-	if err := h.dynamicUser.CreateUser(params.UserID, hash, userIdentifier); err != nil {
+	if err := h.dbUsers.CreateUser(params.UserID, hash, userIdentifier); err != nil {
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
 	}
 
@@ -246,15 +246,15 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if !h.dynUserEnabled {
-		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("dynamic user management is not enabled")))
+	if !h.dbUserEnabled {
+		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
 	if h.staticUserExists(params.UserID) {
 		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
 	}
 
-	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
+	existingUser, err := h.dbUsers.GetUsers(params.UserID)
 	if err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
 	}
@@ -268,7 +268,7 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("generating key: %w", err)))
 	}
 
-	if err := h.dynamicUser.RotateKey(params.UserID, hash); err != nil {
+	if err := h.dbUsers.RotateKey(params.UserID, hash); err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("rotate key: %w", err)))
 	}
 
@@ -280,8 +280,8 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if !h.dynUserEnabled {
-		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("dynamic user management is not enabled")))
+	if !h.dbUserEnabled {
+		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
 	if h.staticUserExists(params.UserID) {
@@ -291,14 +291,14 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 	if h.isRootUser(params.UserID) {
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot delete root user")))
 	}
-	existingUsers, err := h.dynamicUser.GetUsers(params.UserID)
+	existingUsers, err := h.dbUsers.GetUsers(params.UserID)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 	if len(existingUsers) == 0 {
 		return users.NewDeleteUserNotFound()
 	}
-	roles, err := h.dynamicUser.GetRolesForUser(params.UserID, models.UserTypeInputDb)
+	roles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -307,12 +307,12 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		for name := range roles {
 			roleNames = append(roleNames, name)
 		}
-		if err := h.dynamicUser.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, models.UserTypeInputDb), roleNames...); err != nil {
+		if err := h.dbUsers.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, models.UserTypeInputDb), roleNames...); err != nil {
 			return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 	}
 
-	if err := h.dynamicUser.DeleteUser(params.UserID); err != nil {
+	if err := h.dbUsers.DeleteUser(params.UserID); err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 	return users.NewDeleteUserNoContent()
@@ -323,8 +323,8 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		return users.NewDeactivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if !h.dynUserEnabled {
-		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("dynamic user management is not enabled")))
+	if !h.dbUserEnabled {
+		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
 	if params.UserID == principal.Username {
@@ -339,7 +339,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot deactivate root user")))
 	}
 
-	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
+	existingUser, err := h.dbUsers.GetUsers(params.UserID)
 	if err != nil {
 		return users.NewDeactivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
 	}
@@ -357,7 +357,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		revokeKey = *params.Body.RevokeKey
 	}
 
-	if err := h.dynamicUser.DeactivateUser(params.UserID, revokeKey); err != nil {
+	if err := h.dbUsers.DeactivateUser(params.UserID, revokeKey); err != nil {
 		return users.NewDeactivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("deactivate user: %w", err)))
 	}
 
@@ -369,8 +369,8 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 		return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if !h.dynUserEnabled {
-		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("dynamic user management is not enabled")))
+	if !h.dbUserEnabled {
+		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
 	if h.staticUserExists(params.UserID) {
@@ -381,7 +381,7 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot activate root user")))
 	}
 
-	existingUser, err := h.dynamicUser.GetUsers(params.UserID)
+	existingUser, err := h.dbUsers.GetUsers(params.UserID)
 	if err != nil {
 		return users.NewActivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
 	}
@@ -394,7 +394,7 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 		return users.NewActivateUserConflict()
 	}
 
-	if err := h.dynamicUser.ActivateUser(params.UserID); err != nil {
+	if err := h.dbUsers.ActivateUser(params.UserID); err != nil {
 		return users.NewActivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("activate user: %w", err)))
 	}
 

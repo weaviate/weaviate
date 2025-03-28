@@ -143,6 +143,12 @@ func TestRbacWithOIDC(t *testing.T) {
 			// assign role to non-existing user => no error (if OIDC is enabled)
 			helper.AssignRoleToUserOIDC(t, tokenAdmin, createSchemaRoleName, "i-dont-exist")
 
+			// only oidc root user, as api-keys are either not enabled or do not have a root user
+			users := helper.GetUserForRolesBoth(t, "root", tokenAdmin)
+			for _, user := range users {
+				require.Equal(t, *user.UserType, models.UserTypeOutputOidc)
+			}
+
 			if test.nameCollision {
 				// api key user does NOT have the rights, even though it has the same name
 				err = createClass(t, &models.Class{Class: "testingApiKey"}, helper.CreateAuth(customKey))

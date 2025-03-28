@@ -25,7 +25,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -55,7 +54,7 @@ func (h *hnsw) init(cfg Config) error {
 	// otherwise on server restart, prometheus reports
 	// a vector_index_size of 0 until more vectors are
 	// added.
-	h.metrics.SetSize(h.nodes.Len())
+	h.metrics.SetSize(len(h.nodes))
 
 	return nil
 }
@@ -126,7 +125,10 @@ func (h *hnsw) restoreFromDisk() error {
 	}
 
 	h.Lock()
+	h.shardedNodeLocks.LockAll()
 	h.nodes = state.Nodes
+	h.shardedNodeLocks.UnlockAll()
+
 	h.currentMaximumLayer = int(state.Level)
 	h.entryPointID = state.Entrypoint
 	h.Unlock()
@@ -134,6 +136,12 @@ func (h *hnsw) restoreFromDisk() error {
 	h.tombstoneLock.Lock()
 	h.tombstones = state.Tombstones
 	h.tombstoneLock.Unlock()
+
+	if h.multivector.Load() {
+		if err := h.restoreDocMappings(); err != nil {
+			return errors.Wrapf(err, "restore doc mappings %q", h.id)
+		}
+	}
 
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
@@ -208,22 +216,29 @@ func (h *hnsw) restoreFromDisk() error {
 			return errors.New("unsupported type while loading compression data")
 		}
 		// make sure the compressed cache fits the current size
-		h.compressor.GrowCache(uint64(h.nodes.Len()))
+		h.compressor.GrowCache(uint64(len(h.nodes)))
 	} else if !h.compressed.Load() {
 		// make sure the cache fits the current size
-		h.cache.Grow(uint64(h.nodes.Len()))
+		h.cache.Grow(uint64(len(h.nodes)))
 
-		if h.nodes.Len() > 0 {
+		if h.multivector.Load() {
+			h.populateKeys()
+		}
+		if len(h.nodes) > 0 {
 			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
 				h.dims = int32(len(vec))
 			}
 		}
 	}
+	if h.compressed.Load() && h.multivector.Load() {
+		h.compressor.GrowCache(uint64(len(h.nodes)))
+		h.populateKeys()
+	}
 
 	// make sure the visited list pool fits the current size
 	h.pools.visitedLists.Destroy()
 	h.pools.visitedLists = nil
-	h.pools.visitedLists = visited.NewPool(1, h.nodes.Len()+512, h.visitedListPoolMaxSize)
+	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+512, h.visitedListPoolMaxSize)
 
 	return nil
 }
@@ -234,8 +249,11 @@ func (h *hnsw) restoreDocMappings() error {
 	maxNodeID := uint64(0)
 	maxDocID := uint64(0)
 	buf := make([]byte, 8)
-	err := h.nodes.IterE(func(id uint64, node *graph.Vertex) error {
-		binary.BigEndian.PutUint64(buf, node.ID())
+	for _, node := range h.nodes {
+		if node == nil {
+			continue
+		}
+		binary.BigEndian.PutUint64(buf, node.id)
 		docIDBytes, err := h.store.Bucket(h.id + "_mv_mappings").Get(buf)
 		if err != nil {
 			return errors.Wrap(err, fmt.Sprintf("failed to get %s_mv_mappings from the bucket", h.id))
@@ -245,31 +263,34 @@ func (h *hnsw) restoreDocMappings() error {
 			relativeID = 0
 			prevDocID = docID
 		}
-		if !h.compressed.Load() {
-			h.cache.SetKeys(node.ID(), docID, relativeID)
-		}
 		h.Lock()
-		h.docIDVectors[docID] = append(h.docIDVectors[docID], node.ID())
+		h.docIDVectors[docID] = append(h.docIDVectors[docID], node.id)
 		h.Unlock()
 		relativeID++
-		if node.ID() > maxNodeID {
-			maxNodeID = node.ID()
+		if node.id > maxNodeID {
+			maxNodeID = node.id
 		}
 		if docID > maxDocID {
 			maxDocID = docID
 		}
-
-		return nil
-	})
-	if err != nil {
-		return errors.Wrap(err, "failed to iterate over nodes")
 	}
-
 	h.Lock()
 	h.vecIDcounter = maxNodeID + 1
 	h.maxDocID = maxDocID
 	h.Unlock()
 	return nil
+}
+
+func (h *hnsw) populateKeys() {
+	for docID, nodeIDs := range h.docIDVectors {
+		for relativeID, nodeID := range nodeIDs {
+			if h.compressed.Load() {
+				h.compressor.SetKeys(nodeID, docID, uint64(relativeID))
+			} else {
+				h.cache.SetKeys(nodeID, docID, uint64(relativeID))
+			}
+		}
+	}
 }
 
 func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {

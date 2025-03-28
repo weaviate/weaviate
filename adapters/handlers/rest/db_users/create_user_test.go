@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic_user
+package db_users
 
 import (
 	"errors"
@@ -22,7 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/dynamic_user/mocks"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users/mocks"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -48,8 +48,8 @@ func TestCreateUnprocessableEntity(t *testing.T) {
 			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 
 			h := dynUserHandler{
-				dynamicUser: dynUser,
-				authorizer:  authorizer, dynUserEnabled: true,
+				dbUsers:    dynUser,
+				authorizer: authorizer, dbUserEnabled: true,
 			}
 
 			res := h.createUser(users.CreateUserParams{UserID: tt.userId}, principal)
@@ -90,8 +90,8 @@ func TestCreateInternalServerError(t *testing.T) {
 			}
 
 			h := dynUserHandler{
-				dynamicUser: dynUser,
-				authorizer:  authorizer, dynUserEnabled: true,
+				dbUsers:    dynUser,
+				authorizer: authorizer, dbUserEnabled: true,
 			}
 
 			res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
@@ -123,9 +123,9 @@ func TestCreateConflict(t *testing.T) {
 			}
 
 			h := dynUserHandler{
-				dynamicUser:          dynUser,
+				dbUsers:              dynUser,
 				authorizer:           authorizer,
-				staticApiKeysConfigs: tt.rbacConf, dynUserEnabled: true,
+				staticApiKeysConfigs: tt.rbacConf, dbUserEnabled: true,
 			}
 
 			res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
@@ -148,8 +148,8 @@ func TestCreateSuccess(t *testing.T) {
 	dynUser.On("CreateUser", user, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer, dynUserEnabled: true,
+		dbUsers:    dynUser,
+		authorizer: authorizer, dbUserEnabled: true,
 	}
 
 	res := h.createUser(users.CreateUserParams{UserID: user}, principal)
@@ -166,8 +166,8 @@ func TestCreateForbidden(t *testing.T) {
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer, dynUserEnabled: true,
+		dbUsers:    dynUser,
+		authorizer: authorizer, dbUserEnabled: true,
 	}
 
 	res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
@@ -183,9 +183,9 @@ func TestCreateUnprocessableEntityCreatingRootUser(t *testing.T) {
 	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
 
 	h := dynUserHandler{
-		dynamicUser: dynUser,
-		authorizer:  authorizer,
-		rbacConfig:  rbacconf.Config{RootUsers: []string{"user-root"}}, dynUserEnabled: true,
+		dbUsers:    dynUser,
+		authorizer: authorizer,
+		rbacConfig: rbacconf.Config{RootUsers: []string{"user-root"}}, dbUserEnabled: true,
 	}
 
 	res := h.createUser(users.CreateUserParams{UserID: "user-root"}, principal)
@@ -199,9 +199,9 @@ func TestCreateNoDynamic(t *testing.T) {
 	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
-		dynamicUser:    mocks.NewDynamicUserAndRolesGetter(t),
-		authorizer:     authorizer,
-		dynUserEnabled: false,
+		dbUsers:       mocks.NewDynamicUserAndRolesGetter(t),
+		authorizer:    authorizer,
+		dbUserEnabled: false,
 	}
 
 	res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)

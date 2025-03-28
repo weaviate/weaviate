@@ -315,7 +315,7 @@ func TestUserEndpoint(t *testing.T) {
 	adminUser := "admin-user"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDynamicUsers().
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
 		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
 	require.Nil(t, err)
 
@@ -508,7 +508,7 @@ func TestListAllUsers(t *testing.T) {
 	compose, err := docker.New().WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).WithUserApiKey(viewerUser, viewerKey).WithUserApiKey("editor-user", "editor-key").
 		WithRBAC().WithRbacAdmins(adminUser).
-		WithDynamicUsers().Start(ctx)
+		WithDbUsers().Start(ctx)
 	require.Nil(t, err)
 
 	defer func() {
@@ -543,7 +543,7 @@ func TestListAllUsers(t *testing.T) {
 		for _, user := range allUsersAdmin {
 			name := *user.UserID
 
-			if *user.DbUserType == models.DBUserInfoDbUserTypeDbStatic {
+			if *user.DbUserType == models.DBUserInfoDbUserTypeDbEnvUser {
 				continue
 			}
 
@@ -585,7 +585,7 @@ func TestListAllUsers(t *testing.T) {
 		for _, user := range allUsers {
 			name := *user.UserID
 
-			if *user.DbUserType == models.DBUserInfoDbUserTypeDbStatic {
+			if *user.DbUserType == models.DBUserInfoDbUserTypeDbEnvUser {
 				continue
 			}
 
