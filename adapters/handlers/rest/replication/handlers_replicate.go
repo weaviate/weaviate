@@ -14,6 +14,7 @@ package replication
 import (
 	"errors"
 	"fmt"
+
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
