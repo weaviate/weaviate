@@ -698,14 +698,13 @@ func init() {
         ]
       }
     },
-    "/authz/roles/{id}/users": {
+    "/authz/roles/{id}/user-assignments": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
-        "operationId": "getUsersForRoleDeprecated",
-        "deprecated": true,
+        "summary": "get users assigned to role",
+        "operationId": "getUsersForRole",
         "parameters": [
           {
             "type": "string",
@@ -721,7 +720,19 @@ func init() {
             "schema": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "object",
+                "required": [
+                  "name",
+                  "userType"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string"
+                  },
+                  "userType": {
+                    "$ref": "#/definitions/UserTypeOutput"
+                  }
+                }
               }
             }
           },
@@ -755,30 +766,19 @@ func init() {
         ]
       }
     },
-    "/authz/roles/{id}/users/{userType}": {
+    "/authz/roles/{id}/users": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get users or a keys assigned to role",
-        "operationId": "getUsersForRole",
+        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getUsersForRoleDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "description": "role name",
             "name": "id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "enum": [
-              "oidc",
-              "db"
-            ],
-            "type": "string",
-            "description": "The type of user",
-            "name": "userType",
             "in": "path",
             "required": true
           }
@@ -853,7 +853,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserType"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -926,7 +926,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserType"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -3449,6 +3449,60 @@ func init() {
         ]
       }
     },
+    "/replication/replicate": {
+      "post": {
+        "tags": [
+          "replication"
+        ],
+        "summary": "Start the async operation to replicate a replica between two nodes",
+        "operationId": "replicate",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication operation registered successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate"
+        ]
+      }
+    },
     "/schema": {
       "get": {
         "description": "Fetch an array of all collection definitions from the schema.",
@@ -4239,7 +4293,7 @@ func init() {
         "tags": [
           "users"
         ],
-        "summary": "list all users",
+        "summary": "list all db users",
         "operationId": "listAllUsers",
         "responses": {
           "200": {
@@ -4247,7 +4301,7 @@ func init() {
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/UserInfo"
+                "$ref": "#/definitions/DBUserInfo"
               }
             }
           },
@@ -4292,7 +4346,7 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/DBUserInfo"
             }
           },
           "401": {
@@ -5497,6 +5551,40 @@ func init() {
         }
       }
     },
+    "DBUserInfo": {
+      "type": "object",
+      "required": [
+        "userId",
+        "dbUserType",
+        "roles",
+        "active"
+      ],
+      "properties": {
+        "active": {
+          "description": "activity status of the returned user",
+          "type": "boolean"
+        },
+        "dbUserType": {
+          "description": "type of the returned user",
+          "type": "string",
+          "enum": [
+            "db_dynamic",
+            "db_static"
+          ]
+        },
+        "roles": {
+          "description": "The role names associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "userId": {
+          "description": "The user id of the given user",
+          "type": "string"
+        }
+      }
+    },
     "Deprecation": {
       "type": "object",
       "properties": {
@@ -6342,7 +6430,7 @@ func init() {
           }
         },
         "userType": {
-          "$ref": "#/definitions/UserType"
+          "$ref": "#/definitions/UserTypeInput"
         },
         "username": {
           "description": "The username that was extracted either from the authentication information",
@@ -6561,6 +6649,80 @@ func init() {
         "factor": {
           "description": "Number of times a class is replicated (default: 1).",
           "type": "integer"
+        }
+      }
+    },
+    "ReplicationDeleteReplicaRequest": {
+      "description": "Request body to delete a replica of given shard of a given collection",
+      "type": "object",
+      "required": [
+        "nodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the replica to be delete",
+          "type": "string"
+        },
+        "nodeName": {
+          "description": "The node containing the replica to be deleted",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be deleted",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationDisableReplicaRequest": {
+      "description": "Request body to disable (soft-delete) a replica of given shard of a given collection",
+      "type": "object",
+      "required": [
+        "nodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the replica to be disabled",
+          "type": "string"
+        },
+        "nodeName": {
+          "description": "The node containing the replica to be disabled",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be disabled",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateReplicaRequest": {
+      "description": "Request body to add a replica of given shard of a given collection",
+      "type": "object",
+      "required": [
+        "sourceNodeName",
+        "destinationNodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the shard",
+          "type": "string"
+        },
+        "destinationNodeName": {
+          "description": "The node to add a copy of the replica on",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be copied",
+          "type": "string"
+        },
+        "sourceNodeName": {
+          "description": "The node containing the replica",
+          "type": "string"
         }
       }
     },
@@ -6874,40 +7036,6 @@ func init() {
         }
       }
     },
-    "UserInfo": {
-      "type": "object",
-      "required": [
-        "userId",
-        "dbUserType",
-        "roles",
-        "active"
-      ],
-      "properties": {
-        "active": {
-          "description": "activity status of the returned user",
-          "type": "boolean"
-        },
-        "dbUserType": {
-          "description": "type of the returned user",
-          "type": "string",
-          "enum": [
-            "dynamic",
-            "static"
-          ]
-        },
-        "roles": {
-          "description": "The role names associated to the user",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "userId": {
-          "description": "The user id of the given user",
-          "type": "string"
-        }
-      }
-    },
     "UserOwnInfo": {
       "type": "object",
       "required": [
@@ -6935,11 +7063,20 @@ func init() {
         }
       }
     },
-    "UserType": {
+    "UserTypeInput": {
       "description": "the type of user",
       "type": "string",
       "enum": [
         "db",
+        "oidc"
+      ]
+    },
+    "UserTypeOutput": {
+      "description": "the type of user",
+      "type": "string",
+      "enum": [
+        "db_static",
+        "db_dynamic",
         "oidc"
       ]
     },
@@ -7941,14 +8078,13 @@ func init() {
         ]
       }
     },
-    "/authz/roles/{id}/users": {
+    "/authz/roles/{id}/user-assignments": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
-        "operationId": "getUsersForRoleDeprecated",
-        "deprecated": true,
+        "summary": "get users assigned to role",
+        "operationId": "getUsersForRole",
         "parameters": [
           {
             "type": "string",
@@ -7964,7 +8100,7 @@ func init() {
             "schema": {
               "type": "array",
               "items": {
-                "type": "string"
+                "$ref": "#/definitions/GetUsersForRoleOKBodyItems0"
               }
             }
           },
@@ -7998,30 +8134,19 @@ func init() {
         ]
       }
     },
-    "/authz/roles/{id}/users/{userType}": {
+    "/authz/roles/{id}/users": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get users or a keys assigned to role",
-        "operationId": "getUsersForRole",
+        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getUsersForRoleDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "description": "role name",
             "name": "id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "enum": [
-              "oidc",
-              "db"
-            ],
-            "type": "string",
-            "description": "The type of user",
-            "name": "userType",
             "in": "path",
             "required": true
           }
@@ -8096,7 +8221,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserType"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -8169,7 +8294,7 @@ func init() {
                   }
                 },
                 "userType": {
-                  "$ref": "#/definitions/UserType"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -10814,6 +10939,60 @@ func init() {
         ]
       }
     },
+    "/replication/replicate": {
+      "post": {
+        "tags": [
+          "replication"
+        ],
+        "summary": "Start the async operation to replicate a replica between two nodes",
+        "operationId": "replicate",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication operation registered successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate"
+        ]
+      }
+    },
     "/schema": {
       "get": {
         "description": "Fetch an array of all collection definitions from the schema.",
@@ -11604,7 +11783,7 @@ func init() {
         "tags": [
           "users"
         ],
-        "summary": "list all users",
+        "summary": "list all db users",
         "operationId": "listAllUsers",
         "responses": {
           "200": {
@@ -11612,7 +11791,7 @@ func init() {
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/UserInfo"
+                "$ref": "#/definitions/DBUserInfo"
               }
             }
           },
@@ -11657,7 +11836,7 @@ func init() {
           "200": {
             "description": "Info about the user",
             "schema": {
-              "$ref": "#/definitions/UserInfo"
+              "$ref": "#/definitions/DBUserInfo"
             }
           },
           "401": {
@@ -13017,6 +13196,40 @@ func init() {
         }
       }
     },
+    "DBUserInfo": {
+      "type": "object",
+      "required": [
+        "userId",
+        "dbUserType",
+        "roles",
+        "active"
+      ],
+      "properties": {
+        "active": {
+          "description": "activity status of the returned user",
+          "type": "boolean"
+        },
+        "dbUserType": {
+          "description": "type of the returned user",
+          "type": "string",
+          "enum": [
+            "db_dynamic",
+            "db_static"
+          ]
+        },
+        "roles": {
+          "description": "The role names associated to the user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "userId": {
+          "description": "The user id of the given user",
+          "type": "string"
+        }
+      }
+    },
     "Deprecation": {
       "type": "object",
       "properties": {
@@ -13106,6 +13319,21 @@ func init() {
           "type": "number",
           "format": "float",
           "x-nullable": true
+        }
+      }
+    },
+    "GetUsersForRoleOKBodyItems0": {
+      "type": "object",
+      "required": [
+        "name",
+        "userType"
+      ],
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "userType": {
+          "$ref": "#/definitions/UserTypeOutput"
         }
       }
     },
@@ -13995,7 +14223,7 @@ func init() {
           }
         },
         "userType": {
-          "$ref": "#/definitions/UserType"
+          "$ref": "#/definitions/UserTypeInput"
         },
         "username": {
           "description": "The username that was extracted either from the authentication information",
@@ -14214,6 +14442,80 @@ func init() {
         "factor": {
           "description": "Number of times a class is replicated (default: 1).",
           "type": "integer"
+        }
+      }
+    },
+    "ReplicationDeleteReplicaRequest": {
+      "description": "Request body to delete a replica of given shard of a given collection",
+      "type": "object",
+      "required": [
+        "nodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the replica to be delete",
+          "type": "string"
+        },
+        "nodeName": {
+          "description": "The node containing the replica to be deleted",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be deleted",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationDisableReplicaRequest": {
+      "description": "Request body to disable (soft-delete) a replica of given shard of a given collection",
+      "type": "object",
+      "required": [
+        "nodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the replica to be disabled",
+          "type": "string"
+        },
+        "nodeName": {
+          "description": "The node containing the replica to be disabled",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be disabled",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateReplicaRequest": {
+      "description": "Request body to add a replica of given shard of a given collection",
+      "type": "object",
+      "required": [
+        "sourceNodeName",
+        "destinationNodeName",
+        "collectionId",
+        "shardId"
+      ],
+      "properties": {
+        "collectionId": {
+          "description": "The collection name holding the shard",
+          "type": "string"
+        },
+        "destinationNodeName": {
+          "description": "The node to add a copy of the replica on",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be copied",
+          "type": "string"
+        },
+        "sourceNodeName": {
+          "description": "The node containing the replica",
+          "type": "string"
         }
       }
     },
@@ -14527,40 +14829,6 @@ func init() {
         }
       }
     },
-    "UserInfo": {
-      "type": "object",
-      "required": [
-        "userId",
-        "dbUserType",
-        "roles",
-        "active"
-      ],
-      "properties": {
-        "active": {
-          "description": "activity status of the returned user",
-          "type": "boolean"
-        },
-        "dbUserType": {
-          "description": "type of the returned user",
-          "type": "string",
-          "enum": [
-            "dynamic",
-            "static"
-          ]
-        },
-        "roles": {
-          "description": "The role names associated to the user",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "userId": {
-          "description": "The user id of the given user",
-          "type": "string"
-        }
-      }
-    },
     "UserOwnInfo": {
       "type": "object",
       "required": [
@@ -14588,11 +14856,20 @@ func init() {
         }
       }
     },
-    "UserType": {
+    "UserTypeInput": {
       "description": "the type of user",
       "type": "string",
       "enum": [
         "db",
+        "oidc"
+      ]
+    },
+    "UserTypeOutput": {
+      "description": "the type of user",
+      "type": "string",
+      "enum": [
+        "db_static",
+        "db_dynamic",
         "oidc"
       ]
     },

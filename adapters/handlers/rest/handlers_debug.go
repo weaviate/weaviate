@@ -22,12 +22,33 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
+
+	// TODO this should be removed before merging, just here for testing until we have the API code
+	http.HandleFunc("/debug/index/copy/files", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sourceNodeName := r.URL.Query().Get("sourceNodeName")
+		collectionName := r.URL.Query().Get("collectionName")
+		shardName := r.URL.Query().Get("shardName")
+
+		if sourceNodeName == "" || collectionName == "" || shardName == "" {
+			http.Error(w, "sourceNodeName, collectionName, and shardName are required", http.StatusBadRequest)
+			return
+		}
+		c := copier.New(appState.DB.GetRemoteIndex(), appState.Cluster, appState.DB.GetConfig().RootPath, appState.DB)
+		err := c.CopyReplica(context.Background(), sourceNodeName, collectionName, shardName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
@@ -395,9 +416,9 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		colName, shardName := parts[0], parts[2]
-		vecIdxID := "main"
+		var targetVector string
 		if len(parts) == 4 {
-			vecIdxID = parts[3]
+			targetVector = parts[3]
 		}
 
 		idx := appState.DB.GetIndex(schema.ClassName(colName))
@@ -420,15 +441,8 @@ func setupDebugHandlers(appState *state.State) {
 		}
 		defer release()
 
-		// Get the vector index
-		var vidx db.VectorIndex
-		if vecIdxID == "main" {
-			vidx = shard.VectorIndex()
-		} else {
-			vidx = shard.VectorIndexes()[vecIdxID]
-		}
-
-		if vidx == nil {
+		vidx, ok := shard.GetVectorIndex(targetVector)
+		if !ok {
 			logger.WithField("shard", shardName).Error("vector index not found")
 			http.Error(w, "vector index not found", http.StatusNotFound)
 			return

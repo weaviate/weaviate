@@ -190,7 +190,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.StoreSchemaV1()
 		}
-
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
 			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
@@ -232,6 +231,16 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.dynUserManager.ActivateUser(&cmd)
 		}
+
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		f = func() {
+			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:
+		f = func() {
+			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
+		}
+
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
@@ -241,7 +250,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			"class": cmd.Class,
 			"more":  msg,
 		}).Error("unknown command")
-		panic(fmt.Sprintf("unknown command type=%d class=%s more=%s", cmd.Type, cmd.Class, msg))
 	}
 
 	// Wrap the function in a go routine to ensure panic recovery. This is necessary as this function is run in an

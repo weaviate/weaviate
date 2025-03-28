@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
@@ -50,18 +51,18 @@ func (f *finderStream) readOne(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 	ch <-chan _Result[findOneReply],
-	st rState,
+	level int,
 ) <-chan objResult {
 	// counters tracks the number of votes for each participant
 	resultCh := make(chan objResult, 1)
 	g := func() {
 		defer close(resultCh)
 		var (
-			votes      = make([]objTuple, 0, st.Level)
+			votes      = make([]objTuple, 0, level)
 			contentIdx = -1
 		)
 
-		for r := range ch { // len(ch) == st.Level
+		for r := range ch { // len(ch) == level
 			resp := r.Value
 			if r.Err != nil { // a least one node is not responding
 				f.log.WithField("op", "get").WithField("replica", resp.sender).
@@ -83,7 +84,7 @@ func (f *finderStream) readOne(ctx context.Context,
 
 				votes[i].ack++
 
-				if votes[i].ack < st.Level {
+				if votes[i].ack < level {
 					// current vote does not have enough acks
 					continue
 				}
@@ -100,7 +101,7 @@ func (f *finderStream) readOne(ctx context.Context,
 			}
 		}
 
-		obj, err := f.repairOne(ctx, shard, id, votes, st, contentIdx)
+		obj, err := f.repairOne(ctx, shard, id, votes, contentIdx)
 		if err == nil {
 			resultCh <- objResult{obj, nil}
 			return
@@ -133,19 +134,19 @@ type (
 	}
 )
 
-type boolTuple tuple[RepairResponse]
+type boolTuple tuple[types.RepairResponse]
 
 // readExistence checks if replicated object exists
 func (f *finderStream) readExistence(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 	ch <-chan _Result[existReply],
-	st rState,
+	level int,
 ) <-chan _Result[bool] {
 	resultCh := make(chan _Result[bool], 1)
 	g := func() {
 		defer close(resultCh)
-		votes := make([]boolTuple, 0, st.Level) // number of votes per replica
+		votes := make([]boolTuple, 0, level) // number of votes per replica
 
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Value
@@ -167,7 +168,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 
 				votes[i].ack++
 
-				if votes[i].ack < st.Level {
+				if votes[i].ack < level {
 					// current vote does not have enough acks
 					continue
 				}
@@ -178,7 +179,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 			}
 		}
 
-		obj, err := f.repairExist(ctx, shard, id, votes, st)
+		obj, err := f.repairExist(ctx, shard, id, votes)
 		if err == nil {
 			resultCh <- _Result[bool]{obj, nil}
 			return
@@ -205,7 +206,8 @@ func (f *finderStream) readExistence(ctx context.Context,
 func (f *finderStream) readBatchPart(ctx context.Context,
 	batch shardPart,
 	ids []strfmt.UUID,
-	ch <-chan _Result[batchReply], st rState,
+	ch <-chan _Result[batchReply],
+	level int,
 ) <-chan batchResult {
 	resultCh := make(chan batchResult, 1)
 
@@ -214,11 +216,11 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		var (
 			N = len(ids) // number of requested objects
 			// votes counts number of votes per object for each node
-			votes      = make([]vote, 0, st.Level)
+			votes      = make([]vote, 0, level)
 			contentIdx = -1 // index of full read reply
 		)
 
-		for r := range ch { // len(ch) == st.Level
+		for r := range ch { // len(ch) == level
 			resp := r.Value
 			if r.Err != nil { // at least one node is not responding
 				f.log.WithField("op", "read_batch.get").WithField("replica", r.Value.Sender).
@@ -246,7 +248,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 						maxAt = j
 					}
 				}
-				if max >= st.Level && maxAt == contentIdx {
+				if max >= level && maxAt == contentIdx {
 					M++
 				}
 			}
@@ -259,7 +261,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 				return
 			}
 		}
-		res, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, st, contentIdx)
+		res, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, contentIdx)
 		if err != nil {
 			resultCh <- batchResult{nil, errRepair}
 			f.log.WithField("op", "repair_batch").WithField("class", f.class).
@@ -310,7 +312,7 @@ type batchReply struct {
 	// FullData returned from a full read request
 	FullData []objects.Replica
 	// DigestData returned from a digest read request
-	DigestData []RepairResponse
+	DigestData []types.RepairResponse
 }
 
 // UpdateTimeAt gets update time from reply
