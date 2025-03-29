@@ -151,8 +151,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
 
-	_ = reindexer.RunAfterLsmInit(ctx, s)
-	_ = reindexer.RunAfterLsmInitAsync(ctx, s)
+	_ = s.reindexer.RunAfterLsmInit(ctx, s)
+	_ = s.reindexer.RunAfterLsmInitAsync(ctx, s)
 	return s, nil
 }
 
