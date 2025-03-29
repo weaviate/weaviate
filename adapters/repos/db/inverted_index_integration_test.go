@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/go-openapi/strfmt"
@@ -47,9 +48,10 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Stopwords: &models.StopwordConfig{
 				Preset: "none",
 			},
-			IndexTimestamps:     true,
-			IndexNullState:      true,
-			IndexPropertyLength: true,
+			IndexTimestamps:       true,
+			IndexNullState:        true,
+			IndexPropertyLength:   true,
+			UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 		},
 		Properties: []*models.Property{
 			{
@@ -219,9 +221,10 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			Class:             "TestClass",
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				IndexNullState:      true,
-				IndexTimestamps:     true,
-				IndexPropertyLength: true,
+				IndexNullState:        true,
+				IndexTimestamps:       true,
+				IndexPropertyLength:   true,
+				UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 			},
 			Properties: []*models.Property{
 				{
@@ -236,8 +239,9 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			Class:             "RefClass",
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				IndexTimestamps:     true,
-				IndexPropertyLength: true,
+				IndexTimestamps:       true,
+				IndexPropertyLength:   true,
+				UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 			},
 			Properties: []*models.Property{
 				{
@@ -485,8 +489,9 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			Class:             "TestClass",
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				IndexPropertyLength: true,
-				IndexTimestamps:     true,
+				IndexPropertyLength:   true,
+				IndexTimestamps:       true,
+				UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 			},
 			Properties: []*models.Property{
 				{
@@ -505,7 +510,8 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			Class:             "RefClass",
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				IndexTimestamps: true,
+				IndexTimestamps:       true,
+				UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 			},
 			Properties: []*models.Property{
 				{
@@ -838,8 +844,9 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			Class:             "TestClass",
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				IndexTimestamps:     true,
-				IndexPropertyLength: true,
+				IndexTimestamps:       true,
+				IndexPropertyLength:   true,
+				UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 			},
 			Properties: []*models.Property{
 				{
@@ -854,8 +861,9 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			Class:             "RefClass",
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				IndexTimestamps:     true,
-				IndexPropertyLength: true,
+				IndexTimestamps:       true,
+				IndexPropertyLength:   true,
+				UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 			},
 			Properties: []*models.Property{
 				{

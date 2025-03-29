@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/config"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -48,6 +49,7 @@ func TestGRPC_FilteredSearch(t *testing.T) {
 			Stopwords: &models.StopwordConfig{
 				Preset: "none",
 			},
+			UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 		},
 	})
 	defer helper.DeleteClass(t, collectionName)

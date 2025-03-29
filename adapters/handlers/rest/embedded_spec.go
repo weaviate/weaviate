@@ -5728,6 +5728,10 @@ func init() {
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
+        },
+        "useInvertedSearchable": {
+          "description": "Use inverted format for searchable properties (default: 'true' for new collections).",
+          "type": "boolean"
         }
       }
     },
@@ -13266,6 +13270,10 @@ func init() {
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
+        },
+        "useInvertedSearchable": {
+          "description": "Use inverted format for searchable properties (default: 'true' for new collections).",
+          "type": "boolean"
         }
       }
     },

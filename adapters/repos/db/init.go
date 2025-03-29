@@ -73,6 +73,7 @@ func (db *DB) init(ctx context.Context) error {
 						K1: config.DefaultBM25k1,
 						B:  config.DefaultBM25b,
 					},
+					UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 				}
 			}
 			if err := replica.ValidateConfig(class, db.config.Replication); err != nil {

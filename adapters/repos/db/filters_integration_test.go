@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -839,8 +840,9 @@ var carClassNoLengthIndex = &models.Class{
 		Stopwords: &models.StopwordConfig{
 			Preset: "none",
 		},
-		IndexNullState:      true,
-		IndexPropertyLength: false,
+		IndexNullState:        true,
+		IndexPropertyLength:   false,
+		UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 	},
 	Properties: []*models.Property{
 		{

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -101,6 +102,17 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		}
 	} else if s.index.replicationEnabled() {
 		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
+	}
+
+	// check if we need to set Inverted Index config to use BlockMax inverted format
+	if !s.index.invertedIndexConfig.UseInvertedSearchable && config.DefaultUseInvertedSearchable {
+		areAllSearchableBucketsBlockMax := s.areAllSearchableBucketsBlockMax()
+		if areAllSearchableBucketsBlockMax {
+			// TODO(amourao): this is a temporary solution, we need to update the
+			// inverted index config in the schema as well
+			s.index.invertedIndexConfig.UseInvertedSearchable = true
+			// err := updateToBlockMaxInvertedIndexConfig(ctx, s.index.schema, s.class.Class)
+		}
 	}
 
 	return nil

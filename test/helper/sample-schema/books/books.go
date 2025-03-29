@@ -16,6 +16,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/config"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -180,9 +181,10 @@ func classBase(className, vectorizer string, vectorConfig map[string]models.Vect
 		Vectorizer:   vectorizer,
 		ModuleConfig: moduleConfig,
 		InvertedIndexConfig: &models.InvertedIndexConfig{
-			IndexNullState:      true,
-			IndexTimestamps:     true,
-			IndexPropertyLength: true,
+			IndexNullState:        true,
+			IndexTimestamps:       true,
+			IndexPropertyLength:   true,
+			UseInvertedSearchable: config.DefaultUseInvertedSearchable,
 		},
 		VectorConfig: vectorConfig,
 		Properties: []*models.Property{
