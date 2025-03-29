@@ -132,7 +132,7 @@ func (r *shardReindexerV3) Init() {
 			}
 
 			eg.Go(func() error {
-				return r.runScheduledTask(r.ctx, key)
+				return r.runScheduledTask(key)
 			})
 		}
 	}, r.logger)
@@ -230,15 +230,19 @@ func (r *shardReindexerV3) RunAfterLsmInitAsync(_ context.Context, shard *Shard)
 }
 
 func (r *shardReindexerV3) Stop(shard *Shard, cause error) {
+	fmt.Printf("  ==> stop requested\n\n")
 	key := toIndexShardKeyOfShard(shard)
 	r.locked(func() {
+		fmt.Printf("  ==> locked key %s\n\n", key)
 		if cancel, ok := r.ctxCancelPerShard[key]; ok {
+			fmt.Printf("  ==> cancelling key %s\n\n", key)
 			cancel(cause)
+			fmt.Printf("  ==> cancelled key %s\n\n", key)
 		}
 	})
 }
 
-func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string) (err error) {
+func (r *shardReindexerV3) runScheduledTask(key string) (err error) {
 	collectionName, shardName := fromIndexShardKey(key)
 
 	logger := r.logger.WithFields(map[string]any{
@@ -264,7 +268,7 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string) (er
 		err = fmt.Errorf("index for shard '%s' of collection '%s' not found", shardName, collectionName)
 		return
 	}
-	shard, release, err := index.GetShard(ctx, shardName)
+	shard, release, err := index.GetShard(r.ctx, shardName)
 	if err != nil {
 		r.queue.insert(key, time.Now().Add(r.config.retryOnErrorInterval))
 		err = fmt.Errorf("get shard '%s' of collection '%s': %w", shardName, collectionName, err)
@@ -278,13 +282,20 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string) (er
 		return
 	}
 
-	shardCtx, shardCancel := context.WithCancelCause(ctx)
+	shardCtx, shardCancel := context.WithCancelCause(r.ctx)
+	go func() {
+		<-shardCtx.Done()
+		fmt.Printf("  ==> [reindexer] cancelled for key %s err %s cause %s\n\n", key, shardCtx.Err(), context.Cause(shardCtx))
+	}()
+
 	defer shardCancel(fmt.Errorf("deferred, context cleanup"))
 	r.locked(func() { r.ctxCancelPerShard[key] = shardCancel })
 	// at this point lazy shard should be loaded (there is no unloading), otherwise [RunAfterLsmInitAsync]
 	// would not be called and tasks scheduled for shard
 	rerunAt, err := tasks[0].OnAfterLsmInitAsync(shardCtx, shard)
 	r.locked(func() { delete(r.ctxCancelPerShard, key) })
+
+	fmt.Printf("  ==> finished task key %s rerun %v err %s shardctx %s\n\n", key, rerunAt, err, shardCtx.Err())
 
 	if err != nil {
 		// if error is due to context cancelled, schedule no tasks for shard
