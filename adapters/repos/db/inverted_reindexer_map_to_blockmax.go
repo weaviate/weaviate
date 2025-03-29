@@ -316,14 +316,8 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 
 	// ctx, _ := context.WithTimeout(ctx2, time.Second*15)
 
-	// go func() {
-	// 	<-ctx2.Done()
-	// 	fmt.Printf("  ==> [task parent] cancelled for key %s err %s cause %s\n\n", "?", ctx2.Err(), context.Cause(ctx2))
-	// }()
-	go func() {
-		<-ctx.Done()
-		fmt.Printf("  ==> [task child] cancelled for key %s err %s cause %s\n\n", "?", ctx.Err(), context.Cause(ctx))
-	}()
+	<-ctx.Done()
+	// fmt.Printf("  ==> [task child] cancelled for key %s err %s cause %s\n\n", "?", ctx.Err(), context.Cause(ctx))
 
 	collectionName := shard.Index().Config.ClassName.String()
 	logger := t.logger.WithFields(map[string]any{
@@ -431,37 +425,25 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	finished := false
 
 	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
-		propExtraction, reindexStarted, breakCh)
+		propExtraction, reindexStarted, breakCh, ctx)
 
-	// go func() {
-	// 	<-ctx2.Done()
-	// 	// cancel()
-	// 	fmt.Printf("  ==> [task 2 parent] cancelled for key %s err %s cause %s\n\n", "?", ctx2.Err(), context.Cause(ctx2))
-	// 	fmt.Printf("  ==> [task 2 child] cancelled for key %s err %s cause %s\n\n", "?", ctx.Err(), context.Cause(ctx))
-	// }()
-
-	// ctx, cancel = context.WithTimeout(context.Background(), time.Second*10)
-	// go func() {
-	// 	<-ctx.Done()
-	// 	fmt.Printf("  ==> timeout err %s cause %s\n\n", ctx.Err(), context.Cause(ctx))
-	// }()
-	// defer cancel()
+	preventShutdown, err := shard.preventShutdown()
+	if err != nil {
+		err = fmt.Errorf("preventing shutdown: %w", err)
+		return zerotime, err
+	}
+	defer preventShutdown()
 
 	for md := range mdCh {
-		if ctx.Err() != nil {
-			fmt.Printf("!")
-		} else {
-			fmt.Printf(".")
-		}
 		if md == nil {
 			finished = true
 		} else if md.err != nil {
 			err = md.err
 			return zerotime, err
 		} else if err = ctx.Err(); err != nil {
-			fmt.Printf("  ==> ctx check in the loop (before breakCh) shardName %s\n\n", shard.Name())
+			// fmt.Printf("  ==> ctx check in the loop (before breakCh) shardName %s\n\n", shard.Name())
 			breakCh <- true
-			fmt.Printf("  ==> ctx check in the loop (after breakCh) shardName %s\n\n", shard.Name())
+			// fmt.Printf("  ==> ctx check in the loop (after breakCh) shardName %s\n\n", shard.Name())
 			err = fmt.Errorf("context check (loop): %w / %w", err, context.Cause(ctx))
 			return zerotime, err
 		} else {
@@ -471,11 +453,17 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 						propLen := t.calcPropLenInverted(invprop.Items)
 						for _, item := range invprop.Items {
 							pair := shard.pairPropertyWithFrequency(md.docID, item.TermFrequency, propLen)
+							if ctx.Err() != nil {
+								break
+							}
 							if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
 								breakCh <- true
 								err = fmt.Errorf("adding object '%s' prop '%s': %w", md.key.String(), invprop.Name, err)
 								return zerotime, err
 							}
+						}
+						if ctx.Err() != nil {
+							break
 						}
 					}
 				}
@@ -1028,17 +1016,23 @@ type migrationData struct {
 	err   error
 }
 
-type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool, ctx context.Context,
 ) (time.Time, <-chan *migrationData)
 
 func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey,
-	propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+	propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool, ctx context.Context,
 ) (time.Time, <-chan *migrationData) {
 	startedCh := make(chan time.Time)
 	mdCh := make(chan *migrationData)
 
 	enterrors.GoWrapper(func() {
 		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
+		preventShutdown, err := shard.preventShutdown()
+		if err != nil {
+			mdCh <- &migrationData{err: fmt.Errorf("preventing shutdown: %w", err)}
+			return
+		}
+		defer preventShutdown()
 		defer cursor.Close()
 
 		startedCh <- time.Now() // after cursor created (necessary locks acquired)
@@ -1056,8 +1050,6 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 		}
 
 		for ; k != nil; k, v = cursor.Next() {
-			time.Sleep(500 * time.Microsecond)
-
 			ik := keyParse(k)
 			obj, err := storobj.FromBinaryOptional(v, addProps, propExtraction)
 			if err != nil {
@@ -1066,6 +1058,9 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 			}
 
 			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
+				if ctx.Err() != nil {
+					break
+				}
 				props, _, err := shard.AnalyzeObject(obj)
 				if err != nil {
 					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
