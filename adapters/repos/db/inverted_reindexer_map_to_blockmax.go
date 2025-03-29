@@ -312,6 +312,19 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 
 func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
 ) (rerunAt time.Time, err error) {
+	// ctx, cancel := context.WithCancel(ctx2)
+
+	// ctx, _ := context.WithTimeout(ctx2, time.Second*15)
+
+	// go func() {
+	// 	<-ctx2.Done()
+	// 	fmt.Printf("  ==> [task parent] cancelled for key %s err %s cause %s\n\n", "?", ctx2.Err(), context.Cause(ctx2))
+	// }()
+	go func() {
+		<-ctx.Done()
+		fmt.Printf("  ==> [task child] cancelled for key %s err %s cause %s\n\n", "?", ctx.Err(), context.Cause(ctx))
+	}()
+
 	collectionName := shard.Index().Config.ClassName.String()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
@@ -420,14 +433,35 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
 		propExtraction, reindexStarted, breakCh)
 
+	// go func() {
+	// 	<-ctx2.Done()
+	// 	// cancel()
+	// 	fmt.Printf("  ==> [task 2 parent] cancelled for key %s err %s cause %s\n\n", "?", ctx2.Err(), context.Cause(ctx2))
+	// 	fmt.Printf("  ==> [task 2 child] cancelled for key %s err %s cause %s\n\n", "?", ctx.Err(), context.Cause(ctx))
+	// }()
+
+	// ctx, cancel = context.WithTimeout(context.Background(), time.Second*10)
+	// go func() {
+	// 	<-ctx.Done()
+	// 	fmt.Printf("  ==> timeout err %s cause %s\n\n", ctx.Err(), context.Cause(ctx))
+	// }()
+	// defer cancel()
+
 	for md := range mdCh {
+		if ctx.Err() != nil {
+			fmt.Printf("!")
+		} else {
+			fmt.Printf(".")
+		}
 		if md == nil {
 			finished = true
 		} else if md.err != nil {
 			err = md.err
 			return zerotime, err
 		} else if err = ctx.Err(); err != nil {
+			fmt.Printf("  ==> ctx check in the loop (before breakCh) shardName %s\n\n", shard.Name())
 			breakCh <- true
+			fmt.Printf("  ==> ctx check in the loop (after breakCh) shardName %s\n\n", shard.Name())
 			err = fmt.Errorf("context check (loop): %w / %w", err, context.Cause(ctx))
 			return zerotime, err
 		} else {
@@ -1022,6 +1056,8 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 		}
 
 		for ; k != nil; k, v = cursor.Next() {
+			time.Sleep(500 * time.Microsecond)
+
 			ik := keyParse(k)
 			obj, err := storobj.FromBinaryOptional(v, addProps, propExtraction)
 			if err != nil {
