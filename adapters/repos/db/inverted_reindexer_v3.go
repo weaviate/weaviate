@@ -301,12 +301,19 @@ func (r *shardReindexerV3) runScheduledTask(key string) (err error) {
 	}
 
 	shardCtx, shardCancel := context.WithCancelCause(r.ctx)
-	<-shardCtx.Done()
+	go func() {
+		<-shardCtx.Done()
+		fmt.Printf("  ==> [reindexer] cancelled for key %s err %s cause %s\n\n", key, shardCtx.Err(), context.Cause(shardCtx))
+	}()
 
 	defer shardCancel(fmt.Errorf("deferred, context cleanup"))
 	r.locked(func() { r.ctxCancelPerShard[key] = shardCancel })
 	// at this point lazy shard should be loaded (there is no unloading), otherwise [RunAfterLsmInitAsync]
 	// would not be called and tasks scheduled for shard
+	if len(tasks) == 0 { // TODO: check if this is correct
+		r.scheduleTasks(key, nil, time.Time{})
+		return nil
+	}
 	rerunAt, err := tasks[0].OnAfterLsmInitAsync(shardCtx, shard)
 	r.locked(func() { delete(r.ctxCancelPerShard, key) })
 

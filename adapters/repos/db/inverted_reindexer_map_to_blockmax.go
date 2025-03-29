@@ -314,9 +314,10 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 ) (rerunAt time.Time, err error) {
 	// ctx, cancel := context.WithCancel(ctx2)
 
-	// ctx, _ := context.WithTimeout(ctx2, time.Second*15)
-
-	<-ctx.Done()
+	go func() {
+		<-ctx.Done()
+		fmt.Printf("  ==> [task child] cancelled for key %s err %s cause %s\n\n", "?", ctx.Err(), context.Cause(ctx))
+	}()
 	// fmt.Printf("  ==> [task child] cancelled for key %s err %s cause %s\n\n", "?", ctx.Err(), context.Cause(ctx))
 
 	collectionName := shard.Index().Config.ClassName.String()
