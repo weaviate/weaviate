@@ -290,6 +290,15 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 		if isMerged {
 			logger.Debug("merged, not swapped. starting ingest buckets")
 		} else {
+			if !rt.isReindexed() {
+				logger.Debug("not reindexed. starting reindex buckets")
+
+				if err = t.loadReindexSearchBuckets(ctx, logger, shard, props); err != nil {
+					err = fmt.Errorf("starting reindex buckets: %w", err)
+					return
+				}
+			}
+
 			logger.Debug("not merged. starting ingest buckets")
 		}
 
@@ -380,16 +389,6 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 
 	if err = ctx.Err(); err != nil {
 		err = fmt.Errorf("context check (1): %w / %w", err, context.Cause(ctx))
-		return zerotime, err
-	}
-
-	if err = t.loadReindexSearchBuckets(ctx, logger, shard, props); err != nil {
-		err = fmt.Errorf("starting reindex buckets: %w", err)
-		return zerotime, err
-	}
-
-	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("context check (2): %w / %w", err, context.Cause(ctx))
 		return zerotime, err
 	}
 
