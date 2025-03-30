@@ -132,9 +132,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 			err = fmt.Errorf("rollback: searchable map buckets are deleted, can not restore")
 			return
 		}
-		if err = t.unswapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
-			err = fmt.Errorf("rollback: unswapping buckets: %w", err)
-			return
+		if rt.isSwapped() {
+			if err = t.unswapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
+				err = fmt.Errorf("rollback: unswapping buckets: %w", err)
+				return
+			}
 		}
 		if err = t.removeReindexBucketsDirs(ctx, logger, shard, props); err != nil {
 			err = fmt.Errorf("rollback: removing reindex buckets: %w", err)
