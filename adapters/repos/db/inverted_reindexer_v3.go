@@ -224,7 +224,7 @@ func (r *shardReindexerV3) RunAfterLsmInitAsync(_ context.Context, shard *Shard)
 	}
 
 	key := toIndexShardKeyOfShard(shard)
-	r.scheduleTasks(key, r.tasks, time.Now())
+	r.locked(func() { r.scheduleTasks(key, r.tasks, time.Now()) })
 
 	return nil
 }
@@ -235,7 +235,15 @@ func (r *shardReindexerV3) Stop(shard *Shard, cause error) {
 		if cancel, ok := r.ctxCancelPerShard[key]; ok {
 			cancel(cause)
 		}
+		r.scheduleTasks(key, nil, time.Time{})
 	})
+
+	collectionName := shard.Index().Config.ClassName.String()
+	r.logger.WithFields(map[string]any{
+		"collection": collectionName,
+		"shard":      shard.Name(),
+		"cause":      cause,
+	}).Debug("stopped reindex task")
 }
 
 func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string) (err error) {
@@ -256,9 +264,6 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string) (er
 		}
 	}(time.Now())
 
-	var tasks []ShardReindexTaskV3
-	r.locked(func() { tasks = r.tasksPerShard[key] })
-
 	index := r.getIndex(schema.ClassName(collectionName))
 	if index == nil {
 		err = fmt.Errorf("index for shard '%s' of collection '%s' not found", shardName, collectionName)
@@ -273,46 +278,63 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string) (er
 	defer release()
 
 	if shard == nil {
-		r.scheduleTasks(key, nil, time.Time{})
+		r.locked(func() { r.scheduleTasks(key, nil, time.Time{}) })
 		err = fmt.Errorf("shard '%s' of collection '%s' not found", shardName, collectionName)
 		return
 	}
 
 	shardCtx, shardCancel := context.WithCancelCause(ctx)
 	defer shardCancel(fmt.Errorf("deferred, context cleanup"))
-	r.locked(func() { r.ctxCancelPerShard[key] = shardCancel })
+
+	var tasks []ShardReindexTaskV3
+	r.locked(func() {
+		tasks = r.tasksPerShard[key]
+		r.ctxCancelPerShard[key] = shardCancel
+	})
+	if len(tasks) == 0 {
+		logger.Debug("no tasks found, already stopped")
+		return nil
+	}
+
 	// at this point lazy shard should be loaded (there is no unloading), otherwise [RunAfterLsmInitAsync]
 	// would not be called and tasks scheduled for shard
 	rerunAt, err := tasks[0].OnAfterLsmInitAsync(shardCtx, shard)
-	r.locked(func() { delete(r.ctxCancelPerShard, key) })
+	r.locked(func() {
+		delete(r.ctxCancelPerShard, key)
 
-	if err != nil {
-		// if error is due to context cancelled, schedule no tasks for shard
-		if shardCtx.Err() != nil {
-			r.scheduleTasks(key, nil, time.Time{})
-		} else {
-			r.scheduleTasks(key, tasks[1:], time.Now())
+		if err != nil {
+			// schedule tasks only if context not cancelled
+			if shardCtx.Err() == nil {
+				r.scheduleTasks(key, tasks[1:], time.Now())
+			}
+			err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w",
+				tasks[0].Name(), shardName, collectionName, err)
+			return
 		}
-		err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w", tasks[0].Name(), shardName, collectionName, err)
-		return
-	}
-	if rerunAt.IsZero() {
-		r.scheduleTasks(key, tasks[1:], time.Now())
-		logger.WithField("task", tasks[0].Name()).Debug("task executed completely")
-		return nil
-	}
-	r.scheduleTasks(key, tasks, rerunAt)
-	logger.WithField("task", tasks[0].Name()).Debug("task executed partially, rerun scheduled")
-	return nil
+		if err = shardCtx.Err(); err != nil {
+			err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w",
+				tasks[0].Name(), shardName, collectionName, err)
+			return
+		}
+		if rerunAt.IsZero() {
+			r.scheduleTasks(key, tasks[1:], time.Now())
+			logger.WithField("task", tasks[0].Name()).Debug("task executed completely")
+			return
+		}
+		r.scheduleTasks(key, tasks, rerunAt)
+		logger.WithField("task", tasks[0].Name()).Debug("task executed partially, rerun scheduled")
+	})
+	return
 }
 
 func (r *shardReindexerV3) scheduleTasks(key string, tasks []ShardReindexTaskV3, runAt time.Time) {
 	if len(tasks) == 0 {
-		r.locked(func() { delete(r.tasksPerShard, key) })
+		delete(r.tasksPerShard, key)
+		r.queue.delete(key)
 		return
 	}
 
-	r.locked(func() { r.tasksPerShard[key] = tasks })
+	r.tasksPerShard[key] = tasks
 	r.queue.insert(key, runAt)
 }
 
@@ -354,6 +376,30 @@ func (q *shardsQueue) insert(key string, runAt time.Time) {
 		q.timerCtx, q.timerCtxCancel = q.deadlineCtx(runAt)
 		cancel()
 	}
+}
+
+func (q *shardsQueue) delete(key string) bool {
+	q.lock.Lock()
+	defer q.lock.Unlock()
+
+	if q.runShardQueue.Len() > 0 && q.runShardQueue.Top().Value == key {
+		_, cancel := q.timerCtx, q.timerCtxCancel
+		q.runShardQueue.Pop()
+		if q.runShardQueue.Len() > 0 {
+			// set timer to next/top shard
+			tm := q.idToTime(q.runShardQueue.Top().ID)
+			q.timerCtx, q.timerCtxCancel = q.deadlineCtx(tm)
+		} else {
+			// set timer to "infinity"
+			q.timerCtx, q.timerCtxCancel = q.infiniteDeadlineCtx()
+		}
+		cancel()
+		return true
+	}
+
+	return q.runShardQueue.DeleteItem(func(item priorityqueue.Item[string]) bool {
+		return item.Value == key
+	})
 }
 
 func (q *shardsQueue) getWhenReady(ctx context.Context) (key string, err error) {
