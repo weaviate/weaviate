@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
@@ -101,6 +102,14 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		}
 	} else if s.index.replicationEnabled() {
 		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
+	}
+
+	// check if we need to set Inverted Index config to use BlockMax inverted format for new properties
+	// TODO(amourao): this is a temporary solution, we need to update the inverted index config in the schema as well
+	// right now, this is done as part of the migration process, but we need to find a way of dealing with MT indices
+	// where some shards are using the old format and some shards are using the new format
+	if !s.usingBlockMaxWAND && config.DefaultUsingBlockMaxWAND {
+		s.usingBlockMaxWAND = s.areAllSearchableBucketsBlockMax()
 	}
 
 	return nil

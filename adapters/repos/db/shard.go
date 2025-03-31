@@ -257,6 +257,8 @@ type Shard struct {
 	// computing delta between previous and current values of properties
 	searchableBlockmaxPropNames     []string
 	searchableBlockmaxPropNamesLock *sync.Mutex
+
+	usingBlockMaxWAND bool
 }
 
 func (s *Shard) ID() string {

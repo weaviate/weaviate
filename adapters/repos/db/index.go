@@ -583,7 +583,7 @@ func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	return nil
 }
 
-func (i *Index) getInvertedIndexConfig() schema.InvertedIndexConfig {
+func (i *Index) GetInvertedIndexConfig() schema.InvertedIndexConfig {
 	i.invertedIndexConfigLock.Lock()
 	defer i.invertedIndexConfigLock.Unlock()
 
