@@ -53,7 +53,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	return replication.NewReplicateOK()
 }
 
-func (h *replicationHandler) getReplicateStatus(params replication.ReplicateStatusParams, principal *models.Principal) middleware.Responder {
+func (h *replicationHandler) getReplicateStatus(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
 		return h.handleForbiddenError()
 	}
@@ -62,10 +62,10 @@ func (h *replicationHandler) getReplicateStatus(params replication.ReplicateStat
 }
 
 func (h *replicationHandler) handleForbiddenError() middleware.Responder {
-	return replication.NewReplicateStatusForbidden()
+	return replication.NewReplicationDetailsForbidden()
 }
 
-func (h *replicationHandler) handleNotImplementedError(params replication.ReplicateStatusParams) middleware.Responder {
-	return replication.NewReplicateStatusNotImplemented().WithPayload(cerrors.ErrPayloadFromSingleErr(
-		fmt.Errorf("retrieving replication status for id %s not yet implemented", params.ID)))
+func (h *replicationHandler) handleNotImplementedError(params replication.ReplicationDetailsParams) middleware.Responder {
+	return replication.NewReplicationDetailsNotImplemented().WithPayload(cerrors.ErrPayloadFromSingleErr(
+		fmt.Errorf("fetching replication details for operation id %s is not yet implemented", params.ID)))
 }

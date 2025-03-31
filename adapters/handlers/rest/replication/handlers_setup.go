@@ -36,5 +36,5 @@ func SetupHandlers(api *operations.WeaviateAPI, replicationManager replicationTy
 		metrics:    metrics,
 	}
 	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(h.replicate)
-	api.ReplicationReplicateStatusHandler = replication.ReplicateStatusHandlerFunc(h.getReplicateStatus)
+	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(h.getReplicateStatus)
 }

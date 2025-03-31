@@ -2824,13 +2824,13 @@
         }
       }
     },
-    "/replication/replicate/{id}/status": {
+    "/replication/replicate/{id}": {
       "get": {
-        "summary": "Get the status of a replication operation",
-        "description": "Returns the status of a replication operation for a given shard, identified by the provided id.",
-        "operationId": "replicateStatus",
+        "summary": "Get the details of a replica operation.",
+        "description": "Returns the details of a replication operation for a given shard, identified by the provided id.",
+        "operationId": "replicationDetails",
         "x-serviceIds": [
-          "weaviate.replication.replicate.status"
+          "weaviate.replication.replicate.details"
         ],
         "tags": [
           "replication"
@@ -2839,20 +2839,40 @@
           {
             "name": "id",
             "in": "path",
-            "description": "The shard replica move operation id to get the status for",
+            "description": "The shard replica operation id to get details for.",
             "required": true,
             "type": "string"
           }
         ],
         "responses": {
           "200": {
-            "description": "The status of the shard replica move operation",
+            "description": "The details of the shard replica operation.",
             "schema": {
               "type": "object",
               "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The shard replica operation id."
+                },
+                "sourceNode": {
+                  "type": "string",
+                  "description": "The source node for the shard replica operation."
+                },
+                "targetNode": {
+                  "type": "string",
+                  "description": "The target node for the shard replica operation."
+                },
+                "sourceShard": {
+                  "type": "string",
+                  "description": "The source shard for the shard replica operation."
+                },
+                "targetShard": {
+                  "type": "string",
+                  "description": "The target shard for the shard replica operation."
+                },
                 "status": {
                   "type": "string",
-                  "description": "The current status of the shard replica move operation",
+                  "description": "The current status of the shard replica move operation.",
                   "enum": [
                     "READY",
                     "INDEXING",
@@ -2862,7 +2882,7 @@
                   ]
                 }
               },
-              "required": ["status"]
+              "required": ["id","sourceNode", "sourceShard", "targetNode", "targetShard", "status"]
             }
           },
           "400": {

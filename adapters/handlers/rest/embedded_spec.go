@@ -3503,18 +3503,18 @@ func init() {
         ]
       }
     },
-    "/replication/replicate/{id}/status": {
+    "/replication/replicate/{id}": {
       "get": {
-        "description": "Returns the status of a replication operation for a given shard, identified by the provided id.",
+        "description": "Returns the details of a replication operation for a given shard, identified by the provided id.",
         "tags": [
           "replication"
         ],
-        "summary": "Get the status of a replication operation",
-        "operationId": "replicateStatus",
+        "summary": "Get the details of a replica operation.",
+        "operationId": "replicationDetails",
         "parameters": [
           {
             "type": "string",
-            "description": "The shard replica move operation id to get the status for",
+            "description": "The shard replica operation id to get details for.",
             "name": "id",
             "in": "path",
             "required": true
@@ -3522,15 +3522,32 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "The status of the shard replica move operation",
+            "description": "The details of the shard replica operation.",
             "schema": {
               "type": "object",
               "required": [
+                "id",
+                "sourceNode",
+                "sourceShard",
+                "targetNode",
+                "targetShard",
                 "status"
               ],
               "properties": {
+                "id": {
+                  "description": "The shard replica operation id.",
+                  "type": "string"
+                },
+                "sourceNode": {
+                  "description": "The source node for the shard replica operation.",
+                  "type": "string"
+                },
+                "sourceShard": {
+                  "description": "The source shard for the shard replica operation.",
+                  "type": "string"
+                },
                 "status": {
-                  "description": "The current status of the shard replica move operation",
+                  "description": "The current status of the shard replica move operation.",
                   "type": "string",
                   "enum": [
                     "READY",
@@ -3539,6 +3556,14 @@ func init() {
                     "REPLICATION_HYDRATING",
                     "REPLICATION_DEHYDRATING"
                   ]
+                },
+                "targetNode": {
+                  "description": "The target node for the shard replica operation.",
+                  "type": "string"
+                },
+                "targetShard": {
+                  "description": "The target shard for the shard replica operation.",
+                  "type": "string"
                 }
               }
             }
@@ -3575,7 +3600,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.replication.replicate.status"
+          "weaviate.replication.replicate.details"
         ]
       }
     },
@@ -11069,18 +11094,18 @@ func init() {
         ]
       }
     },
-    "/replication/replicate/{id}/status": {
+    "/replication/replicate/{id}": {
       "get": {
-        "description": "Returns the status of a replication operation for a given shard, identified by the provided id.",
+        "description": "Returns the details of a replication operation for a given shard, identified by the provided id.",
         "tags": [
           "replication"
         ],
-        "summary": "Get the status of a replication operation",
-        "operationId": "replicateStatus",
+        "summary": "Get the details of a replica operation.",
+        "operationId": "replicationDetails",
         "parameters": [
           {
             "type": "string",
-            "description": "The shard replica move operation id to get the status for",
+            "description": "The shard replica operation id to get details for.",
             "name": "id",
             "in": "path",
             "required": true
@@ -11088,15 +11113,32 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "The status of the shard replica move operation",
+            "description": "The details of the shard replica operation.",
             "schema": {
               "type": "object",
               "required": [
+                "id",
+                "sourceNode",
+                "sourceShard",
+                "targetNode",
+                "targetShard",
                 "status"
               ],
               "properties": {
+                "id": {
+                  "description": "The shard replica operation id.",
+                  "type": "string"
+                },
+                "sourceNode": {
+                  "description": "The source node for the shard replica operation.",
+                  "type": "string"
+                },
+                "sourceShard": {
+                  "description": "The source shard for the shard replica operation.",
+                  "type": "string"
+                },
                 "status": {
-                  "description": "The current status of the shard replica move operation",
+                  "description": "The current status of the shard replica move operation.",
                   "type": "string",
                   "enum": [
                     "READY",
@@ -11105,6 +11147,14 @@ func init() {
                     "REPLICATION_HYDRATING",
                     "REPLICATION_DEHYDRATING"
                   ]
+                },
+                "targetNode": {
+                  "description": "The target node for the shard replica operation.",
+                  "type": "string"
+                },
+                "targetShard": {
+                  "description": "The target shard for the shard replica operation.",
+                  "type": "string"
                 }
               }
             }
@@ -11141,7 +11191,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.replication.replicate.status"
+          "weaviate.replication.replicate.details"
         ]
       }
     },

@@ -244,8 +244,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ReplicationReplicateHandler: replication.ReplicateHandlerFunc(func(params replication.ReplicateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.Replicate has not yet been implemented")
 		}),
-		ReplicationReplicateStatusHandler: replication.ReplicateStatusHandlerFunc(func(params replication.ReplicateStatusParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation replication.ReplicateStatus has not yet been implemented")
+		ReplicationReplicationDetailsHandler: replication.ReplicationDetailsHandlerFunc(func(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.ReplicationDetails has not yet been implemented")
 		}),
 		AuthzRevokeRoleFromGroupHandler: authz.RevokeRoleFromGroupHandlerFunc(func(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.RevokeRoleFromGroup has not yet been implemented")
@@ -490,8 +490,8 @@ type WeaviateAPI struct {
 	AuthzRemovePermissionsHandler authz.RemovePermissionsHandler
 	// ReplicationReplicateHandler sets the operation handler for the replicate operation
 	ReplicationReplicateHandler replication.ReplicateHandler
-	// ReplicationReplicateStatusHandler sets the operation handler for the replicate status operation
-	ReplicationReplicateStatusHandler replication.ReplicateStatusHandler
+	// ReplicationReplicationDetailsHandler sets the operation handler for the replication details operation
+	ReplicationReplicationDetailsHandler replication.ReplicationDetailsHandler
 	// AuthzRevokeRoleFromGroupHandler sets the operation handler for the revoke role from group operation
 	AuthzRevokeRoleFromGroupHandler authz.RevokeRoleFromGroupHandler
 	// AuthzRevokeRoleFromUserHandler sets the operation handler for the revoke role from user operation
@@ -790,8 +790,8 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ReplicationReplicateHandler == nil {
 		unregistered = append(unregistered, "replication.ReplicateHandler")
 	}
-	if o.ReplicationReplicateStatusHandler == nil {
-		unregistered = append(unregistered, "replication.ReplicateStatusHandler")
+	if o.ReplicationReplicationDetailsHandler == nil {
+		unregistered = append(unregistered, "replication.ReplicationDetailsHandler")
 	}
 	if o.AuthzRevokeRoleFromGroupHandler == nil {
 		unregistered = append(unregistered, "authz.RevokeRoleFromGroupHandler")
@@ -1188,7 +1188,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/replication/replicate/{id}/status"] = replication.NewReplicateStatus(o.context, o.ReplicationReplicateStatusHandler)
+	o.handlers["GET"]["/replication/replicate/{id}"] = replication.NewReplicationDetails(o.context, o.ReplicationReplicationDetailsHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
