@@ -66,6 +66,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		status:                          NewShardStatus(),
 		searchableBlockmaxPropNamesLock: new(sync.Mutex),
 		reindexer:                       reindexer,
+		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 	}
 
 	defer func() {
