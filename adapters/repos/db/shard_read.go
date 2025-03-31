@@ -283,6 +283,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			"keyword_ranking": keywordRanking,
 			"version":         s.versioner.Version(),
 			"additional":      additional,
+			"tokens":          userTokens,
 			// in addition the slowQueryReporter will extract any slow query details
 			// that may or may not have been written into the ctx
 		})
