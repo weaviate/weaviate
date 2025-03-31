@@ -5728,6 +5728,10 @@ func init() {
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
+        },
+        "usingBlockMaxWAND": {
+          "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
+          "type": "boolean"
         }
       }
     },
@@ -13266,6 +13270,10 @@ func init() {
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
+        },
+        "usingBlockMaxWAND": {
+          "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
+          "type": "boolean"
         }
       }
     },
