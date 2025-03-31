@@ -544,6 +544,9 @@ swagger:model ReplicationDetailsOKBody
 */
 type ReplicationDetailsOKBody struct {
 
+	// The collection name.
+	Collection string `json:"collection,omitempty"`
+
 	// The shard replica operation id.
 	// Required: true
 	ID *string `json:"id"`

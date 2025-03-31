@@ -3534,6 +3534,10 @@ func init() {
                 "status"
               ],
               "properties": {
+                "collection": {
+                  "description": "The collection name.",
+                  "type": "string"
+                },
                 "id": {
                   "description": "The shard replica operation id.",
                   "type": "string"
@@ -11125,6 +11129,10 @@ func init() {
                 "status"
               ],
               "properties": {
+                "collection": {
+                  "description": "The collection name.",
+                  "type": "string"
+                },
                 "id": {
                   "description": "The shard replica operation id.",
                   "type": "string"

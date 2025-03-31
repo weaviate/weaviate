@@ -2854,6 +2854,10 @@
                   "type": "string",
                   "description": "The shard replica operation id."
                 },
+                "collection": {
+                  "type": "string",
+                  "description": "The collection name."
+                },
                 "sourceNode": {
                   "type": "string",
                   "description": "The source node for the shard replica operation."

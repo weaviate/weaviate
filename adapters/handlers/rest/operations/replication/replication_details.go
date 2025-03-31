@@ -94,6 +94,9 @@ func (o *ReplicationDetails) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 // swagger:model ReplicationDetailsOKBody
 type ReplicationDetailsOKBody struct {
 
+	// The collection name.
+	Collection string `json:"collection,omitempty" yaml:"collection,omitempty"`
+
 	// The shard replica operation id.
 	// Required: true
 	ID *string `json:"id" yaml:"id"`
