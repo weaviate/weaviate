@@ -22,18 +22,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // IndexQueue is an in-memory queue of vectors to index.
@@ -379,6 +379,9 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 // It does not remove the index.
 // It should be called only when the index is dropped.
 func (q *IndexQueue) Drop() error {
+	q.indexLock.Lock()
+	defer q.indexLock.Unlock()
+
 	_ = q.Close()
 
 	if q.Checkpoints != nil {
