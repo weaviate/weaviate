@@ -32,11 +32,13 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	schema "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 	swapBuckets, unswapBuckets, tidyBuckets, rollback bool,
 	processingDuration, pauseDuration time.Duration,
+	schemaManager *schema.Manager,
 ) *ShardReindexTask_MapToBlockmax {
 	name := "MapToBlockmax"
 	keyParser := &uuidKeyParser{}
@@ -68,6 +70,7 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 			pauseDuration:                 pauseDuration,
 			checkProcessingEveryNoObjects: 1000,
 		},
+		schemaManager: schemaManager,
 	}
 }
 
@@ -78,6 +81,7 @@ type ShardReindexTask_MapToBlockmax struct {
 	keyParser            indexKeyParser
 	objectsIteratorAsync objectsIteratorAsync
 	config               mapToBlockmaxConfig
+	schemaManager        *schema.Manager
 }
 
 type mapToBlockmaxConfig struct {
@@ -226,6 +230,12 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 			if err = t.tidyMapBuckets(ctx, logger, shard, rt, props); err != nil {
 				err = fmt.Errorf("tidying map buckets:%w", err)
 				return
+			}
+
+			err = updateToBlockMaxInvertedIndexConfig(ctx, t.schemaManager, shard.Index().Config.ClassName.String())
+			if err != nil {
+				err = fmt.Errorf("updating inverted index config: %w", err)
+				return err
 			}
 		}
 	}
