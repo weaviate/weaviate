@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -50,6 +51,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			IndexTimestamps:     true,
 			IndexNullState:      true,
 			IndexPropertyLength: true,
+			UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 		},
 		Properties: []*models.Property{
 			{

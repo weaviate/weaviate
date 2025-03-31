@@ -163,6 +163,7 @@ func Test_AddClass(t *testing.T) {
 			Bm25:                   expectedBM25Config,
 			CleanupIntervalSeconds: 60,
 			Stopwords:              expectedStopwordConfig,
+			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -180,7 +181,8 @@ func Test_AddClass(t *testing.T) {
 		class := models.Class{
 			Class: "NewClass",
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				Bm25: expectedBM25Config,
+				Bm25:              expectedBM25Config,
+				UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 			},
 			Vectorizer: "none",
 		}
@@ -195,6 +197,7 @@ func Test_AddClass(t *testing.T) {
 			Bm25:                   expectedBM25Config,
 			CleanupIntervalSeconds: 60,
 			Stopwords:              expectedStopwordConfig,
+			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -1324,6 +1327,7 @@ func Test_UpdateClass(t *testing.T) {
 					Vectorizer: "none",
 					InvertedIndexConfig: &models.InvertedIndexConfig{
 						CleanupIntervalSeconds: 17,
+						UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 					},
 				},
 				update: &models.Class{
@@ -1335,6 +1339,7 @@ func Test_UpdateClass(t *testing.T) {
 							K1: config.DefaultBM25k1,
 							B:  config.DefaultBM25b,
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 			},
@@ -1349,6 +1354,7 @@ func Test_UpdateClass(t *testing.T) {
 							K1: 1.012,
 							B:  0.125,
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 				update: &models.Class{
@@ -1360,6 +1366,7 @@ func Test_UpdateClass(t *testing.T) {
 							K1: 1.012,
 							B:  0.125,
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 			},
@@ -1373,6 +1380,7 @@ func Test_UpdateClass(t *testing.T) {
 						Stopwords: &models.StopwordConfig{
 							Preset: "en",
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 				update: &models.Class{
@@ -1385,6 +1393,7 @@ func Test_UpdateClass(t *testing.T) {
 							Additions: []string{"banana", "passionfruit", "kiwi"},
 							Removals:  []string{"a", "the"},
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 			},
