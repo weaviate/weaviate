@@ -17,16 +17,11 @@ package replication
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag"
-	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -97,7 +92,7 @@ ReplicationDetailsOK describes a response with status code 200, with default hea
 The details of the shard replica operation.
 */
 type ReplicationDetailsOK struct {
-	Payload *ReplicationDetailsOKBody
+	Payload *models.ReplicationReplicateDetailsReplicaResponse
 }
 
 // IsSuccess returns true when this replication details o k response has a 2xx status code
@@ -138,13 +133,13 @@ func (o *ReplicationDetailsOK) String() string {
 	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsOK  %+v", 200, o.Payload)
 }
 
-func (o *ReplicationDetailsOK) GetPayload() *ReplicationDetailsOKBody {
+func (o *ReplicationDetailsOK) GetPayload() *models.ReplicationReplicateDetailsReplicaResponse {
 	return o.Payload
 }
 
 func (o *ReplicationDetailsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(ReplicationDetailsOKBody)
+	o.Payload = new(models.ReplicationReplicateDetailsReplicaResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -535,194 +530,5 @@ func (o *ReplicationDetailsNotImplemented) readResponse(response runtime.ClientR
 		return err
 	}
 
-	return nil
-}
-
-/*
-ReplicationDetailsOKBody replication details o k body
-swagger:model ReplicationDetailsOKBody
-*/
-type ReplicationDetailsOKBody struct {
-
-	// The collection name.
-	Collection string `json:"collection,omitempty"`
-
-	// The shard replica operation id.
-	// Required: true
-	ID *string `json:"id"`
-
-	// The source node for the shard replica operation.
-	// Required: true
-	SourceNode *string `json:"sourceNode"`
-
-	// The source shard for the shard replica operation.
-	// Required: true
-	SourceShard *string `json:"sourceShard"`
-
-	// The current status of the shard replica operation.
-	// Required: true
-	// Enum: [READY INDEXING REPLICATION_FINALIZING REPLICATION_HYDRATING REPLICATION_DEHYDRATING]
-	Status *string `json:"status"`
-
-	// The target node for the shard replica operation.
-	// Required: true
-	TargetNode *string `json:"targetNode"`
-
-	// The target shard for the shard replica operation.
-	// Required: true
-	TargetShard *string `json:"targetShard"`
-}
-
-// Validate validates this replication details o k body
-func (o *ReplicationDetailsOKBody) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := o.validateID(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := o.validateSourceNode(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := o.validateSourceShard(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := o.validateStatus(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := o.validateTargetNode(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := o.validateTargetShard(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (o *ReplicationDetailsOKBody) validateID(formats strfmt.Registry) error {
-
-	if err := validate.Required("replicationDetailsOK"+"."+"id", "body", o.ID); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (o *ReplicationDetailsOKBody) validateSourceNode(formats strfmt.Registry) error {
-
-	if err := validate.Required("replicationDetailsOK"+"."+"sourceNode", "body", o.SourceNode); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (o *ReplicationDetailsOKBody) validateSourceShard(formats strfmt.Registry) error {
-
-	if err := validate.Required("replicationDetailsOK"+"."+"sourceShard", "body", o.SourceShard); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-var replicationDetailsOKBodyTypeStatusPropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["READY","INDEXING","REPLICATION_FINALIZING","REPLICATION_HYDRATING","REPLICATION_DEHYDRATING"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		replicationDetailsOKBodyTypeStatusPropEnum = append(replicationDetailsOKBodyTypeStatusPropEnum, v)
-	}
-}
-
-const (
-
-	// ReplicationDetailsOKBodyStatusREADY captures enum value "READY"
-	ReplicationDetailsOKBodyStatusREADY string = "READY"
-
-	// ReplicationDetailsOKBodyStatusINDEXING captures enum value "INDEXING"
-	ReplicationDetailsOKBodyStatusINDEXING string = "INDEXING"
-
-	// ReplicationDetailsOKBodyStatusREPLICATIONFINALIZING captures enum value "REPLICATION_FINALIZING"
-	ReplicationDetailsOKBodyStatusREPLICATIONFINALIZING string = "REPLICATION_FINALIZING"
-
-	// ReplicationDetailsOKBodyStatusREPLICATIONHYDRATING captures enum value "REPLICATION_HYDRATING"
-	ReplicationDetailsOKBodyStatusREPLICATIONHYDRATING string = "REPLICATION_HYDRATING"
-
-	// ReplicationDetailsOKBodyStatusREPLICATIONDEHYDRATING captures enum value "REPLICATION_DEHYDRATING"
-	ReplicationDetailsOKBodyStatusREPLICATIONDEHYDRATING string = "REPLICATION_DEHYDRATING"
-)
-
-// prop value enum
-func (o *ReplicationDetailsOKBody) validateStatusEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, replicationDetailsOKBodyTypeStatusPropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (o *ReplicationDetailsOKBody) validateStatus(formats strfmt.Registry) error {
-
-	if err := validate.Required("replicationDetailsOK"+"."+"status", "body", o.Status); err != nil {
-		return err
-	}
-
-	// value enum
-	if err := o.validateStatusEnum("replicationDetailsOK"+"."+"status", "body", *o.Status); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (o *ReplicationDetailsOKBody) validateTargetNode(formats strfmt.Registry) error {
-
-	if err := validate.Required("replicationDetailsOK"+"."+"targetNode", "body", o.TargetNode); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (o *ReplicationDetailsOKBody) validateTargetShard(formats strfmt.Registry) error {
-
-	if err := validate.Required("replicationDetailsOK"+"."+"targetShard", "body", o.TargetShard); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// ContextValidate validates this replication details o k body based on context it is used
-func (o *ReplicationDetailsOKBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (o *ReplicationDetailsOKBody) MarshalBinary() ([]byte, error) {
-	if o == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(o)
-}
-
-// UnmarshalBinary interface implementation
-func (o *ReplicationDetailsOKBody) UnmarshalBinary(b []byte) error {
-	var res ReplicationDetailsOKBody
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*o = res
 	return nil
 }

@@ -37,7 +37,7 @@ type ReplicationDetailsOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *ReplicationDetailsOKBody `json:"body,omitempty"`
+	Payload *models.ReplicationReplicateDetailsReplicaResponse `json:"body,omitempty"`
 }
 
 // NewReplicationDetailsOK creates ReplicationDetailsOK with default headers values
@@ -47,13 +47,13 @@ func NewReplicationDetailsOK() *ReplicationDetailsOK {
 }
 
 // WithPayload adds the payload to the replication details o k response
-func (o *ReplicationDetailsOK) WithPayload(payload *ReplicationDetailsOKBody) *ReplicationDetailsOK {
+func (o *ReplicationDetailsOK) WithPayload(payload *models.ReplicationReplicateDetailsReplicaResponse) *ReplicationDetailsOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the replication details o k response
-func (o *ReplicationDetailsOK) SetPayload(payload *ReplicationDetailsOKBody) {
+func (o *ReplicationDetailsOK) SetPayload(payload *models.ReplicationReplicateDetailsReplicaResponse) {
 	o.Payload = payload
 }
 

@@ -3524,52 +3524,7 @@ func init() {
           "200": {
             "description": "The details of the shard replica operation.",
             "schema": {
-              "type": "object",
-              "required": [
-                "id",
-                "sourceNode",
-                "sourceShard",
-                "targetNode",
-                "targetShard",
-                "status"
-              ],
-              "properties": {
-                "collection": {
-                  "description": "The collection name.",
-                  "type": "string"
-                },
-                "id": {
-                  "description": "The shard replica operation id.",
-                  "type": "string"
-                },
-                "sourceNode": {
-                  "description": "The source node for the shard replica operation.",
-                  "type": "string"
-                },
-                "sourceShard": {
-                  "description": "The source shard for the shard replica operation.",
-                  "type": "string"
-                },
-                "status": {
-                  "description": "The current status of the shard replica operation.",
-                  "type": "string",
-                  "enum": [
-                    "READY",
-                    "INDEXING",
-                    "REPLICATION_FINALIZING",
-                    "REPLICATION_HYDRATING",
-                    "REPLICATION_DEHYDRATING"
-                  ]
-                },
-                "targetNode": {
-                  "description": "The target node for the shard replica operation.",
-                  "type": "string"
-                },
-                "targetShard": {
-                  "description": "The target shard for the shard replica operation.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
             }
           },
           "400": {
@@ -6799,6 +6754,60 @@ func init() {
         },
         "shardId": {
           "description": "The shard id holding the replica to be disabled",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaResponse": {
+      "description": "The current status and details of a replication operation, including information about the resources involved in the replication process.",
+      "required": [
+        "id",
+        "shardId",
+        "sourceNodeId",
+        "targetNodeId",
+        "sourceReplicaId",
+        "targetReplicaId",
+        "collection",
+        "status"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The name of the collection holding data.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The id of the shard to collect replication details for.",
+          "type": "string"
+        },
+        "sourceNodeId": {
+          "description": "The id of the node where the source replica is allocated.",
+          "type": "string"
+        },
+        "sourceReplicaId": {
+          "description": "The id of the replica used as a source of the replication operation.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The current status of the shard replica operation.",
+          "type": "string",
+          "enum": [
+            "READY",
+            "INDEXING",
+            "REPLICATION_FINALIZING",
+            "REPLICATION_HYDRATING",
+            "REPLICATION_DEHYDRATING"
+          ]
+        },
+        "targetNodeId": {
+          "description": "The id of the node where the target replica is allocated.",
+          "type": "string"
+        },
+        "targetReplicaId": {
+          "description": "The id of the replica used as a target of the replication operation.",
           "type": "string"
         }
       }
@@ -11119,52 +11128,7 @@ func init() {
           "200": {
             "description": "The details of the shard replica operation.",
             "schema": {
-              "type": "object",
-              "required": [
-                "id",
-                "sourceNode",
-                "sourceShard",
-                "targetNode",
-                "targetShard",
-                "status"
-              ],
-              "properties": {
-                "collection": {
-                  "description": "The collection name.",
-                  "type": "string"
-                },
-                "id": {
-                  "description": "The shard replica operation id.",
-                  "type": "string"
-                },
-                "sourceNode": {
-                  "description": "The source node for the shard replica operation.",
-                  "type": "string"
-                },
-                "sourceShard": {
-                  "description": "The source shard for the shard replica operation.",
-                  "type": "string"
-                },
-                "status": {
-                  "description": "The current status of the shard replica operation.",
-                  "type": "string",
-                  "enum": [
-                    "READY",
-                    "INDEXING",
-                    "REPLICATION_FINALIZING",
-                    "REPLICATION_HYDRATING",
-                    "REPLICATION_DEHYDRATING"
-                  ]
-                },
-                "targetNode": {
-                  "description": "The target node for the shard replica operation.",
-                  "type": "string"
-                },
-                "targetShard": {
-                  "description": "The target shard for the shard replica operation.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
             }
           },
           "400": {
@@ -14697,6 +14661,60 @@ func init() {
         },
         "shardId": {
           "description": "The shard id holding the replica to be disabled",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaResponse": {
+      "description": "The current status and details of a replication operation, including information about the resources involved in the replication process.",
+      "required": [
+        "id",
+        "shardId",
+        "sourceNodeId",
+        "targetNodeId",
+        "sourceReplicaId",
+        "targetReplicaId",
+        "collection",
+        "status"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The name of the collection holding data.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The id of the shard to collect replication details for.",
+          "type": "string"
+        },
+        "sourceNodeId": {
+          "description": "The id of the node where the source replica is allocated.",
+          "type": "string"
+        },
+        "sourceReplicaId": {
+          "description": "The id of the replica used as a source of the replication operation.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The current status of the shard replica operation.",
+          "type": "string",
+          "enum": [
+            "READY",
+            "INDEXING",
+            "REPLICATION_FINALIZING",
+            "REPLICATION_HYDRATING",
+            "REPLICATION_DEHYDRATING"
+          ]
+        },
+        "targetNodeId": {
+          "description": "The id of the node where the target replica is allocated.",
+          "type": "string"
+        },
+        "targetReplicaId": {
+          "description": "The id of the replica used as a target of the replication operation.",
           "type": "string"
         }
       }

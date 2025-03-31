@@ -894,6 +894,51 @@
             "shardId"
         ]
     },
+    "ReplicationReplicateDetailsReplicaResponse": {
+      "description": "The current status and details of a replication operation, including information about the resources involved in the replication process.",
+      "properties": {
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The id of the shard to collect replication details for.",
+          "type": "string"
+        },
+        "collection": {
+          "description": "The name of the collection holding data being replicated.",
+          "type": "string"
+        },
+        "sourceNodeId": {
+          "description": "The id of the node where the source replica is allocated.",
+          "type": "string"
+        },
+        "targetNodeId": {
+          "description": "The id of the node where the target replica is allocated.",
+          "type": "string"
+        },
+        "sourceReplicaId": {
+          "description": "The id of the replica used as a source of the replication operation.",
+          "type": "string"
+        },
+        "targetReplicaId": {
+          "description": "The id of the replica used as a target of the replication operation.",
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "description": "The current status of the shard replica operation, indicating the replication phase the operation is in.",
+          "enum": [
+            "READY",
+            "INDEXING",
+            "REPLICATION_FINALIZING",
+            "REPLICATION_HYDRATING",
+            "REPLICATION_DEHYDRATING"
+          ]
+        }
+      },
+      "required": ["id", "shardId", "sourceNodeId", "targetNodeId", "sourceReplicaId", "targetReplicaId", "collection", "status"]
+    },
     "PeerUpdate": {
       "description": "A single peer in the network.",
       "properties": {
@@ -2848,45 +2893,7 @@
           "200": {
             "description": "The details of the shard replica operation.",
             "schema": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "description": "The shard replica operation id."
-                },
-                "collection": {
-                  "type": "string",
-                  "description": "The collection name."
-                },
-                "sourceNode": {
-                  "type": "string",
-                  "description": "The source node for the shard replica operation."
-                },
-                "targetNode": {
-                  "type": "string",
-                  "description": "The target node for the shard replica operation."
-                },
-                "sourceShard": {
-                  "type": "string",
-                  "description": "The source shard for the shard replica operation."
-                },
-                "targetShard": {
-                  "type": "string",
-                  "description": "The target shard for the shard replica operation."
-                },
-                "status": {
-                  "type": "string",
-                  "description": "The current status of the shard replica operation.",
-                  "enum": [
-                    "READY",
-                    "INDEXING",
-                    "REPLICATION_FINALIZING",
-                    "REPLICATION_HYDRATING",
-                    "REPLICATION_DEHYDRATING"
-                  ]
-                }
-              },
-              "required": ["id","sourceNode", "sourceShard", "targetNode", "targetShard", "status"]
+              "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
             }
           },
           "400": {
