@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	wcsUserOnAdmin    = "oidc-test-user@weaivate.io"
-	wcsUserNotOnAdmin = "oidc-test-user2@weaivate.io"
+	wcsUserOnAdmin    = "oidc-test-user@weaviate.io"
+	wcsUserNotOnAdmin = "oidc-test-user2@weaviate.io"
 )
 
 func TestAuthGraphQLUnauthenticated(t *testing.T) {
