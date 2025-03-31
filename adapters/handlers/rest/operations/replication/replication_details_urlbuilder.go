@@ -23,8 +23,8 @@ import (
 	"strings"
 )
 
-// ReplicateStatusURL generates an URL for the replicate status operation
-type ReplicateStatusURL struct {
+// ReplicationDetailsURL generates an URL for the replication details operation
+type ReplicationDetailsURL struct {
 	ID string
 
 	_basePath string
@@ -35,7 +35,7 @@ type ReplicateStatusURL struct {
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *ReplicateStatusURL) WithBasePath(bp string) *ReplicateStatusURL {
+func (o *ReplicationDetailsURL) WithBasePath(bp string) *ReplicationDetailsURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -43,21 +43,21 @@ func (o *ReplicateStatusURL) WithBasePath(bp string) *ReplicateStatusURL {
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *ReplicateStatusURL) SetBasePath(bp string) {
+func (o *ReplicationDetailsURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *ReplicateStatusURL) Build() (*url.URL, error) {
+func (o *ReplicationDetailsURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/replication/replicate/{id}/status"
+	var _path = "/replication/replicate/{id}"
 
 	id := o.ID
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("id is required on ReplicateStatusURL")
+		return nil, errors.New("id is required on ReplicationDetailsURL")
 	}
 
 	_basePath := o._basePath
@@ -70,7 +70,7 @@ func (o *ReplicateStatusURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *ReplicateStatusURL) Must(u *url.URL, err error) *url.URL {
+func (o *ReplicationDetailsURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -81,17 +81,17 @@ func (o *ReplicateStatusURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *ReplicateStatusURL) String() string {
+func (o *ReplicationDetailsURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *ReplicateStatusURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *ReplicationDetailsURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on ReplicateStatusURL")
+		return nil, errors.New("scheme is required for a full url on ReplicationDetailsURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on ReplicateStatusURL")
+		return nil, errors.New("host is required for a full url on ReplicationDetailsURL")
 	}
 
 	base, err := o.Build()
@@ -105,6 +105,6 @@ func (o *ReplicateStatusURL) BuildFull(scheme, host string) (*url.URL, error) {
 }
 
 // StringFull returns the string representation of a complete url
-func (o *ReplicateStatusURL) StringFull(scheme, host string) string {
+func (o *ReplicationDetailsURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }
