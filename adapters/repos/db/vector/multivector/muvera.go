@@ -55,7 +55,7 @@ func NewMuveraEncoder(config MuveraConfig) *MuveraEncoder {
 	// Initialize Gaussian vectors for each repetition
 	encoder.gaussians = make([][]float32, config.Repetitions)
 	for i := 0; i < config.Repetitions; i++ {
-		encoder.gaussians[i] = make([]float32, config.KSim*config.DProjections)
+		encoder.gaussians[i] = make([]float32, config.KSim*config.Dimensions)
 	}
 
 	// Initialize random projection matrix S
@@ -90,7 +90,7 @@ func NewMuveraEncoder(config MuveraConfig) *MuveraEncoder {
 func (e *MuveraEncoder) InitSimHash() error {
 	// Initialize random Gaussian vectors for each repetition
 	for rep := 0; rep < e.config.Repetitions; rep++ {
-		for i := 0; i < e.config.KSim*e.config.DProjections; i++ {
+		for i := 0; i < e.config.Dimensions*e.config.KSim; i++ {
 			// Generate random Gaussian values using Box-Muller transform
 			u1 := rand.Float64()
 			u2 := rand.Float64()
@@ -107,8 +107,8 @@ func (e *MuveraEncoder) simHash(vec []float32, gaussians []float32) uint64 {
 	for i := 0; i < e.config.KSim; i++ {
 		// Compute dot product with Gaussian vector
 		var dotProduct float32
-		for j := 0; j < e.config.DProjections; j++ {
-			dotProduct += vec[j] * gaussians[i*e.config.DProjections+j]
+		for j := 0; j < e.config.Dimensions; j++ {
+			dotProduct += vec[j] * gaussians[i*e.config.Dimensions+j]
 		}
 		// Set bit based on sign of dot product
 		if dotProduct > 0 {
@@ -118,7 +118,7 @@ func (e *MuveraEncoder) simHash(vec []float32, gaussians []float32) uint64 {
 	return result
 }
 
-func (e *MuveraEncoder) projectVec(vec [][]float32, dprojections int) [][]float32 {
+/*func (e *MuveraEncoder) projectVec(vec [][]float32, dprojections int) [][]float32 {
 	projectedVec := make([][]float32, len(vec))
 	scale := 1.0 / float32(math.Sqrt(float64(dprojections)))
 
@@ -133,6 +133,39 @@ func (e *MuveraEncoder) projectVec(vec [][]float32, dprojections int) [][]float3
 			projectedVec[i][j] = scale * sum
 		}
 	}
+	return projectedVec
+}*/
+
+func (e *MuveraEncoder) computeMatrixVecProduct(matrix [][]float32, vec []float32, scale float32) []float32 {
+	projectedVec := make([]float32, len(matrix))
+	for i := 0; i < len(matrix); i++ {
+		for j := 0; j < len(matrix[i]); j++ {
+			projectedVec[i] += matrix[i][j] * vec[j]
+		}
+		projectedVec[i] = scale * projectedVec[i]
+	}
+	return projectedVec
+}
+
+func (e *MuveraEncoder) projectVecFlat(vec []float32, dprojections int) []float32 {
+	projectedVec := make([]float32, e.config.Repetitions*e.config.NumClusters*dprojections)
+	scale := 1.0 / float32(math.Sqrt(float64(dprojections)))
+
+	for i := 0; i < e.config.Repetitions; i++ {
+		offsetReps := i * e.config.NumClusters * e.config.Dimensions
+		offsetRepsProjected := i * e.config.NumClusters * dprojections
+		for j := 0; j < e.config.NumClusters; j++ {
+			//subvector := vec[i*e.config.Repetitions*e.config.NumClusters*e.config.Dimensions : (i+1)*e.config.Repetitions*e.config.NumClusters*e.config.Dimensions]
+			offsetCluster := j * e.config.Dimensions
+			inizio := offsetReps + offsetCluster
+			fine := inizio + e.config.Dimensions
+			subvector := vec[inizio:fine]
+			start := offsetRepsProjected + j*dprojections
+			end := start + dprojections
+			copy(projectedVec[start:end], e.computeMatrixVecProduct(e.S, subvector, scale))
+		}
+	}
+
 	return projectedVec
 }
 
@@ -151,24 +184,26 @@ func (e *MuveraEncoder) finalProjection(vec []float32, dfinal int) []float32 {
 }
 
 func (e *MuveraEncoder) encode(fullVec [][]float32) []float32 {
-	result := make([]float32, e.config.Repetitions*e.config.NumClusters*e.config.DProjections)
-
-	vec := e.projectVec(fullVec, e.config.DProjections)
+	tmp := make([]float32, e.config.Repetitions*e.config.NumClusters*e.config.Dimensions)
 
 	// For each repetition
 	for rep := 0; rep < e.config.Repetitions; rep++ {
 		// Get SimHash for each query token
-		for _, token := range vec {
+		offsetRep := rep * e.config.NumClusters * e.config.Dimensions
+		for _, token := range fullVec {
 			cluster := e.simHash(token, e.gaussians[rep])
-			startIdx := cluster * uint64(e.config.DProjections) * uint64(rep)
-			for i := 0; i < e.config.DProjections; i++ {
-				result[startIdx+uint64(i)] += token[i]
+			//startIdx := cluster * uint64(e.config.Dimensions) * uint64(rep)
+			startIdx := uint64(offsetRep) + cluster*uint64(e.config.Dimensions)
+			for i := 0; i < e.config.Dimensions; i++ {
+				tmp[startIdx+uint64(i)] += token[i]
 			}
 		}
 	}
 
+	result := e.projectVecFlat(tmp, e.config.DProjections)
+
 	return e.finalProjection(result, e.config.DFinal)
-	// return result
+	//return result
 }
 
 // EncodeQuery encodes a query vector using Muvera
@@ -180,29 +215,30 @@ func (e *MuveraEncoder) EncodeQuery(query [][]float32) []float32 {
 // EncodeDoc encodes a document vector using Muvera
 func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 	// Initialize result vector with zeros
-	result := make([]float32, e.config.NumClusters*e.config.DProjections*e.config.Repetitions)
-
-	doc := e.projectVec(fullDoc, e.config.DProjections)
+	tmp := make([]float32, e.config.NumClusters*e.config.Dimensions*e.config.Repetitions)
 
 	// For each repetition
 	for rep := 0; rep < e.config.Repetitions; rep++ {
 		// Get cluster assignments and counts for each doc token
 		clusterCounts := make(map[uint64]int)
-		for _, docToken := range doc {
+		offsetRep := rep * e.config.NumClusters * e.config.Dimensions
+		for _, docToken := range fullDoc {
 			cluster := e.simHash(docToken, e.gaussians[rep])
 			clusterCounts[cluster]++
 			// Add doc token to the corresponding cluster position
-			startIdx := cluster * uint64(e.config.DProjections) * uint64(rep)
-			for i := 0; i < e.config.DProjections; i++ {
-				result[startIdx+uint64(i)] += docToken[i]
+			//startIdx := cluster * uint64(e.config.Dimensions) * uint64(rep)
+			startIdx := uint64(offsetRep) + cluster*uint64(e.config.Dimensions)
+			for i := 0; i < e.config.Dimensions; i++ {
+				tmp[startIdx+uint64(i)] += docToken[i]
 			}
 		}
 
 		// Normalize by cluster counts
 		for cluster, count := range clusterCounts {
-			startIdx := cluster * uint64(e.config.DProjections) * uint64(rep)
-			for i := 0; i < e.config.DProjections; i++ {
-				result[startIdx+uint64(i)] /= float32(count)
+			//startIdx := cluster * uint64(e.config.Dimensions) * uint64(rep)
+			startIdx := uint64(offsetRep) + cluster*uint64(e.config.Dimensions)
+			for i := 0; i < e.config.Dimensions; i++ {
+				tmp[startIdx+uint64(i)] /= float32(count)
 			}
 		}
 
@@ -222,17 +258,21 @@ func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 					}
 				}
 				// Copy values from nearest cluster
-				startIdx := cluster * uint64(e.config.DProjections) * uint64(rep)
-				nearestStartIdx := nearestCluster * uint64(e.config.DProjections) * uint64(rep)
-				for i := 0; i < e.config.DProjections; i++ {
-					result[startIdx+uint64(i)] = result[nearestStartIdx+uint64(i)]
+				//startIdx := cluster * uint64(e.config.Dimensions) * uint64(rep)
+				startIdx := uint64(offsetRep) + cluster*uint64(e.config.Dimensions)
+				nearestStartIdx := uint64(offsetRep) + nearestCluster*uint64(e.config.Dimensions)
+				for i := 0; i < e.config.Dimensions; i++ {
+					tmp[startIdx+uint64(i)] = tmp[nearestStartIdx+uint64(i)]
 				}
 			}
 		}
 	}
+	result := e.projectVecFlat(tmp, e.config.DProjections)
 
 	return e.finalProjection(result, e.config.DFinal)
-	// return result
+
+	//return e.finalProjection(result, e.config.DFinal)
+	//return result
 }
 
 // hammingDistance calculates the Hamming distance between two uint64 numbers
