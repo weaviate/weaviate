@@ -88,9 +88,9 @@ func (a *Client) Replicate(params *ReplicateParams, authInfo runtime.ClientAuthI
 }
 
 /*
-ReplicationDetails gets the details of a replica operation
+ReplicationDetails gets the details of a replication operation
 
-Returns the details of a replication operation for a given shard, identified by the provided id.
+Returns the details of a replication operation for a given shard, identified by the provided replication operation id.
 */
 func (a *Client) ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error) {
 	// TODO: Validate the params before sending

@@ -927,7 +927,7 @@
         },
         "status": {
           "type": "string",
-          "description": "The current status of the shard replica operation, indicating the replication phase the operation is in.",
+          "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
           "enum": [
             "READY",
             "INDEXING",
@@ -2871,8 +2871,8 @@
     },
     "/replication/replicate/{id}": {
       "get": {
-        "summary": "Get the details of a replica operation.",
-        "description": "Returns the details of a replication operation for a given shard, identified by the provided id.",
+        "summary": "Get the details of a replication operation.",
+        "description": "Returns the details of a replication operation for a given shard, identified by the provided replication operation id.",
         "operationId": "replicationDetails",
         "x-serviceIds": [
           "weaviate.replication.replicate.details"
@@ -2884,14 +2884,14 @@
           {
             "name": "id",
             "in": "path",
-            "description": "The shard replica operation id to get details for.",
+            "description": "The replication operation id to get details for.",
             "required": true,
             "type": "string"
           }
         ],
         "responses": {
           "200": {
-            "description": "The details of the shard replica operation.",
+            "description": "The details of the replication operation.",
             "schema": {
               "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
             }

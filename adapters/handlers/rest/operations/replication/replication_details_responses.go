@@ -28,7 +28,7 @@ import (
 const ReplicationDetailsOKCode int = 200
 
 /*
-ReplicationDetailsOK The details of the shard replica operation.
+ReplicationDetailsOK The details of the replication operation.
 
 swagger:response replicationDetailsOK
 */

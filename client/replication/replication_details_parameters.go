@@ -74,7 +74,7 @@ type ReplicationDetailsParams struct {
 
 	/* ID.
 
-	   The shard replica operation id to get details for.
+	   The replication operation id to get details for.
 	*/
 	ID string
 

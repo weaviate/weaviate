@@ -41,7 +41,7 @@ type ReplicationDetailsParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The shard replica operation id to get details for.
+	/*The replication operation id to get details for.
 	  Required: true
 	  In: path
 	*/

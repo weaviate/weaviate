@@ -3505,16 +3505,16 @@ func init() {
     },
     "/replication/replicate/{id}": {
       "get": {
-        "description": "Returns the details of a replication operation for a given shard, identified by the provided id.",
+        "description": "Returns the details of a replication operation for a given shard, identified by the provided replication operation id.",
         "tags": [
           "replication"
         ],
-        "summary": "Get the details of a replica operation.",
+        "summary": "Get the details of a replication operation.",
         "operationId": "replicationDetails",
         "parameters": [
           {
             "type": "string",
-            "description": "The shard replica operation id to get details for.",
+            "description": "The replication operation id to get details for.",
             "name": "id",
             "in": "path",
             "required": true
@@ -3522,7 +3522,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "The details of the shard replica operation.",
+            "description": "The details of the replication operation.",
             "schema": {
               "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
             }
@@ -6772,7 +6772,7 @@ func init() {
       ],
       "properties": {
         "collection": {
-          "description": "The name of the collection holding data.",
+          "description": "The name of the collection holding data being replicated.",
           "type": "string"
         },
         "id": {
@@ -6792,7 +6792,7 @@ func init() {
           "type": "string"
         },
         "status": {
-          "description": "The current status of the shard replica operation.",
+          "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
           "type": "string",
           "enum": [
             "READY",
@@ -11109,16 +11109,16 @@ func init() {
     },
     "/replication/replicate/{id}": {
       "get": {
-        "description": "Returns the details of a replication operation for a given shard, identified by the provided id.",
+        "description": "Returns the details of a replication operation for a given shard, identified by the provided replication operation id.",
         "tags": [
           "replication"
         ],
-        "summary": "Get the details of a replica operation.",
+        "summary": "Get the details of a replication operation.",
         "operationId": "replicationDetails",
         "parameters": [
           {
             "type": "string",
-            "description": "The shard replica operation id to get details for.",
+            "description": "The replication operation id to get details for.",
             "name": "id",
             "in": "path",
             "required": true
@@ -11126,7 +11126,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "The details of the shard replica operation.",
+            "description": "The details of the replication operation.",
             "schema": {
               "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
             }
@@ -14679,7 +14679,7 @@ func init() {
       ],
       "properties": {
         "collection": {
-          "description": "The name of the collection holding data.",
+          "description": "The name of the collection holding data being replicated.",
           "type": "string"
         },
         "id": {
@@ -14699,7 +14699,7 @@ func init() {
           "type": "string"
         },
         "status": {
-          "description": "The current status of the shard replica operation.",
+          "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
           "type": "string",
           "enum": [
             "READY",

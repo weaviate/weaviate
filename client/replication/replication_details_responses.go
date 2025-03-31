@@ -89,7 +89,7 @@ func NewReplicationDetailsOK() *ReplicationDetailsOK {
 /*
 ReplicationDetailsOK describes a response with status code 200, with default header values.
 
-The details of the shard replica operation.
+The details of the replication operation.
 */
 type ReplicationDetailsOK struct {
 	Payload *models.ReplicationReplicateDetailsReplicaResponse
