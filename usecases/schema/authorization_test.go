@@ -145,7 +145,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				// Cluster/nodes related endpoint
 				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
 				// revert to schema v0 (non raft),
-				"GetConsistentSchema", "GetConsistentTenants",
+				"GetConsistentSchema", "GetConsistentTenants", "GetConsistentTenant",
 				// ignored because it will check if schema has collections otherwise returns nothing
 				"StoreSchemaV1":
 				// don't require auth on methods which are exported because other
