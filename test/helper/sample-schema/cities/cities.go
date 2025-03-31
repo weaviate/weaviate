@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -83,7 +84,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				"vectorizeClassName": true,
 			},
 		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, IndexPropertyLength: true, IndexTimestamps: true},
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, IndexPropertyLength: true, IndexTimestamps: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 		Properties: []*models.Property{
 			{
 				Name:         "name",
@@ -202,7 +203,8 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 			Stopwords: &models.StopwordConfig{
 				Preset: "en",
 			},
-			IndexTimestamps: true,
+			IndexTimestamps:   true,
+			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 		},
 		Properties: []*models.Property{
 			{
