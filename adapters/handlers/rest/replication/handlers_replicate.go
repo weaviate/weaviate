@@ -53,7 +53,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	return replication.NewReplicateOK()
 }
 
-func (h *replicationHandler) getReplicateStatus(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
+func (h *replicationHandler) getReplicationOperationDetails(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
 		return h.handleForbiddenError()
 	}
