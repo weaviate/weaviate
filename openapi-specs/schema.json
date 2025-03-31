@@ -2876,7 +2876,7 @@
                 },
                 "status": {
                   "type": "string",
-                  "description": "The current status of the shard replica move operation.",
+                  "description": "The current status of the shard replica operation.",
                   "enum": [
                     "READY",
                     "INDEXING",
@@ -2905,7 +2905,7 @@
             }
           },
           "404": {
-            "description": "Shard replica move operation not found"
+            "description": "Shard replica operation not found"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",

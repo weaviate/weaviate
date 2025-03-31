@@ -354,7 +354,7 @@ func NewReplicationDetailsNotFound() *ReplicationDetailsNotFound {
 /*
 ReplicationDetailsNotFound describes a response with status code 404, with default header values.
 
-Shard replica move operation not found
+Shard replica operation not found
 */
 type ReplicationDetailsNotFound struct {
 }
@@ -559,7 +559,7 @@ type ReplicationDetailsOKBody struct {
 	// Required: true
 	SourceShard *string `json:"sourceShard"`
 
-	// The current status of the shard replica move operation.
+	// The current status of the shard replica operation.
 	// Required: true
 	// Enum: [READY INDEXING REPLICATION_FINALIZING REPLICATION_HYDRATING REPLICATION_DEHYDRATING]
 	Status *string `json:"status"`

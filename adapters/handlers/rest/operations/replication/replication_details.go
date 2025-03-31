@@ -109,7 +109,7 @@ type ReplicationDetailsOKBody struct {
 	// Required: true
 	SourceShard *string `json:"sourceShard" yaml:"sourceShard"`
 
-	// The current status of the shard replica move operation.
+	// The current status of the shard replica operation.
 	// Required: true
 	// Enum: [READY INDEXING REPLICATION_FINALIZING REPLICATION_HYDRATING REPLICATION_DEHYDRATING]
 	Status *string `json:"status" yaml:"status"`

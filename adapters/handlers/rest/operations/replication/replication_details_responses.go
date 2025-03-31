@@ -188,7 +188,7 @@ func (o *ReplicationDetailsForbidden) WriteResponse(rw http.ResponseWriter, prod
 const ReplicationDetailsNotFoundCode int = 404
 
 /*
-ReplicationDetailsNotFound Shard replica move operation not found
+ReplicationDetailsNotFound Shard replica operation not found
 
 swagger:response replicationDetailsNotFound
 */

@@ -3551,7 +3551,7 @@ func init() {
                   "type": "string"
                 },
                 "status": {
-                  "description": "The current status of the shard replica move operation.",
+                  "description": "The current status of the shard replica operation.",
                   "type": "string",
                   "enum": [
                     "READY",
@@ -3588,7 +3588,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Shard replica move operation not found"
+            "description": "Shard replica operation not found"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -11146,7 +11146,7 @@ func init() {
                   "type": "string"
                 },
                 "status": {
-                  "description": "The current status of the shard replica move operation.",
+                  "description": "The current status of the shard replica operation.",
                   "type": "string",
                   "enum": [
                     "READY",
@@ -11183,7 +11183,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Shard replica move operation not found"
+            "description": "Shard replica operation not found"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
