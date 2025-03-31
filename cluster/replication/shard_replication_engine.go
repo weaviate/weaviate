@@ -69,18 +69,26 @@ func (s *ShardReplicationEngine) Start() {
 }
 
 func (s *ShardReplicationEngine) Stop() {
+	s.logger.Info("Stopping replication engine")
 	s.stopChan <- true
 }
 
 func (s *ShardReplicationEngine) replicationFSMMonitor() {
 	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
 	for {
 	LOOP_RESET:
 		select {
 		case <-s.stopChan:
 			return
 		case <-ticker.C:
+
 			ongoingShardReplicationOps, newShardReplicationOps := s.getShardReplicationOps()
+			if len(ongoingShardReplicationOps) == 0 && len(newShardReplicationOps) == 0 {
+				s.logger.Info("No shard replication op found")
+				continue
+			}
 
 			// First handle ongoing shard replication ops and check if need to recover from failure any of them
 			// The reason we do these first is that we want to prioritise unfinished shard replication operation vs new shard replication
@@ -128,21 +136,32 @@ func (s *ShardReplicationEngine) startShardReplication(op shardReplicationOp) {
 			ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour)
 			defer cancel()
 
+			logger := s.logger.WithFields(logrus.Fields{
+				"opId":   op.id,
+				"source": op.sourceShard.String(),
+				"target": op.targetShard.String(),
+			})
+
 			// Update FSM that we are starting to hydrate this replica
 			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.HYDRATING); err != nil {
-				s.logger.WithError(err).Errorf("failed to update replica op state to %s", api.HYDRATING)
+				logger.WithError(err).Errorf("failed to update replica op state to %s", api.HYDRATING)
 			}
+
+			logger.Info("starting replica replication file copy")
 
 			// Copy the replica
 			if err := s.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
+				logger.WithError(err).Warn("failed to file copy replica")
 				// TODO: Handle failure and failure tracking in replicationFSM of replica ops
 				return err
 			}
 
 			// Update FSM that we are done copying files and we can start final sync follower phase
 			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.FINALIZING); err != nil {
-				s.logger.WithError(err).Errorf("failed to update replica op state to %s", api.FINALIZING)
+				logger.WithError(err).Errorf("failed to update replica op state to %s", api.FINALIZING)
 			}
+
+			logger.Info("replica replication file copy completed")
 
 			// TODO Handle finalizing step for replica movement
 			return nil

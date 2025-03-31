@@ -59,7 +59,6 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 	fsm := NewFSM(cfg, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
 	replicationEngine := replication.NewShardReplicationEngine(cfg.Logger, fsm.replicationManager.GetReplicationFSM(), raft, cfg.ReplicaCopier)
-
 	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/hashicorp/go-multierror"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -42,10 +43,11 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 	}
 	s.opsByNode[c.TargetNode] = append(s.opsByNode[c.TargetNode], op)
 	s.opsByShard[c.SourceShard] = append(s.opsByShard[c.SourceShard], op)
-	s.opsByCollection[c.SourceCollection] = append(s.opsByShard[c.SourceCollection], op)
+	s.opsByCollection[c.SourceCollection] = append(s.opsByCollection[c.SourceCollection], op)
 	s.opsByTargetFQDN[targetFQDN] = op
 	s.opsById[op.id] = op
 	s.opsStatus[op] = shardReplicationOpStatus{state: api.REGISTERED}
+	spew.Dump(op)
 	return nil
 }
 
