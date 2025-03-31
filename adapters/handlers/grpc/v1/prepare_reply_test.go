@@ -417,8 +417,12 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{
-				ClassName:  className,
-				Properties: search.SelectProperties{{Name: "word", IsPrimitive: true}, {Name: "age", IsPrimitive: true}},
+				ClassName: className,
+				Properties: search.SelectProperties{
+					{Name: "word", IsPrimitive: true},
+					{Name: "age", IsPrimitive: true},
+					{Name: "nested", IsPrimitive: false, IsObject: true, Props: []search.SelectProperty{{Name: "text", IsPrimitive: true}}},
+				},
 			},
 			outSearch: []*pb.SearchResult{
 				{
@@ -427,8 +431,9 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
-								"age":  {Kind: &pb.Value_NullValue{}},
+								"word":   {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"age":    {Kind: &pb.Value_NullValue{}},
+								"nested": {Kind: &pb.Value_NullValue{}},
 							},
 						},
 						RefProps:          []*pb.RefPropertiesResult{},
