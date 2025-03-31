@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 
 	"github.com/weaviate/weaviate/usecases/config"
@@ -125,7 +126,8 @@ func TestCreateConflict(t *testing.T) {
 			h := dynUserHandler{
 				dbUsers:              dynUser,
 				authorizer:           authorizer,
-				staticApiKeysConfigs: tt.rbacConf, dbUserEnabled: true,
+				staticApiKeysConfigs: tt.rbacConf,
+				dbUserEnabled:        true,
 			}
 
 			res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
@@ -191,6 +193,38 @@ func TestCreateUnprocessableEntityCreatingRootUser(t *testing.T) {
 	res := h.createUser(users.CreateUserParams{UserID: "user-root"}, principal)
 	_, ok := res.(*users.CreateUserUnprocessableEntity)
 	assert.True(t, ok)
+}
+
+func TestCreateUnprocessableEntityCreatingAdminlistUser(t *testing.T) {
+	tests := []struct {
+		name          string
+		adminlistConf adminlist.Config
+	}{
+		{name: "adminlist - read-only user", adminlistConf: adminlist.Config{Enabled: true, ReadOnlyUsers: []string{"user"}}},
+		{name: "adminlist - admin user", adminlistConf: adminlist.Config{Enabled: true, Users: []string{"user"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{}
+
+			authorizer := authzMocks.NewAuthorizer(t)
+			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+			authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
+
+			h := dynUserHandler{
+				dbUsers:         dynUser,
+				authorizer:      authorizer,
+				adminListConfig: tt.adminlistConf,
+				dbUserEnabled:   true,
+			}
+
+			res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
+			parsed, ok := res.(*users.CreateUserUnprocessableEntity)
+			assert.True(t, ok)
+			assert.NotNil(t, parsed)
+		})
+	}
 }
 
 func TestCreateNoDynamic(t *testing.T) {
