@@ -625,6 +625,10 @@
         "indexPropertyLength": {
           "description": "Index length of properties (default: 'false').",
           "type": "boolean"
+        },
+        "usingBlockMaxWAND": {
+          "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
+          "type": "boolean"
         }
       },
       "type": "object"
