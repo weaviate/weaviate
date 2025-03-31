@@ -12,7 +12,12 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // There is at least a searchable bucket in the shard
@@ -25,4 +30,32 @@ func (s *Shard) areAllSearchableBucketsBlockMax() bool {
 		}
 	}
 	return true
+}
+
+func structToMap(obj interface{}) (newMap map[string]interface{}) {
+	data, _ := json.Marshal(obj)  // Convert to a json string
+	json.Unmarshal(data, &newMap) // Convert to a map
+	return
+}
+
+func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager, className string) error {
+	class := sc.ReadOnlyClass(className)
+	if class == nil {
+		return fmt.Errorf("class %q not found", className)
+	}
+	// nothing to update
+	if class.InvertedIndexConfig.UsingBlockMaxWAND {
+		return nil
+	}
+	class.ModuleConfig = structToMap(class.ModuleConfig)
+	class.VectorIndexConfig = structToMap(class.VectorIndexConfig)
+	class.ShardingConfig = structToMap(class.ShardingConfig)
+	for i := range class.VectorConfig {
+		tempConfig := class.VectorConfig[i]
+		tempConfig.VectorIndexConfig = structToMap(tempConfig.VectorIndexConfig)
+		tempConfig.Vectorizer = structToMap(tempConfig.Vectorizer)
+		class.VectorConfig[i] = tempConfig
+	}
+	class.InvertedIndexConfig.UsingBlockMaxWAND = true
+	return schema.UpdateClassInternal(&sc.Handler, ctx, className, class)
 }
