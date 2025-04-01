@@ -57,7 +57,7 @@ func (s *Raft) StorageCandidates() []string {
 		// if memberlist has more nodes then use it instead
 		// this case could happen if we have MetaVoterOnly Nodes
 		// in the RAFT config
-		return memStorageCandidates
+		return s.nodeSelector.SortCandidates(memStorageCandidates)
 	}
 
 	return s.nodeSelector.SortCandidates(raftStorageCandidates)
