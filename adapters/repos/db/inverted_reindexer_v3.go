@@ -304,6 +304,11 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 		}
 	}(time.Now())
 
+	if err = ctx.Err(); err != nil {
+		err = fmt.Errorf("context check (1): %w / %w", ctx.Err(), context.Cause(ctx))
+		return
+	}
+
 	index := r.getIndex(schema.ClassName(collectionName))
 	if index == nil {
 		err = fmt.Errorf("index for shard '%s' of collection '%s' not found", shardName, collectionName)
@@ -311,41 +316,51 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 	}
 	shard, release, err := index.GetShard(ctx, shardName)
 	if err != nil {
-		// r.locked(func() { r.queue.insert(key, time.Now().Add(r.config.retryOnErrorInterval)) })
+		r.locked(func() {
+			if ctx.Err() == nil {
+				r.queue.insert(key, tasks, time.Now().Add(r.config.retryOnErrorInterval))
+			}
+		})
 		err = fmt.Errorf("not loaded '%s' of collection '%s': %w", shardName, collectionName, err)
 		return
 	}
 	defer release()
-
 	if shard == nil {
 		err = fmt.Errorf("shard '%s' of collection '%s' not found", shardName, collectionName)
+		return
+	}
+
+	if err = ctx.Err(); err != nil {
+		err = fmt.Errorf("context check (2): %w / %w", ctx.Err(), context.Cause(ctx))
 		return
 	}
 
 	// at this point lazy shard should be loaded (there is no unloading), otherwise [RunAfterLsmInitAsync]
 	// would not be called and tasks scheduled for shard
 	rerunAt, err := tasks[0].OnAfterLsmInitAsync(ctx, shard)
-	if err != nil {
-		// schedule tasks only if context not cancelled
-		if ctx.Err() == nil {
-			r.scheduleTasks(key, tasks[1:], time.Now())
+	r.locked(func() {
+		if err != nil {
+			// schedule tasks only if context not cancelled
+			if ctx.Err() == nil {
+				r.scheduleTasks(key, tasks[1:], time.Now())
+			}
+			err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w",
+				tasks[0].Name(), shardName, collectionName, err)
+			return
 		}
-		err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w",
-			tasks[0].Name(), shardName, collectionName, err)
-		return
-	}
-	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w",
-			tasks[0].Name(), shardName, collectionName, err)
-		return
-	}
-	if rerunAt.IsZero() {
-		r.scheduleTasks(key, tasks[1:], time.Now())
-		logger.WithField("task", tasks[0].Name()).Debug("task executed completely")
-		return
-	}
-	r.scheduleTasks(key, tasks, rerunAt)
-	logger.WithField("task", tasks[0].Name()).Debug("task executed partially, rerun scheduled")
+		if err = ctx.Err(); err != nil {
+			err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w",
+				tasks[0].Name(), shardName, collectionName, err)
+			return
+		}
+		if rerunAt.IsZero() {
+			r.scheduleTasks(key, tasks[1:], time.Now())
+			logger.WithField("task", tasks[0].Name()).Debug("task executed completely")
+			return
+		}
+		r.scheduleTasks(key, tasks, rerunAt)
+		logger.WithField("task", tasks[0].Name()).Debug("task executed partially, rerun scheduled")
+	})
 	return
 }
 
