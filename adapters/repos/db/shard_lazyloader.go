@@ -478,13 +478,9 @@ func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) er
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	if !l.loaded {
+	if !l.isLoaded() {
 		return nil
 	}
-
 	return l.shard.Shutdown(ctx)
 }
 
