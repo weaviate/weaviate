@@ -67,3 +67,21 @@ func timesNUMCPU(factor int, numcpu int) int {
 	}
 	return 1
 }
+
+// TimesFloatNUMCPU calculate number of gorutines based on NUMCPU (gomaxprocs) and given factor greater or equal to 0.
+func TimesFloatNUMCPU(factor float64) int {
+	return timesFloatNUMCPU(factor, NUMCPU)
+}
+
+func timesFloatNUMCPU(factor float64, numcpu int) int {
+	// rounded at 0.5, with a minimum of 1
+	if factor <= 0 {
+		return 0
+	}
+
+	result := int(float64(numcpu)*factor + 0.5)
+	if result < 1 {
+		return 1
+	}
+	return result
+}
