@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"slices"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
+
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 
 	"github.com/go-openapi/runtime/middleware"
@@ -38,6 +40,7 @@ type dynUserHandler struct {
 	dbUsers              DbUserAndRolesGetter
 	staticApiKeysConfigs config.StaticAPIKey
 	rbacConfig           rbacconf.Config
+	adminListConfig      adminlist.Config
 	logger               logrus.FieldLogger
 	dbUserEnabled        bool
 }
@@ -55,15 +58,16 @@ const (
 
 var validateUserNameRegex = regexp.MustCompile(`^` + userNameRegexCore + `$`)
 
-func SetupHandlers(api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, authorizer authorization.Authorizer, authConfig config.Authentication, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
+func SetupHandlers(api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, authorizer authorization.Authorizer, authNConfig config.Authentication, authZConfig config.Authorization, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:           authorizer,
 		dbUsers:              dbUsers,
-		staticApiKeysConfigs: authConfig.APIKey,
-		dbUserEnabled:        authConfig.DBUsers.Enabled,
-		rbacConfig:           rbacConfig,
-		logger:               logger,
+		staticApiKeysConfigs: authNConfig.APIKey,
+		dbUserEnabled:        authNConfig.DBUsers.Enabled,
+		rbacConfig:           authZConfig.Rbac,
+
+		logger: logger,
 	}
 
 	api.UsersCreateUserHandler = users.CreateUserHandlerFunc(h.createUser)
@@ -195,7 +199,10 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' already exists", params.UserID)))
 	}
 	if h.isRootUser(params.UserID) {
-		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot delete root user")))
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot create db user with root user name")))
+	}
+	if h.isAdminlistUser(params.UserID) {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot create db user with admin list name")))
 	}
 
 	existingUser, err := h.dbUsers.GetUsers(params.UserID)
@@ -415,6 +422,20 @@ func (h *dynUserHandler) staticUserExists(newUser string) bool {
 func (h *dynUserHandler) isRootUser(name string) bool {
 	for i := range h.rbacConfig.RootUsers {
 		if h.rbacConfig.RootUsers[i] == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *dynUserHandler) isAdminlistUser(name string) bool {
+	for i := range h.adminListConfig.Users {
+		if h.adminListConfig.Users[i] == name {
+			return true
+		}
+	}
+	for i := range h.adminListConfig.ReadOnlyUsers {
+		if h.adminListConfig.ReadOnlyUsers[i] == name {
 			return true
 		}
 	}

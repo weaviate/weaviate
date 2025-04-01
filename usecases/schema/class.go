@@ -819,7 +819,12 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 
 func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 	switch vectorIndexType {
-	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC:
+	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT:
+		return nil
+	case vectorindex.VectorIndexTypeDYNAMIC:
+		if !h.asyncIndexingEnabled {
+			return fmt.Errorf("the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)")
+		}
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
