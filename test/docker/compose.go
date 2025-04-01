@@ -37,6 +37,7 @@ import (
 	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
@@ -116,6 +117,7 @@ type Compose struct {
 	weaviateApiKeyUsers            []ApiKeyUser
 	weaviateAdminlistAdminUsers    []string
 	weaviateAdminlistReadOnlyUsers []string
+	withWeaviateDbUsers            bool
 	withWeaviateRbac               bool
 	weaviateRbacAdmins             []string
 	weaviateRbacRootGroups         []string
@@ -337,6 +339,12 @@ func (d *Compose) WithGenerativeNvidia(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithGenerativeXAI(apiKey string) *Compose {
+	d.weaviateEnvs["XAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativexai.Name)
+	return d
+}
+
 func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modjinaai.Name)
@@ -510,6 +518,11 @@ func (d *Compose) WithUserApiKey(username, key string) *Compose {
 
 func (d *Compose) WithRBAC() *Compose {
 	d.withWeaviateRbac = true
+	return d
+}
+
+func (d *Compose) WithDbUsers() *Compose {
+	d.withWeaviateDbUsers = true
 	return d
 }
 
@@ -864,6 +877,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		if len(d.weaviateRbacRootGroups) > 0 {
 			settings["AUTHORIZATION_RBAC_ROOT_GROUPS"] = strings.Join(d.weaviateRbacRootGroups, ",")
 		}
+	}
+
+	if d.withWeaviateDbUsers {
+		settings["AUTHENTICATION_DB_USERS_ENABLED"] = "true"
 	}
 
 	if d.withAutoschema {

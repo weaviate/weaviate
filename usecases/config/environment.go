@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,8 @@ const (
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
 	DefaultHNSWAcornFilterRatio = 0.4
+
+	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -160,6 +163,10 @@ func FromEnv(config *Config) error {
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
 			config.Authentication.OIDC.GroupsClaim = v
 		}
+	}
+
+	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
+		config.Authentication.DBUsers.Enabled = true
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
@@ -317,6 +324,28 @@ func FromEnv(config *Config) error {
 		if config.Persistence.DataPath == "" {
 			config.Persistence.DataPath = DefaultPersistenceDataPath
 		}
+	}
+
+	if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_AT_STARTUP", clusterCfg.Hostname) {
+		config.ReindexMapToBlockmaxAtStartup = true
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_SWAP_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.SwapBuckets = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_UNSWAP_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.UnswapBuckets = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.TidyBuckets = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.Rollback = true
+		}
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PROCESSING_DURATION_SECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds = val },
+			DefaultMapToBlockmaxProcessingDurationSeconds)
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
+			DefaultMapToBlockmaxPauseDurationSeconds)
 	}
 
 	if err := config.parseMemtableConfig(); err != nil {
@@ -520,6 +549,8 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	config.Replication.AsyncReplicationDisabled = entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED"))
+
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
@@ -535,7 +566,7 @@ func FromEnv(config *Config) error {
 
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
-		func(val int) { config.MaximumAllowedCollectionsCount = val },
+		func(val int) { config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = val },
 		DefaultMaximumAllowedCollectionsCount,
 	); err != nil {
 		return err
@@ -562,6 +593,20 @@ func FromEnv(config *Config) error {
 		DefaultMetadataServerDataEventsChannelCapacity,
 	); err != nil {
 		return err
+	}
+
+	config.RuntimeOverrides.Enabled = entcfg.Enabled(os.Getenv("RUNTIME_OVERRIDES_ENABLED"))
+
+	if v := os.Getenv("RUNTIME_OVERRIDES_PATH"); v != "" {
+		config.RuntimeOverrides.Path = v
+	}
+
+	if v := os.Getenv("RUNTIME_OVERRIDES_LOAD_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse RUNTIME_OVERRIDES_LOAD_INTERVAL as time.Duration: %w", err)
+		}
+		config.RuntimeOverrides.LoadInterval = interval
 	}
 
 	return nil
@@ -662,14 +707,6 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 
 	cfg.EnableOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_ENABLE_ONE_NODE_RECOVERY"))
 	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
-
-	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside
-	// docker without a TLD available. However is running in k8s for example you have a TLD available.
-	if entcfg.Enabled(os.Getenv("RAFT_ENABLE_FQDN_RESOLVER")) {
-		cfg.EnableFQDNResolver = true
-	}
-
-	cfg.FQDNResolverTLD = os.Getenv("RAFT_FQDN_RESOLVER_TLD")
 
 	return cfg, nil
 }
@@ -1052,4 +1089,14 @@ func parseClusterConfig() (cluster.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func enabledForHost(envName string, localHostname string) bool {
+	if v := os.Getenv(envName); v != "" {
+		if entcfg.Enabled(v) {
+			return true
+		}
+		return slices.Contains(strings.Split(v, ","), localHostname)
+	}
+	return false
 }

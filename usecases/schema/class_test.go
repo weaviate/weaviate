@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -85,8 +86,8 @@ func Test_AddClass(t *testing.T) {
 		fakeSchemaManager.AssertExpectations(t)
 	})
 
-	t.Run("happy path, mixed vectors", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	t.Run("mixed vector schema creation", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
 
 		class := &models.Class{
 			Class: "NewClass",
@@ -104,13 +105,9 @@ func Test_AddClass(t *testing.T) {
 				},
 			},
 		}
-		fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 
 		_, _, err := handler.AddClass(ctx, nil, class)
-		require.NoError(t, err)
-
-		fakeSchemaManager.AssertExpectations(t)
+		require.ErrorContains(t, err, "creating a class with both a class level vector index and named vectors is forbidden")
 	})
 
 	t.Run("with empty class name", func(t *testing.T) {
@@ -470,7 +467,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 				fakeSchemaManager.On("QueryCollectionsCount").Return(tt.existingCount, nil)
 
 				// Set the max collections limit in config
-				handler.config.MaximumAllowedCollectionsCount = tt.maxAllowed
+				handler.schemaConfig.MaximumAllowedCollectionsCount = tt.maxAllowed
 
 				class := &models.Class{
 					Class:      "NewClass",
@@ -589,7 +586,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-			handler.config.MaximumAllowedCollectionsCount = -1
+			handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 		})
@@ -1040,7 +1037,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
-					handler.config.MaximumAllowedCollectionsCount = -1
+					handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					assert.Equal(t, test.valid, err == nil)
 					fakeSchemaManager.AssertExpectations(t)
@@ -1140,18 +1137,17 @@ func Test_Validation_PropertyNames(t *testing.T) {
 // As of now, most class settings are immutable, but we need to allow some
 // specific updates, such as the vector index config
 func Test_UpdateClass(t *testing.T) {
-	t.Run("ClassNotFound", func(t *testing.T) {
+	t.Run("class not found", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 		fakeSchemaManager.On("ReadOnlyClass", "WrongClass", mock.Anything).Return(nil)
 		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(ErrNotFound)
 
 		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{})
-		require.NotNil(t, err)
-		assert.Equal(t, ErrNotFound, err)
+		require.ErrorIs(t, err, ErrNotFound)
 		fakeSchemaManager.AssertExpectations(t)
 	})
 
-	t.Run("Fields validation", func(t *testing.T) {
+	t.Run("fields validation", func(t *testing.T) {
 		tests := []struct {
 			name          string
 			initial       *models.Class
@@ -1189,7 +1185,7 @@ func Test_UpdateClass(t *testing.T) {
 				expectedError: fmt.Errorf("unsupported vector"),
 			},
 			{
-				name:    "AddProperty",
+				name:    "add property to an empty class",
 				initial: &models.Class{Class: "InitialName", Vectorizer: "none"},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1200,10 +1196,71 @@ func Test_UpdateClass(t *testing.T) {
 						},
 					},
 				},
-				expectedError: fmt.Errorf(
-					"properties cannot be updated through updating the class. Use the add " +
-						"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
-						"to add additional properties"),
+				expectedError: errPropertiesUpdatedInClassUpdate,
+			},
+			{
+				name: "updating second property",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "prop1",
+							DataType: schema.DataTypeText.PropString(),
+						},
+						{
+							Name:     "prop2",
+							DataType: schema.DataTypeText.PropString(),
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "prop1",
+							DataType: schema.DataTypeText.PropString(),
+						},
+						{
+							Name:     "prop2",
+							DataType: schema.DataTypeInt.PropString(),
+						},
+					},
+				},
+				expectedError: errPropertiesUpdatedInClassUpdate,
+			},
+			{
+				name: "properties order should not matter",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "prop1",
+							DataType: schema.DataTypeText.PropString(),
+						},
+						{
+							Name:     "prop2",
+							DataType: schema.DataTypeInt.PropString(),
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "prop2",
+							DataType: schema.DataTypeInt.PropString(),
+						},
+						{
+							Name:     "prop1",
+							DataType: schema.DataTypeText.PropString(),
+						},
+					},
+				},
+				expectedError: nil,
 			},
 			{
 				name: "leaving properties unchanged",
@@ -1252,7 +1309,7 @@ func Test_UpdateClass(t *testing.T) {
 					},
 				},
 				expectedError: fmt.Errorf(
-					"properties cannot be updated through updating the class. Use the add " +
+					"property fields other than description cannot be updated through updating the class. Use the add " +
 						"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
 						"to add additional properties"),
 			},
@@ -1350,6 +1407,136 @@ func Test_UpdateClass(t *testing.T) {
 				expectedError: fmt.Errorf("can only update generative and reranker module configs"),
 			},
 			{
+				name: "adding new module configuration",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					ModuleConfig: map[string]interface{}{
+						"my-module1": map[string]interface{}{
+							"my-setting": "some-value",
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					ModuleConfig: map[string]interface{}{
+						"my-module1": map[string]interface{}{
+							"my-setting": "some-value",
+						},
+						"my-module2": map[string]interface{}{
+							"my-setting": "some-value",
+						},
+					},
+				},
+				expectedError: nil,
+			},
+			{
+				name: "adding new module configuration for a property",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module1": map[string]interface{}{
+									"my-setting": "some-value",
+								},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module1": map[string]interface{}{
+									"my-setting": "some-value",
+								},
+								"my-module2": map[string]interface{}{
+									"my-setting": "some-value",
+								},
+							},
+						},
+					},
+				},
+				expectedError: nil,
+			},
+			{
+				name: "updating existing module configuration for a property",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module1": map[string]interface{}{
+									"my-setting": "some-value",
+								},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module1": map[string]interface{}{
+									"my-setting": "new-value",
+								},
+							},
+						},
+					},
+				},
+				expectedError: errors.New(`module "my-module1" configuration cannot be updated`),
+			},
+			{
+				name: "removing existing module configuration for a property",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module1": map[string]interface{}{
+									"my-setting": "some-value",
+								},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module2": map[string]interface{}{
+									"my-setting": "new-value",
+								},
+							},
+						},
+					},
+				},
+				expectedError: errors.New(`module "my-module1" configuration was removed`),
+			},
+			{
 				name: "updating vector index config",
 				initial: &models.Class{
 					Class:      "InitialName",
@@ -1442,7 +1629,7 @@ func Test_UpdateClass(t *testing.T) {
 				expectedError: nil,
 			},
 			{
-				name: "add named vector on a class with legacy index",
+				name: "adding named vector on a class with legacy index",
 				initial: &models.Class{
 					Class:           "InitialName",
 					Vectorizer:      "text2vec-contextionary",
@@ -1461,15 +1648,142 @@ func Test_UpdateClass(t *testing.T) {
 						},
 					},
 				},
-				expectedError: fmt.Errorf("vector config is immutable"),
+				expectedError: nil,
+			},
+			{
+				name: "adding new vector to a class with named vectors",
+				initial: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"initial": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"initial": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+						"new": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+			},
+			{
+				name: "adding legacy vector to a class with named vectors",
+				initial: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"initial": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+					VectorConfig: map[string]models.VectorConfig{
+						"initial": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				expectedError: fmt.Errorf("vectorizer is immutable"),
+			},
+			{
+				name: "removing existing named vector",
+				initial: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"first": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+						"second": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"first": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				expectedError: fmt.Errorf(`missing config for vector "second"`),
+			},
+			{
+				name: "removing existing legacy vector",
+				initial: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+				},
+				update: &models.Class{
+					Class: "InitialName",
+				},
+				expectedError: fmt.Errorf("vectorizer is immutable"),
+			},
+			{
+				name: "adding named vector with reserved named on a collection with legacy index",
+				initial: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+				},
+				update: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+					VectorConfig: map[string]models.VectorConfig{
+						schema.DefaultNamedVectorName: {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				expectedError: fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", schema.DefaultNamedVectorName),
 			},
 		}
 
 		for _, test := range tests {
-			store := NewFakeStore()
 			t.Run(test.name, func(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 				ctx := context.Background()
+
+				store := NewFakeStore()
+				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -1478,7 +1792,7 @@ func Test_UpdateClass(t *testing.T) {
 				if len(test.initial.Properties) > 0 {
 					fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				}
-				handler.config.MaximumAllowedCollectionsCount = -1
+				handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 				_, _, err := handler.AddClass(ctx, nil, test.initial)
 				assert.Nil(t, err)
 				store.AddClass(test.initial)
@@ -1490,10 +1804,9 @@ func Test_UpdateClass(t *testing.T) {
 				}
 
 				if test.expectedError == nil {
-					assert.Nil(t, err)
+					assert.NoError(t, err)
 				} else {
-					require.NotNil(t, err, "update must error")
-					assert.Contains(t, err.Error(), test.expectedError.Error())
+					assert.ErrorContains(t, err, test.expectedError.Error())
 				}
 			})
 		}
@@ -1766,7 +2079,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.config.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.False(t, schema.AutoTenantCreationEnabled(c))
@@ -1787,7 +2100,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.config.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.True(t, schema.AutoTenantCreationEnabled(c))
@@ -1804,7 +2117,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.config.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})
@@ -1819,7 +2132,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.config.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})
@@ -1883,4 +2196,50 @@ func Test_SetClassDefaults(t *testing.T) {
 			assert.Equal(t, tt.expectedFactor, tt.class.ReplicationConfig.Factor)
 		})
 	}
+}
+
+func TestExperimentBackwardsCompatibleNamedVectorsGuard(t *testing.T) {
+	var (
+		className              = "TestClass"
+		ctx                    = context.Background()
+		handler, schemaManager = newTestHandler(t, &fakeDB{})
+	)
+	handler.parser.experimentBackwardsCompatibleNamedVectorsEnabled = false
+
+	t.Run("updating class with named vectors", func(t *testing.T) {
+		store := NewFakeStore()
+
+		schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		schemaManager.On("QueryCollectionsCount").Return(0, nil)
+
+		class := &models.Class{
+			Class:           className,
+			VectorIndexType: "hnsw",
+			Vectorizer:      "text2vec-contextionary",
+		}
+		_, _, err := handler.AddClass(ctx, nil, class)
+		require.NoError(t, err)
+		store.AddClass(class)
+
+		schemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+		schemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(class)
+
+		updatedClass := &models.Class{
+			Class:           className,
+			VectorIndexType: "hnsw",
+			Vectorizer:      "text2vec-contextionary",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: hnswT,
+					Vectorizer:      map[string]any{"text2vec-contextionary": map[string]any{}},
+				},
+			},
+		}
+
+		err = handler.UpdateClass(ctx, nil, className, updatedClass)
+		require.NoError(t, err)
+
+		err = store.UpdateClass(updatedClass)
+		require.ErrorContains(t, err, `additional config for vector "vec1"`)
+	})
 }

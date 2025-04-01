@@ -21,13 +21,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
@@ -87,7 +87,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 			}
 		}
 
-		common.CreateObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, replica.One)
+		common.CreateObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, types.ConsistencyLevelOne)
 	})
 
 	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
@@ -100,8 +100,10 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-			resp, err := body.Payload, clientErr
-			require.NoError(ct, err)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+
+			resp := body.Payload
 			require.Len(ct, resp.Nodes, clusterSize)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)
@@ -116,7 +118,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 			assert.EqualValues(ct, len(paragraphIDs), count)
 
 			for i, id := range paragraphIDs {
-				resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, replica.One)
+				resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, types.ConsistencyLevelOne)
 				assert.NoError(ct, err)
 				assert.NotNil(ct, resp)
 

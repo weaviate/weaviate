@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -99,11 +98,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	var scores []float32
 	var err error
 
-	if os.Getenv("USE_BLOCKMAX_WAND") == "true" {
-		objs, scores, err = b.wandBlock(ctx, filterDocIds, class, keywordRanking, limit, additional)
-	} else {
-		objs, scores, err = b.wand(ctx, filterDocIds, class, keywordRanking, limit, additional)
-	}
+	objs, scores, err = b.wandBlock(ctx, filterDocIds, class, keywordRanking, limit, additional)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "wand")
 	}

@@ -96,7 +96,7 @@ func configureOIDC(appState *state.State) *oidc.Client {
 	return c
 }
 
-func configureAPIKey(appState *state.State) *apikey.Client {
+func configureAPIKey(appState *state.State) *apikey.ApiKey {
 	c, err := apikey.New(appState.ServerConfig.Config)
 	if err != nil {
 		appState.Logger.WithField("action", "api_keys_init").WithError(err).Fatal("apikey client could not start up")
@@ -118,7 +118,7 @@ func configureAuthorizer(appState *state.State) error {
 		// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
 		rbacController, err := rbac.New(
 			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
-			appState.ServerConfig.Config.Authorization.Rbac,
+			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
 			appState.Logger)
 		if err != nil {
 			return fmt.Errorf("can't init casbin %w", err)

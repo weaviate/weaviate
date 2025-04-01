@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -99,7 +98,7 @@ type hnsw struct {
 
 	levelNormalizer float64
 
-	nodes *graph.Nodes
+	nodes []*vertex
 
 	vectorForID               common.VectorForID[float32]
 	TempVectorForIDThunk      common.TempVectorForID[float32]
@@ -177,6 +176,7 @@ type hnsw struct {
 	className          string
 	shardName          string
 	VectorForIDThunk   common.VectorForID[float32]
+	shardedNodeLocks   *common.ShardedRWLocks
 	store              *lsmkv.Store
 
 	allocChecker            memwatch.AllocChecker
@@ -193,7 +193,7 @@ type hnsw struct {
 
 type CommitLogger interface {
 	ID() string
-	AddNode(node *graph.Vertex) error
+	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
 	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
@@ -267,7 +267,7 @@ func New(cfg Config, uc ent.UserConfig,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
 		acornFilterRatio:      cfg.AcornFilterRatio,
-		nodes:                 graph.NewNodes(cache.InitialSize),
+		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
 		vectorForID:           vectorCache.Get,
@@ -304,6 +304,7 @@ func New(cfg Config, uc ent.UserConfig,
 		bqConfig:                  uc.BQ,
 		sqConfig:                  uc.SQ,
 		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
+		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
 
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
@@ -315,15 +316,17 @@ func New(cfg Config, uc ent.UserConfig,
 
 	index.multivector.Store(uc.Multivector.Enabled)
 
-	if uc.Multivector.Enabled && (uc.PQ.Enabled || uc.SQ.Enabled || uc.BQ.Enabled) {
-		return nil, errors.New("compression is not supported in multivector mode")
-	}
-
 	if uc.BQ.Enabled {
 		var err error
-		index.compressor, err = compressionhelpers.NewBQCompressor(
-			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-			cfg.AllocChecker)
+		if !uc.Multivector.Enabled {
+			index.compressor, err = compressionhelpers.NewBQCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		} else {
+			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -364,7 +367,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 // 	var node *hnswVertex
 // 	h.RLock()
-// 	total := h.nodes.Len()
+// 	total := len(h.nodes)
 // 	if total > nodeId {
 // 		node = h.nodes[nodeId] // it could be that we implicitly added this node already because it was referenced
 // 	}
@@ -489,9 +492,8 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 			// if we could find a new entrypoint, use it
 			// in case everything was tombstoned, stick with the existing one
 			elem := res.Pop()
-			n := h.nodes.Get(elem.ID)
-
-			if n != nil && !n.IsUnderMaintenance() {
+			n := h.nodeByID(elem.ID)
+			if n != nil && !n.isUnderMaintenance() {
 				// but not if the entrypoint is under maintenance
 				entryPointID = elem.ID
 			}
@@ -594,8 +596,31 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
+	h.shardedNodeLocks.RLock(h.entryPointID)
+	defer h.shardedNodeLocks.RUnlock(h.entryPointID)
 
-	return h.nodes.IsEmpty(h.entryPointID)
+	return h.isEmptyUnlocked()
+}
+
+func (h *hnsw) isEmptyUnlocked() bool {
+	return h.nodes[h.entryPointID] == nil
+}
+
+func (h *hnsw) nodeByID(id uint64) *vertex {
+	h.RLock()
+	defer h.RUnlock()
+
+	if id >= uint64(len(h.nodes)) {
+		// See https://github.com/weaviate/weaviate/issues/1838 for details.
+		// This could be after a crash recovery when the object store is "further
+		// ahead" than the hnsw index and we receive a delete request
+		return nil
+	}
+
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
+
+	return h.nodes[id]
 }
 
 func (h *hnsw) Drop(ctx context.Context) error {
@@ -670,7 +695,11 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 		return exists && !h.hasTombstones(vecIds)
 	}
 
-	exists := h.nodes.Get(docID) != nil
+	h.RLock()
+	h.shardedNodeLocks.RLock(docID)
+	exists := len(h.nodes) > int(docID) && h.nodes[docID] != nil
+	h.shardedNodeLocks.RUnlock(docID)
+	h.RUnlock()
 
 	return exists && !h.hasTombstone(docID)
 }
@@ -684,20 +713,35 @@ func (h *hnsw) Iterate(fn func(docID uint64) bool) {
 }
 
 func (h *hnsw) iterate(fn func(docID uint64) bool) {
-	h.nodes.Iter(func(id uint64, v *graph.Vertex) bool {
+	var id uint64
+
+	for {
 		if h.shutdownCtx.Err() != nil {
-			return false
+			return
 		}
 		if h.resetCtx.Err() != nil {
-			return false
+			return
 		}
 
-		if h.hasTombstone(id) {
-			return true
+		h.RLock()
+		h.shardedNodeLocks.RLock(id)
+		stop := int(id) >= len(h.nodes)
+		exists := !stop && h.nodes[id] != nil
+		h.shardedNodeLocks.RUnlock(id)
+		h.RUnlock()
+
+		if stop {
+			return
 		}
 
-		return fn(id)
-	})
+		if exists && !h.hasTombstone(id) {
+			if !fn(id) {
+				return
+			}
+		}
+
+		id++
+	}
 }
 
 func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
@@ -803,7 +847,7 @@ type Index interface {
 }
 
 type nodeLevel struct {
-	nodeID uint64
+	nodeId uint64
 	level  int
 }
 
@@ -812,43 +856,48 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 	defer h.RUnlock()
 
 	visitedPairs := make(map[nodeLevel]bool)
-	candidateList := []nodeLevel{{nodeID: h.entryPointID, level: h.currentMaximumLayer}}
+	candidateList := []nodeLevel{{h.entryPointID, h.currentMaximumLayer}}
 
 	for len(candidateList) > 0 {
 		currentNode := candidateList[len(candidateList)-1]
 		candidateList = candidateList[:len(candidateList)-1]
 		if !visitedPairs[currentNode] {
 			visitedPairs[currentNode] = true
-			node := h.nodes.Get(currentNode.nodeID)
+			h.shardedNodeLocks.RLock(currentNode.nodeId)
+			node := h.nodes[currentNode.nodeId]
 			if node != nil {
-				for i := currentNode.level; i >= 0; i-- {
-					node.IterConnections(i, func(neighborID uint64) bool {
-						if !visitedPairs[nodeLevel{nodeID: neighborID, level: i}] {
-							candidateList = append(candidateList, nodeLevel{nodeID: neighborID, level: i})
-						}
-						return true
-					})
-				}
+				node.Lock()
+				neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
+				node.Unlock()
+				candidateList = append(candidateList, neighbors...)
 			}
+			h.shardedNodeLocks.RUnlock(currentNode.nodeId)
 		}
 	}
 
 	visitedNodes := make(map[uint64]bool, len(visitedPairs))
 	for k, v := range visitedPairs {
 		if v {
-			visitedNodes[k.nodeID] = true
+			visitedNodes[k.nodeId] = true
 		}
 	}
 
 	unvisitedNodes := []uint64{}
-	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
-		if !visitedNodes[id] {
+	for i := 0; i < len(h.nodes); i++ {
+		var id uint64
+		h.shardedNodeLocks.RLock(uint64(i))
+		if h.nodes[i] != nil {
+			id = h.nodes[i].id
+		}
+		h.shardedNodeLocks.RUnlock(uint64(i))
+		if id == 0 {
+			continue
+		}
+		if !visitedNodes[uint64(i)] {
 			unvisitedNodes = append(unvisitedNodes, id)
 		}
 
-		return true
-	})
-
+	}
 	return unvisitedNodes
 }
 
@@ -873,20 +922,25 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	defer h.RUnlock()
 	distributionLayers := map[int]uint{}
 
-	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
-		l := node.Level()
-		if l == 0 && node.MaxLevel() == 0 {
-			return true
-		}
-		c, ok := distributionLayers[l]
-		if !ok {
-			distributionLayers[l] = 0
-		}
+	for _, node := range h.nodes {
+		func() {
+			if node == nil {
+				return
+			}
+			node.Lock()
+			defer node.Unlock()
+			l := node.level
+			if l == 0 && len(node.connections) == 0 {
+				return
+			}
+			c, ok := distributionLayers[l]
+			if !ok {
+				distributionLayers[l] = 0
+			}
 
-		distributionLayers[l] = c + 1
-
-		return true
-	})
+			distributionLayers[l] = c + 1
+		}()
+	}
 
 	stats := HnswStats{
 		Dimensions:         h.dims,

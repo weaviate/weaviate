@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/dto"
 
 	"github.com/go-openapi/strfmt"
@@ -90,6 +91,10 @@ type deferredShardOpts struct {
 	jobQueueCh       chan job
 	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
+
+	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
+	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
+	searchableInvertedPropNames           []string
 }
 
 func (l *LazyLoadShard) mustLoad() {
@@ -126,6 +131,10 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
 		return errors.New(msg)
 	}
+	shard.callbacksAddToPropertyValueIndex = l.shardOpts.callbacksAddToPropertyValueIndex
+	shard.callbacksRemoveFromPropertyValueIndex = l.shardOpts.callbacksRemoveFromPropertyValueIndex
+	shard.markSearchableBlockmaxProperties(l.shardOpts.searchableInvertedPropNames...)
+
 	l.shard = shard
 	l.loaded = true
 
@@ -302,7 +311,7 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 
 func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) (objs []replica.RepairResponse, err error) {
+) (objs []types.RepairResponse, err error) {
 	if !l.isLoaded() {
 		return nil, err
 	}
@@ -431,16 +440,6 @@ func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDoc
 	return l.shard.MergeObject(ctx, object)
 }
 
-func (l *LazyLoadShard) Queue() *VectorIndexQueue {
-	l.mustLoad()
-	return l.shard.Queue()
-}
-
-func (l *LazyLoadShard) Queues() map[string]*VectorIndexQueue {
-	l.mustLoad()
-	return l.shard.Queues()
-}
-
 func (l *LazyLoadShard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
 	l.mustLoad()
 	return l.shard.GetVectorIndexQueue(targetVector)
@@ -520,16 +519,6 @@ func (l *LazyLoadShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, t
 		return false, time.Time{}, err
 	}
 	return l.shard.WasDeleted(ctx, id)
-}
-
-func (l *LazyLoadShard) VectorIndex() VectorIndex {
-	l.mustLoad()
-	return l.shard.VectorIndex()
-}
-
-func (l *LazyLoadShard) VectorIndexes() map[string]VectorIndex {
-	l.mustLoad()
-	return l.shard.VectorIndexes()
 }
 
 func (l *LazyLoadShard) Versioner() *shardVersioner {
@@ -720,4 +709,41 @@ func (l *LazyLoadShard) Activity() int32 {
 	}
 
 	return l.shard.Activity()
+}
+
+func (l *LazyLoadShard) pathLSM() string {
+	return shardPathLSM(l.shardOpts.index.path(), l.shardOpts.name)
+}
+
+func (l *LazyLoadShard) RegisterAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {
+	l.mutex.Lock()
+	if !l.loaded {
+		l.shardOpts.callbacksAddToPropertyValueIndex = append(l.shardOpts.callbacksAddToPropertyValueIndex, callback)
+		l.mutex.Unlock()
+		return
+	}
+	l.mutex.Unlock()
+	l.shard.RegisterAddToPropertyValueIndex(callback)
+}
+
+func (l *LazyLoadShard) RegisterDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
+	l.mutex.Lock()
+	if !l.loaded {
+		l.shardOpts.callbacksRemoveFromPropertyValueIndex = append(l.shardOpts.callbacksRemoveFromPropertyValueIndex, callback)
+		l.mutex.Unlock()
+		return
+	}
+	l.mutex.Unlock()
+	l.shard.RegisterDeleteFromPropertyValueIndex(callback)
+}
+
+func (l *LazyLoadShard) markSearchableBlockmaxProperties(propNames ...string) {
+	l.mutex.Lock()
+	if !l.loaded {
+		l.shardOpts.searchableInvertedPropNames = append(l.shardOpts.searchableInvertedPropNames, propNames...)
+		l.mutex.Unlock()
+		return
+	}
+	l.mutex.Unlock()
+	l.shard.markSearchableBlockmaxProperties(propNames...)
 }

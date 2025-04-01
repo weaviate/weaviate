@@ -24,6 +24,7 @@ import (
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -31,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type objectHandlers struct {
@@ -910,8 +910,8 @@ func getReplicationProperties(consistencyLvl, nodeName *string) (*additional.Rep
 
 func getConsistencyLevel(lvl *string) (string, error) {
 	if lvl != nil {
-		switch replica.ConsistencyLevel(*lvl) {
-		case replica.One, replica.Quorum, replica.All:
+		switch types.ConsistencyLevel(*lvl) {
+		case types.ConsistencyLevelOne, types.ConsistencyLevelQuorum, types.ConsistencyLevelAll:
 			return *lvl, nil
 		default:
 			return "", fmt.Errorf("unrecognized consistency level '%v', "+

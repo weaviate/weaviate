@@ -50,25 +50,25 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.R
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
-	return SchemaReader{
-		schema: s.schema,
+	return NewSchemaReader(
+		s.schema,
 		// Pass a versioned reader that will ignore all version and always return valid, we want to read the latest
 		// state and not have to wait on a version
-		versionedSchemaReader: VersionedSchemaReader{
+		VersionedSchemaReader{
 			schema:        s.schema,
 			WaitForUpdate: func(context.Context, uint64) error { return nil },
 		},
-	}
+	)
 }
 
 func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint64) error) SchemaReader {
-	return SchemaReader{
-		schema: s.schema,
-		versionedSchemaReader: VersionedSchemaReader{
+	return NewSchemaReader(
+		s.schema,
+		VersionedSchemaReader{
 			schema:        s.schema,
 			WaitForUpdate: f,
 		},
-	}
+	)
 }
 
 func (s *SchemaManager) SetIndexer(idx Indexer) {
@@ -119,9 +119,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	i := 0
 	for _, v := range classes {
 		migratePropertiesIfNecessary(&v.Class)
-		// an immutable copy of the sharding state has to be used to avoid conflicts
-		shardingState, _ := v.CopyShardingState()
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
+		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
@@ -223,6 +221,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
 		meta.Class.Description = u.Description
+		meta.Class.Properties = u.Properties
 		meta.ClassVersion = cmd.Version
 		if req.State != nil {
 			meta.Sharding = *req.State

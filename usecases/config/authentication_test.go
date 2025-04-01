@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -70,4 +72,28 @@ func TestConfig_Authentication(t *testing.T) {
 
 		assert.Nil(t, err, "should not error")
 	})
+}
+
+func TestDbUserAuth(t *testing.T) {
+	tests := []struct {
+		name          string
+		staticEnabled bool
+		dbEnabled     bool
+		expected      bool
+	}{
+		{"none enabled", false, false, false},
+		{"both enabled", true, true, true},
+		{"only static", true, false, true},
+		{"only db", false, true, true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			auth := Authentication{
+				APIKey: StaticAPIKey{Enabled: test.staticEnabled}, DBUsers: DbUsers{Enabled: test.dbEnabled},
+			}
+
+			require.Equal(t, auth.AnyApiKeyAvailable(), test.expected)
+		})
+	}
 }

@@ -12,9 +12,12 @@
 package rbac
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
@@ -30,8 +33,8 @@ type manager struct {
 	logger logrus.FieldLogger
 }
 
-func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger) (*manager, error) {
-	csbin, err := Init(rbac, rbacStoragePath)
+func New(rbacStoragePath string, rbac rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*manager, error) {
+	csbin, err := Init(rbac, rbacStoragePath, authNconf)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +55,7 @@ func (m *manager) upsertRolesPermissions(roles map[string][]authorization.Policy
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
 		// e.g. : g, user:wv_internal_empty, role:roleName
-		if _, err := m.casbin.AddRoleForUser(conv.PrefixUserName(conv.InternalPlaceHolder), conv.PrefixRoleName(roleName)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserTypeInputDb), conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 		for _, policy := range policies {
@@ -177,8 +180,12 @@ func (m *manager) DeleteRoles(roles ...string) error {
 // AddRolesFroUser NOTE: user has to be prefixed by user:, group:, key: etc.
 // see func PrefixUserName(user) it will prefix username and nop-op if already prefixed
 func (m *manager) AddRolesForUser(user string, roles []string) error {
+	if !conv.NameHasPrefix(user) {
+		return errors.New("user does not contain a prefix")
+	}
+
 	for _, role := range roles {
-		if _, err := m.casbin.AddRoleForUser(conv.PrefixDefaultToUser(user), conv.PrefixRoleName(role)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(user, conv.PrefixRoleName(role)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 	}
@@ -191,8 +198,8 @@ func (m *manager) AddRolesForUser(user string, roles []string) error {
 	return nil
 }
 
-func (m *manager) GetRolesForUser(userName string) (map[string][]authorization.Policy, error) {
-	rolesNames, err := m.casbin.GetRolesForUser(conv.PrefixUserName(userName))
+func (m *manager) GetRolesForUser(userName string, userType models.UserTypeInput) (map[string][]authorization.Policy, error) {
+	rolesNames, err := m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
 	if err != nil {
 		return nil, fmt.Errorf("GetRolesForUser: %w", err)
 	}
@@ -206,15 +213,18 @@ func (m *manager) GetRolesForUser(userName string) (map[string][]authorization.P
 	return roles, err
 }
 
-func (m *manager) GetUsersForRole(roleName string) ([]string, error) {
+func (m *manager) GetUsersForRole(roleName string, userType models.UserTypeInput) ([]string, error) {
 	pusers, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(roleName))
 	if err != nil {
 		return nil, fmt.Errorf("GetUsersForRole: %w", err)
 	}
 	users := make([]string, 0, len(pusers))
 	for idx := range pusers {
-		user := conv.TrimUserNamePrefix(pusers[idx])
+		user, prefix := conv.GetUserAndPrefix(pusers[idx])
 		if user == conv.InternalPlaceHolder {
+			continue
+		}
+		if prefix != string(userType) {
 			continue
 		}
 		users = append(users, user)
@@ -223,8 +233,12 @@ func (m *manager) GetUsersForRole(roleName string) ([]string, error) {
 }
 
 func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
+	if !conv.NameHasPrefix(userName) {
+		return errors.New("user does not contain a prefix")
+	}
+
 	for _, roleName := range roles {
-		if _, err := m.casbin.DeleteRoleForUser(conv.PrefixDefaultToUser(userName), conv.PrefixRoleName(roleName)); err != nil {
+		if _, err := m.casbin.DeleteRoleForUser(userName, conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("DeleteRoleForUser: %w", err)
 		}
 	}
@@ -254,7 +268,7 @@ func (m *manager) checkPermissions(principal *models.Principal, resource, verb s
 	}
 
 	// If no group permissions, check user permissions
-	return m.casbin.Enforce(conv.PrefixUserName(principal.Username), resource, verb)
+	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb)
 }
 
 func prettyPermissionsActions(perm *models.Permission) string {

@@ -20,13 +20,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario() {
@@ -76,7 +76,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 				Object()
 		}
 
-		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, replica.One)
+		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelOne)
 	})
 
 	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
@@ -88,8 +88,10 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-			resp, err := body.Payload, clientErr
-			require.NoError(ct, err)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+
+			resp := body.Payload
 			require.Len(ct, resp.Nodes, clusterSize)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)
@@ -100,7 +102,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 
 	t.Run(fmt.Sprintf("assert node %d has all the objects", node), func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", types.ConsistencyLevelOne)
 			assert.Len(ct, resp, len(paragraphIDs))
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})

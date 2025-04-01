@@ -236,6 +236,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 
 	output := &SegmentBlockMax{
 		blockEntries:      blockEntries,
+		node:              segmentindex.Node{Key: key},
 		idf:               idf,
 		queryTermIndex:    queryTermIndex,
 		averagePropLength: float32(averagePropLength),
@@ -272,6 +273,7 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 
 	output := &SegmentBlockMax{
 		queryTermIndex:    queryTermIndex,
+		node:              segmentindex.Node{Key: key},
 		averagePropLength: float32(averagePropLength),
 		b:                 float32(config.B),
 		k1:                float32(config.K1),
@@ -281,6 +283,7 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 		blockDataIdx:      0,
 		decoded:           true,
 		freqDecoded:       true,
+		exhausted:         true,
 	}
 
 	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
@@ -292,6 +295,9 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 
 func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 	if (s.filterDocIds == nil && s.tombstones == nil) || s.exhausted {
+		if !s.exhausted {
+			s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
+		}
 		return
 	}
 
@@ -307,6 +313,10 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 			s.blockDataIdx = 0
 			s.decodeBlock()
 		}
+	}
+
+	if !s.exhausted {
+		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 	}
 }
 
@@ -424,9 +434,6 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 	}
 
 	s.advanceOnTombstoneOrFilter()
-	if !s.exhausted {
-		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
-	}
 }
 
 func (s *SegmentBlockMax) AdvanceAtLeastShallow(docId uint64) {
@@ -535,14 +542,15 @@ func (s *SegmentBlockMax) Advance() {
 	}
 
 	s.advanceOnTombstoneOrFilter()
-	if !s.exhausted {
-		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
-	}
 }
 
 func (s *SegmentBlockMax) computeCurrentBlockImpact() float32 {
 	if s.exhausted {
 		return 0
+	}
+	// for the fully decode blocks return the idf
+	if len(s.blockEntries) == 0 {
+		return float32(s.idf)
 	}
 	freq := float32(s.blockEntries[s.blockEntryIdx].MaxImpactTf)
 	propLength := float32(s.blockEntries[s.blockEntryIdx].MaxImpactPropLength)
@@ -563,4 +571,9 @@ func (s *SegmentBlockMax) exhaust() {
 	s.idf = 0
 	s.currentBlockMaxId = math.MaxUint64
 	s.exhausted = true
+}
+
+func (s *SegmentBlockMax) SetIdf(idf float64) {
+	s.idf = idf
+	s.currentBlockImpact = s.computeCurrentBlockImpact()
 }

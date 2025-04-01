@@ -1,0 +1,13 @@
+with-expecter: True
+dir: mocks/{{ replaceAll .InterfaceDirRelative "internal" "internal_" }}
+mockname: "{{.InterfaceName}}"
+outpkg: "{{.PackageName}}"
+filename: "{{.InterfaceName}}.go"
+recursive: true
+packages:
+  github.com/weaviate/weaviate/cluster/replication/types:
+    interfaces:
+      ReplicationFSMReader:
+  github.com/weaviate/weaviate/cluster/schema/types:
+    interfaces:
+      SchemaReader:

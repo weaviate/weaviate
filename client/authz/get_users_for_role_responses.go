@@ -17,11 +17,15 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
 	"io"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -86,7 +90,7 @@ GetUsersForRoleOK describes a response with status code 200, with default header
 Users assigned to this role
 */
 type GetUsersForRoleOK struct {
-	Payload []string
+	Payload []*GetUsersForRoleOKBodyItems0
 }
 
 // IsSuccess returns true when this get users for role o k response has a 2xx status code
@@ -120,14 +124,14 @@ func (o *GetUsersForRoleOK) Code() int {
 }
 
 func (o *GetUsersForRoleOK) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleOK  %+v", 200, o.Payload)
 }
 
 func (o *GetUsersForRoleOK) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleOK  %+v", 200, o.Payload)
 }
 
-func (o *GetUsersForRoleOK) GetPayload() []string {
+func (o *GetUsersForRoleOK) GetPayload() []*GetUsersForRoleOKBodyItems0 {
 	return o.Payload
 }
 
@@ -186,11 +190,11 @@ func (o *GetUsersForRoleBadRequest) Code() int {
 }
 
 func (o *GetUsersForRoleBadRequest) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetUsersForRoleBadRequest) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetUsersForRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -253,11 +257,11 @@ func (o *GetUsersForRoleUnauthorized) Code() int {
 }
 
 func (o *GetUsersForRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleUnauthorized ", 401)
 }
 
 func (o *GetUsersForRoleUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleUnauthorized ", 401)
 }
 
 func (o *GetUsersForRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -310,11 +314,11 @@ func (o *GetUsersForRoleForbidden) Code() int {
 }
 
 func (o *GetUsersForRoleForbidden) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetUsersForRoleForbidden) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetUsersForRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -377,11 +381,11 @@ func (o *GetUsersForRoleNotFound) Code() int {
 }
 
 func (o *GetUsersForRoleNotFound) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleNotFound ", 404)
 }
 
 func (o *GetUsersForRoleNotFound) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleNotFound ", 404)
 }
 
 func (o *GetUsersForRoleNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -434,11 +438,11 @@ func (o *GetUsersForRoleInternalServerError) Code() int {
 }
 
 func (o *GetUsersForRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetUsersForRoleInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/user-assignments][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetUsersForRoleInternalServerError) GetPayload() *models.ErrorResponse {
@@ -454,5 +458,105 @@ func (o *GetUsersForRoleInternalServerError) readResponse(response runtime.Clien
 		return err
 	}
 
+	return nil
+}
+
+/*
+GetUsersForRoleOKBodyItems0 get users for role o k body items0
+swagger:model GetUsersForRoleOKBodyItems0
+*/
+type GetUsersForRoleOKBodyItems0 struct {
+
+	// user Id
+	UserID string `json:"userId,omitempty"`
+
+	// user type
+	// Required: true
+	UserType *models.UserTypeOutput `json:"userType"`
+}
+
+// Validate validates this get users for role o k body items0
+func (o *GetUsersForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateUserType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *GetUsersForRoleOKBodyItems0) validateUserType(formats strfmt.Registry) error {
+
+	if err := validate.Required("userType", "body", o.UserType); err != nil {
+		return err
+	}
+
+	if err := validate.Required("userType", "body", o.UserType); err != nil {
+		return err
+	}
+
+	if o.UserType != nil {
+		if err := o.UserType.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("userType")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("userType")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this get users for role o k body items0 based on the context it is used
+func (o *GetUsersForRoleOKBodyItems0) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateUserType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *GetUsersForRoleOKBodyItems0) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+
+	if o.UserType != nil {
+		if err := o.UserType.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("userType")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("userType")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *GetUsersForRoleOKBodyItems0) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *GetUsersForRoleOKBodyItems0) UnmarshalBinary(b []byte) error {
+	var res GetUsersForRoleOKBodyItems0
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
 	return nil
 }

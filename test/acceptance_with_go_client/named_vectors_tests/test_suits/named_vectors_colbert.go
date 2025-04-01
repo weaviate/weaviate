@@ -12,11 +12,12 @@
 package test_suits
 
 import (
-	acceptance_with_go_client "acceptance_tests_with_client"
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
+
+	acceptance_with_go_client "acceptance_tests_with_client"
+	"acceptance_tests_with_client/fixtures"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -145,7 +146,6 @@ func testColBERT(host string) func(t *testing.T) {
 			t.Run("vector search after insert", func(t *testing.T) {
 				performNearVector(t, client, className)
 				performNearObject(t, client, className)
-
 			})
 
 			t.Run("check existence", func(t *testing.T) {

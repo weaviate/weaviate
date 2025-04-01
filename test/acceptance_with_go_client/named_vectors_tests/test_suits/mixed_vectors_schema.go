@@ -24,47 +24,41 @@ import (
 
 func testMixedVectorsCreateSchema(host string) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx := context.Background()
+		var (
+			ctx = context.Background()
+
+			className      = "MixedVectorDefaults"
+			text2vecCohere = "text2vec-cohere"
+			text2vecOpenAI = "text2vec-openai"
+
+			vectorizerClassOptions = map[string][]string{
+				text2vecOpenAI: {"vectorizeClassName", "baseURL", "model"},
+				text2vecCohere: {"vectorizeClassName", "baseUrl", "model", "truncate"},
+			}
+			propOptions = []string{"vectorizePropertyName", "skip"}
+
+			assertVectorizer = func(moduleConfig interface{}, module string) {
+				vectorizers, ok := moduleConfig.(map[string]interface{})
+				require.True(t, ok)
+				require.Len(t, vectorizers, 1)
+				require.Contains(t, vectorizers, module)
+				require.NotNil(t, vectorizers[module])
+
+				vectorizerConfig, ok := vectorizers[module].(map[string]interface{})
+				require.True(t, ok)
+
+				expectClassOptions := vectorizerClassOptions[module]
+				require.Len(t, vectorizerConfig, len(expectClassOptions))
+				for _, classOption := range expectClassOptions {
+					assert.Contains(t, vectorizerConfig, classOption)
+				}
+			}
+		)
+
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
-		require.Nil(t, err)
+		require.NoError(t, err)
 
-		cleanup := func() {
-			err := client.Schema().AllDeleter().Do(context.Background())
-			require.Nil(t, err)
-		}
-
-		t.Run("defaults for vectorizer configs", func(t *testing.T) {
-			defer cleanup()
-
-			var (
-				className      = "MixedVectorDefaults"
-				text2vecCohere = "text2vec-cohere"
-				text2vecOpenAI = "text2vec-openai"
-
-				vectorizerClassOptions = map[string][]string{
-					text2vecOpenAI: {"vectorizeClassName", "baseURL", "model"},
-					text2vecCohere: {"vectorizeClassName", "baseUrl", "model", "truncate"},
-				}
-				propOptions = []string{"vectorizePropertyName", "skip"}
-
-				assertVectorizer = func(moduleConfig interface{}, module string) {
-					vectorizers, ok := moduleConfig.(map[string]interface{})
-					require.True(t, ok)
-					require.Len(t, vectorizers, 1)
-					require.Contains(t, vectorizers, module)
-					require.NotNil(t, vectorizers[module])
-
-					vectorizerConfig, ok := vectorizers[module].(map[string]interface{})
-					require.True(t, ok)
-
-					expectClassOptions := vectorizerClassOptions[module]
-					require.Len(t, vectorizerConfig, len(expectClassOptions))
-					for _, classOption := range expectClassOptions {
-						assert.Contains(t, vectorizerConfig, classOption)
-					}
-				}
-			)
-
+		t.Run("defaults for vectorizer configs when adding named vector", func(t *testing.T) {
 			class := &models.Class{
 				Class: className,
 				Properties: []*models.Property{
@@ -81,30 +75,23 @@ func testMixedVectorsCreateSchema(host string) func(t *testing.T) {
 						},
 						VectorIndexType: "hnsw",
 					},
-					"cohere": {
-						Vectorizer: map[string]interface{}{
-							text2vecCohere: map[string]interface{}{
-								"vectorizeClassName": true,
-							},
-						},
-						VectorIndexType: "flat",
-					},
 				},
 			}
+			createMixedVectorsSchemaHelper(t, client, class)
 
-			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
-			require.NoError(t, err)
+			class.VectorConfig["cohere"] = models.VectorConfig{
+				Vectorizer: map[string]interface{}{
+					text2vecCohere: map[string]interface{}{
+						"vectorizeClassName": true,
+					},
+				},
+				VectorIndexType: "flat",
+			}
+			require.NoError(t, client.Schema().ClassUpdater().WithClass(class).Do(ctx))
 
 			classCreated, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
 			require.NoError(t, err)
 			assert.Equal(t, class.Class, classCreated.Class)
-
-			// class defaults
-			assert.Equal(t, class.Vectorizer, classCreated.Vectorizer)
-			assert.Equal(t, "hnsw", classCreated.VectorIndexType)
-			assert.NotEmpty(t, classCreated.VectorIndexConfig)
-
-			assertVectorizer(classCreated.ModuleConfig, text2vecOpenAI)
 
 			require.Len(t, classCreated.VectorConfig, 2)
 			for _, targetVector := range []struct{ name, module, indexType string }{
@@ -137,5 +124,147 @@ func testMixedVectorsCreateSchema(host string) func(t *testing.T) {
 				}
 			}
 		})
+
+		t.Run("cannot create mixed vector schema", func(t *testing.T) {
+			require.NoError(t, client.Schema().AllDeleter().Do(context.Background()))
+
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						Name:     "text",
+						DataType: schema.DataTypeText.PropString(),
+					},
+				},
+				Vectorizer:      text2vecOpenAI,
+				VectorIndexType: "hnsw",
+				VectorConfig: map[string]models.VectorConfig{
+					"openai": {
+						Vectorizer: map[string]interface{}{
+							text2vecOpenAI: map[string]interface{}{},
+						},
+						VectorIndexType: "hnsw",
+					},
+					"cohere": {
+						Vectorizer: map[string]interface{}{
+							text2vecOpenAI: map[string]interface{}{},
+						},
+						VectorIndexType: "hnsw",
+					},
+				},
+			}
+			err = client.Schema().ClassCreator().WithClass(class).Do(ctx)
+			require.ErrorContains(t, err, "creating a class with both a class level vector index and named vectors is forbidden")
+		})
+
+		t.Run("cannot remove named vector", func(t *testing.T) {
+			require.NoError(t, client.Schema().AllDeleter().Do(context.Background()))
+
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						Name:     "text",
+						DataType: schema.DataTypeText.PropString(),
+					},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"openai": {
+						Vectorizer: map[string]interface{}{
+							text2vecOpenAI: map[string]interface{}{},
+						},
+						VectorIndexType: "hnsw",
+					},
+					"cohere": {
+						Vectorizer: map[string]interface{}{
+							text2vecOpenAI: map[string]interface{}{},
+						},
+						VectorIndexType: "hnsw",
+					},
+				},
+			}
+			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+			delete(class.VectorConfig, "cohere")
+			err = client.Schema().ClassUpdater().WithClass(class).Do(ctx)
+			require.ErrorContains(t, err, `missing config for vector \"cohere\"`)
+		})
+
+		t.Run("cannot add legacy vector on a collection with named vectors", func(t *testing.T) {
+			require.NoError(t, client.Schema().AllDeleter().Do(context.Background()))
+
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						Name:     "text",
+						DataType: schema.DataTypeText.PropString(),
+					},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"openai": {
+						Vectorizer: map[string]interface{}{
+							text2vecOpenAI: map[string]interface{}{},
+						},
+						VectorIndexType: "hnsw",
+					},
+				},
+			}
+			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+			class.Vectorizer = text2vecContextionary
+			class.VectorIndexType = "hnsw"
+
+			err = client.Schema().ClassUpdater().WithClass(class).Do(ctx)
+			require.ErrorContains(t, err, "422")
+			require.ErrorContains(t, err, "parse class update")
+		})
+
+		t.Run("cannot add named vector called default when legacy schema present", func(t *testing.T) {
+			require.NoError(t, client.Schema().AllDeleter().Do(context.Background()))
+
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						Name:     "text",
+						DataType: schema.DataTypeText.PropString(),
+					},
+				},
+				Vectorizer:      text2vecContextionary,
+				VectorIndexType: "hnsw",
+			}
+			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+			class.VectorConfig = map[string]models.VectorConfig{
+				"default": {
+					Vectorizer:      map[string]interface{}{text2vecContextionary: map[string]interface{}{}},
+					VectorIndexType: "hnsw",
+				},
+			}
+
+			err = client.Schema().ClassUpdater().WithClass(class).Do(ctx)
+			require.ErrorContains(t, err, "422")
+			require.ErrorContains(t, err, "vector named default cannot be created when collection level vector index is configured")
+		})
 	}
+}
+
+// createMixedVectorsSchemaHelper is a function which creates a mixed vector schema by first creating a
+// schema with specified legacy vector and the updates the schema with specified named vectors.
+func createMixedVectorsSchemaHelper(t *testing.T, client *wvt.Client, class *models.Class) *models.Class {
+	require.NoError(t, client.Schema().ClassDeleter().WithClassName(class.Class).Do(context.Background()))
+
+	capturedNamedVectors := class.VectorConfig
+	class.VectorConfig = nil
+
+	require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(context.Background()))
+
+	class.VectorConfig = capturedNamedVectors
+	require.NoError(t, client.Schema().ClassUpdater().WithClass(class).Do(context.Background()))
+
+	fetchedSchema, err := client.Schema().ClassGetter().WithClassName(class.Class).Do(context.Background())
+	require.NoError(t, err)
+
+	return fetchedSchema
 }
