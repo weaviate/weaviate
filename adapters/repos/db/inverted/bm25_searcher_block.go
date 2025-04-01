@@ -56,6 +56,7 @@ func (b *BM25Searcher) wandBlock(
 		return nil, nil, err
 	}
 
+	// fallback to the old search process if not all buckets are inverted
 	if !allBucketsAreInverted {
 		return b.wand(ctx, filterDocIds, class, params, limit, additional)
 	}
