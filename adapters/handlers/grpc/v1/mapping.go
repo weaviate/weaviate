@@ -113,6 +113,9 @@ func (m *Mapper) NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value
 }
 
 func (m *Mapper) NewNestedValue(v interface{}, dt schema.DataType, parent schema.PropertyInterface, prop search.SelectProperty) (*pb.Value, error) {
+	if v == nil {
+		return m.NewNilValue(), nil
+	}
 	switch dt {
 	case schema.DataTypeObject:
 		if _, ok := v.(map[string]interface{}); !ok {

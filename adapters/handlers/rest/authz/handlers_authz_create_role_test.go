@@ -377,6 +377,34 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 	}
 }
 
+func TestCreateRoleUnprocessableRegexp(t *testing.T) {
+	authorizer := authZmocks.NewAuthorizer(t)
+	controller := mocks.NewControllerAndGetUsers(t)
+	logger, _ := test.NewNullLogger()
+
+	params := authz.CreateRoleParams{
+		Body: &models.Role{
+			Name: String("newRole"),
+			Permissions: []*models.Permission{
+				{
+					Action:      String(authorization.CreateCollections),
+					Collections: &models.PermissionCollections{Collection: String("/[a-z+/")},
+				},
+			},
+		},
+	}
+
+	h := &authZHandlers{
+		authorizer: authorizer,
+		controller: controller,
+		logger:     logger,
+	}
+	res := h.createRole(params, &models.Principal{Username: "user1"})
+	_, ok := res.(*authz.CreateRoleUnprocessableEntity)
+	assert.True(t, ok)
+	assert.Contains(t, res.(*authz.CreateRoleUnprocessableEntity).Payload.Error[0].Message, "role permissions are invalid")
+}
+
 func String(s string) *string {
 	return &s
 }
