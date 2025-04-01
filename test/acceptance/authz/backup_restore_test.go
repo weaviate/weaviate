@@ -52,7 +52,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 	defer helper.ResetClient()
 
 	backend := "filesystem"
-	testRoleName := "test-role"
+	testRoleName := "testRole"
 
 	// one class is needed for backup
 	par := articles.ParagraphsClass()
