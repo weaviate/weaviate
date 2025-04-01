@@ -73,6 +73,7 @@ func (db *DB) init(ctx context.Context) error {
 						K1: config.DefaultBM25k1,
 						B:  config.DefaultBM25b,
 					},
+					UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 				}
 			}
 			if err := replica.ValidateConfig(class, db.config.Replication); err != nil {
@@ -113,8 +114,8 @@ func (db *DB) init(ctx context.Context) error {
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
 				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
-				db.memMonitor)
+				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler,
+				db.indexCheckpoints, db.memMonitor, db.reindexer)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

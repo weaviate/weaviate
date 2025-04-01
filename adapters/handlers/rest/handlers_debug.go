@@ -17,12 +17,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -70,7 +72,7 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		appState.ReindexCtxCancel()
+		appState.ReindexCtxCancel(fmt.Errorf("abort endpoint"))
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
@@ -78,27 +80,38 @@ func setupDebugHandlers(appState *state.State) {
 		colName := r.URL.Query().Get("collection")
 		rootPath := appState.DB.GetConfig().RootPath
 
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
 		if colName == "" {
 			http.Error(w, "collection and shard are required", http.StatusBadRequest)
 			return
 		}
 		className := schema.ClassName(colName)
+		info := appState.SchemaManager.SchemaReader.ClassInfo(className.String())
 
 		classNameString := strings.ToLower(className.String())
 		idx := appState.DB.GetIndex(className)
+
 		if idx == nil {
 			logger.WithField("collection", colName).Error("collection not found or not ready")
 			http.Error(w, "collection not found or not ready", http.StatusNotFound)
 			return
 		}
 
-		// get all shards
+		blockMaxStatus := "not_ready"
+		blockMaxEnabled := idx.GetInvertedIndexConfig().UsingBlockMaxWAND
+		if blockMaxEnabled {
+			blockMaxStatus = "enabled"
+		}
+		// shard map: shardName -> shardPath
+		paths := make(map[string]string)
 
-		paths := []string{}
-		err := idx.ForEachLoadedShard(
+		// shards will not be force loaded, as we are only getting the name
+		err := idx.ForEachShard(
 			func(shardName string, shard db.ShardLike) error {
 				shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
-				paths = append(paths, shardPath)
+				paths[shardName] = shardPath
 				return nil
 			},
 		)
@@ -108,23 +121,63 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		if len(paths) == 0 {
-			http.Error(w, "no shards found", http.StatusNotFound)
+		// tenant map: tenantName -> *models.TenantResponse
+		tenantMap := make(map[string]*models.TenantResponse)
+
+		if info.MultiTenancy.Enabled {
+
+			tenantResponses, err := appState.SchemaManager.GetConsistentTenants(ctx, nil, colName, true, []string{})
+			if err != nil {
+				logger.WithField("collection", colName).Error("failed to get tenant responses")
+				http.Error(w, "failed to get tenant responses", http.StatusInternalServerError)
+				return
+			}
+
+			for _, tenant := range tenantResponses {
+				tenantMap[tenant.Name] = tenant
+			}
+		} else {
+			for name := range paths {
+				tenantMap[name] = &models.TenantResponse{
+					Tenant: models.Tenant{
+						Name: name,
+					},
+				}
+			}
+		}
+
+		if len(tenantMap) == 0 {
+			http.Error(w, "no shards or tenants found", http.StatusNotFound)
 			return
 		}
 
-		output := make([]map[string]string, len(paths))
+		output := make(map[string]map[string]string, len(paths))
 
-		for i, path := range paths {
+		for i, tenant := range tenantMap {
 			output[i] = map[string]string{
-				"shard":  path,
+				"shard":  i,
 				"status": "unknown",
 			}
+			path := paths[tenant.Name]
+			if path == "" {
+				output[i]["status"] = "shard_not_loaded"
+				output[i]["message"] = "shard not loaded"
+				continue
+			}
+
+			// check if the shard directory exists
+			_, err := os.Stat(path)
+			if err != nil {
+				output[i]["status"] = "shard_not_loaded"
+				output[i]["message"] = "shard directory does not exist"
+				continue
+			}
+
 			// check if a .migrations/searchable_map_to_blockmax exists
-			_, err := os.Stat(path + ".migrations/searchable_map_to_blockmax")
+			_, err = os.Stat(path + ".migrations/searchable_map_to_blockmax")
 			if err != nil {
 				output[i]["status"] = "not_started"
-				output[i]["message"] = "no searchable_map_to_blockmax found"
+				output[i]["message"] = "no searchable_map_to_blockmax folder found"
 				continue
 			}
 
@@ -162,6 +215,7 @@ func setupDebugHandlers(appState *state.State) {
 			}
 
 			output[i]["properties"] = string(propertiesFile)
+			output[i]["message"] = "re-indexing started"
 
 			// count the progress.mig.* files in the shard directory
 			files, err := os.ReadDir(path)
@@ -171,16 +225,43 @@ func setupDebugHandlers(appState *state.State) {
 				continue
 			}
 			progressCount := 0
+			objectsMigratedCountTotal := 0
 
 			// files sorted by filename
 
 			for _, file := range files {
 				if strings.HasPrefix(file.Name(), "progress.mig.") {
 					progressCount++
+					// open progress file
+
+					progressFilePath := path + file.Name()
+					progressFile, err := os.ReadFile(progressFilePath)
+					if err != nil {
+						output[i]["status"] = "error"
+						output[i]["message"] = fmt.Sprintf("failed to read %s", progressFilePath)
+						continue
+					}
+
+					// parse progress file
+					progressFileFields := strings.Split(string(progressFile), "\n")
+					if len(progressFileFields) != 4 {
+						output[i]["status"] = "error"
+						output[i]["message"] = fmt.Sprintf("invalid progress file %s", progressFilePath)
+						continue
+					}
+					// parse objects migrated count
+					objectsMigratedCount, err := strconv.Atoi(strings.Split(progressFileFields[3], " ")[1])
+					if err != nil {
+						output[i]["status"] = "error"
+						output[i]["message"] = fmt.Sprintf("failed to parse objects migrated count %s", progressFilePath)
+						continue
+					}
+					objectsMigratedCountTotal += objectsMigratedCount
+					output[i]["objects_migrated"] = fmt.Sprintf("%d", objectsMigratedCountTotal)
 				}
 			}
 			if progressCount == 0 {
-				output[i]["message"] = "no progress.mig.* files found, no snapshots created yet"
+				output[i]["message"] = "migration started recently, no snapshots yet"
 				continue
 			}
 
@@ -202,6 +283,8 @@ func setupDebugHandlers(appState *state.State) {
 			if err == nil {
 				output[i]["status"] = "reindexed"
 				output[i]["message"] = "reindexing done"
+			} else {
+				continue
 			}
 
 			// load the reindexed.mig file and add it's value to the output
@@ -275,11 +358,19 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		response := map[string]interface{}{
-			"shards": output,
+			"shards":        output,
+			"BlockMax WAND": blockMaxStatus,
 		}
-		json.NewEncoder(w).Encode(response)
 
-		w.WriteHeader(http.StatusOK)
+		jsonBytes, err := json.Marshal(response)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(jsonBytes)
 	}))
 
 	// newLogLevel can be one of: panic, fatal, error, warn, info, debug, trace (defaults to info)

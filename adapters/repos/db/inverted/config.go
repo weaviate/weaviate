@@ -67,6 +67,8 @@ func ConfigFromModel(iicm *models.InvertedIndexConfig) schema.InvertedIndexConfi
 		conf.Stopwords.Removals = iicm.Stopwords.Removals
 	}
 
+	conf.UsingBlockMaxWAND = iicm.UsingBlockMaxWAND
+
 	return conf
 }
 

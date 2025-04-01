@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -101,7 +102,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{},
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
+		},
 	}
 	fakeSchema := schema.Schema{
 		Objects: &models.Schema{
@@ -125,7 +128,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -185,7 +188,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema:     fakeSchema,
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.Nil(t, err)
 
 	err = index.addProperty(context.TODO(), &models.Property{
@@ -296,7 +299,9 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{},
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
+		},
 	}
 	fakeSchema := schema.Schema{
 		Objects: &models.Schema{
@@ -319,7 +324,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -376,7 +381,9 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{},
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
+		},
 	}
 	fakeSchema := schema.Schema{
 		Objects: &models.Schema{
@@ -403,7 +410,7 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil, NewShardReindexerV3Noop())
 	require.Nil(t, err)
 
 	// at this point the shard is not loaded yet.
@@ -447,7 +454,9 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{},
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
+		},
 	}
 	fakeSchema := schema.Schema{
 		Objects: &models.Schema{
@@ -475,7 +484,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil, NewShardReindexerV3Noop())
 	require.Nil(t, err)
 
 	// force the index to load the shard
@@ -534,7 +543,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil)
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.Nil(t, err)
 	return idx
 }
