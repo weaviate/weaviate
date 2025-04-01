@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	schema "github.com/weaviate/weaviate/usecases/schema"
@@ -37,7 +36,7 @@ import (
 
 func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 	swapBuckets, unswapBuckets, tidyBuckets, rollback bool,
-	processingDuration, pauseDuration time.Duration,
+	processingDuration, pauseDuration time.Duration, concurrency int,
 	schemaManager *schema.Manager,
 ) *ShardReindexTask_MapToBlockmax {
 	name := "MapToBlockmax"
@@ -53,25 +52,19 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 		return rt, nil
 	}
 
-	concurrentMigratorCpuRatio := 0.5
-
-	// TODO amourao: move to config and clean up code
-	if os.Getenv("REINDEX_MAP_TO_BLOCKMAX_CPU_RATIO") != "" {
-		// parse float from env var
-		cpuRatio, err := strconv.ParseFloat(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_CPU_RATIO"), 64)
-		if err == nil {
-			concurrentMigratorCpuRatio = cpuRatio
-		}
-
-		if err != nil || cpuRatio <= 0 {
-			concurrentMigratorCpuRatio = 0.5
-			logger.Warn("Invalid REINDEX_MAP_TO_BLOCKMAX_CPU_RATIO value \"%v\", using default of 0.5", os.Getenv("REINDEX_MAP_TO_BLOCKMAX_CPU_RATIO"))
-		}
+	config := mapToBlockmaxConfig{
+		swapBuckets:                   swapBuckets,
+		unswapBuckets:                 unswapBuckets,
+		tidyBuckets:                   tidyBuckets,
+		rollback:                      rollback,
+		concurrency:                   concurrency,
+		memtableOptBlockmaxFactor:     4,
+		processingDuration:            processingDuration,
+		pauseDuration:                 pauseDuration,
+		checkProcessingEveryNoObjects: 1000,
 	}
 
-	// defaults to 0.5*NUMCPU, rounded at middle point, but min of 1 if concurrentMigratorCpuRatio > 0
-	concurrentMigratorCount := concurrency.TimesFloatNUMCPU(concurrentMigratorCpuRatio)
-	logger.WithField("concurrent_migrator_count", concurrentMigratorCount).Info("Concurrent migrator count set")
+	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("task created")
 
 	return &ShardReindexTask_MapToBlockmax{
 		name:                 name,
@@ -79,18 +72,8 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 		newReindexTracker:    newReindexTracker,
 		keyParser:            keyParser,
 		objectsIteratorAsync: objectsIteratorAsync,
-		config: mapToBlockmaxConfig{
-			swapBuckets:                   swapBuckets,
-			unswapBuckets:                 unswapBuckets,
-			tidyBuckets:                   tidyBuckets,
-			rollback:                      rollback,
-			concurrency:                   concurrentMigratorCount,
-			memtableOptBlockmaxFactor:     4,
-			processingDuration:            processingDuration,
-			pauseDuration:                 pauseDuration,
-			checkProcessingEveryNoObjects: 1000,
-		},
-		schemaManager: schemaManager,
+		schemaManager:        schemaManager,
+		config:               config,
 	}
 }
 

@@ -21,7 +21,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -67,15 +66,21 @@ func (r *shardReindexerV3Noop) Stop(shard *Shard, cause error) {}
 // -----------------------------------------------------------------------------
 
 func NewShardReindexerV3(ctx context.Context, logger logrus.FieldLogger,
-	getIndex func(className schema.ClassName) *Index,
+	getIndex func(className schema.ClassName) *Index, concurrency int,
 ) *shardReindexerV3 {
-	return &shardReindexerV3{
-		logger:   logger,
-		ctx:      ctx,
-		getIndex: getIndex,
-		queue:    newShardsQueue(),
-		lock:     new(sync.Mutex),
+	config := shardsReindexerV3Config{
+		concurrency:          concurrency,
+		retryOnErrorInterval: 15 * time.Minute,
+	}
 
+	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("reindexer created")
+
+	return &shardReindexerV3{
+		logger:                      logger,
+		ctx:                         ctx,
+		getIndex:                    getIndex,
+		queue:                       newShardsQueue(),
+		lock:                        new(sync.Mutex),
 		taskNames:                   map[string]struct{}{},
 		tasks:                       []ShardReindexTaskV3{},
 		waitingTasksPerShard:        map[string][]ShardReindexTaskV3{},
@@ -83,11 +88,7 @@ func NewShardReindexerV3(ctx context.Context, logger logrus.FieldLogger,
 		waitingCtxCancelPerShard:    map[string]context.CancelCauseFunc{},
 		processingCtxPerShard:       map[string]context.Context{},
 		processingCtxCancelPerShard: map[string]context.CancelCauseFunc{},
-
-		config: shardsReindexerV3Config{
-			concurrency:          concurrency.NUMCPU_2,
-			retryOnErrorInterval: 15 * time.Minute,
-		},
+		config:                      config,
 	}
 }
 

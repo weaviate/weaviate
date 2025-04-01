@@ -326,6 +326,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	parsePositiveFloat("REINDEXER_GOROUTINES_FACTOR",
+		func(val float64) { config.ReindexerGoroutinesFactor = val },
+		DefaultReindexerGoroutinesFactor)
+
 	if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_AT_STARTUP", clusterCfg.Hostname) {
 		config.ReindexMapToBlockmaxAtStartup = true
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_SWAP_BUCKETS", clusterCfg.Hostname) {
@@ -820,7 +824,7 @@ func parseInt(envName string, cb func(val int), defaultValue int) error {
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
 		if val <= 0 {
-			return fmt.Errorf("%s must be a positive value larger 0. Got: %v", envName, val)
+			return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
 		}
 		return nil
 	})
@@ -829,7 +833,7 @@ func parsePositiveInt(envName string, cb func(val int), defaultValue int) error 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
 		if val < 0 {
-			return fmt.Errorf("%s must be an integer greater than or equal 0", envName)
+			return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
 		}
 		return nil
 	})
@@ -850,6 +854,46 @@ func parseIntVerify(envName string, defaultValue int, cb func(val int), verify f
 	}
 
 	cb(asInt)
+	return nil
+}
+
+// func parseFloat(envName string, cb func(val float64), defaultValue float64) error {
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error { return nil })
+// }
+
+func parsePositiveFloat(envName string, cb func(val float64), defaultValue float64) error {
+	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
+		if val <= 0 {
+			return fmt.Errorf("%s must be a float greater than 0. Got: %v", envName, val)
+		}
+		return nil
+	})
+}
+
+// func parseNonNegativeFloat(envName string, cb func(val float64), defaultValue float64) error {
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
+// 		if val < 0 {
+// 			return fmt.Errorf("%s must be a float greater than or equal 0. Got %v", envName, val)
+// 		}
+// 		return nil
+// 	})
+// }
+
+func parseFloatVerify(envName string, defaultValue float64, cb func(val float64), verify func(val float64) error) error {
+	var err error
+	asFloat := defaultValue
+
+	if v := os.Getenv(envName); v != "" {
+		asFloat, err = strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse %s as float: %w", envName, err)
+		}
+		if err = verify(asFloat); err != nil {
+			return err
+		}
+	}
+
+	cb(asFloat)
 	return nil
 }
 
