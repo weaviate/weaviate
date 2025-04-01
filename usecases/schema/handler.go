@@ -14,12 +14,14 @@ package schema
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -137,6 +139,8 @@ type Handler struct {
 	scaleOut                scaleOut
 	parser                  Parser
 	classGetter             *ClassGetter
+
+	asyncIndexingEnabled bool
 }
 
 // NewHandler creates a new handler
@@ -170,6 +174,8 @@ func NewHandler(
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
 		classGetter:             classGetter,
+
+		asyncIndexingEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)
