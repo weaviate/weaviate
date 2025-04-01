@@ -124,23 +124,37 @@ func TestUpdateUser(t *testing.T) {
 func TestSnapShotAndRestore(t *testing.T) {
 	dynUsers := NewDBUser()
 
-	userId := "id"
+	userId1 := "id-1"
+	userId2 := "id-2"
 
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier))
-	login, _, err := keys.DecodeApiKey(apiKey)
+	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier))
+	login1, _, err := keys.DecodeApiKey(apiKey)
+	require.NoError(t, err)
+
+	apiKey2, hash2, identifier2, err := keys.CreateApiKeyAndHash("")
+	require.NoError(t, err)
+	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2))
+	login2, _, err := keys.DecodeApiKey(apiKey2)
 	require.NoError(t, err)
 
 	startSlow := time.Now()
-	principal, err := dynUsers.ValidateAndExtract(login, identifier)
+	principal, err := dynUsers.ValidateAndExtract(login1, identifier)
 	require.NoError(t, err)
 	require.NotNil(t, principal)
 	tookSlow := time.Since(startSlow)
 
+	principal2, err := dynUsers.ValidateAndExtract(login2, identifier2)
+	require.NoError(t, err)
+	require.NotNil(t, principal2)
+
+	require.NoError(t, dynUsers.DeactivateUser(userId2, true))
+
 	snapShot := dynUsers.Snapshot()
 
+	// create snapshot and restore to an empty new DBUser struct
 	marshal, err := json.Marshal(snapShot)
 	require.NoError(t, err)
 
@@ -150,9 +164,26 @@ func TestSnapShotAndRestore(t *testing.T) {
 	dynUsers2 := NewDBUser()
 	require.NoError(t, dynUsers2.Restore(snapshotRestore))
 
+	// content should be identical:
+	// - all users and their status present
+	// - taking a new snapshot should be identical
+	require.Equal(t, snapshotRestore, dynUsers2.Snapshot())
+
 	startFast := time.Now()
-	_, err = dynUsers2.ValidateAndExtract(login, identifier)
+	_, err = dynUsers2.ValidateAndExtract(login1, identifier)
 	require.NoError(t, err)
 	tookFast := time.Since(startFast)
 	require.Less(t, tookFast, tookSlow)
+
+	_, err = dynUsers2.ValidateAndExtract(login2, identifier2)
+	require.Error(t, err)
+
+	apiKey3, hash3, identifier3, err := keys.CreateApiKeyAndHash("")
+	require.NoError(t, err)
+	require.NoError(t, dynUsers2.RotateKey(userId2, hash3))
+
+	login3, _, err := keys.DecodeApiKey(apiKey3)
+	require.NoError(t, err)
+	_, err = dynUsers2.ValidateAndExtract(login3, identifier3)
+	require.Error(t, err)
 }
