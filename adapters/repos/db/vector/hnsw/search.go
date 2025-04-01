@@ -98,8 +98,8 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 
 	if h.muvera.Load() {
 		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
-		overfetch := 10
-		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
+		overfetch := 30
+		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch+k, allowList)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -107,7 +107,6 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		for _, docID := range docIDs {
 			candidateSet[docID] = struct{}{}
 		}
-
 		return h.computeLateInteraction(vectors, k, candidateSet)
 	}
 
@@ -760,7 +759,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		helpers.AnnotateSlowQueryLog(ctx, "knn_search_rescore_took", took)
 	}
 
-	if h.muvera.Load() || !h.multivector.Load() {
+	if /*h.muvera.Load() ||*/ !h.multivector.Load() {
 		for res.Len() > k {
 			res.Pop()
 		}
