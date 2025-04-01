@@ -159,7 +159,7 @@ function main() {
     for pkg in $(go list ./test/modules/... | grep '/modules/'${mod}); do
       build_docker_image_for_tests
       echo_green "Weaviate image successfully built, run module tests for $mod..."
-      if ! go test -count 1 -race -timeout 30m -v "$pkg"; then
+      if ! go test -count 1 -race -timeout 15m -v "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
@@ -342,7 +342,7 @@ function run_acceptance_only_authz() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
   # only run TestBackupAndRestoreRBAC test
   for pkg in $(go list ./.../ | grep 'test/acceptance/authz'); do
-    if ! go test -count 1 -race "$pkg" -run TestBackupAndRestoreRBAC; then
+    if ! go test -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
