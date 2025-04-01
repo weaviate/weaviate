@@ -128,10 +128,11 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 	})
 
 	testRoleName := "testRole"
+	testCollectionName := "TestCollection"
 	testRole := &models.Role{
 		Name: String(testRoleName),
 		Permissions: []*models.Permission{
-			{Action: String(authorization.ReadRoles), Backups: &models.PermissionBackups{Collection: String(testRoleName)}},
+			{Action: String(authorization.ReadRoles), Backups: &models.PermissionBackups{Collection: String(testCollectionName)}},
 		},
 	}
 
