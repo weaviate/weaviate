@@ -47,10 +47,6 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 	// Required: true
 	SourceNodeID *string `json:"sourceNodeId"`
 
-	// The id of the replica used as a source of the replication operation.
-	// Required: true
-	SourceReplicaID *string `json:"sourceReplicaId"`
-
 	// The current status of the replication operation, indicating the replication phase the operation is in.
 	// Required: true
 	// Enum: [READY INDEXING REPLICATION_FINALIZING REPLICATION_HYDRATING REPLICATION_DEHYDRATING]
@@ -59,10 +55,6 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 	// The id of the node where the target replica is allocated.
 	// Required: true
 	TargetNodeID *string `json:"targetNodeId"`
-
-	// The id of the replica used as a target of the replication operation.
-	// Required: true
-	TargetReplicaID *string `json:"targetReplicaId"`
 }
 
 // Validate validates this replication replicate details replica response
@@ -85,19 +77,11 @@ func (m *ReplicationReplicateDetailsReplicaResponse) Validate(formats strfmt.Reg
 		res = append(res, err)
 	}
 
-	if err := m.validateSourceReplicaID(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateStatus(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if err := m.validateTargetNodeID(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateTargetReplicaID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -137,15 +121,6 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateShardID(formats str
 func (m *ReplicationReplicateDetailsReplicaResponse) validateSourceNodeID(formats strfmt.Registry) error {
 
 	if err := validate.Required("sourceNodeId", "body", m.SourceNodeID); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *ReplicationReplicateDetailsReplicaResponse) validateSourceReplicaID(formats strfmt.Registry) error {
-
-	if err := validate.Required("sourceReplicaId", "body", m.SourceReplicaID); err != nil {
 		return err
 	}
 
@@ -207,15 +182,6 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateStatus(formats strf
 func (m *ReplicationReplicateDetailsReplicaResponse) validateTargetNodeID(formats strfmt.Registry) error {
 
 	if err := validate.Required("targetNodeId", "body", m.TargetNodeID); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *ReplicationReplicateDetailsReplicaResponse) validateTargetReplicaID(formats strfmt.Registry) error {
-
-	if err := validate.Required("targetReplicaId", "body", m.TargetReplicaID); err != nil {
 		return err
 	}
 

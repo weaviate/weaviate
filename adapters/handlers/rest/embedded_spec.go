@@ -6765,8 +6765,6 @@ func init() {
         "shardId",
         "sourceNodeId",
         "targetNodeId",
-        "sourceReplicaId",
-        "targetReplicaId",
         "collection",
         "status"
       ],
@@ -6787,10 +6785,6 @@ func init() {
           "description": "The id of the node where the source replica is allocated.",
           "type": "string"
         },
-        "sourceReplicaId": {
-          "description": "The id of the replica used as a source of the replication operation.",
-          "type": "string"
-        },
         "status": {
           "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
           "type": "string",
@@ -6804,10 +6798,6 @@ func init() {
         },
         "targetNodeId": {
           "description": "The id of the node where the target replica is allocated.",
-          "type": "string"
-        },
-        "targetReplicaId": {
-          "description": "The id of the replica used as a target of the replication operation.",
           "type": "string"
         }
       }
@@ -14672,8 +14662,6 @@ func init() {
         "shardId",
         "sourceNodeId",
         "targetNodeId",
-        "sourceReplicaId",
-        "targetReplicaId",
         "collection",
         "status"
       ],
@@ -14694,10 +14682,6 @@ func init() {
           "description": "The id of the node where the source replica is allocated.",
           "type": "string"
         },
-        "sourceReplicaId": {
-          "description": "The id of the replica used as a source of the replication operation.",
-          "type": "string"
-        },
         "status": {
           "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
           "type": "string",
@@ -14711,10 +14695,6 @@ func init() {
         },
         "targetNodeId": {
           "description": "The id of the node where the target replica is allocated.",
-          "type": "string"
-        },
-        "targetReplicaId": {
-          "description": "The id of the replica used as a target of the replication operation.",
           "type": "string"
         }
       }

@@ -917,14 +917,6 @@
           "description": "The id of the node where the target replica is allocated.",
           "type": "string"
         },
-        "sourceReplicaId": {
-          "description": "The id of the replica used as a source of the replication operation.",
-          "type": "string"
-        },
-        "targetReplicaId": {
-          "description": "The id of the replica used as a target of the replication operation.",
-          "type": "string"
-        },
         "status": {
           "type": "string",
           "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
@@ -937,7 +929,7 @@
           ]
         }
       },
-      "required": ["id", "shardId", "sourceNodeId", "targetNodeId", "sourceReplicaId", "targetReplicaId", "collection", "status"]
+      "required": ["id", "shardId", "sourceNodeId", "targetNodeId", "collection", "status"]
     },
     "PeerUpdate": {
       "description": "A single peer in the network.",
