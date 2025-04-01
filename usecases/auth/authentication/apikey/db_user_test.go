@@ -62,7 +62,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
-	_, ok := dynUsers.data.WeakKeyStorageById[userId]
+	_, ok := dynUsers.memoryOnyData.WeakKeyStorageById[userId]
 	require.False(t, ok)
 
 	startSlow := time.Now()
@@ -70,7 +70,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	require.NoError(t, err)
 	tookSlow := time.Since(startSlow)
 
-	_, ok = dynUsers.data.WeakKeyStorageById[userId]
+	_, ok = dynUsers.memoryOnyData.WeakKeyStorageById[userId]
 	require.True(t, ok)
 
 	startFast := time.Now()
@@ -144,11 +144,18 @@ func TestSnapShotAndRestore(t *testing.T) {
 	login2, _, err := keys.DecodeApiKey(apiKey2)
 	require.NoError(t, err)
 
+	// first login is slow, second is fast
 	startSlow := time.Now()
 	principal, err := dynUsers.ValidateAndExtract(login1, identifier)
 	require.NoError(t, err)
 	require.NotNil(t, principal)
 	tookSlow := time.Since(startSlow)
+
+	startFast := time.Now()
+	_, err = dynUsers.ValidateAndExtract(login1, identifier)
+	require.NoError(t, err)
+	tookFast := time.Since(startFast)
+	require.Less(t, tookFast, tookSlow)
 
 	principal2, err := dynUsers.ValidateAndExtract(login2, identifier2)
 	require.NoError(t, err)
@@ -172,13 +179,14 @@ func TestSnapShotAndRestore(t *testing.T) {
 	// content should be identical:
 	// - all users and their status present
 	// - taking a new snapshot should be identical
+	// - only weak hash is missing => first login should be slow again
 	require.Equal(t, snapshotRestore, dynUsers2.Snapshot())
 
-	startFast := time.Now()
+	startAfterRestoreSlow := time.Now()
 	_, err = dynUsers2.ValidateAndExtract(login1, identifier)
 	require.NoError(t, err)
-	tookFast := time.Since(startFast)
-	require.Less(t, tookFast, tookSlow)
+	tookAfterRestore := time.Since(startAfterRestoreSlow)
+	require.Less(t, tookFast, tookAfterRestore)
 
 	_, err = dynUsers2.ValidateAndExtract(login2, identifier2)
 	require.Error(t, err)
