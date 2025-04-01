@@ -127,7 +127,7 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	testRoleName := "test-role"
+	testRoleName := "testRole"
 	testRole := &models.Role{
 		Name: String(testRoleName),
 		Permissions: []*models.Permission{
