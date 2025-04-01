@@ -102,6 +102,24 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
+	roles, _ := enforcer.GetAllSubjects()
+	for _, role := range roles {
+		users, err := enforcer.GetUsersForRole(role)
+		if err != nil {
+			return nil, err
+		}
+		for _, user := range users {
+			if strings.HasPrefix(user, "db:") || strings.HasPrefix(user, "oidc:") && !strings.Contains(user, conv.InternalPlaceHolder) {
+				_, err := enforcer.DeleteRoleForUser(user, role)
+				if err != nil {
+					return nil, err
+				}
+
+			}
+		}
+
+	}
+
 	// remove preexisting root role including assignments
 	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
 	if err != nil {
@@ -111,6 +129,8 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	if err != nil {
 		return nil, err
 	}
+
+	// remove assignments to namespaces to allow for downgrades (added in 1.30+)
 
 	// add pre existing roles
 	for name, verb := range conv.BuiltInPolicies {
