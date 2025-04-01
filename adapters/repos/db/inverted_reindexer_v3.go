@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 type ShardReindexerV3 interface {
@@ -311,26 +310,6 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 		return
 	}
 	shard, release, err := index.GetShard(ctx, shardName)
-	if err != nil {
-		// r.queue.insert(key, time.Now().Add(r.config.retryOnErrorInterval))
-		err = fmt.Errorf("get shard '%s' of collection '%s': %w", shardName, collectionName, err)
-		return
-	}
-
-	if err == nil {
-		if _, ok := shard.(*LazyLoadShard); ok {
-			lazyShard := shard.(*LazyLoadShard)
-			if lazyShard.GetStatusNoLoad() == storagestate.StatusReady {
-				shard = lazyShard.shard
-			}
-		}
-
-		if _, ok := shard.(*Shard); !ok {
-			release()
-			err = fmt.Errorf("shard '%s' of collection '%s' is not loaded yet", shardName, collectionName)
-		}
-
-	}
 	if err != nil {
 		// r.locked(func() { r.queue.insert(key, time.Now().Add(r.config.retryOnErrorInterval)) })
 		err = fmt.Errorf("not loaded '%s' of collection '%s': %w", shardName, collectionName, err)
