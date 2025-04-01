@@ -169,7 +169,7 @@ jobs:
         uses: nick-fields/retry@v3
         with:
           # 15 Minute is a large enough timeout for most of our tests
-          timeout_minutes: 30
+          timeout_minutes: 15
           max_attempts: 3
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
