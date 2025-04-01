@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/versioned"
 )
 
@@ -142,9 +141,6 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
-	class.VectorIndexConfig = hnsw.UserConfig{}
-	class.VectorIndexType = "hnsw"
-	class.Vectorizer = "none"
 	classes := f.GetSchemaResponse.Objects.Classes
 	if classes != nil {
 		classes = append(classes, class)
