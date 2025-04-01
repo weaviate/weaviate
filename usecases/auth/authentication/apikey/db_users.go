@@ -46,29 +46,29 @@ type DBUser struct {
 }
 
 type DBUserSnapshot struct {
-	data    dbUserdata
-	version int
+	Data    dbUserdata
+	Version int
 }
 
 type dbUserdata struct {
-	weakKeyStorageById   map[string][sha256.Size]byte
-	secureKeyStorageById map[string]string
-	identifierToId       map[string]string
-	idToIdentifier       map[string]string
-	users                map[string]*User
-	userKeyRevoked       map[string]struct{}
+	WeakKeyStorageById   map[string][sha256.Size]byte
+	SecureKeyStorageById map[string]string
+	IdentifierToId       map[string]string
+	IdToIdentifier       map[string]string
+	Users                map[string]*User
+	UserKeyRevoked       map[string]struct{}
 }
 
 func NewDBUser() *DBUser {
 	return &DBUser{
 		lock: &sync.RWMutex{},
 		data: dbUserdata{
-			weakKeyStorageById:   make(map[string][sha256.Size]byte),
-			secureKeyStorageById: make(map[string]string),
-			identifierToId:       make(map[string]string),
-			idToIdentifier:       make(map[string]string),
-			users:                make(map[string]*User),
-			userKeyRevoked:       make(map[string]struct{}),
+			WeakKeyStorageById:   make(map[string][sha256.Size]byte),
+			SecureKeyStorageById: make(map[string]string),
+			IdentifierToId:       make(map[string]string),
+			IdToIdentifier:       make(map[string]string),
+			Users:                make(map[string]*User),
+			UserKeyRevoked:       make(map[string]struct{}),
 		},
 	}
 }
@@ -76,18 +76,18 @@ func NewDBUser() *DBUser {
 func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	_, secureKeyExists := c.data.secureKeyStorageById[userId]
-	_, identifierExists := c.data.identifierToId[userId]
-	_, usersExists := c.data.users[userId]
+	_, secureKeyExists := c.data.SecureKeyStorageById[userId]
+	_, identifierExists := c.data.IdentifierToId[userId]
+	_, usersExists := c.data.Users[userId]
 
 	// Todo-Dynuser: Does this make sense? Error would end up with RAFT layer
 	if secureKeyExists || identifierExists || usersExists {
 		return fmt.Errorf("user %s already exists", userId)
 	}
-	c.data.secureKeyStorageById[userId] = secureHash
-	c.data.identifierToId[userIdentifier] = userId
-	c.data.idToIdentifier[userId] = userIdentifier
-	c.data.users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier}
+	c.data.SecureKeyStorageById[userId] = secureHash
+	c.data.IdentifierToId[userIdentifier] = userId
+	c.data.IdToIdentifier[userId] = userIdentifier
+	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier}
 	return nil
 }
 
@@ -95,9 +95,9 @@ func (c *DBUser) RotateKey(userId, secureHash string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	c.data.secureKeyStorageById[userId] = secureHash
-	delete(c.data.weakKeyStorageById, userId)
-	delete(c.data.userKeyRevoked, userId)
+	c.data.SecureKeyStorageById[userId] = secureHash
+	delete(c.data.WeakKeyStorageById, userId)
+	delete(c.data.UserKeyRevoked, userId)
 	return nil
 }
 
@@ -105,12 +105,12 @@ func (c *DBUser) DeleteUser(userId string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	delete(c.data.secureKeyStorageById, userId)
-	delete(c.data.idToIdentifier, userId)
-	delete(c.data.identifierToId, c.data.idToIdentifier[userId])
-	delete(c.data.users, userId)
-	delete(c.data.weakKeyStorageById, userId)
-	delete(c.data.userKeyRevoked, userId)
+	delete(c.data.SecureKeyStorageById, userId)
+	delete(c.data.IdToIdentifier, userId)
+	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
+	delete(c.data.Users, userId)
+	delete(c.data.WeakKeyStorageById, userId)
+	delete(c.data.UserKeyRevoked, userId)
 	return nil
 }
 
@@ -118,7 +118,7 @@ func (c *DBUser) ActivateUser(userId string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	c.data.users[userId].Active = true
+	c.data.Users[userId].Active = true
 	return nil
 }
 
@@ -126,9 +126,9 @@ func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if revokeKey {
-		c.data.userKeyRevoked[userId] = struct{}{}
+		c.data.UserKeyRevoked[userId] = struct{}{}
 	}
-	c.data.users[userId].Active = false
+	c.data.Users[userId].Active = false
 	return nil
 }
 
@@ -137,12 +137,12 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]*User, error) {
 	defer c.lock.RUnlock()
 
 	if len(userIds) == 0 {
-		return c.data.users, nil
+		return c.data.Users, nil
 	}
 
 	users := make(map[string]*User, len(userIds))
 	for _, id := range userIds {
-		user, ok := c.data.users[id]
+		user, ok := c.data.Users[id]
 		if ok {
 			users[id] = user
 		}
@@ -154,7 +154,7 @@ func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) 
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	_, ok := c.data.users[userIdentifier]
+	_, ok := c.data.Users[userIdentifier]
 	return ok, nil
 }
 
@@ -162,16 +162,16 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	userId, ok := c.data.identifierToId[userIdentifier]
+	userId, ok := c.data.IdentifierToId[userIdentifier]
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
 
-	secureHash, ok := c.data.secureKeyStorageById[userId]
+	secureHash, ok := c.data.SecureKeyStorageById[userId]
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
-	weakHash, ok := c.data.weakKeyStorageById[userId]
+	weakHash, ok := c.data.WeakKeyStorageById[userId]
 	if ok {
 		// use the secureHash as salt for the computation of the weaker in-memory
 		if err := c.validateWeakHash([]byte(key+secureHash), weakHash); err != nil {
@@ -183,10 +183,10 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		}
 	}
 
-	if c.data.users[userId] != nil && !c.data.users[userId].Active {
+	if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
 		return nil, fmt.Errorf("user deactivated")
 	}
-	if _, ok := c.data.userKeyRevoked[userId]; ok {
+	if _, ok := c.data.UserKeyRevoked[userId]; ok {
 		return nil, fmt.Errorf("key is revoked")
 	}
 
@@ -211,7 +211,7 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 		return fmt.Errorf("invalid token")
 	}
 	token := []byte(key + secureHash)
-	c.data.weakKeyStorageById[userId] = sha256.Sum256(token)
+	c.data.WeakKeyStorageById[userId] = sha256.Sum256(token)
 
 	return nil
 }
@@ -220,17 +220,17 @@ func (c *DBUser) Snapshot() DBUserSnapshot {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	return DBUserSnapshot{data: c.data, version: SNAPSHOT_VERSION}
+	return DBUserSnapshot{Data: c.data, Version: SNAPSHOT_VERSION}
 }
 
 func (c *DBUser) Restore(snapshot DBUserSnapshot) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if snapshot.version != SNAPSHOT_VERSION {
+	if snapshot.Version != SNAPSHOT_VERSION {
 		return fmt.Errorf("invalid snapshot version")
 	}
-	c.data = snapshot.data
+	c.data = snapshot.Data
 
 	return nil
 }

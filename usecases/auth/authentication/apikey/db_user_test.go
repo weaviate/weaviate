@@ -12,6 +12,7 @@
 package apikey
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -59,7 +60,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
-	_, ok := dynUsers.data.weakKeyStorageById[userId]
+	_, ok := dynUsers.data.WeakKeyStorageById[userId]
 	require.False(t, ok)
 
 	startSlow := time.Now()
@@ -67,7 +68,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	require.NoError(t, err)
 	tookSlow := time.Since(startSlow)
 
-	_, ok = dynUsers.data.weakKeyStorageById[userId]
+	_, ok = dynUsers.data.WeakKeyStorageById[userId]
 	require.True(t, ok)
 
 	startFast := time.Now()
@@ -139,8 +140,15 @@ func TestSnapShotAndRestore(t *testing.T) {
 	tookSlow := time.Since(startSlow)
 
 	snapShot := dynUsers.Snapshot()
+
+	marshal, err := json.Marshal(snapShot)
+	require.NoError(t, err)
+
+	snapshotRestore := DBUserSnapshot{}
+	require.NoError(t, json.Unmarshal(marshal, &snapshotRestore))
+
 	dynUsers2 := NewDBUser()
-	require.NoError(t, dynUsers2.Restore(snapShot))
+	require.NoError(t, dynUsers2.Restore(snapshotRestore))
 
 	startFast := time.Now()
 	_, err = dynUsers2.ValidateAndExtract(login, identifier)
