@@ -346,6 +346,7 @@ func ReadFile(filename string) ([]byte, error) {
 
 	return data, nil
 }
+
 func (c *DBUser) getBytes() ([]byte, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -370,7 +371,7 @@ func (c *DBUser) restoreFromBytes(data []byte) error {
 	}
 
 	c.data = dynamicUsers
-	clear(c.data.WeakKeyStorageById)
+	clear(c.memoryOnyData.WeakKeyStorageById)
 
 	return nil
 }
