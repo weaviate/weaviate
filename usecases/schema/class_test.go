@@ -515,6 +515,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 
 				if tt.expectError == "" {
 					schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+					schemaManager.On("QueryCollectionsCount").Return(0, nil)
 					defer schemaManager.AssertExpectations(t)
 				}
 
