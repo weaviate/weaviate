@@ -61,6 +61,7 @@ type dbUserdata struct {
 
 func NewDBUser() *DBUser {
 	return &DBUser{
+		lock: &sync.RWMutex{},
 		data: dbUserdata{
 			weakKeyStorageById:   make(map[string][sha256.Size]byte),
 			secureKeyStorageById: make(map[string]string),
