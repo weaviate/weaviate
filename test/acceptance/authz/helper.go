@@ -101,6 +101,11 @@ func updateObject(t *testing.T, object *models.Object, key string) (*objects.Obj
 	return helper.Client(t).Objects.ObjectsClassPatch(params, helper.CreateAuth(key))
 }
 
+func replaceObject(t *testing.T, object *models.Object, key string) (*objects.ObjectsClassPutOK, error) {
+	params := objects.NewObjectsClassPutParams().WithBody(object).WithID(object.ID).WithClassName(object.Class)
+	return helper.Client(t).Objects.ObjectsClassPut(params, helper.CreateAuth(key))
+}
+
 func addRef(t *testing.T, fromId strfmt.UUID, fromProp string, ref *models.SingleRef, key string) (*objects.ObjectsReferencesCreateOK, error) {
 	params := objects.NewObjectsReferencesCreateParams().WithBody(ref).WithID(fromId).WithPropertyName(fromProp)
 	return helper.Client(t).Objects.ObjectsReferencesCreate(params, helper.CreateAuth(key))
