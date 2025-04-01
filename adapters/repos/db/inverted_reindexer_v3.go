@@ -332,7 +332,7 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 
 	}
 	if err != nil {
-		r.locked(func() { r.queue.insert(key, time.Now().Add(r.config.retryOnErrorInterval)) })
+		// r.locked(func() { r.queue.insert(key, time.Now().Add(r.config.retryOnErrorInterval)) })
 		err = fmt.Errorf("not loaded '%s' of collection '%s': %w", shardName, collectionName, err)
 		return
 	}
