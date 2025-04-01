@@ -53,6 +53,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 
 	backend := "filesystem"
 	testRoleName := "testRole"
+	testCollectionName := "TestCollection"
 
 	// one class is needed for backup
 	par := articles.ParagraphsClass()
@@ -60,7 +61,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 	testRole := &models.Role{
 		Name: String(testRoleName),
 		Permissions: []*models.Permission{
-			{Action: String(authorization.ReadRoles), Backups: &models.PermissionBackups{Collection: String(testRoleName)}},
+			{Action: String(authorization.ReadRoles), Backups: &models.PermissionBackups{Collection: String(testCollectionName)}},
 		},
 	}
 
