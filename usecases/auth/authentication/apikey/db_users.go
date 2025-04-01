@@ -14,7 +14,10 @@ package apikey
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/alexedwards/argon2id"
@@ -22,7 +25,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-const SNAPSHOT_VERSION = 0
+const (
+	SnapshotVersion = 0
+	FileName        = "users.json"
+)
 
 type DBUsers interface {
 	CreateUser(userId, secureHash, userIdentifier string) error
@@ -43,6 +49,7 @@ type User struct {
 type DBUser struct {
 	lock *sync.RWMutex
 	data dbUserdata
+	path string
 }
 
 type DBUserSnapshot struct {
@@ -59,36 +66,58 @@ type dbUserdata struct {
 	UserKeyRevoked       map[string]struct{}
 }
 
-func NewDBUser() *DBUser {
-	return &DBUser{
-		lock: &sync.RWMutex{},
-		data: dbUserdata{
-			WeakKeyStorageById:   make(map[string][sha256.Size]byte),
-			SecureKeyStorageById: make(map[string]string),
-			IdentifierToId:       make(map[string]string),
-			IdToIdentifier:       make(map[string]string),
-			Users:                make(map[string]*User),
-			UserKeyRevoked:       make(map[string]struct{}),
-		},
+func NewDBUser(path string) (*DBUser, error) {
+	fullpath := fmt.Sprintf("%s/raft/db_users/", path)
+	err := createStorage(fullpath + FileName)
+	if err != nil {
+		return nil, err
 	}
+	existingData, err := ReadFile(fullpath + FileName)
+	if err != nil {
+		return nil, err
+	}
+	snapshot := DBUserSnapshot{}
+	if len(existingData) > 0 {
+		if err := json.Unmarshal(existingData, &snapshot); err != nil {
+			return nil, err
+		}
+	}
+
+	if snapshot.Data.WeakKeyStorageById == nil {
+		snapshot.Data.WeakKeyStorageById = make(map[string][sha256.Size]byte)
+	}
+	if snapshot.Data.SecureKeyStorageById == nil {
+		snapshot.Data.SecureKeyStorageById = make(map[string]string)
+	}
+	if snapshot.Data.IdentifierToId == nil {
+		snapshot.Data.IdentifierToId = make(map[string]string)
+	}
+	if snapshot.Data.IdToIdentifier == nil {
+		snapshot.Data.IdToIdentifier = make(map[string]string)
+	}
+	if snapshot.Data.Users == nil {
+		snapshot.Data.Users = make(map[string]*User)
+	}
+	if snapshot.Data.UserKeyRevoked == nil {
+		snapshot.Data.UserKeyRevoked = make(map[string]struct{})
+	}
+
+	return &DBUser{
+		path: fullpath,
+		lock: &sync.RWMutex{},
+		data: snapshot.Data,
+	}, nil
 }
 
 func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	_, secureKeyExists := c.data.SecureKeyStorageById[userId]
-	_, identifierExists := c.data.IdentifierToId[userId]
-	_, usersExists := c.data.Users[userId]
 
-	// Todo-Dynuser: Does this make sense? Error would end up with RAFT layer
-	if secureKeyExists || identifierExists || usersExists {
-		return fmt.Errorf("user %s already exists", userId)
-	}
 	c.data.SecureKeyStorageById[userId] = secureHash
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
 	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier}
-	return nil
+	return c.storeToFile()
 }
 
 func (c *DBUser) RotateKey(userId, secureHash string) error {
@@ -98,7 +127,7 @@ func (c *DBUser) RotateKey(userId, secureHash string) error {
 	c.data.SecureKeyStorageById[userId] = secureHash
 	delete(c.data.WeakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
-	return nil
+	return c.storeToFile()
 }
 
 func (c *DBUser) DeleteUser(userId string) error {
@@ -111,7 +140,7 @@ func (c *DBUser) DeleteUser(userId string) error {
 	delete(c.data.Users, userId)
 	delete(c.data.WeakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
-	return nil
+	return c.storeToFile()
 }
 
 func (c *DBUser) ActivateUser(userId string) error {
@@ -119,7 +148,7 @@ func (c *DBUser) ActivateUser(userId string) error {
 	defer c.lock.Unlock()
 
 	c.data.Users[userId].Active = true
-	return nil
+	return c.storeToFile()
 }
 
 func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
@@ -129,7 +158,8 @@ func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 		c.data.UserKeyRevoked[userId] = struct{}{}
 	}
 	c.data.Users[userId].Active = false
-	return nil
+
+	return c.storeToFile()
 }
 
 func (c *DBUser) GetUsers(userIds ...string) (map[string]*User, error) {
@@ -220,17 +250,93 @@ func (c *DBUser) Snapshot() DBUserSnapshot {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	return DBUserSnapshot{Data: c.data, Version: SNAPSHOT_VERSION}
+	return DBUserSnapshot{Data: c.data, Version: SnapshotVersion}
 }
 
 func (c *DBUser) Restore(snapshot DBUserSnapshot) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if snapshot.Version != SNAPSHOT_VERSION {
+	if snapshot.Version != SnapshotVersion {
 		return fmt.Errorf("invalid snapshot version")
 	}
 	c.data = snapshot.Data
 
 	return nil
+}
+
+func (c *DBUser) storeToFile() error {
+	data, err := json.Marshal(DBUserSnapshot{Data: c.data, Version: SnapshotVersion})
+	if err != nil {
+		return err
+	}
+
+	tmpFile, err := os.CreateTemp(c.path, "temp-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempFilename := tmpFile.Name()
+
+	defer func() {
+		tmpFile.Close()
+		os.Remove(tempFilename) // Remove temp file if it still exists
+	}()
+
+	// Write data to temp file, flush and close
+	if _, err := tmpFile.Write(data); err != nil {
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	// Atomically rename the temp file to the target filename to not leave garbage when it crashes
+	return os.Rename(tempFilename, c.path+"/"+FileName)
+}
+
+func createStorage(filePath string) error {
+	if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+
+	_, err := os.Stat(filePath)
+	if err == nil { // file exists
+		return nil
+	}
+
+	if os.IsNotExist(err) {
+		file, err := os.Create(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to create file: %w", err)
+		}
+		defer file.Close()
+		return nil
+	}
+
+	return err
+}
+
+func ReadFile(filename string) ([]byte, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	data := make([]byte, fileInfo.Size())
+
+	_, err = file.Read(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }

@@ -24,7 +24,8 @@ import (
 )
 
 func TestDynUserConcurrency(t *testing.T) {
-	dynUsers := NewDBUser()
+	dynUsers, err := NewDBUser(t.TempDir())
+	require.NoError(t, err)
 
 	numUsers := 10
 
@@ -49,7 +50,8 @@ func TestDynUserConcurrency(t *testing.T) {
 }
 
 func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
-	dynUsers := NewDBUser()
+	dynUsers, err := NewDBUser(t.TempDir())
+	require.NoError(t, err)
 	userId := "id"
 
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")
@@ -79,7 +81,8 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 }
 
 func TestUpdateUser(t *testing.T) {
-	dynUsers := NewDBUser()
+	dynUsers, err := NewDBUser(t.TempDir())
+	require.NoError(t, err)
 	userId := "id"
 
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")
@@ -122,7 +125,8 @@ func TestUpdateUser(t *testing.T) {
 }
 
 func TestSnapShotAndRestore(t *testing.T) {
-	dynUsers := NewDBUser()
+	dynUsers, err := NewDBUser(t.TempDir())
+	require.NoError(t, err)
 
 	userId1 := "id-1"
 	userId2 := "id-2"
@@ -161,7 +165,8 @@ func TestSnapShotAndRestore(t *testing.T) {
 	snapshotRestore := DBUserSnapshot{}
 	require.NoError(t, json.Unmarshal(marshal, &snapshotRestore))
 
-	dynUsers2 := NewDBUser()
+	dynUsers2, err := NewDBUser(t.TempDir())
+	require.NoError(t, err)
 	require.NoError(t, dynUsers2.Restore(snapshotRestore))
 
 	// content should be identical:
