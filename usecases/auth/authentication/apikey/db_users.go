@@ -221,3 +221,15 @@ func (c *DBUser) Snapshot() DBUserSnapshot {
 
 	return DBUserSnapshot{data: c.data, version: SNAPSHOT_VERSION}
 }
+
+func (c *DBUser) Restore(snapshot DBUserSnapshot) error {
+	c.Lock()
+	defer c.Unlock()
+
+	if snapshot.version != SNAPSHOT_VERSION {
+		return fmt.Errorf("invalid snapshot version")
+	}
+	c.data = snapshot.data
+
+	return nil
+}

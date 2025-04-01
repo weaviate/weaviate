@@ -119,3 +119,32 @@ func TestUpdateUser(t *testing.T) {
 	tookFast := time.Since(startFast)
 	require.Less(t, tookFast, tookSlow)
 }
+
+func TestSnapShotAndRestore(t *testing.T) {
+	dynUsers := NewDBUser()
+
+	userId := "id"
+
+	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")
+	require.NoError(t, err)
+
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier))
+	login, _, err := keys.DecodeApiKey(apiKey)
+	require.NoError(t, err)
+
+	startSlow := time.Now()
+	principal, err := dynUsers.ValidateAndExtract(login, identifier)
+	require.NoError(t, err)
+	require.NotNil(t, principal)
+	tookSlow := time.Since(startSlow)
+
+	snapShot := dynUsers.Snapshot()
+	dynUsers2 := NewDBUser()
+	require.NoError(t, dynUsers2.Restore(snapShot))
+
+	startFast := time.Now()
+	_, err = dynUsers2.ValidateAndExtract(login, identifier)
+	require.NoError(t, err)
+	tookFast := time.Since(startFast)
+	require.Less(t, tookFast, tookSlow)
+}
