@@ -125,6 +125,7 @@ func (db *DB) init(ctx context.Context) error {
 		}
 	}
 
+
 	// If metrics aren't grouped, there is no need to observe node-wide metrics
 	// asynchronously. In that case, each shard could track its own metrics with
 	// a unique label. It is only when we conflate all collections/shards into

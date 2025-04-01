@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/statemachine"
 )
 
 type DB struct {
@@ -130,7 +131,8 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 
 	db.startupComplete.Store(true)
 	db.scanResourceUsage()
-
+	statemachine.SignalCoordinationComplete("db", statemachine.StateStartup)
+	statemachine.WaitForState( "db", statemachine.StateStartup,1*time.Minute)
 	return nil
 }
 

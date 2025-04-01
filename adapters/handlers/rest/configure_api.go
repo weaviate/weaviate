@@ -141,6 +141,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/usecases/statemachine"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -806,6 +807,7 @@ func parseVotersNames(cfg config.Raft) (m map[string]struct{}) {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
+
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
@@ -816,6 +818,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		"server_version": config.ServerVersion,
 		"version":        build.Version,
 	}).Infof("configured versions")
+
+	statemachine.SetLogger(appState.Logger)
+	statemachine.SetMonitorMode(true)
+	statemachine.RegisterComponent("api")
+	statemachine.RegisterForCoordination("api", statemachine.StateStartup)
+	statemachine.RegisterComponent("raft")
+	statemachine.RegisterForCoordination("raft", statemachine.StateStartup)
+	statemachine.RegisterComponent("db")
+	statemachine.RegisterForCoordination("db", statemachine.StateStartup)
+	statemachine.Change(statemachine.StateStartup, "Startup")
 
 	api.ServeError = openapierrors.ServeError
 
@@ -930,7 +942,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	startGrpcServer(grpcServer, appState)
 
-	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+	gm := setupGlobalMiddleware(api.Serve(setupMiddlewares))
+	statemachine.SignalReady("api", statemachine.StateStartup)
+	statemachine.WaitForState("api", statemachine.StateStartup, 1*time.Minute)
+	return gm
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {

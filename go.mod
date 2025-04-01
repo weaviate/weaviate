@@ -225,3 +225,4 @@ require (
 go 1.22.0
 
 toolchain go1.23.4
+replace github.com/weaviate/weaviate => /Users/jeremyprice/git/weaviate
