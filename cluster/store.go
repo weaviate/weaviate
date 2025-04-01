@@ -146,7 +146,7 @@ type Config struct {
 	// 	AuthzController to manage RBAC commands and apply it to casbin
 	AuthzController authorization.Controller
 
-	DynamicUserController apikey.DBUsers
+	DynamicUserController *apikey.DBUser
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,

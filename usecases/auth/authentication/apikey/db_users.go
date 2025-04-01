@@ -41,7 +41,7 @@ type User struct {
 }
 
 type DBUser struct {
-	sync.RWMutex
+	lock *sync.RWMutex
 	data dbUserdata
 }
 
@@ -73,8 +73,8 @@ func NewDBUser() *DBUser {
 }
 
 func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string) error {
-	c.Lock()
-	defer c.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	_, secureKeyExists := c.data.secureKeyStorageById[userId]
 	_, identifierExists := c.data.identifierToId[userId]
 	_, usersExists := c.data.users[userId]
@@ -91,8 +91,8 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string) error {
 }
 
 func (c *DBUser) RotateKey(userId, secureHash string) error {
-	c.Lock()
-	defer c.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
 	c.data.secureKeyStorageById[userId] = secureHash
 	delete(c.data.weakKeyStorageById, userId)
@@ -101,8 +101,8 @@ func (c *DBUser) RotateKey(userId, secureHash string) error {
 }
 
 func (c *DBUser) DeleteUser(userId string) error {
-	c.Lock()
-	defer c.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
 	delete(c.data.secureKeyStorageById, userId)
 	delete(c.data.idToIdentifier, userId)
@@ -114,16 +114,16 @@ func (c *DBUser) DeleteUser(userId string) error {
 }
 
 func (c *DBUser) ActivateUser(userId string) error {
-	c.Lock()
-	defer c.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
 	c.data.users[userId].Active = true
 	return nil
 }
 
 func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
-	c.Lock()
-	defer c.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	if revokeKey {
 		c.data.userKeyRevoked[userId] = struct{}{}
 	}
@@ -132,8 +132,8 @@ func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 }
 
 func (c *DBUser) GetUsers(userIds ...string) (map[string]*User, error) {
-	c.RLock()
-	defer c.RUnlock()
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 
 	if len(userIds) == 0 {
 		return c.data.users, nil
@@ -150,16 +150,16 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]*User, error) {
 }
 
 func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) {
-	c.RLock()
-	defer c.RUnlock()
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 
 	_, ok := c.data.users[userIdentifier]
 	return ok, nil
 }
 
 func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {
-	c.RLock()
-	defer c.RUnlock()
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 
 	userId, ok := c.data.identifierToId[userIdentifier]
 	if !ok {
@@ -216,15 +216,15 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 }
 
 func (c *DBUser) Snapshot() DBUserSnapshot {
-	c.Lock()
-	defer c.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
 	return DBUserSnapshot{data: c.data, version: SNAPSHOT_VERSION}
 }
 
 func (c *DBUser) Restore(snapshot DBUserSnapshot) error {
-	c.Lock()
-	defer c.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
 	if snapshot.version != SNAPSHOT_VERSION {
 		return fmt.Errorf("invalid snapshot version")
