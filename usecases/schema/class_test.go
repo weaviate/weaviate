@@ -390,6 +390,61 @@ func Test_AddClass(t *testing.T) {
 		})
 		assert.EqualError(t, err, "target vector \"custom\": vectorizer: invalid vectorizer \"invalid\"")
 	})
+
+	t.Run("adding dynamic index", func(t *testing.T) {
+		for _, tt := range []struct {
+			name                 string
+			asyncIndexingEnabled bool
+
+			expectError string
+		}{
+			{
+				name:                 "async indexing disabled",
+				asyncIndexingEnabled: false,
+
+				expectError: "the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)",
+			},
+			{
+				name:                 "async indexing enabled",
+				asyncIndexingEnabled: true,
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				handler, schemaManager := newTestHandler(t, &fakeDB{})
+				handler.asyncIndexingEnabled = tt.asyncIndexingEnabled
+
+				if tt.expectError == "" {
+					schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+					defer schemaManager.AssertExpectations(t)
+				}
+
+				assertError := func(err error) {
+					if tt.expectError != "" {
+						require.ErrorContains(t, err, tt.expectError)
+					} else {
+						require.NoError(t, err)
+					}
+				}
+
+				_, _, err := handler.AddClass(ctx, nil, &models.Class{
+					Class:           "NewClass",
+					VectorIndexType: "dynamic",
+				})
+				assertError(err)
+
+				_, _, err = handler.AddClass(ctx, nil, &models.Class{
+					Class: "NewClass",
+					VectorConfig: map[string]models.VectorConfig{
+						"vec1": {
+							VectorIndexType: "dynamic",
+							Vectorizer:      map[string]any{"text2vec-contextionary": map[string]any{}},
+						},
+					},
+				})
+				assertError(err)
+			})
+		}
+	})
 }
 
 func Test_AddClass_DefaultsAndMigration(t *testing.T) {
