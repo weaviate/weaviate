@@ -391,7 +391,7 @@ func Test_AddClass(t *testing.T) {
 		assert.EqualError(t, err, "target vector \"custom\": vectorizer: invalid vectorizer \"invalid\"")
 	})
 
-	t.Run("adding dynamic index", func(t *testing.T) { //  with async indexing disabled
+	t.Run("adding dynamic index", func(t *testing.T) {
 		for _, tt := range []struct {
 			name                 string
 			asyncIndexingEnabled bool
