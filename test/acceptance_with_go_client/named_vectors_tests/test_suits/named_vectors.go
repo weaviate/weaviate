@@ -18,7 +18,7 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-func AllTests(endpoint string) func(t *testing.T) {
+func AllTests(endpoint string, asyncIndexingEnabled bool) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("hybrid", testHybrid(endpoint))
 		t.Run("schema", testCreateSchema(endpoint))
@@ -34,7 +34,7 @@ func AllTests(endpoint string) func(t *testing.T) {
 		t.Run("generative modules", testNamedVectorsWithGenerativeModules(endpoint))
 		t.Run("aggregate", testAggregate(endpoint))
 		t.Run("vector index types", testVectorIndexTypesConfigurations(endpoint))
-		t.Run("colbert", testColBERT(endpoint))
+		t.Run("colbert", testColBERT(endpoint, asyncIndexingEnabled))
 	}
 }
 
