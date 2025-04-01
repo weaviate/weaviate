@@ -104,7 +104,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.Equal(t, *user.UserID, customUser)
 		require.Equal(t, user.Roles[0], testRoleName)
 
-		roles := helper.GetRolesForUser(t, customUser, adminKey)
+		roles := helper.GetRolesForUser(t, customUser, adminKey, false)
 		require.Len(t, roles, 1)
 		require.Equal(t, *roles[0].Name, testRoleName)
 	})
@@ -144,7 +144,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.Nil(t, respRole)
 		require.Error(t, err)
 
-		roles := helper.GetRolesForUser(t, customUser, adminKey)
+		roles := helper.GetRolesForUser(t, customUser, adminKey, false)
 		require.Len(t, roles, 0)
 	})
 }
