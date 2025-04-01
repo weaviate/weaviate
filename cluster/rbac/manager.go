@@ -36,6 +36,10 @@ func NewManager(authZ *rbac.Manager, logger logrus.FieldLogger) *Manager {
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
+	if m.authZ == nil {
+		return json.Marshal(cmd.QueryGetRolesResponse{})
+	}
+
 	subCommand := cmd.QueryGetRolesRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -55,6 +59,10 @@ func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
 }
 
 func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
+	if m.authZ == nil {
+		return json.Marshal(cmd.QueryGetRolesForUserResponse{})
+	}
+
 	subCommand := cmd.QueryGetRolesForUserRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -74,6 +82,10 @@ func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
 }
 
 func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
+	if m.authZ == nil {
+		return json.Marshal(cmd.QueryGetUsersForRoleResponse{})
+	}
+
 	subCommand := cmd.QueryGetUsersForRoleRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -93,6 +105,10 @@ func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
 }
 
 func (m *Manager) HasPermission(req *cmd.QueryRequest) ([]byte, error) {
+	if m.authZ == nil {
+		return json.Marshal(cmd.QueryHasPermissionResponse{})
+	}
+
 	subCommand := cmd.QueryHasPermissionRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -112,6 +128,10 @@ func (m *Manager) HasPermission(req *cmd.QueryRequest) ([]byte, error) {
 }
 
 func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
+	if m.authZ == nil {
+		return nil
+	}
+
 	req := &cmd.CreateRolesRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -154,6 +174,9 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {
+	if m.authZ == nil {
+		return nil
+	}
 	req := &cmd.DeleteRolesRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -163,6 +186,10 @@ func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
+	if m.authZ == nil {
+		return nil
+	}
+
 	req := &cmd.AddRolesForUsersRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -178,6 +205,10 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
+	if m.authZ == nil {
+		return nil
+	}
+
 	req := &cmd.RemovePermissionsRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -198,6 +229,10 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
+	if m.authZ == nil {
+		return nil
+	}
+
 	req := &cmd.RevokeRolesForUserRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
