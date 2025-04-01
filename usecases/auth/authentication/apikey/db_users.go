@@ -22,6 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+const SNAPSHOT_VERSION = 0
+
 type DBUsers interface {
 	CreateUser(userId, secureHash, userIdentifier string) error
 	DeleteUser(userId string) error
@@ -40,6 +42,15 @@ type User struct {
 
 type DBUser struct {
 	sync.RWMutex
+	data dbUserdata
+}
+
+type DBUserSnapshot struct {
+	data    dbUserdata
+	version int
+}
+
+type dbUserdata struct {
 	weakKeyStorageById   map[string][sha256.Size]byte
 	secureKeyStorageById map[string]string
 	identifierToId       map[string]string
@@ -50,30 +61,32 @@ type DBUser struct {
 
 func NewDBUser() *DBUser {
 	return &DBUser{
-		weakKeyStorageById:   make(map[string][sha256.Size]byte),
-		secureKeyStorageById: make(map[string]string),
-		identifierToId:       make(map[string]string),
-		idToIdentifier:       make(map[string]string),
-		users:                make(map[string]*User),
-		userKeyRevoked:       make(map[string]struct{}),
+		data: dbUserdata{
+			weakKeyStorageById:   make(map[string][sha256.Size]byte),
+			secureKeyStorageById: make(map[string]string),
+			identifierToId:       make(map[string]string),
+			idToIdentifier:       make(map[string]string),
+			users:                make(map[string]*User),
+			userKeyRevoked:       make(map[string]struct{}),
+		},
 	}
 }
 
 func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string) error {
 	c.Lock()
 	defer c.Unlock()
-	_, secureKeyExists := c.secureKeyStorageById[userId]
-	_, identifierExists := c.identifierToId[userId]
-	_, usersExists := c.users[userId]
+	_, secureKeyExists := c.data.secureKeyStorageById[userId]
+	_, identifierExists := c.data.identifierToId[userId]
+	_, usersExists := c.data.users[userId]
 
 	// Todo-Dynuser: Does this make sense? Error would end up with RAFT layer
 	if secureKeyExists || identifierExists || usersExists {
 		return fmt.Errorf("user %s already exists", userId)
 	}
-	c.secureKeyStorageById[userId] = secureHash
-	c.identifierToId[userIdentifier] = userId
-	c.idToIdentifier[userId] = userIdentifier
-	c.users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier}
+	c.data.secureKeyStorageById[userId] = secureHash
+	c.data.identifierToId[userIdentifier] = userId
+	c.data.idToIdentifier[userId] = userIdentifier
+	c.data.users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier}
 	return nil
 }
 
@@ -81,9 +94,9 @@ func (c *DBUser) RotateKey(userId, secureHash string) error {
 	c.Lock()
 	defer c.Unlock()
 
-	c.secureKeyStorageById[userId] = secureHash
-	delete(c.weakKeyStorageById, userId)
-	delete(c.userKeyRevoked, userId)
+	c.data.secureKeyStorageById[userId] = secureHash
+	delete(c.data.weakKeyStorageById, userId)
+	delete(c.data.userKeyRevoked, userId)
 	return nil
 }
 
@@ -91,12 +104,12 @@ func (c *DBUser) DeleteUser(userId string) error {
 	c.Lock()
 	defer c.Unlock()
 
-	delete(c.secureKeyStorageById, userId)
-	delete(c.idToIdentifier, userId)
-	delete(c.identifierToId, c.idToIdentifier[userId])
-	delete(c.users, userId)
-	delete(c.weakKeyStorageById, userId)
-	delete(c.userKeyRevoked, userId)
+	delete(c.data.secureKeyStorageById, userId)
+	delete(c.data.idToIdentifier, userId)
+	delete(c.data.identifierToId, c.data.idToIdentifier[userId])
+	delete(c.data.users, userId)
+	delete(c.data.weakKeyStorageById, userId)
+	delete(c.data.userKeyRevoked, userId)
 	return nil
 }
 
@@ -104,7 +117,7 @@ func (c *DBUser) ActivateUser(userId string) error {
 	c.Lock()
 	defer c.Unlock()
 
-	c.users[userId].Active = true
+	c.data.users[userId].Active = true
 	return nil
 }
 
@@ -112,9 +125,9 @@ func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 	c.Lock()
 	defer c.Unlock()
 	if revokeKey {
-		c.userKeyRevoked[userId] = struct{}{}
+		c.data.userKeyRevoked[userId] = struct{}{}
 	}
-	c.users[userId].Active = false
+	c.data.users[userId].Active = false
 	return nil
 }
 
@@ -123,12 +136,12 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]*User, error) {
 	defer c.RUnlock()
 
 	if len(userIds) == 0 {
-		return c.users, nil
+		return c.data.users, nil
 	}
 
 	users := make(map[string]*User, len(userIds))
 	for _, id := range userIds {
-		user, ok := c.users[id]
+		user, ok := c.data.users[id]
 		if ok {
 			users[id] = user
 		}
@@ -140,7 +153,7 @@ func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) 
 	c.RLock()
 	defer c.RUnlock()
 
-	_, ok := c.users[userIdentifier]
+	_, ok := c.data.users[userIdentifier]
 	return ok, nil
 }
 
@@ -148,16 +161,16 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	c.RLock()
 	defer c.RUnlock()
 
-	userId, ok := c.identifierToId[userIdentifier]
+	userId, ok := c.data.identifierToId[userIdentifier]
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
 
-	secureHash, ok := c.secureKeyStorageById[userId]
+	secureHash, ok := c.data.secureKeyStorageById[userId]
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
-	weakHash, ok := c.weakKeyStorageById[userId]
+	weakHash, ok := c.data.weakKeyStorageById[userId]
 	if ok {
 		// use the secureHash as salt for the computation of the weaker in-memory
 		if err := c.validateWeakHash([]byte(key+secureHash), weakHash); err != nil {
@@ -169,10 +182,10 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		}
 	}
 
-	if c.users[userId] != nil && !c.users[userId].Active {
+	if c.data.users[userId] != nil && !c.data.users[userId].Active {
 		return nil, fmt.Errorf("user deactivated")
 	}
-	if _, ok := c.userKeyRevoked[userId]; ok {
+	if _, ok := c.data.userKeyRevoked[userId]; ok {
 		return nil, fmt.Errorf("key is revoked")
 	}
 
@@ -197,7 +210,14 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 		return fmt.Errorf("invalid token")
 	}
 	token := []byte(key + secureHash)
-	c.weakKeyStorageById[userId] = sha256.Sum256(token)
+	c.data.weakKeyStorageById[userId] = sha256.Sum256(token)
 
 	return nil
+}
+
+func (c *DBUser) Snapshot() DBUserSnapshot {
+	c.Lock()
+	defer c.Unlock()
+
+	return DBUserSnapshot{data: c.data, version: SNAPSHOT_VERSION}
 }
