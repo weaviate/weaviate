@@ -53,6 +53,26 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 		return rt, nil
 	}
 
+	concurrentMigratorCpuRatio := 0.5
+
+	// TODO amourao: move to config and clean up code
+	if os.Getenv("REINDEX_MAP_TO_BLOCKMAX_CPU_RATIO") != "" {
+		// parse float from env var
+		cpuRatio, err := strconv.ParseFloat(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_CPU_RATIO"), 64)
+		if err == nil {
+			concurrentMigratorCpuRatio = cpuRatio
+		}
+
+		if err != nil || cpuRatio <= 0 {
+			concurrentMigratorCpuRatio = 0.5
+			logger.Warn("Invalid REINDEX_MAP_TO_BLOCKMAX_CPU_RATIO value \"%v\", using default of 0.5", os.Getenv("REINDEX_MAP_TO_BLOCKMAX_CPU_RATIO"))
+		}
+	}
+
+	// defaults to 0.5*NUMCPU, rounded at middle point, but min of 1 if concurrentMigratorCpuRatio > 0
+	concurrentMigratorCount := concurrency.TimesFloatNUMCPU(concurrentMigratorCpuRatio)
+	logger.WithField("concurrent_migrator_count", concurrentMigratorCount).Info("Concurrent migrator count set")
+
 	return &ShardReindexTask_MapToBlockmax{
 		name:                 name,
 		logger:               logger,
@@ -64,7 +84,7 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 			unswapBuckets:                 unswapBuckets,
 			tidyBuckets:                   tidyBuckets,
 			rollback:                      rollback,
-			concurrency:                   concurrency.NUMCPU_2,
+			concurrency:                   concurrentMigratorCount,
 			memtableOptBlockmaxFactor:     4,
 			processingDuration:            processingDuration,
 			pauseDuration:                 pauseDuration,
