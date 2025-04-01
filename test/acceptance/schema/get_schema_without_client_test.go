@@ -103,7 +103,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"additions": nil,
 						"removals":  nil,
 					},
-					"UsingBlockMaxWAND": config.DefaultUsingBlockMaxWAND,
+					"usingBlockMaxWAND": config.DefaultUsingBlockMaxWAND,
 				},
 				"moduleConfig": map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
