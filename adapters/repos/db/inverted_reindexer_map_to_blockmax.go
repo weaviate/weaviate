@@ -363,13 +363,12 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 		return zerotime, err
 	}
 
-	if rt.isTidied() && t.config.tidyBuckets {
+	if rt.isTidied() {
 		err = updateToBlockMaxInvertedIndexConfig(ctx, t.schemaManager, shard.Index().Config.ClassName.String())
 		if err != nil {
 			err = fmt.Errorf("updating inverted index config: %w", err)
 		}
-		logger.Debug("rollback. nothing to do")
-		return zerotime, nil
+		return zerotime, err
 	}
 
 	if len(props) == 0 {
