@@ -200,3 +200,24 @@ func TestSnapShotAndRestore(t *testing.T) {
 	_, err = dynUsers2.ValidateAndExtract(login3, identifier3)
 	require.Error(t, err)
 }
+
+func TestSuspendAfterDelete(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir())
+	require.NoError(t, err)
+	userId := "id"
+
+	_, hash, identifier, err := keys.CreateApiKeyAndHash("")
+	require.NoError(t, err)
+
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier))
+
+	users, err := dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+	require.Contains(t, users, userId)
+	require.Len(t, users, 1)
+
+	require.NoError(t, dynUsers.DeleteUser(userId))
+
+	require.Error(t, dynUsers.DeactivateUser(userId, false))
+	require.Error(t, dynUsers.ActivateUser(userId))
+}

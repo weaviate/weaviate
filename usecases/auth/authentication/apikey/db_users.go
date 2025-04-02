@@ -137,8 +137,8 @@ func (c *DBUser) DeleteUser(userId string) error {
 	defer c.lock.Unlock()
 
 	delete(c.data.SecureKeyStorageById, userId)
-	delete(c.data.IdToIdentifier, userId)
 	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
+	delete(c.data.IdToIdentifier, userId)
 	delete(c.data.Users, userId)
 	delete(c.memoryOnyData.WeakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
@@ -149,6 +149,10 @@ func (c *DBUser) ActivateUser(userId string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	if _, ok := c.data.Users[userId]; !ok {
+		return fmt.Errorf("user %s does not exist", userId)
+	}
+
 	c.data.Users[userId].Active = true
 	return c.storeToFile()
 }
@@ -156,6 +160,9 @@ func (c *DBUser) ActivateUser(userId string) error {
 func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+	if _, ok := c.data.Users[userId]; !ok {
+		return fmt.Errorf("user %s does not exist", userId)
+	}
 	if revokeKey {
 		c.data.UserKeyRevoked[userId] = struct{}{}
 	}
