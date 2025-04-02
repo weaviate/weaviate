@@ -65,7 +65,7 @@ func (h *replicationHandler) getReplicationDetailsByReplicationId(params replica
 		return h.handleMalformedRequestError(params.ID, err)
 	}
 
-	response, err := h.replicationStatusProvider.GetReplicationDetailsByReplicationId(id)
+	response, err := h.replicationDetailsProvider.GetReplicationDetailsByReplicationId(id)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
 		return h.handleOperationNotFoundError(params.ID, err)
 	} else if err != nil {
