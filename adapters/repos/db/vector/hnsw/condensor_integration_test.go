@@ -667,19 +667,19 @@ func TestCondensorWithPQInformation(t *testing.T) {
 	defer uncondensed.Shutdown(ctx)
 
 	encoders := []compressionhelpers.PQEncoder{
-		compressionhelpers.NewKMeansWithCenters(
+		compressionhelpers.NewKMeansEncoderWithCenters(
 			4,
 			2,
 			0,
 			[][]float32{{1, 2}, {3, 4}, {5, 6}, {7, 8}},
 		),
-		compressionhelpers.NewKMeansWithCenters(
+		compressionhelpers.NewKMeansEncoderWithCenters(
 			4,
 			2,
 			1,
 			[][]float32{{8, 7}, {6, 5}, {4, 3}, {2, 1}},
 		),
-		compressionhelpers.NewKMeansWithCenters(
+		compressionhelpers.NewKMeansEncoderWithCenters(
 			4,
 			2,
 			2,
