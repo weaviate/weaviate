@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	ucbackup "github.com/weaviate/weaviate/usecases/backup"
 
 	"github.com/alexedwards/argon2id"
 
@@ -376,7 +377,11 @@ func (c *DBUser) restoreFromBytes(data []byte) error {
 	return nil
 }
 
-func (c *DBUser) BackupLocations() BackupWrapper {
+func (c *DBUser) BackupLocations() ucbackup.SourcerNonClass {
+	if c == nil {
+		// Dynamic User Management is not enabled, there's nothing to backup
+		return nil
+	}
 	return NewBackupWrapper(c.getBytes, c.restoreFromBytes)
 }
 
@@ -385,8 +390,8 @@ type BackupWrapper struct {
 	restoreFromBytesFunc func([]byte) error
 }
 
-func NewBackupWrapper(getbytesFunc func() ([]byte, error), restoreFromBytesFunc func([]byte) error) BackupWrapper {
-	return BackupWrapper{getBytes: getbytesFunc, restoreFromBytesFunc: restoreFromBytesFunc}
+func NewBackupWrapper(getbytesFunc func() ([]byte, error), restoreFromBytesFunc func([]byte) error) *BackupWrapper {
+	return &BackupWrapper{getBytes: getbytesFunc, restoreFromBytesFunc: restoreFromBytesFunc}
 }
 
 func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string]backup.OtherDescriptors, error) {

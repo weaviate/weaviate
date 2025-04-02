@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	ucbackup "github.com/weaviate/weaviate/usecases/backup"
 
 	"github.com/weaviate/weaviate/usecases/config"
 
@@ -376,7 +377,11 @@ func (m *Manager) restoreFromBytes(policiesB []byte, groupingsB []byte) error {
 	return nil
 }
 
-func (m *Manager) BackupLocations() BackupWrapper {
+func (m *Manager) BackupLocations() ucbackup.SourcerNonClass {
+	if m == nil {
+		// RBAC is not enabled, there's nothing to backup
+		return nil
+	}
 	return NewBackupWrapper(m.getBytes, m.restoreFromBytes)
 }
 
@@ -385,8 +390,8 @@ type BackupWrapper struct {
 	restoreFromBytesFunc func([]byte, []byte) error
 }
 
-func NewBackupWrapper(getbytesFunc func() (map[string][]byte, error), restoreFromBytesFunc func([]byte, []byte) error) BackupWrapper {
-	return BackupWrapper{getBytes: getbytesFunc, restoreFromBytesFunc: restoreFromBytesFunc}
+func NewBackupWrapper(getbytesFunc func() (map[string][]byte, error), restoreFromBytesFunc func([]byte, []byte) error) *BackupWrapper {
+	return &BackupWrapper{getBytes: getbytesFunc, restoreFromBytesFunc: restoreFromBytesFunc}
 }
 
 func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string]backup.OtherDescriptors, error) {
