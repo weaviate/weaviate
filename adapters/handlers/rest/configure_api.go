@@ -58,6 +58,7 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -671,8 +672,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 func configureReindexer(appState *state.State, reindexCtx context.Context) db.ShardReindexerV3 {
 	tasks := []db.ShardReindexTaskV3{}
 	logger := appState.Logger.WithField("action", "reindexV3")
+	cfg := appState.ServerConfig.Config
+	concurrency := concurrency.TimesFloatNUMCPU(cfg.ReindexerGoroutinesFactor)
 
-	if cfg := appState.ServerConfig.Config; cfg.ReindexMapToBlockmaxAtStartup {
+	if cfg.ReindexMapToBlockmaxAtStartup {
 		tasks = append(tasks, db.NewShardInvertedReindexTaskMapToBlockmax(
 			logger,
 			cfg.ReindexMapToBlockmaxConfig.SwapBuckets,
@@ -681,6 +684,7 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 			cfg.ReindexMapToBlockmaxConfig.Rollback,
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds),
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.PauseDurationSeconds),
+			concurrency,
 			appState.SchemaManager,
 		))
 	}
@@ -689,7 +693,7 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 		return db.NewShardReindexerV3Noop()
 	}
 
-	reindexer := db.NewShardReindexerV3(reindexCtx, logger, appState.DB.GetIndex)
+	reindexer := db.NewShardReindexerV3(reindexCtx, logger, appState.DB.GetIndex, concurrency)
 	for i := range tasks {
 		reindexer.RegisterTask(tasks[i])
 	}
