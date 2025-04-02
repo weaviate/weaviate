@@ -191,19 +191,11 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-
-	// handle downgrades from 1.30. The upgrade introduces namespaces and doubles assignments from user: to db: and oidc:.
-	// to handle downgrades:
-	// - remove the db: prefix, the AddRolesForUser function will add the old user: prefix
-	// - skip the oidc: prefix, otherwise we would create two assignments
-	//
-	// This code should NOT be present in 1.30+
-	if strings.HasPrefix(req.User, "db:") {
-		req.User = strings.TrimPrefix(req.User, "db:")
-	} else if strings.HasPrefix(req.User, "oidc:") {
-		return nil
+	req = downgradeAssignments(req)
+	if req != nil {
+		return m.authZ.AddRolesForUser(req.User, req.Roles)
 	}
-	return m.authZ.AddRolesForUser(req.User, req.Roles)
+	return nil
 }
 
 func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
@@ -239,15 +231,14 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 	}
 
 	// handle downgrades from 1.30. The upgrade introduces namespaces and doubles assignments from user: to db: and oidc:.
-	// to handle downgrades:
-	// - remove the db: prefix, the RevokeRolesForUser function will add the old user: prefix
-	// - skip the oidc: prefix, otherwise we would create two assignments
+	// to handle downgrades remove the db:/oidc prefixes, the RevokeRolesForUser function will add the old user: prefix.
+	// Double removal is not a problem.
 	//
 	// This code should NOT be present in 1.30+
 	if strings.HasPrefix(req.User, "db:") {
 		req.User = strings.TrimPrefix(req.User, "db:")
 	} else if strings.HasPrefix(req.User, "oidc:") {
-		return nil
+		req.User = strings.TrimPrefix(req.User, "oidc:")
 	}
 
 	return m.authZ.RevokeRolesForUser(req.User, req.Roles...)
