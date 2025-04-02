@@ -114,7 +114,6 @@ func NewDBUser(path string) (*DBUser, error) {
 func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-
 	c.data.SecureKeyStorageById[userId] = secureHash
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
@@ -137,8 +136,8 @@ func (c *DBUser) DeleteUser(userId string) error {
 	defer c.lock.Unlock()
 
 	delete(c.data.SecureKeyStorageById, userId)
-	delete(c.data.IdToIdentifier, userId)
 	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
+	delete(c.data.IdToIdentifier, userId)
 	delete(c.data.Users, userId)
 	delete(c.memoryOnyData.WeakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
