@@ -616,7 +616,6 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	// given
 	vectorRepo := &fakeVectorRepo{}
-	defaultVectorizer := "text2vec-contextionary"
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	schemaManager := &fakeSchemaManager{}
@@ -630,9 +629,8 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 			DefaultNumber: "number",
 			DefaultDate:   "date",
 		},
-		authorizer:        fakeAuthorizer{},
-		logger:            logger,
-		defaultVectorizer: defaultVectorizer,
+		authorizer: fakeAuthorizer{},
+		logger:     logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
@@ -677,7 +675,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	assert.Equal(t, "number[]", getProperty(class.Properties, "numberArray").DataType[0])
 	require.Len(t, class.VectorConfig, 1)
 	require.Contains(t, class.VectorConfig, schema.DefaultNamedVectorName)
-	require.Contains(t, class.VectorConfig[schema.DefaultNamedVectorName].Vectorizer, defaultVectorizer)
+	require.Contains(t, class.VectorConfig[schema.DefaultNamedVectorName].Vectorizer, vectorizerNone)
 }
 
 func Test_autoSchemaManager_autoSchema_update(t *testing.T) {

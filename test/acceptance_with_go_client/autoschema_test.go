@@ -318,7 +318,7 @@ func TestAutoschemaCreatesDefaultNamedVector(t *testing.T) {
 		indexCfg, ok := class.VectorConfig["default"]
 		require.True(t, ok)
 
-		require.Contains(t, indexCfg.Vectorizer.(map[string]any), "text2vec-contextionary")
+		require.Contains(t, indexCfg.Vectorizer.(map[string]any), "none")
 		require.NotEmpty(t, indexCfg.VectorIndexConfig.(map[string]any))
 
 		objWrapper, err := c.Data().ObjectsGetter().
@@ -331,7 +331,7 @@ func TestAutoschemaCreatesDefaultNamedVector(t *testing.T) {
 
 		obj := objWrapper[0]
 		require.Nil(t, obj.Vector)
-		require.Len(t, obj.Vectors["default"], 300)
+		require.Empty(t, obj.Vectors)
 	}
 
 	t.Run("single object insertion", func(t *testing.T) {

@@ -36,6 +36,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
+const (
+	vectorizerNone = "none"
+)
+
 type autoSchemaManager struct {
 	mutex         sync.RWMutex
 	authorizer    authorization.Authorizer
@@ -43,20 +47,17 @@ type autoSchemaManager struct {
 	vectorRepo    VectorRepo
 	config        config.AutoSchema
 	logger        logrus.FieldLogger
-
-	defaultVectorizer string
 }
 
 func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 	config *config.WeaviateConfig, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) *autoSchemaManager {
 	return &autoSchemaManager{
-		schemaManager:     schemaManager,
-		vectorRepo:        vectorRepo,
-		config:            config.Config.AutoSchema,
-		logger:            logger,
-		authorizer:        authorizer,
-		defaultVectorizer: config.Config.DefaultVectorizerModule,
+		schemaManager: schemaManager,
+		vectorRepo:    vectorRepo,
+		config:        config.Config.AutoSchema,
+		logger:        logger,
+		authorizer:    authorizer,
 	}
 }
 
@@ -145,7 +146,7 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 		VectorConfig: map[string]models.VectorConfig{
 			schema.DefaultNamedVectorName: {
 				VectorIndexType: vectorindex.DefaultVectorIndexType,
-				Vectorizer:      map[string]any{m.defaultVectorizer: map[string]any{}},
+				Vectorizer:      map[string]any{vectorizerNone: map[string]any{}},
 			},
 		},
 	}
