@@ -12,8 +12,9 @@
 package replication
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"net/http"
 	"strconv"
 	"testing"
@@ -78,16 +79,16 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("successful retrieval", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t)
-		var id = rand.Uint64()
+		var id = randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
 			HTTPRequest: &http.Request{},
 		}
 
-		collection := fmt.Sprintf("Collection%d", rand.Intn(10))
-		shardId := fmt.Sprintf("shard-%d", rand.Intn(10))
-		sourceNodeId := fmt.Sprintf("node-%d", rand.Intn(5)*2)
-		targetNodeId := fmt.Sprintf("node-%d", rand.Intn(5)*2+1)
+		collection := fmt.Sprintf("Collection%d", randomInt(10))
+		shardId := fmt.Sprintf("shard-%d", randomInt(10))
+		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
+		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		statusOptions := []string{
 			models.ReplicationReplicateDetailsReplicaResponseStatusREADY,
 			models.ReplicationReplicateDetailsReplicaResponseStatusINDEXING,
@@ -95,7 +96,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			models.ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONFINALIZING,
 			models.ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONHYDRATING,
 		}
-		status := statusOptions[rand.Intn(len(statusOptions))]
+		status := randomString(statusOptions)
 
 		expectedResponse := api.ReplicationDetailsResponse{
 			Id:           id,
@@ -165,7 +166,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("request id not found", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t)
-		var id = rand.Uint64()
+		var id = randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
 			HTTPRequest: &http.Request{},
@@ -185,7 +186,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("internal server error", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t)
-		var id = rand.Uint64()
+		var id = randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
 			HTTPRequest: &http.Request{},
@@ -205,7 +206,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("authorization error", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t)
-		var id = rand.Uint64()
+		var id = randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
 			HTTPRequest: &http.Request{},
@@ -220,4 +221,30 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		assert.IsType(t, &replication.ReplicationDetailsForbidden{}, response)
 		mockAuthorizer.AssertExpectations(t)
 	})
+}
+
+func randomInt(max int64) int64 {
+	if max <= 0 {
+		return 0
+	}
+
+	n, err := rand.Int(rand.Reader, big.NewInt(max))
+	if err != nil {
+		// In tests, we can just panic as this would be a test infrastructure issue
+		panic("failed to generate random number: " + err.Error())
+	}
+	return n.Int64()
+}
+
+func randomUint64() uint64 {
+	n, err := rand.Int(rand.Reader, new(big.Int).SetUint64(^uint64(0)))
+	if err != nil {
+		panic("failed to generate random number: " + err.Error())
+	}
+	return n.Uint64()
+}
+
+func randomString(candidates []string) string {
+	index := randomInt(int64(len(candidates)))
+	return candidates[index]
 }
