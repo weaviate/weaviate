@@ -114,6 +114,7 @@ func NewDBUser(path string) (*DBUser, error) {
 func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+
 	c.data.SecureKeyStorageById[userId] = secureHash
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
@@ -148,6 +149,10 @@ func (c *DBUser) ActivateUser(userId string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	if _, ok := c.data.Users[userId]; !ok {
+		return fmt.Errorf("user %s does not exist", userId)
+	}
+
 	c.data.Users[userId].Active = true
 	return c.storeToFile()
 }
@@ -155,6 +160,9 @@ func (c *DBUser) ActivateUser(userId string) error {
 func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+	if _, ok := c.data.Users[userId]; !ok {
+		return fmt.Errorf("user %s does not exist", userId)
+	}
 	if revokeKey {
 		c.data.UserKeyRevoked[userId] = struct{}{}
 	}
