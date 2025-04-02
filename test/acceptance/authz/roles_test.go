@@ -453,16 +453,15 @@ func TestAuthzRolesHasPermission(t *testing.T) {
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
-	t.Run("create role", func(t *testing.T) {
-		helper.CreateRole(t, adminKey, &models.Role{
-			Name: &testRole,
-			Permissions: []*models.Permission{{
-				Action: &authorization.CreateCollections,
-				Collections: &models.PermissionCollections{
-					Collection: authorization.All,
-				},
-			}},
-		})
+	helper.DeleteRole(t, adminKey, testRole)
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: &testRole,
+		Permissions: []*models.Permission{{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}},
 	})
 
 	t.Run("true", func(t *testing.T) {

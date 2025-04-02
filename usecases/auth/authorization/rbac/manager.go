@@ -146,7 +146,7 @@ func (m *manager) RemovePermissions(roleName string, permissions []*authorizatio
 }
 
 func (m *manager) HasPermission(roleName string, permission *authorization.Policy) (bool, error) {
-	policy, err := m.casbin.HasNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
+	policy, err := m.casbin.HasNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain, build.Version)
 	if err != nil {
 		return false, fmt.Errorf("HasNamedPolicy: %w", err)
 	}
