@@ -421,7 +421,7 @@ func TestUserEndpoint(t *testing.T) {
 		otherTestUser := "otherTestUser"
 		helper.DeleteUser(t, otherTestUser, adminKey)
 		defer helper.DeleteUser(t, otherTestUser, adminKey)
-		helper.CreateUser(t, otherTestUser, adminKey)
+		apiKey := helper.CreateUser(t, otherTestUser, adminKey)
 
 		// rotate, Deactivate and activate are all update
 		_, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(otherTestUser), helper.CreateAuth(testKey))
@@ -445,6 +445,11 @@ func TestUserEndpoint(t *testing.T) {
 		// with update role all three operations work
 		otherTestUserApiKey := helper.RotateKey(t, otherTestUser, testKey)
 		require.Greater(t, len(otherTestUserApiKey), 10)
+
+		// key is not valid anymore
+		_, err = helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(apiKey))
+		var ownInfoUnauthorized *users.GetOwnInfoUnauthorized
+		assert.True(t, errors.As(err, &ownInfoUnauthorized))
 
 		helper.DeactivateUser(t, testKey, otherTestUser, false)
 		helper.ActivateUser(t, testKey, otherTestUser)
