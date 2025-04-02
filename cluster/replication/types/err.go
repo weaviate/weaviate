@@ -13,5 +13,7 @@ package types
 
 import "errors"
 
-var ErrInvalidRequest = errors.New("invalid request")
-var ErrReplicationOperationNotFound = errors.New("replication operation not found")
+var (
+	ErrInvalidRequest               = errors.New("invalid request")
+	ErrReplicationOperationNotFound = errors.New("replication operation not found")
+)

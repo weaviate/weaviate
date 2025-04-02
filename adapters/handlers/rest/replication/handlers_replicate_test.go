@@ -78,7 +78,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("successful retrieval", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t)
-		var id = randomUint64()
+		id := randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
 			HTTPRequest: &http.Request{},
@@ -165,7 +165,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("request id not found", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t)
-		var id = randomUint64()
+		id := randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
 			HTTPRequest: &http.Request{},
@@ -185,7 +185,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("internal server error", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t)
-		var id = randomUint64()
+		id := randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
 			HTTPRequest: &http.Request{},
@@ -205,7 +205,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("authorization error", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t)
-		var id = randomUint64()
+		id := randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
 			HTTPRequest: &http.Request{},
