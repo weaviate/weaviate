@@ -41,7 +41,7 @@ func testMixedVectorsNamedForwarding(endpoint string) func(t *testing.T) {
 			require.Len(t, objWrap, 1)
 			obj := objWrap[0]
 			require.Equal(t, []float32(obj.Vector), expectVector)
-			require.Len(t, obj.Vectors, 2)
+			require.Len(t, obj.Vectors, 3)
 		}
 
 		t.Run("simple", func(t *testing.T) {
