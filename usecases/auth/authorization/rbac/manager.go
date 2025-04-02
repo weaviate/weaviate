@@ -390,6 +390,9 @@ func NewBackupWrapper(getbytesFunc func() (map[string][]byte, error), restoreFro
 }
 
 func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string]backup.OtherDescriptors, error) {
+	if b.getBytes == nil {
+		return nil, nil
+	}
 	btsMap, err := b.getBytes()
 	if err != nil {
 		return nil, err
@@ -403,6 +406,9 @@ func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string]backup.Othe
 }
 
 func (b BackupWrapper) WriteDescriptors(_ context.Context, descriptors map[string]backup.OtherDescriptors) error {
+	if b.restoreFromBytesFunc == nil {
+		return nil
+	}
 	policies, ok := descriptors["policies"]
 	if !ok {
 		return errors.New("no policies found")
