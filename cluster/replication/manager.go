@@ -64,3 +64,36 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 	// Store in the FSM the shard replication op
 	return m.replicationFSM.UpdateReplicationOpStatus(req)
 }
+
+func (m *Manager) GetReplicationDetailsById(c *cmd.QueryRequest) ([]byte, error) {
+	subCommand := cmd.ReplicationDetailsRequest{}
+	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	op, ok := m.replicationFSM.opsById[subCommand.Id]
+	if !ok {
+		return nil, fmt.Errorf("%w: %d", ErrReplicationOperationNotFound, subCommand.Id)
+	}
+
+	status, ok := m.replicationFSM.opsStatus[op]
+	if !ok {
+		return nil, fmt.Errorf("unable to retrieve replication operation '%d' status", op.id)
+	}
+
+	response := cmd.ReplicationDetailsResponse{
+		Id:           op.id,
+		ShardId:      op.sourceShard.shardId,
+		Collection:   op.sourceShard.collectionId,
+		SourceNodeId: op.sourceShard.nodeId,
+		TargetNodeId: op.targetShard.nodeId,
+		Status:       status.state.String(),
+	}
+
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal query response for replication operation '%d': %w", op.id, err)
+	}
+
+	return payload, nil
+}

@@ -11,6 +11,12 @@
 
 package types
 
+import "github.com/weaviate/weaviate/cluster/proto/api"
+
 type ReplicationFSMReader interface {
 	FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string)
+}
+
+type ReplicationStatusProvider interface {
+	GetReplicationDetailsByReplicationId(id uint64) (api.ReplicationDetailsResponse, error)
 }

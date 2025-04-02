@@ -21,20 +21,23 @@ import (
 )
 
 type replicationHandler struct {
-	authorizer         authorization.Authorizer
-	replicationManager replicationTypes.Manager
+	authorizer                authorization.Authorizer
+	replicationManager        replicationTypes.Manager
+	replicationStatusProvider replicationTypes.ReplicationStatusProvider
 
 	logger  logrus.FieldLogger
 	metrics *monitoring.PrometheusMetrics
 }
 
-func SetupHandlers(api *operations.WeaviateAPI, replicationManager replicationTypes.Manager, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+func SetupHandlers(api *operations.WeaviateAPI, replicationManager replicationTypes.Manager, replicationStatusProvider replicationTypes.ReplicationStatusProvider, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
 	h := &replicationHandler{
-		authorizer: authorizer,
-		logger:     logger,
-		metrics:    metrics,
+		authorizer:                authorizer,
+		replicationManager:        replicationManager,
+		replicationStatusProvider: replicationStatusProvider,
+		logger:                    logger,
+		metrics:                   metrics,
 	}
 	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(h.replicate)
-	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(h.getReplicationOperationDetails)
+	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(h.getReplicationDetailsByReplicationId)
 }
