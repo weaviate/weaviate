@@ -65,10 +65,10 @@ func createReplicationHandlerWithMocks(t *testing.T) (*replicationHandler, *Mock
 	logger.SetOutput(logrus.StandardLogger().Out)
 
 	handler := &replicationHandler{
-		authorizer:                mockAuthorizer,
-		replicationManager:        nil, // not used at the moment
-		replicationStatusProvider: mockReplicationStatusProvider,
-		logger:                    logger,
+		authorizer:                 mockAuthorizer,
+		replicationManager:         nil, // not used at the moment
+		replicationDetailsProvider: mockReplicationStatusProvider,
+		logger:                     logger,
 	}
 
 	return handler, mockAuthorizer, mockReplicationStatusProvider
