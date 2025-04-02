@@ -17,6 +17,6 @@ type ReplicationFSMReader interface {
 	FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string)
 }
 
-type ReplicationStatusProvider interface {
+type ReplicationDetailsProvider interface {
 	GetReplicationDetailsByReplicationId(id uint64) (api.ReplicationDetailsResponse, error)
 }
