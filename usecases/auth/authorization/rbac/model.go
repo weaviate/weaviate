@@ -100,8 +100,22 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 
 	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStoragePath))
 
+	if err := enforcer.LoadPolicy(); err != nil {
+		return nil, err
+	}
+
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
+
+	// remove preexisting root role including assignments
+	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
+	if err != nil {
+		return nil, err
+	}
+	_, err = enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(authorization.Root))
+	if err != nil {
+		return nil, err
+	}
 
 	// add pre existing roles
 	for name, verb := range conv.BuiltInPolicies {
