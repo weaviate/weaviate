@@ -102,7 +102,10 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
-	if err := downgradesFrom130(enforcer); err != nil {
+	if err := downgradesAssignmentsFrom130(enforcer); err != nil {
+		return nil, err
+	}
+	if err := downgradeRolesFrom130(enforcer); err != nil {
 		return nil, err
 	}
 
@@ -181,8 +184,8 @@ func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
 	return (bool)(WeaviateMatcher(name1, name2)), nil
 }
 
-func downgradesFrom130(enforcer *casbin.SyncedCachedEnforcer) error {
-	// remove build in roles with potentially changed verbs. These will be re-added in the next step
+func downgradesAssignmentsFrom130(enforcer *casbin.SyncedCachedEnforcer) error {
+	// remove build-in roles with potentially changed verbs. These will be re-added in the next step
 	policies, err := enforcer.GetPolicy()
 	if err != nil {
 		return err
@@ -230,9 +233,41 @@ func downgradesFrom130(enforcer *casbin.SyncedCachedEnforcer) error {
 					return err
 				}
 			}
+		}
+	}
+	return nil
+}
 
+func downgradeRolesFrom130(enforcer *casbin.SyncedCachedEnforcer) error {
+	policies, err := enforcer.GetPolicy()
+	if err != nil {
+		return err
+	}
+
+	policiesToAdd := make([][]string, 0, len(policies))
+	for _, policy := range policies {
+		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, policy[0]); err != nil {
+			return err
 		}
 
+		// undo the migration from UPDATE to ASSIGN
+		if policy[3] == authorization.UsersDomain && policy[2] == "A" {
+			policy[2] = authorization.UPDATE
+		}
+		policiesToAdd = append(policiesToAdd, policy)
 	}
+
+	// re-add policy with changed server version, leave out build-in roles
+	for _, policy := range policiesToAdd {
+		roleName := conv.TrimRoleNamePrefix(policy[0])
+		if _, ok := conv.BuiltInPolicies[roleName]; ok {
+			continue
+		}
+
+		if _, err := enforcer.AddNamedPolicy("p", policy[0], policy[1], policy[2], policy[3]); err != nil {
+			return fmt.Errorf("readd policy: %w", err)
+		}
+	}
+
 	return nil
 }
