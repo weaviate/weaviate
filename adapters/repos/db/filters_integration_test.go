@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -841,6 +842,7 @@ var carClassNoLengthIndex = &models.Class{
 		},
 		IndexNullState:      true,
 		IndexPropertyLength: false,
+		UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 	},
 	Properties: []*models.Property{
 		{

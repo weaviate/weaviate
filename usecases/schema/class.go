@@ -234,6 +234,12 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	return UpdateClassInternal(h, ctx, className, updated)
+}
+
+// bypass the auth check for internal class update requests
+func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
+) error {
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
@@ -290,7 +296,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	_, err = h.schemaManager.UpdateClass(ctx, updated, shardingState)
+	_, err := h.schemaManager.UpdateClass(ctx, updated, shardingState)
 	return err
 }
 
@@ -607,7 +613,9 @@ func (h *Handler) validateProperty(
 
 func setInvertedConfigDefaults(class *models.Class) {
 	if class.InvertedIndexConfig == nil {
-		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
+		class.InvertedIndexConfig = &models.InvertedIndexConfig{
+			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
+		}
 	}
 
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {

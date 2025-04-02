@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -272,6 +273,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		shardCreateLocks:       esync.NewKeyLocker(),
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		shardReindexer:         NewShardReindexerV3Noop(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
@@ -327,5 +329,6 @@ func invertedConfig() *models.InvertedIndexConfig {
 		},
 		IndexNullState:      true,
 		IndexPropertyLength: true,
+		UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 	}
 }

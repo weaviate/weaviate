@@ -222,6 +222,8 @@ type Index struct {
 
 	closeLock sync.RWMutex
 	closed    bool
+
+	shardReindexer ShardReindexerV3
 }
 
 func (i *Index) ID() string {
@@ -252,6 +254,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	scheduler *queue.Scheduler,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 	allocChecker memwatch.AllocChecker,
+	shardReindexer ShardReindexerV3,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -286,6 +289,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		allocChecker:            allocChecker,
 		shardCreateLocks:        esync.NewKeyLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
+		shardReindexer:          shardReindexer,
 	}
 
 	getDeletionStrategy := func() string {
@@ -341,7 +345,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				}
 				defer i.shardLoadLimiter.Release()
 
-				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints)
+				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
+					i.indexCheckpoints, i.shardReindexer)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -370,7 +375,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			continue
 		}
 
-		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter)
+		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
+			i.allocChecker, i.shardLoadLimiter, i.shardReindexer)
 		i.shards.Store(shardName, shard)
 	}
 
@@ -458,7 +464,8 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		}
 		defer i.shardLoadLimiter.Release()
 
-		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints)
+		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
+			i.indexCheckpoints, i.shardReindexer)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
@@ -466,7 +473,8 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		return shard, nil
 	}
 
-	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter)
+	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
+		i.allocChecker, i.shardLoadLimiter, i.shardReindexer)
 	return shard, nil
 }
 
@@ -577,7 +585,7 @@ func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	return nil
 }
 
-func (i *Index) getInvertedIndexConfig() schema.InvertedIndexConfig {
+func (i *Index) GetInvertedIndexConfig() schema.InvertedIndexConfig {
 	i.invertedIndexConfigLock.Lock()
 	defer i.invertedIndexConfigLock.Unlock()
 

@@ -317,7 +317,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 
 		className := s.index.Config.ClassName
-		bm25Config := s.index.getInvertedIndexConfig().BM25
+		bm25Config := s.index.GetInvertedIndexConfig().BM25
 		logger := s.index.logger.WithFields(logrus.Fields{"class": s.index.Config.ClassName, "shard": s.name})
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher,

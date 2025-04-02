@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -206,6 +207,7 @@ func secondClassWithRef() *models.Class {
 func invertedConfig() *models.InvertedIndexConfig {
 	return &models.InvertedIndexConfig{
 		CleanupIntervalSeconds: 60,
+		UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 	}
 }
 

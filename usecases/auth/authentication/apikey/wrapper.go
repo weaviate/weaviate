@@ -27,9 +27,14 @@ func New(cfg config.Config) (*ApiKey, error) {
 	if err != nil {
 		return nil, err
 	}
+	dynamic, err := NewDBUser(cfg.Persistence.DataPath)
+	if err != nil {
+		return nil, err
+	}
+
 	return &ApiKey{
 		static:  static,
-		Dynamic: NewDBUser(),
+		Dynamic: dynamic,
 	}, nil
 }
 

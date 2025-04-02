@@ -22,6 +22,7 @@ type InvertedIndexConfig struct {
 	IndexTimestamps        bool
 	IndexNullState         bool
 	IndexPropertyLength    bool
+	UsingBlockMaxWAND      bool
 }
 
 type BM25Config struct {
@@ -43,6 +44,7 @@ func InvertedIndexConfigFromModel(m models.InvertedIndexConfig) InvertedIndexCon
 	i.IndexTimestamps = m.IndexTimestamps
 	i.IndexNullState = m.IndexNullState
 	i.IndexPropertyLength = m.IndexPropertyLength
+	i.UsingBlockMaxWAND = m.UsingBlockMaxWAND
 
 	return i
 }
@@ -62,6 +64,7 @@ func InvertedIndexConfigToModel(i InvertedIndexConfig) models.InvertedIndexConfi
 	m.IndexTimestamps = i.IndexTimestamps
 	m.IndexNullState = i.IndexNullState
 	m.IndexPropertyLength = i.IndexPropertyLength
+	m.UsingBlockMaxWAND = i.UsingBlockMaxWAND
 
 	return m
 }
