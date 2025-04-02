@@ -128,7 +128,7 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 
 func (m *manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
 	for _, permission := range permissions {
-		ok, err := m.casbin.RemoveNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
+		ok, err := m.casbin.RemoveNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain, build.Version)
 		if err != nil {
 			return fmt.Errorf("RemoveNamedPolicy: %w", err)
 		}

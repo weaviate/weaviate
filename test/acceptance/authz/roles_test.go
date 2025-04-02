@@ -179,6 +179,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
 	defer down()
 
+	helper.DeleteRole(t, adminKey, *testRole1.Name)
 	t.Run("get all roles before create", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
 		require.Equal(t, NumBuildInRoles, len(roles))
