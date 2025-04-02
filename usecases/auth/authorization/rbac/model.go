@@ -104,6 +104,10 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 		return nil, err
 	}
 
+	if err := upgradeGroupingsFrom129(enforcer, authNconf); err != nil {
+		return nil, err
+	}
+
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
@@ -187,4 +191,46 @@ func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
 	name2 := args[1].(string)
 
 	return (bool)(WeaviateMatcher(name1, name2)), nil
+}
+
+func upgradeGroupingsFrom129(enforcer *casbin.SyncedCachedEnforcer, authNconf config.Authentication) error {
+	// clear out assignments without namespaces and re-add them with namespaces
+	roles, _ := enforcer.GetAllSubjects()
+	for _, role := range roles {
+		users, err := enforcer.GetUsersForRole(role)
+		if err != nil {
+			return err
+		}
+
+		for _, user := range users {
+			// internal user assignments (for empty roles) need to be converted to from namespaced assignment with user only
+			// other assignments need to be converted to both namespaces
+			if strings.Contains(user, conv.InternalPlaceHolder) {
+				if _, err := enforcer.DeleteRoleForUser(user, role); err != nil {
+					return err
+				}
+
+				if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserTypeInputDb), role); err != nil {
+					return err
+				}
+			} else if strings.HasPrefix(user, "user:") {
+				userNoPrefix := strings.TrimPrefix(user, "user:")
+				if _, err := enforcer.DeleteRoleForUser(user, role); err != nil {
+					return err
+				}
+				if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, userNoPrefix) {
+					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, models.UserTypeInputDb), role); err != nil {
+						return err
+					}
+				}
+				if authNconf.OIDC.Enabled {
+					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, models.UserTypeInputOidc), role); err != nil {
+						return err
+					}
+				}
+			}
+		}
+
+	}
+	return nil
 }
