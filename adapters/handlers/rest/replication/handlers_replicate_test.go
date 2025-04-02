@@ -43,8 +43,7 @@ func (m *MockAuthorizer) Authorize(principal *models.Principal, verb string, res
 }
 
 func (m *MockAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
-	args := m.Called(principal, verb, resources)
-	return args.Error(0)
+	return m.Authorize(principal, verb, resources...)
 }
 
 func (m *MockAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
