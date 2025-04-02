@@ -41,7 +41,7 @@ const (
 	r = sub, obj, act
 
 	[policy_definition]
-	p = sub, obj, act, dom
+	p = sub, obj, act, dom, version
 
 	[role_definition]
 	g = _, _
