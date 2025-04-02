@@ -23,8 +23,8 @@ import (
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
-func Test_NoRaceKMeansNNearest(t *testing.T) {
-	distanceProvider := distancer.NewL2SquaredProvider()
+func TestKMeansEncoderEncodesToNearestCentroid(t *testing.T) {
+	l2 := distancer.NewL2SquaredProvider()
 	vectors := [][]float32{
 		{0, 5},
 		{0.1, 4.9},
@@ -33,34 +33,34 @@ func Test_NoRaceKMeansNNearest(t *testing.T) {
 		{5.1, 2},
 		{5.0, 2.1},
 	}
-	kmeans := compressionhelpers.NewKMeans(
+	encoder := compressionhelpers.NewKMeansEncoder(
 		3,
 		2,
 		0,
 	)
-	kmeans.Fit(vectors)
+	encoder.Fit(vectors)
 	centers := make([]byte, 6)
 	for i := range centers {
-		centers[i] = byte(kmeans.Nearest(vectors[i]))
+		centers[i] = encoder.Encode(vectors[i])
 	}
 	for v := range vectors {
-		min, _ := distanceProvider.SingleDist(vectors[v], kmeans.Centroid(centers[v]))
+		min, _ := l2.SingleDist(vectors[v], encoder.Centroid(centers[v]))
 		for c := range centers {
-			dist, _ := distanceProvider.SingleDist(vectors[v], kmeans.Centroid(centers[c]))
+			dist, _ := l2.SingleDist(vectors[v], encoder.Centroid(centers[c]))
 			assert.True(t, dist >= min)
 		}
 	}
 }
 
-func Test_NoRaceRandomData(t *testing.T) {
+func TestKMeansEncoderTerminatesOnRandomData(t *testing.T) {
 	vectorsSize := 10000
 	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, 128)
 	before := time.Now()
-	kmeans := compressionhelpers.NewKMeans(
+	encoder := compressionhelpers.NewKMeansEncoder(
 		256,
 		1,
 		10,
 	)
-	kmeans.Fit(vectors)
+	encoder.Fit(vectors)
 	assert.True(t, time.Since(before).Seconds() < 50)
 }
