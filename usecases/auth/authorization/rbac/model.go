@@ -102,22 +102,8 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
-	roles, _ := enforcer.GetAllSubjects()
-	for _, role := range roles {
-		users, err := enforcer.GetUsersForRole(role)
-		if err != nil {
-			return nil, err
-		}
-		for _, user := range users {
-			if strings.HasPrefix(user, "db:") || strings.HasPrefix(user, "oidc:") && !strings.Contains(user, conv.InternalPlaceHolder) {
-				_, err := enforcer.DeleteRoleForUser(user, role)
-				if err != nil {
-					return nil, err
-				}
-
-			}
-		}
-
+	if err := downgradesFrom130(enforcer); err != nil {
+		return nil, err
 	}
 
 	// remove preexisting root role including assignments
@@ -193,4 +179,60 @@ func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
 	name2 := args[1].(string)
 
 	return (bool)(WeaviateMatcher(name1, name2)), nil
+}
+
+func downgradesFrom130(enforcer *casbin.SyncedCachedEnforcer) error {
+	// remove build in roles with potentially changed verbs. These will be re-added in the next step
+	policies, err := enforcer.GetPolicy()
+	if err != nil {
+		return err
+	}
+
+	for _, policy := range policies {
+		roleName := conv.TrimRoleNamePrefix(policy[0])
+		if _, ok := conv.BuiltInPolicies[roleName]; ok {
+			if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, policy[0]); err != nil {
+				return err
+			}
+		}
+	}
+
+	// clear out assignments to namespaces that have been introduced in 1.30. This code should not be part of 1.30+
+	roles, _ := enforcer.GetAllSubjects()
+	for _, role := range roles {
+		users, err := enforcer.GetUsersForRole(role)
+		if err != nil {
+			return err
+		}
+
+		for _, user := range users {
+			// internal user assignments (for empty roles) need to be converted back from namespaced assignment
+			// these assignments are only added for the db namespace
+			if strings.Contains(user, conv.InternalPlaceHolder) {
+				if _, err := enforcer.DeleteRoleForUser(user, role); err != nil {
+					return err
+				}
+
+				if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(conv.InternalPlaceHolder), role); err != nil {
+					return err
+				}
+			}
+
+			// other internal assignments
+			if strings.HasPrefix(user, "db:") || strings.HasPrefix(user, "oidc:") {
+				if _, err := enforcer.DeleteRoleForUser(user, role); err != nil {
+					return err
+				}
+			}
+			if strings.HasPrefix(user, "db:") {
+				userWithoutPrefix := strings.TrimPrefix(user, "db:")
+				if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(userWithoutPrefix), role); err != nil {
+					return err
+				}
+			}
+
+		}
+
+	}
+	return nil
 }
