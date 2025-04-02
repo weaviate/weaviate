@@ -16,12 +16,24 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 )
 
 func (v *Validator) vector(ctx context.Context, class *models.Class,
 	incomingObject *models.Object,
 ) error {
+	// In case the schema has a legacy vector index, we need to check if there is a default named vector which
+	// is used to transport legacy vector via the named vector API.
+	if defaultVec, ok := incomingObject.Vectors[schema.DefaultNamedVectorName]; ok && schemachecks.HasLegacyVectorIndex(class) {
+		vec, ok := defaultVec.([]float32)
+		if !ok {
+			return fmt.Errorf("vector %s has to be a float32 array", schema.DefaultNamedVectorName)
+		}
+		incomingObject.Vector = vec
+		delete(incomingObject.Vectors, schema.DefaultNamedVectorName)
+	}
+
 	if !schemachecks.HasLegacyVectorIndex(class) && len(incomingObject.Vector) > 0 {
 		// if there is only one named vector we can assume that the single vector
 		if len(class.VectorConfig) == 1 {
