@@ -33,7 +33,7 @@ type MockAuthorizer struct {
 	mock.Mock
 }
 
-type MockReplicationStatusProvider struct {
+type MockReplicationDetailsProvider struct {
 	mock.Mock
 }
 
@@ -51,15 +51,15 @@ func (m *MockAuthorizer) FilterAuthorizedResources(principal *models.Principal, 
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *MockReplicationStatusProvider) GetReplicationDetailsByReplicationId(id uint64) (api.ReplicationDetailsResponse, error) {
+func (m *MockReplicationDetailsProvider) GetReplicationDetailsByReplicationId(id uint64) (api.ReplicationDetailsResponse, error) {
 	args := m.Called(id)
 	return args.Get(0).(api.ReplicationDetailsResponse), args.Error(1)
 }
 
-func createReplicationHandlerWithMocks(t *testing.T) (*replicationHandler, *MockAuthorizer, *MockReplicationStatusProvider) {
+func createReplicationHandlerWithMocks(t *testing.T) (*replicationHandler, *MockAuthorizer, *MockReplicationDetailsProvider) {
 	t.Helper()
 	mockAuthorizer := new(MockAuthorizer)
-	mockReplicationStatusProvider := new(MockReplicationStatusProvider)
+	mockReplicationStatusProvider := new(MockReplicationDetailsProvider)
 
 	logger := logrus.New()
 	logger.SetOutput(logrus.StandardLogger().Out)
