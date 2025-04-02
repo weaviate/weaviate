@@ -894,6 +894,43 @@
             "shardId"
         ]
     },
+    "ReplicationReplicateDetailsReplicaResponse": {
+      "description": "The current status and details of a replication operation, including information about the resources involved in the replication process.",
+      "properties": {
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The id of the shard to collect replication details for.",
+          "type": "string"
+        },
+        "collection": {
+          "description": "The name of the collection holding data being replicated.",
+          "type": "string"
+        },
+        "sourceNodeId": {
+          "description": "The id of the node where the source replica is allocated.",
+          "type": "string"
+        },
+        "targetNodeId": {
+          "description": "The id of the node where the target replica is allocated.",
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
+          "enum": [
+            "READY",
+            "INDEXING",
+            "REPLICATION_FINALIZING",
+            "REPLICATION_HYDRATING",
+            "REPLICATION_DEHYDRATING"
+          ]
+        }
+      },
+      "required": ["id", "shardId", "sourceNodeId", "targetNodeId", "collection", "status"]
+    },
     "PeerUpdate": {
       "description": "A single peer in the network.",
       "properties": {
@@ -2816,6 +2853,66 @@
             }
           },
           "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/replication/replicate/{id}": {
+      "get": {
+        "summary": "Get the details of a replication operation.",
+        "description": "Returns the details of a replication operation for a given shard, identified by the provided replication operation id.",
+        "operationId": "replicationDetails",
+        "x-serviceIds": [
+          "weaviate.replication.replicate.details"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The replication operation id to get details for.",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The details of the replication operation.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"

@@ -13,6 +13,7 @@ package replication
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -50,4 +51,21 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}).Info("replicate operation registered")
 
 	return replication.NewReplicateOK()
+}
+
+func (h *replicationHandler) getReplicationOperationDetails(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
+		return h.handleForbiddenError()
+	}
+
+	return h.handleNotImplementedError(params)
+}
+
+func (h *replicationHandler) handleForbiddenError() middleware.Responder {
+	return replication.NewReplicationDetailsForbidden()
+}
+
+func (h *replicationHandler) handleNotImplementedError(params replication.ReplicationDetailsParams) middleware.Responder {
+	return replication.NewReplicationDetailsNotImplemented().WithPayload(cerrors.ErrPayloadFromSingleErr(
+		fmt.Errorf("fetching replication details for operation id %s is not yet implemented", params.ID)))
 }
