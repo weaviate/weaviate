@@ -225,26 +225,29 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 
 func randomInt(max int64) int64 {
 	if max <= 0 {
-		return 0
+		panic(fmt.Sprintf("max parameter must be positive, received %d", max))
 	}
 
 	n, err := rand.Int(rand.Reader, big.NewInt(max))
 	if err != nil {
-		// In tests, we can just panic as this would be a test infrastructure issue
-		panic("failed to generate random number: " + err.Error())
+		panic(fmt.Sprintf("failed to generate random number in range [0, %d): %v", max, err))
 	}
 	return n.Int64()
 }
 
 func randomUint64() uint64 {
-	n, err := rand.Int(rand.Reader, new(big.Int).SetUint64(^uint64(0)))
+	maxUint64 := new(big.Int).SetUint64(^uint64(0))
+	n, err := rand.Int(rand.Reader, maxUint64)
 	if err != nil {
-		panic("failed to generate random number: " + err.Error())
+		panic(fmt.Sprintf("failed to generate random number in range [0, %s): %v", maxUint64.String(), err))
 	}
 	return n.Uint64()
 }
 
 func randomString(candidates []string) string {
-	index := randomInt(int64(len(candidates)))
-	return candidates[index]
+	if len(candidates) == 0 {
+		panic("candidates slice cannot be empty")
+	}
+
+	return candidates[randomInt(int64(len(candidates)))]
 }
