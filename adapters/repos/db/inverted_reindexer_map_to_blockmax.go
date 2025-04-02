@@ -234,12 +234,6 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 				err = fmt.Errorf("tidying map buckets:%w", err)
 				return
 			}
-
-			err = updateToBlockMaxInvertedIndexConfig(ctx, t.schemaManager, shard.Index().Config.ClassName.String())
-			if err != nil {
-				err = fmt.Errorf("updating inverted index config: %w", err)
-				return err
-			}
 		}
 	}
 
@@ -368,6 +362,16 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 		err = fmt.Errorf("reading reindexable props: %w", err)
 		return zerotime, err
 	}
+
+	if rt.isTidied() && t.config.tidyBuckets {
+		err = updateToBlockMaxInvertedIndexConfig(ctx, t.schemaManager, shard.Index().Config.ClassName.String())
+		if err != nil {
+			err = fmt.Errorf("updating inverted index config: %w", err)
+		}
+		logger.Debug("rollback. nothing to do")
+		return zerotime, nil
+	}
+
 	if len(props) == 0 {
 		logger.Debug("no props read. nothing to do")
 		return zerotime, nil
