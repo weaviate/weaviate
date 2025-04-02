@@ -44,6 +44,8 @@ import (
 // component was initialized. If not, it turns it into a noop to prevent
 // blocking.
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
+	s.reindexer.Stop(s, fmt.Errorf("shard shutdown"))
+
 	if err = s.waitForShutdown(ctx); err != nil {
 		return
 	}

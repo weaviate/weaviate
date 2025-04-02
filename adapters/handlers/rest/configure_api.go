@@ -588,6 +588,11 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("modules didn't initialize")
 	}
 
+	var reindexCtx context.Context
+	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(context.Background())
+	reindexer := configureReindexer(appState, reindexCtx)
+	repo.WithReindexer(reindexer)
+
 	metaStoreReadyErr := fmt.Errorf("meta store ready")
 	metaStoreFailedErr := fmt.Errorf("meta store failed")
 	storeReadyCtx, storeReadyCancel := context.WithCancelCause(context.Background())
@@ -623,8 +628,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// FIXME to avoid import cycles, tasks are passed as strings
 	reindexTaskNamesWithArgs := map[string]any{}
-	var reindexCtx context.Context
-	reindexCtx, appState.ReindexCtxCancel = context.WithCancel(context.Background())
 	reindexFinished := make(chan error, 1)
 
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
@@ -635,36 +638,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 	if len(appState.ServerConfig.Config.ReindexIndexesAtStartup) > 0 {
 		reindexTaskNamesWithArgs["ShardInvertedReindexTask_SpecifiedIndex"] = appState.ServerConfig.Config.ReindexIndexesAtStartup
-	}
-
-	reindexTasksV2Names := []string{}
-	reindexTasksV2Args := map[string]any{}
-	reindexFinishedV2 := make(chan error, 1)
-	if appState.ServerConfig.Config.ReindexMapToBlockmaxAtStartup {
-		reindexTasksV2Names = append(reindexTasksV2Names, "ShardInvertedReindexTask_MapToBlockmax")
-		reindexTasksV2Args["ShardInvertedReindexTask_MapToBlockmax"] = map[string]any{
-			"SwapBuckets":               appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.SwapBuckets,
-			"UnswapBuckets":             appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.UnswapBuckets,
-			"TidyBuckets":               appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.TidyBuckets,
-			"Rollback":                  appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.Rollback,
-			"ProcessingDurationSeconds": appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds,
-			"PauseDurationSeconds":      appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.PauseDurationSeconds,
-		}
-	}
-
-	if len(reindexTasksV2Names) > 0 {
-		waitForMetaStore := func() error {
-			// wait until meta store is ready, as reindex tasks need schema
-			<-storeReadyCtx.Done()
-			if err := context.Cause(storeReadyCtx); !errors.Is(err, metaStoreReadyErr) {
-				return err
-			}
-			return nil
-		}
-		if err := runReindexerV2(reindexCtx, waitForMetaStore, migrator, appState.Logger, reindexTasksV2Names,
-			reindexTasksV2Args, reindexFinishedV2); err != nil {
-			os.Exit(1) // fail only in case of error (effectively when reindexer is not created)
-		}
 	}
 
 	if len(reindexTaskNamesWithArgs) > 0 {
@@ -700,83 +673,33 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	return appState
 }
 
-func runReindexerV2(reindexCtx context.Context, waitForMetaStore func() error,
-	migrator *db.Migrator, logger logrus.FieldLogger,
-	reindexTasksV2Names []string, reindexTasksV2Args map[string]any, reindexFinishedV2 chan<- error,
-) error {
-	logger = logger.WithField("action", "reindexV2")
+func configureReindexer(appState *state.State, reindexCtx context.Context) db.ShardReindexerV3 {
+	tasks := []db.ShardReindexTaskV3{}
+	logger := appState.Logger.WithField("action", "reindexV3")
 
-	reindexer, err := migrator.ReindexerV2(reindexTasksV2Names, reindexTasksV2Args)
-	if err != nil {
-		logger.WithError(err).Error("creating reindexer")
-		return err
+	if cfg := appState.ServerConfig.Config; cfg.ReindexMapToBlockmaxAtStartup {
+		tasks = append(tasks, db.NewShardInvertedReindexTaskMapToBlockmax(
+			logger,
+			cfg.ReindexMapToBlockmaxConfig.SwapBuckets,
+			cfg.ReindexMapToBlockmaxConfig.UnswapBuckets,
+			cfg.ReindexMapToBlockmaxConfig.TidyBuckets,
+			cfg.ReindexMapToBlockmaxConfig.Rollback,
+			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds),
+			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.PauseDurationSeconds),
+			appState.SchemaManager,
+		))
 	}
 
-	if reindexer.HasOnBefore() {
-		start := time.Now()
-		logger.Debug("starting waiting for meta store")
-		if err := waitForMetaStore(); err != nil {
-			err = fmt.Errorf("meta store not available: %w", err)
-			logger.WithField("took", time.Since(start)).WithError(err).Error("finished waiting for meta store")
-
-			reindexFinishedV2 <- err
-			return nil
-		}
-		logger.WithField("took", time.Since(start)).Debug("finished waiting for meta store")
-
-		start = time.Now()
-		logger.Info("starting on before")
-		if err := reindexer.OnBefore(reindexCtx); err != nil {
-			err = fmt.Errorf("on before: %w", err)
-			logger.WithField("took", time.Since(start)).WithError(err).Error("finished on before")
-		} else {
-			logger.WithField("took", time.Since(start)).Info("finished on before")
-		}
-
-		// continue even in onBefore failed on some tasks.
-		// remaining tasks will proceed with reindexing.
-		enterrors.GoWrapper(func() {
-			start = time.Now()
-			logger.Info("starting reindexing")
-			if err := reindexer.Reindex(reindexCtx); err != nil {
-				err = fmt.Errorf("reindex: %w", err)
-				logger.WithField("took", time.Since(start)).WithError(err).Error("finished reindexing")
-
-				reindexFinishedV2 <- err
-				return
-			}
-			logger.WithField("took", time.Since(start)).Info("finished reindexing")
-			reindexFinishedV2 <- nil
-		}, logger)
-
-		return nil
+	if len(tasks) == 0 {
+		return db.NewShardReindexerV3Noop()
 	}
 
-	enterrors.GoWrapper(func() {
-		start := time.Now()
-		logger.Debug("starting waiting for meta store")
-		if err := waitForMetaStore(); err != nil {
-			err = fmt.Errorf("meta store not available: %w", err)
-			logger.WithField("took", time.Since(start)).WithError(err).Error("finished waiting for meta store")
-
-			reindexFinishedV2 <- err
-			return
-		}
-		logger.WithField("took", time.Since(start)).Debug("finished waiting for meta store")
-
-		start = time.Now()
-		logger.Info("starting reindexing")
-		if err := reindexer.Reindex(reindexCtx); err != nil {
-			err = fmt.Errorf("reindex: %w", err)
-			logger.WithField("took", time.Since(start)).WithError(err).Error("finished reindexing")
-
-			reindexFinishedV2 <- err
-			return
-		}
-		logger.WithField("took", time.Since(start)).Info("finished reindexing")
-	}, logger)
-
-	return nil
+	reindexer := db.NewShardReindexerV3(reindexCtx, logger, appState.DB.GetIndex)
+	for i := range tasks {
+		reindexer.RegisterTask(tasks[i])
+	}
+	reindexer.Init()
+	return reindexer
 }
 
 func parseNode2Port(appState *state.State) (m map[string]int, err error) {
@@ -908,7 +831,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// stop reindexing on server shutdown
-		appState.ReindexCtxCancel()
+		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()

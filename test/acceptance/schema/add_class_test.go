@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // this test prevents a regression on
@@ -268,6 +269,7 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 				Stopwords: &models.StopwordConfig{
 					Preset: "en",
 				},
+				UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 			},
 			Properties: []*models.Property{
 				{

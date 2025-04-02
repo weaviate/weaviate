@@ -14,12 +14,20 @@ package apikey
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/alexedwards/argon2id"
 
 	"github.com/weaviate/weaviate/entities/models"
+)
+
+const (
+	SnapshotVersion = 0
+	FileName        = "users.json"
 )
 
 type DBUsers interface {
@@ -39,96 +47,134 @@ type User struct {
 }
 
 type DBUser struct {
-	sync.RWMutex
-	weakKeyStorageById   map[string][sha256.Size]byte
-	secureKeyStorageById map[string]string
-	identifierToId       map[string]string
-	idToIdentifier       map[string]string
-	users                map[string]*User
-	userKeyRevoked       map[string]struct{}
+	lock          *sync.RWMutex
+	data          dbUserdata
+	memoryOnyData memoryOnlyData
+	path          string
 }
 
-func NewDBUser() *DBUser {
-	return &DBUser{
-		weakKeyStorageById:   make(map[string][sha256.Size]byte),
-		secureKeyStorageById: make(map[string]string),
-		identifierToId:       make(map[string]string),
-		idToIdentifier:       make(map[string]string),
-		users:                make(map[string]*User),
-		userKeyRevoked:       make(map[string]struct{}),
+type DBUserSnapshot struct {
+	Data    dbUserdata
+	Version int
+}
+
+type dbUserdata struct {
+	SecureKeyStorageById map[string]string
+	IdentifierToId       map[string]string
+	IdToIdentifier       map[string]string
+	Users                map[string]*User
+	UserKeyRevoked       map[string]struct{}
+}
+
+type memoryOnlyData struct {
+	WeakKeyStorageById map[string][sha256.Size]byte
+}
+
+func NewDBUser(path string) (*DBUser, error) {
+	fullpath := fmt.Sprintf("%s/raft/db_users/", path)
+	err := createStorage(fullpath + FileName)
+	if err != nil {
+		return nil, err
 	}
+	existingData, err := ReadFile(fullpath + FileName)
+	if err != nil {
+		return nil, err
+	}
+	snapshot := DBUserSnapshot{}
+	if len(existingData) > 0 {
+		if err := json.Unmarshal(existingData, &snapshot); err != nil {
+			return nil, err
+		}
+	}
+
+	if snapshot.Data.SecureKeyStorageById == nil {
+		snapshot.Data.SecureKeyStorageById = make(map[string]string)
+	}
+	if snapshot.Data.IdentifierToId == nil {
+		snapshot.Data.IdentifierToId = make(map[string]string)
+	}
+	if snapshot.Data.IdToIdentifier == nil {
+		snapshot.Data.IdToIdentifier = make(map[string]string)
+	}
+	if snapshot.Data.Users == nil {
+		snapshot.Data.Users = make(map[string]*User)
+	}
+	if snapshot.Data.UserKeyRevoked == nil {
+		snapshot.Data.UserKeyRevoked = make(map[string]struct{})
+	}
+
+	return &DBUser{
+		path:          fullpath,
+		lock:          &sync.RWMutex{},
+		data:          snapshot.Data,
+		memoryOnyData: memoryOnlyData{WeakKeyStorageById: make(map[string][sha256.Size]byte)},
+	}, nil
 }
 
 func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string) error {
-	c.Lock()
-	defer c.Unlock()
-	_, secureKeyExists := c.secureKeyStorageById[userId]
-	_, identifierExists := c.identifierToId[userId]
-	_, usersExists := c.users[userId]
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
-	// Todo-Dynuser: Does this make sense? Error would end up with RAFT layer
-	if secureKeyExists || identifierExists || usersExists {
-		return fmt.Errorf("user %s already exists", userId)
-	}
-	c.secureKeyStorageById[userId] = secureHash
-	c.identifierToId[userIdentifier] = userId
-	c.idToIdentifier[userId] = userIdentifier
-	c.users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier}
-	return nil
+	c.data.SecureKeyStorageById[userId] = secureHash
+	c.data.IdentifierToId[userIdentifier] = userId
+	c.data.IdToIdentifier[userId] = userIdentifier
+	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier}
+	return c.storeToFile()
 }
 
 func (c *DBUser) RotateKey(userId, secureHash string) error {
-	c.Lock()
-	defer c.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
-	c.secureKeyStorageById[userId] = secureHash
-	delete(c.weakKeyStorageById, userId)
-	delete(c.userKeyRevoked, userId)
-	return nil
+	c.data.SecureKeyStorageById[userId] = secureHash
+	delete(c.memoryOnyData.WeakKeyStorageById, userId)
+	delete(c.data.UserKeyRevoked, userId)
+	return c.storeToFile()
 }
 
 func (c *DBUser) DeleteUser(userId string) error {
-	c.Lock()
-	defer c.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
-	delete(c.secureKeyStorageById, userId)
-	delete(c.idToIdentifier, userId)
-	delete(c.identifierToId, c.idToIdentifier[userId])
-	delete(c.users, userId)
-	delete(c.weakKeyStorageById, userId)
-	delete(c.userKeyRevoked, userId)
-	return nil
+	delete(c.data.SecureKeyStorageById, userId)
+	delete(c.data.IdToIdentifier, userId)
+	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
+	delete(c.data.Users, userId)
+	delete(c.memoryOnyData.WeakKeyStorageById, userId)
+	delete(c.data.UserKeyRevoked, userId)
+	return c.storeToFile()
 }
 
 func (c *DBUser) ActivateUser(userId string) error {
-	c.Lock()
-	defer c.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
-	c.users[userId].Active = true
-	return nil
+	c.data.Users[userId].Active = true
+	return c.storeToFile()
 }
 
 func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
-	c.Lock()
-	defer c.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	if revokeKey {
-		c.userKeyRevoked[userId] = struct{}{}
+		c.data.UserKeyRevoked[userId] = struct{}{}
 	}
-	c.users[userId].Active = false
-	return nil
+	c.data.Users[userId].Active = false
+
+	return c.storeToFile()
 }
 
 func (c *DBUser) GetUsers(userIds ...string) (map[string]*User, error) {
-	c.RLock()
-	defer c.RUnlock()
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 
 	if len(userIds) == 0 {
-		return c.users, nil
+		return c.data.Users, nil
 	}
 
 	users := make(map[string]*User, len(userIds))
 	for _, id := range userIds {
-		user, ok := c.users[id]
+		user, ok := c.data.Users[id]
 		if ok {
 			users[id] = user
 		}
@@ -137,27 +183,27 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]*User, error) {
 }
 
 func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) {
-	c.RLock()
-	defer c.RUnlock()
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 
-	_, ok := c.users[userIdentifier]
+	_, ok := c.data.Users[userIdentifier]
 	return ok, nil
 }
 
 func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {
-	c.RLock()
-	defer c.RUnlock()
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 
-	userId, ok := c.identifierToId[userIdentifier]
+	userId, ok := c.data.IdentifierToId[userIdentifier]
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
 
-	secureHash, ok := c.secureKeyStorageById[userId]
+	secureHash, ok := c.data.SecureKeyStorageById[userId]
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
-	weakHash, ok := c.weakKeyStorageById[userId]
+	weakHash, ok := c.memoryOnyData.WeakKeyStorageById[userId]
 	if ok {
 		// use the secureHash as salt for the computation of the weaker in-memory
 		if err := c.validateWeakHash([]byte(key+secureHash), weakHash); err != nil {
@@ -169,10 +215,10 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		}
 	}
 
-	if c.users[userId] != nil && !c.users[userId].Active {
+	if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
 		return nil, fmt.Errorf("user deactivated")
 	}
-	if _, ok := c.userKeyRevoked[userId]; ok {
+	if _, ok := c.data.UserKeyRevoked[userId]; ok {
 		return nil, fmt.Errorf("key is revoked")
 	}
 
@@ -197,7 +243,102 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 		return fmt.Errorf("invalid token")
 	}
 	token := []byte(key + secureHash)
-	c.weakKeyStorageById[userId] = sha256.Sum256(token)
+	c.memoryOnyData.WeakKeyStorageById[userId] = sha256.Sum256(token)
 
 	return nil
+}
+
+func (c *DBUser) Snapshot() DBUserSnapshot {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	return DBUserSnapshot{Data: c.data, Version: SnapshotVersion}
+}
+
+func (c *DBUser) Restore(snapshot DBUserSnapshot) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if snapshot.Version != SnapshotVersion {
+		return fmt.Errorf("invalid snapshot version")
+	}
+	c.data = snapshot.Data
+
+	return nil
+}
+
+func (c *DBUser) storeToFile() error {
+	data, err := json.Marshal(DBUserSnapshot{Data: c.data, Version: SnapshotVersion})
+	if err != nil {
+		return err
+	}
+
+	tmpFile, err := os.CreateTemp(c.path, "temp-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempFilename := tmpFile.Name()
+
+	defer func() {
+		tmpFile.Close()
+		os.Remove(tempFilename) // Remove temp file if it still exists
+	}()
+
+	// Write data to temp file, flush and close
+	if _, err := tmpFile.Write(data); err != nil {
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	// Atomically rename the temp file to the target filename to not leave garbage when it crashes
+	return os.Rename(tempFilename, c.path+"/"+FileName)
+}
+
+func createStorage(filePath string) error {
+	if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+
+	_, err := os.Stat(filePath)
+	if err == nil { // file exists
+		return nil
+	}
+
+	if os.IsNotExist(err) {
+		file, err := os.Create(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to create file: %w", err)
+		}
+		defer file.Close()
+		return nil
+	}
+
+	return err
+}
+
+func ReadFile(filename string) ([]byte, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	data := make([]byte, fileInfo.Size())
+
+	_, err = file.Read(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }

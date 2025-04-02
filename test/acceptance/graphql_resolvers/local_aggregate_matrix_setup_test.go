@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const notExistingObjectId = "cfa3b21e-ca5f-4db7-a412-ffffffffffff"
@@ -61,7 +62,7 @@ func arrayClassSchema() *models.Class {
 				"vectorizeClassName": true,
 			},
 		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{IndexPropertyLength: true, IndexNullState: true},
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexPropertyLength: true, IndexNullState: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 		Properties: []*models.Property{
 			{
 				Name:         "texts",

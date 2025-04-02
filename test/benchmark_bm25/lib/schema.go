@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func SchemaFromDataset(ds Dataset, includeVectorizer bool) *models.Class {
@@ -31,6 +32,7 @@ func SchemaFromDataset(ds Dataset, includeVectorizer bool) *models.Class {
 		Stopwords: &models.StopwordConfig{
 			Preset: "none",
 		},
+		UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 	}
 
 	for _, prop := range ds.Corpus.IndexedProperties {

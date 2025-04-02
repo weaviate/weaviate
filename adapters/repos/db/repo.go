@@ -92,6 +92,8 @@ type DB struct {
 	metricsObserver *nodeWideMetricsObserver
 
 	shardLoadLimiter ShardLoadLimiter
+
+	reindexer ShardReindexerV3
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -163,6 +165,7 @@ func New(logger logrus.FieldLogger, config Config,
 		resourceScanState:   newResourceScanState(),
 		memMonitor:          memMonitor,
 		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
+		reindexer:           NewShardReindexerV3Noop(),
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -375,4 +378,9 @@ func (db *DB) batchWorker(first bool) {
 			checkTime = time.Now().Add(time.Second)
 		}
 	}
+}
+
+func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB {
+	db.reindexer = reindexer
+	return db
 }
