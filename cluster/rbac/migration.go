@@ -193,3 +193,19 @@ func migrateRemoveRolesPermissionsV2(permissions []*authorization.Policy) []*aut
 	}
 	return permissions
 }
+
+// REMOVE FOR 1.30
+func downgradeAssignments(req *cmd.AddRolesForUsersRequest) *cmd.AddRolesForUsersRequest {
+	// handle downgrades from 1.30. The upgrade introduces namespaces and doubles assignments from user: to db: and oidc:.
+	// to handle downgrades:
+	// - remove the db: prefix, the AddRolesForUser function will add the old user: prefix
+	// - skip the oidc: prefix, otherwise we would create two assignments
+	//
+	// This code should NOT be present in 1.30+
+	if strings.HasPrefix(req.User, "db:") {
+		req.User = strings.TrimPrefix(req.User, "db:")
+	} else if strings.HasPrefix(req.User, "oidc:") {
+		return nil
+	}
+	return req
+}

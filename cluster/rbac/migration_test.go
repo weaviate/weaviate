@@ -222,3 +222,30 @@ func TestMigrationRemoveV1(t *testing.T) {
 		})
 	}
 }
+
+func TestDowngradeAssignRoles(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          *cmd.AddRolesForUsersRequest
+		expectedOutput *cmd.AddRolesForUsersRequest
+	}{
+		{
+			name: "Request to downgrade",
+			input: &cmd.AddRolesForUsersRequest{
+				Roles: []string{"something"},
+				User:  "db:some-user",
+			},
+			expectedOutput: &cmd.AddRolesForUsersRequest{
+				Roles: []string{"something"},
+				User:  "some-user",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := downgradeAssignments(test.input)
+			require.Equal(t, test.expectedOutput, output)
+		})
+	}
+}
