@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/alexedwards/argon2id"
 
@@ -31,7 +32,7 @@ const (
 )
 
 type DBUsers interface {
-	CreateUser(userId, secureHash, userIdentifier string) error
+	CreateUser(userId, secureHash, userIdentifier string, createdAt time.Time) error
 	DeleteUser(userId string) error
 	ActivateUser(userId string) error
 	DeactivateUser(userId string, revokeKey bool) error
@@ -44,6 +45,7 @@ type User struct {
 	Id                 string
 	Active             bool
 	InternalIdentifier string
+	CreatedAt          time.Time
 }
 
 type DBUser struct {
@@ -111,14 +113,14 @@ func NewDBUser(path string) (*DBUser, error) {
 	}, nil
 }
 
-func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string) error {
+func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string, createdAt time.Time) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	c.data.SecureKeyStorageById[userId] = secureHash
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
-	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier}
+	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier, CreatedAt: createdAt}
 	return c.storeToFile()
 }
 

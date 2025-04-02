@@ -43,7 +43,7 @@ func TestSuccessList(t *testing.T) {
 			principal := &models.Principal{Username: "root"}
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.READ, authorization.Users(test.userId)[0]).Return(nil)
-			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+			dynUser := mocks.NewDbUserAndRolesGetter(t)
 			if test.userType == models.UserTypeOutputDbUser {
 				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId}}, nil)
 			}
@@ -73,7 +73,7 @@ func TestNotFound(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("static")[0]).Return(nil)
-	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "static").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
@@ -92,7 +92,7 @@ func TestNotFoundStatic(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
-	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
@@ -121,7 +121,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
-			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+			dynUser := mocks.NewDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(tt.GetUserReturnValue, tt.GetUserReturnErr)
 			if tt.GetUserReturnErr == nil {
 				dynUser.On("GetRolesForUser", "user", models.UserTypeInputDb).Return(nil, tt.GetRolesReturn)
@@ -144,7 +144,7 @@ func TestListForbidden(t *testing.T) {
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(errors.New("some error"))
 
-	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
