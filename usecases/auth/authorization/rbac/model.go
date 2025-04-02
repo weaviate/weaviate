@@ -12,11 +12,15 @@
 package rbac
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/weaviate/weaviate/usecases/build"
 
 	"github.com/weaviate/weaviate/usecases/config"
 
@@ -32,6 +36,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
+
+const DEFAULT_POLICY_VERSION = "1.29.0"
 
 const (
 	// MODEL is the used model for casbin to store roles, permissions, users and comparisons patterns
@@ -92,18 +98,26 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	}
 	enforcer.EnableCache(true)
 
-	rbacStoragePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
+	rbacStoragePath := fmt.Sprintf("%s/rbac", policyPath)
+	rbacStorageFilePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
 
-	if err := createStorage(rbacStoragePath); err != nil {
-		return nil, errors.Wrapf(err, "create storage path: %v", rbacStoragePath)
+	if err := createStorage(rbacStorageFilePath); err != nil {
+		return nil, errors.Wrapf(err, "create storage path: %v", rbacStorageFilePath)
 	}
 
-	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStoragePath))
+	policyVersion, err := getVersion(rbacStoragePath)
+	if err != nil {
+		return nil, err
+	}
+
+	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStorageFilePath))
 
 	if err := enforcer.LoadPolicy(); err != nil {
 		return nil, err
 	}
-
+	if err := upgradeRolesFrom129(enforcer, policyVersion); err != nil {
+		return nil, err
+	}
 	if err := upgradeGroupingsFrom129(enforcer, authNconf); err != nil {
 		return nil, err
 	}
@@ -171,6 +185,11 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 		return nil, errors.Wrapf(err, "save policy")
 	}
 
+	// update version after casbin policy has been written
+	if err := writeVersion(rbacStoragePath, build.Version); err != nil {
+		return nil, err
+	}
+
 	return enforcer, nil
 }
 
@@ -232,5 +251,93 @@ func upgradeGroupingsFrom129(enforcer *casbin.SyncedCachedEnforcer, authNconf co
 		}
 
 	}
+	return nil
+}
+
+func getVersion(path string) (string, error) {
+	filePath := path + "/version"
+	_, err := os.Stat(filePath)
+	if err != nil { // file exists
+		return DEFAULT_POLICY_VERSION, nil
+	}
+	b, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func writeVersion(path, version string) error {
+	tmpFile, err := os.CreateTemp(path, "policy-temp-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempFilename := tmpFile.Name()
+
+	defer func() {
+		tmpFile.Close()
+		os.Remove(tempFilename) // Remove temp file if it still exists
+	}()
+
+	writer := bufio.NewWriter(tmpFile)
+	if _, err := fmt.Fprint(writer, version); err != nil {
+		return err
+	}
+
+	// Flush the writer to ensure all data is written, then sync and flush tmpfile and atomically rename afterwards
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tempFilename, path+"/version")
+}
+
+func upgradeRolesFrom129(enforcer *casbin.SyncedCachedEnforcer, version string) error {
+	policies, err := enforcer.GetPolicy()
+	if err != nil {
+		return err
+	}
+
+	// parse version string to check if upgrade is needed
+	versionParts := strings.Split(version, ".")
+	minorVersion, err := strconv.Atoi(versionParts[1])
+	if err != nil {
+		return err
+	}
+
+	policiesToAdd := make([][]string, 0, len(policies))
+	for _, policy := range policies {
+		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, policy[0]); err != nil {
+			return err
+		}
+
+		if versionParts[0] == "1" && minorVersion < 30 {
+			if policy[3] == authorization.UsersDomain && policy[2] == authorization.UPDATE {
+				policy[2] = authorization.USER_ASSIGN_AND_REVOKE
+			}
+		}
+
+		policiesToAdd = append(policiesToAdd, policy)
+
+	}
+
+	// re-add policy with changed server version, leave out build-in roles
+	for _, policy := range policiesToAdd {
+		roleName := conv.TrimRoleNamePrefix(policy[0])
+		if _, ok := conv.BuiltInPolicies[roleName]; ok {
+			continue
+		}
+
+		if _, err := enforcer.AddNamedPolicy("p", policy[0], policy[1], policy[2], policy[3]); err != nil {
+			return fmt.Errorf("readd policy: %w", err)
+		}
+	}
+
 	return nil
 }
