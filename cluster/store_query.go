@@ -96,7 +96,7 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not check user identifier: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_REPLICATION_DETAILS:
-		payload, err = st.replicationManager.GetReplicationDetailsById(req)
+		payload, err = st.replicationManager.GetReplicationDetailsByReplicationId(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication operation details: %w", err)
 		}

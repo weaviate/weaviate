@@ -65,7 +65,7 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 	return m.replicationFSM.UpdateReplicationOpStatus(req)
 }
 
-func (m *Manager) GetReplicationDetailsById(c *cmd.QueryRequest) ([]byte, error) {
+func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]byte, error) {
 	subCommand := cmd.ReplicationDetailsRequest{}
 	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
