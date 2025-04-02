@@ -17,6 +17,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/build"
+
 	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/casbin/casbin/v2"
@@ -59,7 +61,7 @@ func (m *manager) upsertRolesPermissions(roles map[string][]authorization.Policy
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 		for _, policy := range policies {
-			if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName(roleName), policy.Resource, policy.Verb, policy.Domain); err != nil {
+			if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName(roleName), policy.Resource, policy.Verb, policy.Domain, build.Version); err != nil {
 				return fmt.Errorf("AddNamedPolicy: %w", err)
 			}
 		}

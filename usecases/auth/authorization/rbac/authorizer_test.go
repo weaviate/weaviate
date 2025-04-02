@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/build"
+
 	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/sirupsen/logrus"
@@ -70,7 +72,7 @@ func TestAuthorize(t *testing.T) {
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
 			setupPolicies: func(m *manager) error {
-				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.SchemaDomain, authorization.READ)
+				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.SchemaDomain, authorization.READ, build.Version)
 				if err != nil {
 					return err
 				}
@@ -106,7 +108,7 @@ func TestAuthorize(t *testing.T) {
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
 			setupPolicies: func(m *manager) error {
-				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("partial"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
+				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("partial"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain, build.Version)
 				if err != nil {
 					return err
 				}
@@ -132,7 +134,7 @@ func TestAuthorize(t *testing.T) {
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1"),
 			setupPolicies: func(m *manager) error {
-				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("group-role"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
+				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("group-role"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain, build.Version)
 				if err != nil {
 					return err
 				}
@@ -158,7 +160,7 @@ func TestAuthorize(t *testing.T) {
 			resources: authorization.CollectionsMetadata("Test1"),
 			skipAudit: true,
 			setupPolicies: func(m *manager) error {
-				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("audit-role"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
+				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("audit-role"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain, build.Version)
 				if err != nil {
 					return err
 				}
@@ -257,7 +259,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
 			setupPolicies: func(m *manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"),
-					"*", authorization.READ, authorization.SchemaDomain)
+					"*", authorization.READ, authorization.SchemaDomain, build.Version)
 				if err != nil {
 					return err
 				}
@@ -283,7 +285,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
 			setupPolicies: func(m *manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("limited"),
-					authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
+					authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain, build.Version)
 				if err != nil {
 					return err
 				}
@@ -318,7 +320,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
 			setupPolicies: func(m *manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("collections-admin"),
-					authorization.CollectionsMetadata()[0], authorization.READ, authorization.SchemaDomain)
+					authorization.CollectionsMetadata()[0], authorization.READ, authorization.SchemaDomain, build.Version)
 				if err != nil {
 					return err
 				}
@@ -354,10 +356,10 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2", "Test3"),
 			setupPolicies: func(m *manager) error {
-				if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("role1"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain); err != nil {
+				if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("role1"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain, build.Version); err != nil {
 					return err
 				}
-				if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("role2"), authorization.CollectionsMetadata("Test2")[0], authorization.READ, authorization.SchemaDomain); err != nil {
+				if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("role2"), authorization.CollectionsMetadata("Test2")[0], authorization.READ, authorization.SchemaDomain, build.Version); err != nil {
 					return err
 				}
 				if ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("multi-role-user", models.UserTypeInputDb), conv.PrefixRoleName("role1")); err != nil {
@@ -421,7 +423,7 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	testResources := authorization.CollectionsMetadata("Test1", "Test2")
 
 	// Setup a policy
-	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", "*", authorization.RolesDomain)
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", "*", authorization.RolesDomain, build.Version)
 	require.NoError(t, err)
 	_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
 	require.NoError(t, err)

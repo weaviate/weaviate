@@ -12,11 +12,15 @@
 package rbac
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/weaviate/weaviate/usecases/build"
 
 	"github.com/weaviate/weaviate/usecases/config"
 
@@ -32,6 +36,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
+
+const DEFAULT_POLICY_VERSION = "1.29.0"
 
 const (
 	// MODEL is the used model for casbin to store roles, permissions, users and comparisons patterns
@@ -92,19 +98,27 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	}
 	enforcer.EnableCache(true)
 
-	rbacStoragePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
+	rbacStoragePath := fmt.Sprintf("%s/rbac", policyPath)
+	rbacStorageFilePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
 
-	if err := createStorage(rbacStoragePath); err != nil {
-		return nil, errors.Wrapf(err, "create storage path: %v", rbacStoragePath)
+	if err := createStorage(rbacStorageFilePath); err != nil {
+		return nil, errors.Wrapf(err, "create storage path: %v", rbacStorageFilePath)
 	}
 
-	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStoragePath))
+	if err := upgradePolicyFile(rbacStoragePath, rbacStorageFilePath); err != nil {
+		return nil, err
+	}
+
+	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStorageFilePath))
 
 	if err := enforcer.LoadPolicy(); err != nil {
 		return nil, err
 	}
 
 	if err := upgradeGroupingsFrom129(enforcer, authNconf); err != nil {
+		return nil, err
+	}
+	if err := upgradeRolesFrom129(enforcer); err != nil {
 		return nil, err
 	}
 
@@ -126,7 +140,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 		if verb == "" {
 			continue
 		}
-		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(name), "*", verb, "*"); err != nil {
+		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(name), "*", verb, "*", build.Version); err != nil {
 			return nil, fmt.Errorf("add policy: %w", err)
 		}
 	}
@@ -233,4 +247,115 @@ func upgradeGroupingsFrom129(enforcer *casbin.SyncedCachedEnforcer, authNconf co
 
 	}
 	return nil
+}
+
+func upgradeRolesFrom129(enforcer *casbin.SyncedCachedEnforcer) error {
+	policies, err := enforcer.GetPolicy()
+	if err != nil {
+		return err
+	}
+
+	policiesToAdd := make([][]string, 0, len(policies))
+	for _, policy := range policies {
+		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, policy[0]); err != nil {
+			return err
+		}
+
+		// parse version string to check if upgrade is needed
+		versionParts := strings.Split(policy[4], ".")
+		minorVersion, err := strconv.Atoi(versionParts[1])
+		if err != nil {
+			return err
+		}
+		if versionParts[0] == "1" && minorVersion < 30 {
+			if policy[3] == authorization.UsersDomain && policy[2] == authorization.UPDATE {
+				policy[2] = authorization.USER_ASSIGN_AND_REVOKE
+			}
+		}
+
+		policiesToAdd = append(policiesToAdd, policy)
+
+	}
+
+	// re-add policy with changed server version, leave out build-in roles
+	for _, policy := range policiesToAdd {
+		roleName := conv.TrimRoleNamePrefix(policy[0])
+		if _, ok := conv.BuiltInPolicies[roleName]; ok {
+			continue
+		}
+
+		if _, err := enforcer.AddNamedPolicy("p", policy[0], policy[1], policy[2], policy[3], build.Version); err != nil {
+			return fmt.Errorf("readd policy: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func upgradePolicyFile(dirPath, filePath string) error {
+	inFile, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("error opening policy file: %w", err)
+	}
+	defer inFile.Close()
+
+	tmpFile, err := os.CreateTemp(dirPath, "policy-temp-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempFilename := tmpFile.Name()
+
+	defer func() {
+		tmpFile.Close()
+		os.Remove(tempFilename) // Remove temp file if it still exists
+	}()
+
+	scanner := bufio.NewScanner(inFile)
+	writer := bufio.NewWriter(tmpFile)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines
+		if line == "" {
+			continue
+		}
+
+		// Split the line into parts, handling CSV properly
+		parts := strings.Split(line, ", ")
+
+		// "g" (user assignments) are unchanged and can be written without any changes
+		if parts[0] == "g" {
+			if _, err := fmt.Fprintln(writer, line); err != nil {
+				return err
+			}
+		}
+
+		// already upgraded and contain version string
+		if parts[0] == "p" && len(parts) == 6 {
+			if _, err := fmt.Fprintln(writer, line); err != nil {
+				return err
+			}
+		}
+
+		// add default version if not upgraded
+		if parts[0] == "p" && len(parts) == 5 {
+			if _, err := fmt.Fprintf(writer, "%s, %s\n", line, DEFAULT_POLICY_VERSION); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Flush the writer to ensure all data is written, then sync and flush tmpfile and atomically rename afterwards
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tempFilename, filePath)
 }
