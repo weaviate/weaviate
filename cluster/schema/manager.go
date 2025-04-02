@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	gproto "google.golang.org/protobuf/proto"
@@ -76,12 +75,12 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.schema.shardReader = idx
 }
 
-func (s *SchemaManager) Snapshot() raft.FSMSnapshot {
-	return s.schema
+func (s *SchemaManager) Snapshot() *VersionedSnapshot {
+	return nil
 }
 
-func (s *SchemaManager) Restore(rc io.ReadCloser, parser Parser) error {
-	return s.schema.Restore(rc, parser)
+func (s *SchemaManager) V0Restore(rc io.ReadCloser, parser Parser) error {
+	return s.schema.V0Restore(rc, parser)
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {

@@ -368,7 +368,7 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 			}
 
 			// serialize snapshot
-			b, c, err := schema.LegacySnapshot(st.cfg.NodeID, legacySchema)
+			b, c, err := schema.LegacySchemaSnapshot(st.cfg.NodeID, legacySchema)
 			if err != nil {
 				return fmt.Errorf("create snapshot: %w", err)
 			}

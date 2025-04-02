@@ -12,14 +12,11 @@
 package schema
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 
-	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
@@ -533,42 +530,6 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	}
 
 	return classesCopy
-}
-
-func (s *schema) Restore(r io.Reader, parser Parser) error {
-	snap := snapshot{}
-	if err := json.NewDecoder(r).Decode(&snap); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %w", err)
-	}
-	for _, cls := range snap.Classes {
-		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
-			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
-		}
-		cls.Sharding.SetLocalName(s.nodeID)
-	}
-
-	s.replaceClasses(snap.Classes)
-	return nil
-}
-
-// Persist should dump all necessary state to the WriteCloser 'sink',
-// and call sink.Close() when finished or call sink.Cancel() on error.
-func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
-	// we don't need to lock here because, we call MetaClasses() which is thread-safe
-	defer sink.Close()
-	snap := snapshot{
-		NodeID:     s.nodeID,
-		SnapshotID: sink.ID(),
-		Classes:    s.MetaClasses(),
-	}
-	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
-		return fmt.Errorf("encode: %w", err)
-	}
-
-	return nil
-}
-
-func (s *schema) Release() {
 }
 
 // makeTenant creates a tenant with the given name and status
