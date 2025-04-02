@@ -12,7 +12,11 @@
 package rbac
 
 import (
+	"bufio"
+	"fmt"
+	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/casbin/casbin/v2"
@@ -94,6 +98,112 @@ func TestUpdateGroupings(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, slices.Contains(users, user))
 			}
+		})
+	}
+}
+
+func TestPolicyUpgrade(t *testing.T) {
+	tests := []struct {
+		name          string
+		lines         []string
+		expectedLines []string
+	}{
+		{
+			name: "one policy to upgrade",
+			lines: []string{
+				"p, role:some_role, data/collections/.*/shards/.*/objects/.*, R, data",
+			},
+			expectedLines: []string{
+				"p, role:some_role, data/collections/.*/shards/.*/objects/.*, R, data, " + DEFAULT_POLICY_VERSION,
+			},
+		},
+		{
+			name: "one policy already upgraded",
+			lines: []string{
+				"p, role:some_role, data/collections/.*/shards/.*/objects/.*, R, data, 1.30.0",
+			},
+			expectedLines: []string{
+				"p, role:some_role, data/collections/.*/shards/.*/objects/.*, R, data, 1.30.0",
+			},
+		},
+		{
+			name: "one policy to upgrade and one grouping (never upgraded)",
+			lines: []string{
+				"p, role:some_role, data/collections/.*/shards/.*/objects/.*, R, data",
+				"g, user:admin-user, role:root",
+			},
+			expectedLines: []string{
+				"p, role:some_role, data/collections/.*/shards/.*/objects/.*, R, data, " + DEFAULT_POLICY_VERSION,
+				"g, user:admin-user, role:root",
+			},
+		},
+		{
+			name: "one policy already upgraded and one grouping (never upgraded)",
+			lines: []string{
+				"p, role:some_role, data/collections/.*/shards/.*/objects/.*, R, data, 1.30.0",
+				"g, user:admin-user, role:root",
+			},
+			expectedLines: []string{
+				"p, role:some_role, data/collections/.*/shards/.*/objects/.*, R, data, 1.30.0",
+				"g, user:admin-user, role:root",
+			},
+		},
+		{
+			name: "multiple policies and groupings and one grouping",
+			lines: []string{
+				"p, role:some_role, data/collections/.*/shards/.*/objects/.*, R, data",
+				"p, role:other_role, data/collections/.*/shards/.*/objects/.*, R, data",
+				"p, role:viewer, *, R, *",
+				"p, role:admin, *, (C)|(R)|(U)|(D), *",
+				"p, role:root, *, (C)|(R)|(U)|(D), *",
+				"g, user:editor-user, role:some_role",
+				"g, user:wv_internal_empty, role:some_role",
+				"g, user:wv_internal_empty, role:other_role",
+				"g, user:admin-user, role:root",
+			},
+			expectedLines: []string{
+				"p, role:some_role, data/collections/.*/shards/.*/objects/.*, R, data, " + DEFAULT_POLICY_VERSION,
+				"p, role:other_role, data/collections/.*/shards/.*/objects/.*, R, data, " + DEFAULT_POLICY_VERSION,
+				"p, role:viewer, *, R, *, " + DEFAULT_POLICY_VERSION,
+				"p, role:admin, *, (C)|(R)|(U)|(D), *, " + DEFAULT_POLICY_VERSION,
+				"p, role:root, *, (C)|(R)|(U)|(D), *, " + DEFAULT_POLICY_VERSION,
+				"g, user:editor-user, role:some_role",
+				"g, user:wv_internal_empty, role:some_role",
+				"g, user:wv_internal_empty, role:other_role",
+				"g, user:admin-user, role:root",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := t.TempDir()
+			tmpFile, err := os.CreateTemp(path, "upgrade-temp-*.tmp")
+			require.NoError(t, err)
+
+			writer := bufio.NewWriter(tmpFile)
+			for _, line := range tt.lines {
+				_, err := fmt.Fprintln(writer, line)
+				require.NoError(t, err)
+			}
+			require.NoError(t, writer.Flush())
+			require.NoError(t, tmpFile.Sync())
+			require.NoError(t, tmpFile.Close())
+			require.NoError(t, upgradePolicyFile(path, tmpFile.Name()))
+
+			inFile, err := os.Open(tmpFile.Name())
+			require.NoError(t, err)
+			defer inFile.Close()
+
+			scanner := bufio.NewScanner(inFile)
+			i := 0
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				require.Equal(t, tt.expectedLines[i], line)
+				i += 1
+			}
+			require.NoError(t, scanner.Err())
+			require.Equal(t, len(tt.expectedLines), i)
 		})
 	}
 }
