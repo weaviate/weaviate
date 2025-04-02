@@ -12,6 +12,7 @@
 package rbac
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/build"
 )
 
 const (
@@ -87,13 +89,19 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	}
 	enforcer.EnableCache(true)
 
-	rbacStoragePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
+	rbacStoragePath := fmt.Sprintf("%s/rbac", policyPath)
+	rbacStorageFilePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
 
-	if err := createStorage(rbacStoragePath); err != nil {
-		return nil, errors.Wrapf(err, "create storage path: %v", rbacStoragePath)
+	if err := createStorage(rbacStorageFilePath); err != nil {
+		return nil, errors.Wrapf(err, "create storage path: %v", rbacStorageFilePath)
 	}
 
-	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStoragePath))
+	err = writeVersion(rbacStoragePath, build.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStorageFilePath))
 
 	if err := enforcer.LoadPolicy(); err != nil {
 		return nil, err
@@ -270,4 +278,35 @@ func downgradeRolesFrom130(enforcer *casbin.SyncedCachedEnforcer) error {
 	}
 
 	return nil
+}
+
+func writeVersion(path, version string) error {
+	tmpFile, err := os.CreateTemp(path, "policy-temp-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempFilename := tmpFile.Name()
+
+	defer func() {
+		tmpFile.Close()
+		os.Remove(tempFilename) // Remove temp file if it still exists
+	}()
+
+	writer := bufio.NewWriter(tmpFile)
+	if _, err := fmt.Fprint(writer, version); err != nil {
+		return err
+	}
+
+	// Flush the writer to ensure all data is written, then sync and flush tmpfile and atomically rename afterwards
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tempFilename, path+"/version")
 }
