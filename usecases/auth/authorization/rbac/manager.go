@@ -308,6 +308,9 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 }
 
 func (m *Manager) getBytes() (map[string][]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
 	m.backupLock.Lock()
 	defer m.backupLock.Unlock()
 
@@ -340,6 +343,9 @@ func (m *Manager) getBytes() (map[string][]byte, error) {
 }
 
 func (m *Manager) restoreFromBytes(policiesB []byte, groupingsB []byte) error {
+	if m == nil {
+		return nil
+	}
 	m.backupLock.Lock()
 	defer m.backupLock.Unlock()
 
