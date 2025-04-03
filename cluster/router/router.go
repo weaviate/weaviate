@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"golang.org/x/exp/slices"
 )
 
 type Router struct {
@@ -80,26 +81,24 @@ func (r *Router) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (typ
 		ReplicasHostAddrs: make([]string, 0, len(replicas)),
 	}
 
-	// TODO: Local replica first is necessary due to the logic in finder where the first node is considered a "full read
-	// candidate". This means that instead of a doing a digest read we will get the "full read" (whatever that means).
-	// If there was no local replica first specified, put the local node first always
+	// If there was no local replica first specified, put the local node as direct candidate. If the local node is part of the replica set
+	// it will be handled as the direct candidate
 	if params.DirectCandidateReplica == "" {
 		params.DirectCandidateReplica = r.clusterStateReader.LocalName()
 	}
-	if directCandidateAddr, ok := r.clusterStateReader.NodeHostname(params.DirectCandidateReplica); ok {
-		routingPlan.Replicas = append(routingPlan.Replicas, params.DirectCandidateReplica)
-		routingPlan.ReplicasHostAddrs = append(routingPlan.ReplicasHostAddrs, directCandidateAddr)
-	}
 
 	for _, replica := range replicas {
-		// Skip the direct candidate as it's handled before hand and we don't want to duplicate information
-		if replica == params.DirectCandidateReplica {
-			continue
-		}
-
 		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
-			routingPlan.Replicas = append(routingPlan.Replicas, replica)
-			routingPlan.ReplicasHostAddrs = append(routingPlan.ReplicasHostAddrs, replicaAddr)
+			// Local replica first is necessary due to the logic in finder where the first node is considered a "full read
+			// candidate". This means that instead of a doing a digest read we will get the "full read" (whatever that means).
+			// We handle the direct candidate here to ensure that the direct candidate is also part of the replica set
+			if replica == params.DirectCandidateReplica {
+				routingPlan.Replicas = slices.Insert(routingPlan.Replicas, 0, replica)
+				routingPlan.ReplicasHostAddrs = slices.Insert(routingPlan.ReplicasHostAddrs, 0, replicaAddr)
+			} else {
+				routingPlan.Replicas = append(routingPlan.Replicas, replica)
+				routingPlan.ReplicasHostAddrs = append(routingPlan.ReplicasHostAddrs, replicaAddr)
+			}
 		}
 	}
 	if len(routingPlan.Replicas) == 0 {
