@@ -55,7 +55,6 @@ func Blobs(properties []*modulecapabilities.GenerateProperties) []map[string]*st
 // It returns a slice of pointers to base64 strings in order to optimise for memory usage when dealing with large images.
 func ParseImageProperties(inputBase64Images []*string, inputImagePropertyNames []string, storedBase64ImagesArray []map[string]*string) []*string {
 	images := []*string{}
-	images = append(images, inputBase64Images...)
 	if len(storedBase64ImagesArray) > 0 {
 		for _, storedBase64Images := range storedBase64ImagesArray {
 			for _, inputImagePropertyName := range inputImagePropertyNames {
@@ -63,6 +62,7 @@ func ParseImageProperties(inputBase64Images []*string, inputImagePropertyNames [
 			}
 		}
 	}
+	images = append(images, inputBase64Images...)
 	return images
 }
 

@@ -33,7 +33,7 @@ func TestDeleteSuccess(t *testing.T) {
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
-	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
 	dynUser.On("GetRolesForUser", "user", models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
 	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", models.UserTypeInputDb), "role").Return(nil)
 	dynUser.On("DeleteUser", "user").Return(nil)
@@ -55,7 +55,7 @@ func TestDeleteForbidden(t *testing.T) {
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(errors.New("some error"))
 
-	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -72,7 +72,7 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
-	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -91,7 +91,7 @@ func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user-root")[0]).Return(nil)
 
-	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -110,7 +110,7 @@ func TestDeleteNoDynamic(t *testing.T) {
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
-		dbUsers:       mocks.NewDynamicUserAndRolesGetter(t),
+		dbUsers:       mocks.NewDbUserAndRolesGetter(t),
 		authorizer:    authorizer,
 		dbUserEnabled: false,
 	}

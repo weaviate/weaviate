@@ -36,7 +36,7 @@ func TestDynUserConcurrency(t *testing.T) {
 	for i := 0; i < numUsers; i++ {
 		userName := fmt.Sprintf("user%v", i)
 		go func() {
-			err := dynUsers.CreateUser(userName, "something", userName)
+			err := dynUsers.CreateUser(userName, "something", userName, "", time.Now())
 			require.NoError(t, err)
 			wg.Done()
 		}()
@@ -57,7 +57,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
 
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestUpdateUser(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
 
 	// login works
 	randomKeyOld, _, err := keys.DecodeApiKey(apiKey)
@@ -134,13 +134,13 @@ func TestSnapShotAndRestore(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier))
+	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", time.Now()))
 	login1, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
 	apiKey2, hash2, identifier2, err := keys.CreateApiKeyAndHash("")
 	require.NoError(t, err)
-	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2))
+	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", time.Now()))
 	login2, _, err := keys.DecodeApiKey(apiKey2)
 	require.NoError(t, err)
 
@@ -199,4 +199,25 @@ func TestSnapShotAndRestore(t *testing.T) {
 	require.NoError(t, err)
 	_, err = dynUsers2.ValidateAndExtract(login3, identifier3)
 	require.Error(t, err)
+}
+
+func TestSuspendAfterDelete(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir())
+	require.NoError(t, err)
+	userId := "id"
+
+	_, hash, identifier, err := keys.CreateApiKeyAndHash("")
+	require.NoError(t, err)
+
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
+
+	users, err := dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+	require.Contains(t, users, userId)
+	require.Len(t, users, 1)
+
+	require.NoError(t, dynUsers.DeleteUser(userId))
+
+	require.Error(t, dynUsers.DeactivateUser(userId, false))
+	require.Error(t, dynUsers.ActivateUser(userId))
 }

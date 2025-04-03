@@ -21,11 +21,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 type ShardReindexerV3 interface {
@@ -68,15 +66,21 @@ func (r *shardReindexerV3Noop) Stop(shard *Shard, cause error) {}
 // -----------------------------------------------------------------------------
 
 func NewShardReindexerV3(ctx context.Context, logger logrus.FieldLogger,
-	getIndex func(className schema.ClassName) *Index,
+	getIndex func(className schema.ClassName) *Index, concurrency int,
 ) *shardReindexerV3 {
-	return &shardReindexerV3{
-		logger:   logger,
-		ctx:      ctx,
-		getIndex: getIndex,
-		queue:    newShardsQueue(),
-		lock:     new(sync.Mutex),
+	config := shardsReindexerV3Config{
+		concurrency:          concurrency,
+		retryOnErrorInterval: 15 * time.Minute,
+	}
 
+	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("reindexer created")
+
+	return &shardReindexerV3{
+		logger:                      logger,
+		ctx:                         ctx,
+		getIndex:                    getIndex,
+		queue:                       newShardsQueue(),
+		lock:                        new(sync.Mutex),
 		taskNames:                   map[string]struct{}{},
 		tasks:                       []ShardReindexTaskV3{},
 		waitingTasksPerShard:        map[string][]ShardReindexTaskV3{},
@@ -84,11 +88,7 @@ func NewShardReindexerV3(ctx context.Context, logger logrus.FieldLogger,
 		waitingCtxCancelPerShard:    map[string]context.CancelCauseFunc{},
 		processingCtxPerShard:       map[string]context.Context{},
 		processingCtxCancelPerShard: map[string]context.CancelCauseFunc{},
-
-		config: shardsReindexerV3Config{
-			concurrency:          concurrency.NUMCPU_2,
-			retryOnErrorInterval: 15 * time.Minute,
-		},
+		config:                      config,
 	}
 }
 
@@ -305,6 +305,11 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 		}
 	}(time.Now())
 
+	if err = ctx.Err(); err != nil {
+		err = fmt.Errorf("context check (1): %w / %w", ctx.Err(), context.Cause(ctx))
+		return
+	}
+
 	index := r.getIndex(schema.ClassName(collectionName))
 	if index == nil {
 		err = fmt.Errorf("index for shard '%s' of collection '%s' not found", shardName, collectionName)
@@ -312,61 +317,51 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 	}
 	shard, release, err := index.GetShard(ctx, shardName)
 	if err != nil {
-		// r.queue.insert(key, time.Now().Add(r.config.retryOnErrorInterval))
-		err = fmt.Errorf("get shard '%s' of collection '%s': %w", shardName, collectionName, err)
-		return
-	}
-
-	if err == nil {
-		if _, ok := shard.(*LazyLoadShard); ok {
-			lazyShard := shard.(*LazyLoadShard)
-			if lazyShard.GetStatusNoLoad() == storagestate.StatusReady {
-				shard = lazyShard.shard
+		r.locked(func() {
+			if ctx.Err() == nil {
+				r.queue.insert(key, tasks, time.Now().Add(r.config.retryOnErrorInterval))
 			}
-		}
-
-		if _, ok := shard.(*Shard); !ok {
-			release()
-			err = fmt.Errorf("shard '%s' of collection '%s' is not loaded yet", shardName, collectionName)
-		}
-
-	}
-	if err != nil {
-		// r.locked(func() { r.queue.insert(key, time.Now().Add(r.config.retryOnErrorInterval)) })
+		})
 		err = fmt.Errorf("not loaded '%s' of collection '%s': %w", shardName, collectionName, err)
 		return
 	}
 	defer release()
-
 	if shard == nil {
 		err = fmt.Errorf("shard '%s' of collection '%s' not found", shardName, collectionName)
+		return
+	}
+
+	if err = ctx.Err(); err != nil {
+		err = fmt.Errorf("context check (2): %w / %w", ctx.Err(), context.Cause(ctx))
 		return
 	}
 
 	// at this point lazy shard should be loaded (there is no unloading), otherwise [RunAfterLsmInitAsync]
 	// would not be called and tasks scheduled for shard
 	rerunAt, err := tasks[0].OnAfterLsmInitAsync(ctx, shard)
-	if err != nil {
-		// schedule tasks only if context not cancelled
-		if ctx.Err() == nil {
-			r.scheduleTasks(key, tasks[1:], time.Now())
+	r.locked(func() {
+		if err != nil {
+			// schedule tasks only if context not cancelled
+			if ctx.Err() == nil {
+				r.scheduleTasks(key, tasks[1:], time.Now())
+			}
+			err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w",
+				tasks[0].Name(), shardName, collectionName, err)
+			return
 		}
-		err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w",
-			tasks[0].Name(), shardName, collectionName, err)
-		return
-	}
-	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w",
-			tasks[0].Name(), shardName, collectionName, err)
-		return
-	}
-	if rerunAt.IsZero() {
-		r.scheduleTasks(key, tasks[1:], time.Now())
-		logger.WithField("task", tasks[0].Name()).Debug("task executed completely")
-		return
-	}
-	r.scheduleTasks(key, tasks, rerunAt)
-	logger.WithField("task", tasks[0].Name()).Debug("task executed partially, rerun scheduled")
+		if err = ctx.Err(); err != nil {
+			err = fmt.Errorf("executing task '%s' on shard '%s' of collection '%s': %w",
+				tasks[0].Name(), shardName, collectionName, err)
+			return
+		}
+		if rerunAt.IsZero() {
+			r.scheduleTasks(key, tasks[1:], time.Now())
+			logger.WithField("task", tasks[0].Name()).Debug("task executed completely")
+			return
+		}
+		r.scheduleTasks(key, tasks, rerunAt)
+		logger.WithField("task", tasks[0].Name()).Debug("task executed partially, rerun scheduled")
+	})
 	return
 }
 
