@@ -87,7 +87,7 @@ func TestCreateInternalServerError(t *testing.T) {
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(tt.CheckUserIdentifierExistsValueReturn, tt.CheckUserIdentifierExistsErrorReturn)
 			}
 			if tt.CheckUserIdentifierExistsErrorReturn == nil && !tt.CheckUserIdentifierExistsValueReturn && tt.GetUserReturn == nil {
-				dynUser.On("CreateUser", "user", mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
+				dynUser.On("CreateUser", "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
 			}
 
 			h := dynUserHandler{
@@ -147,7 +147,7 @@ func TestCreateSuccess(t *testing.T) {
 	dynUser := mocks.NewDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-	dynUser.On("CreateUser", user, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("CreateUser", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,

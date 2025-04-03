@@ -75,17 +75,17 @@ func (_m *DbUserAndRolesGetter) CheckUserIdentifierExists(userIdentifier string)
 	return r0, r1
 }
 
-// CreateUser provides a mock function with given fields: userId, secureHash, userIdentifier, createdAt
-func (_m *DbUserAndRolesGetter) CreateUser(userId string, secureHash string, userIdentifier string, createdAt time.Time) error {
-	ret := _m.Called(userId, secureHash, userIdentifier, createdAt)
+// CreateUser provides a mock function with given fields: userId, secureHash, userIdentifier, apiKeyFirstLetters, createdAt
+func (_m *DbUserAndRolesGetter) CreateUser(userId string, secureHash string, userIdentifier string, apiKeyFirstLetters string, createdAt time.Time) error {
+	ret := _m.Called(userId, secureHash, userIdentifier, apiKeyFirstLetters, createdAt)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateUser")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string, string, time.Time) error); ok {
-		r0 = rf(userId, secureHash, userIdentifier, createdAt)
+	if rf, ok := ret.Get(0).(func(string, string, string, string, time.Time) error); ok {
+		r0 = rf(userId, secureHash, userIdentifier, apiKeyFirstLetters, createdAt)
 	} else {
 		r0 = ret.Error(0)
 	}

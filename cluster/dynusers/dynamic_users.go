@@ -41,7 +41,7 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.CreatedAt)
+	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.CreatedAt)
 }
 
 func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {
