@@ -131,6 +131,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelOne, 123)
 		assert.Nil(t, err)
 	})
+
 	t.Run("SuccessWithConsistencyLevelQuorum", func(t *testing.T) {
 		nodes := []string{"A", "B", "C"}
 		f := newFakeFactory(t, "C1", shard, nodes)
@@ -147,6 +148,36 @@ func TestReplicatorPutObject(t *testing.T) {
 		}
 		err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 123)
 		assert.Nil(t, err)
+	})
+
+	t.Run("SuccessWithConsistencyLevelQuorumDifferentSourceNode", func(t *testing.T) {
+		nodesSrc := []string{"A", "B", "C"}
+		for _, sourceNode := range nodesSrc {
+			sourceNode := sourceNode
+			nodesCopy := make([]string, len(nodesSrc))
+			copy(nodesCopy, nodesSrc)
+			t.Run(fmt.Sprintf("WithSourceNode=%s", sourceNode), func(t *testing.T) {
+				f := newFakeFactory(t, "C1", shard, nodesCopy)
+				rep := f.newReplicatorWithSourceNode(sourceNode)
+				resp := SimpleResponse{}
+				for _, n := range nodesCopy {
+					if n == sourceNode {
+						continue
+					}
+					f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
+					f.WClient.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
+				}
+
+				// Craft a custom  shard2replicas to emulate RF changing
+				// We always remove the source node from the replica set. This allows us to test the direct candidate logic when
+				// the direct candidate isn't part of the set of replica
+				f.Shard2replicas[shard] = slices.DeleteFunc(nodesCopy, func(n string) bool { return n == sourceNode })
+				err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 123)
+				assert.Nil(t, err)
+
+				f.WClient.AssertExpectations(t)
+			})
+		}
 	})
 
 	t.Run("PhaseOneConnectionError", func(t *testing.T) {
@@ -727,6 +758,22 @@ func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
 	})
 	router := clusterRouter.New(f.log, clusterState, schemaReaderMock, replicationFsmMock)
 	return router
+}
+
+func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *Replicator {
+	router := f.newRouter(thisNode)
+	getDeletionStrategy := func() string {
+		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
+	}
+	return NewReplicator(
+		f.CLS,
+		router,
+		"A",
+		getDeletionStrategy,
+		struct {
+			rClient
+			wClient
+		}{f.RClient, f.WClient}, f.log)
 }
 
 func (f *fakeFactory) newReplicator() *Replicator {

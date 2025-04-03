@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/test/docker"
 
 	"github.com/stretchr/testify/assert"
@@ -313,9 +315,9 @@ func TestReadUserPermissions(t *testing.T) {
 func TestUserEndpoint(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
-
+	customUser := "custom-user"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "customKey").WithDbUsers().
 		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
 	require.Nil(t, err)
 
@@ -399,6 +401,7 @@ func TestUserEndpoint(t *testing.T) {
 	})
 
 	t.Run("Read User", func(t *testing.T) {
+		start := time.Now()
 		otherTestUserName := "otherTestUser"
 		helper.DeleteUser(t, otherTestUserName, adminKey)
 		defer helper.DeleteUser(t, otherTestUserName, adminKey)
@@ -415,13 +418,21 @@ func TestUserEndpoint(t *testing.T) {
 
 		otherTestUser := helper.GetUser(t, otherTestUserName, testKey)
 		require.Equal(t, *otherTestUser.UserID, otherTestUserName)
+		require.Less(t, strfmt.DateTime(start), otherTestUser.CreatedAt)
+		require.Less(t, otherTestUser.CreatedAt, strfmt.DateTime(time.Now()))
+	})
+
+	t.Run("Get static user", func(t *testing.T) {
+		staticUser := helper.GetUser(t, customUser, adminKey)
+		require.Equal(t, *staticUser.UserID, customUser)
+		require.Less(t, staticUser.CreatedAt, strfmt.DateTime(time.Now().Add(-1000*time.Hour))) // static user have minimum time
 	})
 
 	t.Run("Update (rotate, Deactivate, activate) user", func(t *testing.T) {
 		otherTestUser := "otherTestUser"
 		helper.DeleteUser(t, otherTestUser, adminKey)
 		defer helper.DeleteUser(t, otherTestUser, adminKey)
-		helper.CreateUser(t, otherTestUser, adminKey)
+		apiKey := helper.CreateUser(t, otherTestUser, adminKey)
 
 		// rotate, Deactivate and activate are all update
 		_, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(otherTestUser), helper.CreateAuth(testKey))
@@ -445,6 +456,11 @@ func TestUserEndpoint(t *testing.T) {
 		// with update role all three operations work
 		otherTestUserApiKey := helper.RotateKey(t, otherTestUser, testKey)
 		require.Greater(t, len(otherTestUserApiKey), 10)
+
+		// key is not valid anymore
+		_, err = helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(apiKey))
+		var ownInfoUnauthorized *users.GetOwnInfoUnauthorized
+		assert.True(t, errors.As(err, &ownInfoUnauthorized))
 
 		helper.DeactivateUser(t, testKey, otherTestUser, false)
 		helper.ActivateUser(t, testKey, otherTestUser)
@@ -520,6 +536,7 @@ func TestListAllUsers(t *testing.T) {
 
 	helper.AssignRoleToUser(t, adminKey, "viewer", viewerUser)
 	t.Run("List all users", func(t *testing.T) {
+		start := time.Now()
 		userNames := make([]string, 0, 10)
 		for i := 0; i < cap(userNames); i++ {
 			userNames = append(userNames, fmt.Sprintf("user-%d", i))
@@ -544,6 +561,7 @@ func TestListAllUsers(t *testing.T) {
 			name := *user.UserID
 
 			if *user.DbUserType == models.DBUserInfoDbUserTypeDbEnvUser {
+				require.Less(t, user.CreatedAt, strfmt.DateTime(start)) // minimum time for static users
 				continue
 			}
 
@@ -555,6 +573,8 @@ func TestListAllUsers(t *testing.T) {
 			}
 
 			require.Equal(t, number%5 != 0, *user.Active)
+			require.Less(t, strfmt.DateTime(start), user.CreatedAt)
+			require.Less(t, user.CreatedAt, strfmt.DateTime(time.Now()))
 		}
 
 		allUsersViewer := helper.ListAllUsers(t, viewerKey)

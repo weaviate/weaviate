@@ -65,6 +65,11 @@
         "active":{
           "type": "boolean",
           "description": "activity status of the returned user"
+        },
+        "createdAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)"
         }
       },
       "required": [

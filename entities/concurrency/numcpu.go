@@ -11,7 +11,10 @@
 
 package concurrency
 
-import "runtime"
+import (
+	"math"
+	"runtime"
+)
 
 // Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
 // the physical CPU cores. However, in a containerization context, that might
@@ -74,14 +77,9 @@ func TimesFloatNUMCPU(factor float64) int {
 }
 
 func timesFloatNUMCPU(factor float64, numcpu int) int {
-	// rounded at 0.5, with a minimum of 1
 	if factor <= 0 {
-		return 0
+		return numcpu
 	}
 
-	result := int(float64(numcpu)*factor + 0.5)
-	if result < 1 {
-		return 1
-	}
-	return result
+	return int(math.Max(1, math.Round(factor*float64(numcpu))))
 }

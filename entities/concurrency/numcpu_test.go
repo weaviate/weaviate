@@ -97,12 +97,12 @@ func TestTimesFloatNumcpu(t *testing.T) {
 		{
 			numcpu:    10,
 			factor:    -1,
-			expectedN: 0,
+			expectedN: 10,
 		},
 		{
 			numcpu:    10,
 			factor:    0,
-			expectedN: 0,
+			expectedN: 10,
 		},
 		{
 			numcpu:    10,
