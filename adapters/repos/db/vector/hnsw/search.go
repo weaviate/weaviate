@@ -98,11 +98,14 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 
 	if h.muvera.Load() {
 		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
-		overfetch := 30
-		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch+k, allowList)
+		overfetch := 2
+		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
 		if err != nil {
 			return nil, nil, err
 		}
+		/*fmt.Println("ef:", h.ef)
+		fmt.Println("docIDs", docIDs)
+		fmt.Println("distances", distances)*/
 		candidateSet := make(map[uint64]struct{})
 		for _, docID := range docIDs {
 			candidateSet[docID] = struct{}{}

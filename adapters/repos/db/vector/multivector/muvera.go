@@ -26,7 +26,7 @@ type MuveraConfig struct {
 }
 
 func DefaultMuveraConfig() MuveraConfig {
-	kSim := 2
+	kSim := 3
 	numClusters := int(math.Pow(2, float64(kSim)))
 	dProjections := 8
 	reps := 20
@@ -85,14 +85,31 @@ func NewMuveraEncoder(config MuveraConfig) *MuveraEncoder {
 	return encoder
 }
 
+func boxMullerVector(dimensions int) []float32 {
+	vector := make([]float32, dimensions)
+
+	for i := 0; i < dimensions; i++ {
+		u1 := rand.Float64()
+		u2 := rand.Float64()
+		vector[i] = float32(math.Sqrt(-2.0*math.Log(u1)) * math.Cos(2*math.Pi*u2))
+	}
+
+	return vector
+}
+
 func (e *MuveraEncoder) InitSimHash() error {
 	for rep := 0; rep < e.config.Repetitions; rep++ {
-		for i := 0; i < e.config.Dimensions*e.config.KSim; i++ {
+		/*for i := 0; i < e.config.Dimensions*e.config.KSim; i++ {
 			// Box-Muller transform
 			u1 := rand.Float64()
 			u2 := rand.Float64()
 			z0 := math.Sqrt(-2*math.Log(u1)) * math.Cos(2*math.Pi*u2)
 			e.gaussians[rep][i] = float32(z0)
+		}*/
+		for i := 0; i < e.config.KSim; i++ {
+			offsetKSim := i * e.config.Dimensions
+			vec := boxMullerVector(e.config.Dimensions)
+			copy(e.gaussians[rep][offsetKSim:offsetKSim+e.config.Dimensions], vec)
 		}
 	}
 	return nil
@@ -127,6 +144,9 @@ func (e *MuveraEncoder) computeMatrixVecProduct(matrix [][]float32, vec []float3
 }
 
 func (e *MuveraEncoder) projectVecFlat(vec []float32, dprojections int) []float32 {
+	if dprojections == e.config.Dimensions {
+		return vec
+	}
 	projectedVec := make([]float32, e.config.Repetitions*e.config.NumClusters*dprojections)
 	scale := 1.0 / float32(math.Sqrt(float64(dprojections)))
 
