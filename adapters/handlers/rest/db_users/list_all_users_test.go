@@ -54,7 +54,7 @@ func TestSuccessListAll(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", test.principal, authorization.READ, authorization.Users()[0]).Return(nil)
-			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+			dynUser := mocks.NewDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers").Return(map[string]*apikey.User{dbUser: {Id: dbUser}}, nil)
 			dynUser.On("GetRolesForUser", dbUser, models.UserTypeInputDb).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
@@ -88,7 +88,7 @@ func TestSuccessListForbidden(t *testing.T) {
 	principal := &models.Principal{Username: "not-root"}
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.READ, mock.Anything).Return(errors.New("some error"))
-	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers").Return(map[string]*apikey.User{"test": {Id: "test"}}, nil)
 
 	log, _ := test.NewNullLogger()

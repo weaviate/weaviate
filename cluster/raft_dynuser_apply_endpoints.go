@@ -15,15 +15,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-func (s *Raft) CreateUser(userId, secureHash, userIdentifier string) error {
+func (s *Raft) CreateUser(userId, secureHash, userIdentifier string, createdAt time.Time) error {
 	req := cmd.CreateUsersRequest{
 		UserId:         userId,
 		SecureHash:     secureHash,
 		UserIdentifier: userIdentifier,
+		CreatedAt:      createdAt,
 		Version:        cmd.DynUserLatestCommandPolicyVersion,
 	}
 	subCommand, err := json.Marshal(&req)

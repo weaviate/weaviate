@@ -12,6 +12,8 @@
 package api
 
 import (
+	"time"
+
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 )
 
@@ -24,6 +26,7 @@ type CreateUsersRequest struct {
 	UserId         string
 	SecureHash     string
 	UserIdentifier string
+	CreatedAt      time.Time
 	Version        int
 }
 
