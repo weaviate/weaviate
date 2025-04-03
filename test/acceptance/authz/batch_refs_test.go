@@ -175,11 +175,7 @@ func TestAuthZBatchRefAuthZTenantFiltering(t *testing.T) {
 		assertError(err, errForbidden)
 	})
 
-	permissions := []*models.Permission{
-		helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(className1).Permission(),
-		helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(className1).WithTenant(tenants[0].Name).Permission(),
-		helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(className2).WithTenant(tenants[0].Name).Permission(),
-	}
+	permissions := batchReferencesPermissions(className1, className2, tenants[0].Name)
 	role := &models.Role{
 		Name:        String("test-role"),
 		Permissions: permissions,
