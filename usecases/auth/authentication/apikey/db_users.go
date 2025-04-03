@@ -15,10 +15,12 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/alexedwards/argon2id"
 
@@ -31,7 +33,7 @@ const (
 )
 
 type DBUsers interface {
-	CreateUser(userId, secureHash, userIdentifier string) error
+	CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error
 	DeleteUser(userId string) error
 	ActivateUser(userId string) error
 	DeactivateUser(userId string, revokeKey bool) error
@@ -44,6 +46,8 @@ type User struct {
 	Id                 string
 	Active             bool
 	InternalIdentifier string
+	ApiKeyFirstLetters string
+	CreatedAt          time.Time
 }
 
 type DBUser struct {
@@ -111,14 +115,18 @@ func NewDBUser(path string) (*DBUser, error) {
 	}, nil
 }
 
-func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string) error {
+func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+
+	if len(apiKeyFirstLetters) > 3 {
+		return errors.New("api key first letters too long")
+	}
 
 	c.data.SecureKeyStorageById[userId] = secureHash
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
-	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier}
+	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier, CreatedAt: createdAt, ApiKeyFirstLetters: apiKeyFirstLetters}
 	return c.storeToFile()
 }
 
@@ -137,8 +145,8 @@ func (c *DBUser) DeleteUser(userId string) error {
 	defer c.lock.Unlock()
 
 	delete(c.data.SecureKeyStorageById, userId)
-	delete(c.data.IdToIdentifier, userId)
 	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
+	delete(c.data.IdToIdentifier, userId)
 	delete(c.data.Users, userId)
 	delete(c.memoryOnyData.WeakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
@@ -149,6 +157,10 @@ func (c *DBUser) ActivateUser(userId string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	if _, ok := c.data.Users[userId]; !ok {
+		return fmt.Errorf("user %s does not exist", userId)
+	}
+
 	c.data.Users[userId].Active = true
 	return c.storeToFile()
 }
@@ -156,6 +168,9 @@ func (c *DBUser) ActivateUser(userId string) error {
 func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+	if _, ok := c.data.Users[userId]; !ok {
+		return fmt.Errorf("user %s does not exist", userId)
+	}
 	if revokeKey {
 		c.data.UserKeyRevoked[userId] = struct{}{}
 	}

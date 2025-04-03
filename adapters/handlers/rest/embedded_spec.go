@@ -5624,6 +5624,14 @@ func init() {
           "description": "activity status of the returned user",
           "type": "boolean"
         },
+        "createdAt": {
+          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
         "dbUserType": {
           "description": "type of the returned user",
           "type": "string",
@@ -13376,6 +13384,14 @@ func init() {
         "active": {
           "description": "activity status of the returned user",
           "type": "boolean"
+        },
+        "createdAt": {
+          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
         },
         "dbUserType": {
           "description": "type of the returned user",
