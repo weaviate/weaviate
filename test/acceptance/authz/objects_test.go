@@ -128,19 +128,21 @@ func TestAuthZObjectsEndpoints(t *testing.T) {
 					t.Fatalf("Expected no error, got %v", err)
 				}
 				require.Nil(t, err)
-			})
 
-			if tt.mtEnabled {
-				t.Run("Fail to create with different tenant", func(t *testing.T) {
-					_, err := createObject(t, obj, customKey)
-					require.NotNil(t, err)
-					var errNoAuth *objects.ObjectsCreateForbidden
-					if !errors.As(err, &errNoAuth) {
-						t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
-					}
-					require.True(t, errors.As(err, &errNoAuth))
-				})
-			}
+				if tt.mtEnabled {
+					t.Run("Fail to create with different tenant", func(t *testing.T) {
+						objNew := *obj
+						objNew.Tenant = tenantNames[1]
+						_, err := createObject(t, &objNew, customKey)
+						require.NotNil(t, err)
+						var errNoAuth *objects.ObjectsCreateForbidden
+						if !errors.As(err, &errNoAuth) {
+							t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
+						}
+						require.True(t, errors.As(err, &errNoAuth))
+					})
+				}
+			})
 		})
 
 		t.Run("Objects get (GET)", func(t *testing.T) {
@@ -179,19 +181,19 @@ func TestAuthZObjectsEndpoints(t *testing.T) {
 					t.Fatalf("Expected no error, got %v", err)
 				}
 				require.Nil(t, err)
-			})
 
-			if tt.mtEnabled {
-				t.Run("Fail to create with different tenant", func(t *testing.T) {
-					_, err := getObject(t, obj.Class, obj.ID, tenant, customKey)
-					require.NotNil(t, err)
-					var errNoAuth *objects.ObjectsClassGetForbidden
-					if !errors.As(err, &errNoAuth) {
-						t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
-					}
-					require.True(t, errors.As(err, &errNoAuth))
-				})
-			}
+				if tt.mtEnabled {
+					t.Run("Fail to get with different tenant", func(t *testing.T) {
+						_, err := getObject(t, obj.Class, obj.ID, &tenantNames[1], customKey)
+						require.NotNil(t, err)
+						var errNoAuth *objects.ObjectsClassGetForbidden
+						if !errors.As(err, &errNoAuth) {
+							t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
+						}
+						require.True(t, errors.As(err, &errNoAuth))
+					})
+				}
+			})
 		})
 
 		t.Run("Objects class update (PATCH)", func(t *testing.T) {
@@ -226,19 +228,21 @@ func TestAuthZObjectsEndpoints(t *testing.T) {
 					t.Fatalf("Expected no error, got %v", err)
 				}
 				require.Nil(t, err)
-			})
 
-			if tt.mtEnabled {
-				t.Run("Fail to update with different tenant", func(t *testing.T) {
-					_, err := updateObject(t, obj, customKey)
-					require.NotNil(t, err)
-					var errNoAuth *objects.ObjectsClassPatchForbidden
-					if !errors.As(err, &errNoAuth) {
-						t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
-					}
-					require.True(t, errors.As(err, &errNoAuth))
-				})
-			}
+				if tt.mtEnabled {
+					t.Run("Fail to update with different tenant", func(t *testing.T) {
+						objNew := *obj
+						objNew.Tenant = tenantNames[1]
+						_, err := updateObject(t, &objNew, customKey)
+						require.NotNil(t, err)
+						var errNoAuth *objects.ObjectsClassPatchForbidden
+						if !errors.As(err, &errNoAuth) {
+							t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
+						}
+						require.True(t, errors.As(err, &errNoAuth))
+					})
+				}
+			})
 		})
 
 		t.Run("Objects class replace (PUT)", func(t *testing.T) {
@@ -273,19 +277,72 @@ func TestAuthZObjectsEndpoints(t *testing.T) {
 					t.Fatalf("Expected no error, got %v", err)
 				}
 				require.Nil(t, err)
+
+				if tt.mtEnabled {
+					t.Run("Fail to update with different tenant", func(t *testing.T) {
+						objNew := *obj
+						objNew.Tenant = tenantNames[1]
+						_, err := replaceObject(t, &objNew, customKey)
+						require.NotNil(t, err)
+						var errNoAuth *objects.ObjectsClassPutForbidden
+						if !errors.As(err, &errNoAuth) {
+							t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
+						}
+						require.True(t, errors.As(err, &errNoAuth))
+					})
+				}
+			})
+		})
+
+		t.Run("Objects exists (HEAD)", func(t *testing.T) {
+			t.Run(fmt.Sprintf("No rights %s", tt.name), func(t *testing.T) {
+				paramsObj := objects.NewObjectsClassHeadParams().WithClassName(obj.Class).WithID(obj.ID)
+				if tt.mtEnabled {
+					paramsObj = paramsObj.WithTenant(&tt.tenantName)
+				}
+				_, err := helper.Client(t).Objects.ObjectsClassHead(paramsObj, customAuth)
+				require.NotNil(t, err)
+				var errNoAuth *objects.ObjectsClassHeadForbidden
+				require.True(t, errors.As(err, &errNoAuth))
 			})
 
-			if tt.mtEnabled {
-				t.Run("Fail to update with different tenant", func(t *testing.T) {
-					_, err := replaceObject(t, obj, customKey)
-					require.NotNil(t, err)
-					var errNoAuth *objects.ObjectsClassPutForbidden
-					if !errors.As(err, &errNoAuth) {
-						t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
-					}
-					require.True(t, errors.As(err, &errNoAuth))
-				})
-			}
+			t.Run(fmt.Sprintf("All rights %s", tt.name), func(t *testing.T) {
+				role := &models.Role{
+					Name: &roleName,
+					Permissions: []*models.Permission{
+						{
+							Action: &readDataAction,
+							Data:   &models.PermissionData{Collection: &className, Tenant: tt.tenantPermission},
+						},
+					},
+				}
+
+				helper.CreateRole(t, adminKey, role)
+				defer helper.DeleteRole(t, adminKey, *role.Name)
+
+				helper.AssignRoleToUser(t, adminKey, roleName, customUser)
+				defer helper.RevokeRoleFromUser(t, adminKey, roleName, customUser)
+
+				paramsObj := objects.NewObjectsClassHeadParams().WithClassName(obj.Class).WithID(obj.ID)
+				if tt.mtEnabled {
+					paramsObj = paramsObj.WithTenant(&tt.tenantName)
+				}
+				_, err := helper.Client(t).Objects.ObjectsClassHead(paramsObj, customAuth)
+				require.Nil(t, err)
+
+				if tt.mtEnabled {
+					t.Run("Fail to check existance with different tenant", func(t *testing.T) {
+						paramsObj := objects.NewObjectsClassHeadParams().WithClassName(obj.Class).WithTenant(&tenantNames[1]).WithID(obj.ID)
+						_, err := helper.Client(t).Objects.ObjectsClassHead(paramsObj, customAuth)
+						require.NotNil(t, err)
+						var errNoAuth *objects.ObjectsClassHeadForbidden
+						if !errors.As(err, &errNoAuth) {
+							t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
+						}
+						require.True(t, errors.As(err, &errNoAuth))
+					})
+				}
+			})
 		})
 
 		t.Run("Objects validate (POST /validate)", func(t *testing.T) {
@@ -317,20 +374,22 @@ func TestAuthZObjectsEndpoints(t *testing.T) {
 				paramsObj := objects.NewObjectsValidateParams().WithBody(obj)
 				_, err := helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
 				require.Nil(t, err)
-			})
 
-			if tt.mtEnabled {
-				t.Run("Fail to validate with different tenant", func(t *testing.T) {
-					paramsObj := objects.NewObjectsValidateParams().WithBody(obj)
-					_, err := helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
-					require.NotNil(t, err)
-					var errNoAuth *objects.ObjectsValidateForbidden
-					if !errors.As(err, &errNoAuth) {
-						t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
-					}
-					require.True(t, errors.As(err, &errNoAuth))
-				})
-			}
+				if tt.mtEnabled {
+					t.Run("Fail to validate with different tenant", func(t *testing.T) {
+						objNew := *obj
+						objNew.Tenant = tenantNames[1]
+						paramsObj := objects.NewObjectsValidateParams().WithBody(&objNew)
+						_, err := helper.Client(t).Objects.ObjectsValidate(paramsObj, customAuth)
+						require.NotNil(t, err)
+						var errNoAuth *objects.ObjectsValidateForbidden
+						if !errors.As(err, &errNoAuth) {
+							t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
+						}
+						require.True(t, errors.As(err, &errNoAuth))
+					})
+				}
+			})
 		})
 
 		t.Run("Objects class delete (DELETE)", func(t *testing.T) {
@@ -368,23 +427,20 @@ func TestAuthZObjectsEndpoints(t *testing.T) {
 				}
 				_, err := helper.Client(t).Objects.ObjectsClassDelete(paramsObj, customAuth)
 				require.Nil(t, err)
-			})
 
-			if tt.mtEnabled {
-				t.Run("Fail to delete with different tenant", func(t *testing.T) {
-					paramsObj := objects.NewObjectsClassDeleteParams().WithClassName(obj.Class).WithID(obj.ID)
-					if tt.mtEnabled {
-						paramsObj = paramsObj.WithTenant(&tt.tenantName)
-					}
-					_, err := helper.Client(t).Objects.ObjectsClassDelete(paramsObj, customAuth)
-					require.NotNil(t, err)
-					var errNoAuth *objects.ObjectsClassDeleteForbidden
-					if !errors.As(err, &errNoAuth) {
-						t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
-					}
-					require.True(t, errors.As(err, &errNoAuth))
-				})
-			}
+				if tt.mtEnabled {
+					t.Run("Fail to delete with different tenant", func(t *testing.T) {
+						paramsObj := objects.NewObjectsClassDeleteParams().WithClassName(obj.Class).WithID(obj.ID).WithTenant(&tenantNames[1])
+						_, err := helper.Client(t).Objects.ObjectsClassDelete(paramsObj, customAuth)
+						require.NotNil(t, err)
+						var errNoAuth *objects.ObjectsClassDeleteForbidden
+						if !errors.As(err, &errNoAuth) {
+							t.Fatalf("Expected error of type %T, got %T: %v", errNoAuth, err, err)
+						}
+						require.True(t, errors.As(err, &errNoAuth))
+					})
+				}
+			})
 		})
 	}
 }
