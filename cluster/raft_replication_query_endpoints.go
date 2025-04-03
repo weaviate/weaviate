@@ -22,18 +22,6 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-// GetReplicationDetailsByReplicationId retrieves the details of a replication operation by its ID.
-//
-// This method creates a request to fetch replication details, marshals it into a query command,
-// executes the query against the Raft cluster, and un-marshals the response.
-//
-// Parameters:
-//   - id: The unique identifier for the replication operation (uint64).
-//
-// Returns:
-//   - api.ReplicationDetailsResponse: Contains the details of the requested replication operation.
-//   - error: Returns ErrReplicationOperationNotFound if the replication with the specified ID
-//     does not exist, or a wrapped error explaining the specific failure that occurred.
 func (s *Raft) GetReplicationDetailsByReplicationId(id uint64) (api.ReplicationDetailsResponse, error) {
 	request := &api.ReplicationDetailsRequest{
 		Id: id,
