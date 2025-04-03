@@ -188,11 +188,6 @@ func TestAuthZBatchRefAuthZTenantFiltering(t *testing.T) {
 
 	t.Run(fmt.Sprintf("Succeed to batch references within %s", tenants[0].Name), func(t *testing.T) {
 		_, err := addReferences(tenants[0].Name)
-		if errors.As(err, &errForbidden) {
-			parsed, ok := err.(*batch.BatchReferencesCreateForbidden)
-			require.True(t, ok)
-			t.Logf("error: %v", parsed.Payload.Error[0].Message)
-		}
 		require.NoError(t, err)
 	})
 
