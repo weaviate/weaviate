@@ -223,11 +223,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 
 func createNullLogger(t *testing.T) *logrus.Logger {
 	t.Helper()
-	logger, err := logrustest.NewNullLogger()
-	if err != nil {
-		t.Fatalf("cannot create test logger: %v", err)
-	}
-
+	logger, _ := logrustest.NewNullLogger()
 	return logger
 }
 
