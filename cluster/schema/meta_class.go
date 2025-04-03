@@ -170,6 +170,18 @@ func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
 	return nil
 }
 
+func (m *metaClass) AddReplicaToShard(v uint64, shard string, replica string) error {
+	m.Lock()
+	defer m.Unlock()
+
+	err := m.Sharding.AddReplicaToShard(shard, replica)
+	if err != nil {
+		return err
+	}
+	m.ClassVersion = v
+	return nil
+}
+
 // MergeProps makes sure duplicates are not created by ignoring new props
 // with the same names as old props.
 // If property of nested type is present in both new and old slices,

@@ -302,6 +302,27 @@ func (s *SchemaManager) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly 
 	)
 }
 
+func (s *SchemaManager) AddReplicaToShard(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.AddReplicaToShardRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.Replica) },
+			updateStore: func() error {
+				if req.Replica == s.schema.nodeID {
+					return s.db.AddReplicaToShard(req.Class, req.Shard, req.Replica)
+				}
+				return nil
+			},
+			schemaOnly: schemaOnly,
+		},
+	)
+}
+
 func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) error {
 	req := &command.AddTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
