@@ -19,8 +19,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
@@ -56,13 +58,10 @@ func (m *MockReplicationDetailsProvider) GetReplicationDetailsByReplicationId(id
 	return args.Get(0).(api.ReplicationDetailsResponse), args.Error(1)
 }
 
-func createReplicationHandlerWithMocks(t *testing.T) (*replicationHandler, *MockAuthorizer, *MockReplicationDetailsProvider) {
+func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*replicationHandler, *MockAuthorizer, *MockReplicationDetailsProvider) {
 	t.Helper()
 	mockAuthorizer := new(MockAuthorizer)
 	mockReplicationStatusProvider := new(MockReplicationDetailsProvider)
-
-	logger := logrus.New()
-	logger.SetOutput(logrus.StandardLogger().Out)
 
 	handler := &replicationHandler{
 		authorizer:                 mockAuthorizer,
@@ -77,7 +76,7 @@ func createReplicationHandlerWithMocks(t *testing.T) (*replicationHandler, *Mock
 func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("successful retrieval", func(t *testing.T) {
 		// GIVEN
-		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t)
+		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t, createNullLogger(t))
 		id := randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
@@ -128,7 +127,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 
 	t.Run("malformed request id", func(t *testing.T) {
 		// GIVEN
-		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t)
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
 		params := replication.ReplicationDetailsParams{
 			ID:          "foo",
 			HTTPRequest: &http.Request{},
@@ -146,7 +145,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 
 	t.Run("empty request id", func(t *testing.T) {
 		// GIVEN
-		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t)
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
 		params := replication.ReplicationDetailsParams{
 			ID:          "",
 			HTTPRequest: &http.Request{},
@@ -164,7 +163,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 
 	t.Run("request id not found", func(t *testing.T) {
 		// GIVEN
-		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t)
+		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t, createNullLogger(t))
 		id := randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
@@ -184,7 +183,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 
 	t.Run("internal server error", func(t *testing.T) {
 		// GIVEN
-		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t)
+		handler, mockAuthorizer, mockReplicationStatusProvider := createReplicationHandlerWithMocks(t, createNullLogger(t))
 		id := randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
@@ -204,7 +203,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 
 	t.Run("authorization error", func(t *testing.T) {
 		// GIVEN
-		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t)
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
 		id := randomUint64()
 		params := replication.ReplicationDetailsParams{
 			ID:          strconv.FormatUint(id, 10),
@@ -220,6 +219,16 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		assert.IsType(t, &replication.ReplicationDetailsForbidden{}, response)
 		mockAuthorizer.AssertExpectations(t)
 	})
+}
+
+func createNullLogger(t *testing.T) *logrus.Logger {
+	t.Helper()
+	logger, err := logrustest.NewNullLogger()
+	if err != nil {
+		t.Fatalf("cannot create test logger: %v", err)
+	}
+
+	return logger
 }
 
 func randomInt(max int64) int64 {
