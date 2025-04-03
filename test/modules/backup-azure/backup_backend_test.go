@@ -25,6 +25,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	mod "github.com/weaviate/weaviate/modules/backup-azure"
@@ -58,7 +59,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	dataDir := t.TempDir()
 	className := "BackupClass"
 	backupID := "backup_id"
-	containerName := "container"
+	containerName := "container-level-store-backup-meta"
 	endpoint := os.Getenv(envAzureEndpoint)
 	metadataFilename := "backup.json"
 
@@ -138,7 +139,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
-	containerName := "container"
+	containerName := "container-level-copy-objects"
 	endpoint := os.Getenv(envAzureEndpoint)
 
 	t.Log("setup env")
@@ -174,7 +175,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
-	containerName := "container"
+	containerName := "container-level-copy-files"
 	endpoint := os.Getenv(envAzureEndpoint)
 
 	t.Log("setup env")
