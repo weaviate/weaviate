@@ -97,7 +97,7 @@ func (h *replicationHandler) handleMalformedRequestError(id string, err error) m
 		"op":     "replication_details",
 		"id":     id,
 		"error":  err,
-	}).Warn("malformed request for replication operation")
+	}).Debug("malformed request for replication operation")
 
 	return replication.NewReplicationDetailsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(
 		fmt.Errorf("malformed request for replication operation with id '%s'", id)))
@@ -109,7 +109,7 @@ func (h *replicationHandler) handleOperationNotFoundError(id string, err error) 
 		"op":     "replication_details",
 		"id":     id,
 		"error":  err,
-	}).Warn("replication operation not found")
+	}).Debug("replication operation not found")
 
 	return replication.NewReplicationDetailsNotFound()
 }
