@@ -331,7 +331,7 @@ func TestAuthZObjectsEndpoints(t *testing.T) {
 				require.Nil(t, err)
 
 				if tt.mtEnabled {
-					t.Run("Fail to check existance with different tenant", func(t *testing.T) {
+					t.Run("Fail to check existence with different tenant", func(t *testing.T) {
 						paramsObj := objects.NewObjectsClassHeadParams().WithClassName(obj.Class).WithTenant(&tenantNames[1]).WithID(obj.ID)
 						_, err := helper.Client(t).Objects.ObjectsClassHead(paramsObj, customAuth)
 						require.NotNil(t, err)
