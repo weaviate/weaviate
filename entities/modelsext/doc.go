@@ -14,4 +14,8 @@
 //
 // As the models package is used very widely throughout the repository, extensions package
 // should not import anything outside the models package as well to avoid any circular dependencies.
+//
+// To keep things tidy, use these conventions:
+// 1. Helpers for the struct in models/X.go should be in modelsext/X.go .
+// 2. Functions should be named <struct name><aspirational method name>.
 package modelsext
