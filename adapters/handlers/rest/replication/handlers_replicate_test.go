@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"testing"
 
+	authorizationMocks "github.com/weaviate/weaviate/mocks/usecases/auth/authorization"
+
 	replicationMocks "github.com/weaviate/weaviate/mocks/cluster/replication/types"
 
 	"github.com/sirupsen/logrus"
@@ -33,27 +35,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-type MockAuthorizer struct {
-	mock.Mock
-}
-
-func (m *MockAuthorizer) Authorize(principal *models.Principal, verb string, resources ...string) error {
-	args := m.Called(principal, verb, resources)
-	return args.Error(0)
-}
-
-func (m *MockAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
-	return m.Authorize(principal, verb, resources...)
-}
-
-func (m *MockAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	args := m.Called(principal, verb)
-	return args.Get(0).([]string), args.Error(1)
-}
-
-func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*replicationHandler, *MockAuthorizer, *replicationMocks.ReplicationDetailsProvider) {
+func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*replicationHandler, *authorizationMocks.Authorizer, *replicationMocks.ReplicationDetailsProvider) {
 	t.Helper()
-	mockAuthorizer := new(MockAuthorizer)
+	mockAuthorizer := new(authorizationMocks.Authorizer)
 	mockReplicationDetailsProvider := new(replicationMocks.ReplicationDetailsProvider)
 
 	handler := &replicationHandler{
