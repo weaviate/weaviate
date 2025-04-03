@@ -101,7 +101,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
 
-		err = s.initAsyncReplication()
+		err = s.InitAsyncReplication()
 		if err != nil {
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}

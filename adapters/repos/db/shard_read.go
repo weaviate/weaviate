@@ -716,6 +716,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return err
 	}
 
+	// config here, jero
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
 		return errors.Wrap(err, "object deletion in hashtree")
 	}

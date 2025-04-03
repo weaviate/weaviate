@@ -283,6 +283,26 @@ func (l *LazyLoadShard) updateAsyncReplicationConfig(ctx context.Context, enable
 	return l.shard.updateAsyncReplicationConfig(ctx, enabled)
 }
 
+func (l *LazyLoadShard) InitAsyncReplication() error {
+	if err := l.Load(context.Background()); err != nil {
+		return err
+	}
+	return l.shard.InitAsyncReplication()
+}
+
+func (l *LazyLoadShard) HashBeat(ctx context.Context, config asyncReplicationConfig) (stats *hashBeatHostStats, err error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.HashBeat(ctx, config)
+}
+
+func (l *LazyLoadShard) GetAsyncReplicationConfig() (asyncReplicationConfig, error) {
+	if err := l.Load(context.Background()); err != nil {
+		return asyncReplicationConfig{}, err
+	}
+	return l.shard.GetAsyncReplicationConfig()
+}
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	if err := l.Load(ctx); err != nil {
 		return []error{err}

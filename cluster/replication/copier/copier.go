@@ -19,6 +19,7 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -84,10 +85,45 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 		}
 	}
 
-	err = c.indexGetter.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
+	// nate, not jero
+	index := c.indexGetter.GetIndex(schema.ClassName(collectionName))
+	err = index.LoadLocalShard(ctx, shardName)
 	if err != nil {
 		return err
 	}
 
+	shardLike, release, err := index.GetShard(ctx, shardName)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	// TODO do we need to disable "other" replicas sending async updates to source node?
+	//  do we get into an "infinite" node3 keeps trying to write objects that get ignored?
+
+	// update class/collection config to set directed async replication
+	// poll the source node until async replication to this node is "done"
+	// commit copy and reset async replication config to default
+
+	shard, ok := shardLike.(*db.Shard)
+	if !ok {
+		return fmt.Errorf("shard %s is not a db.Shard", shardName)
+	}
+	fmt.Println("NATEE initing async replication")
+	err = shard.InitAsyncReplication()
+	if err != nil {
+		return err
+	}
+	fmt.Println("NATEE done initing async replication", err)
+	// config, err := shard.GetAsyncReplicationConfig()
+	// if err != nil {
+	// 	return err
+	// }
+	// fmt.Println("NATEE starting hashbeat")
+	// stats, err := shard.HashBeat(ctx, config)
+	// fmt.Println("NATEE done hashbeat", stats, err)
+	// if err != nil {
+	// 	return err
+	// }
 	return nil
 }

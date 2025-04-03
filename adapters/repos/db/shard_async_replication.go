@@ -84,9 +84,24 @@ type asyncReplicationConfig struct {
 	propagationDelay            time.Duration
 	propagationConcurrency      int
 	propagationBatchSize        int
+	// get rid of this
+	OptionalHostAddrOverride string
+	// directed replication with time bounds
+	// hostMappings map[string][]string // {
+
+	hostTargetPairs map[string][]string // {source: [dest]}
+	hostUpperBounds map[string]time     // {dest: upper}
+	// todo can we just use uptime and avoid rebuilding on the source node?
+	//  source: [dest: {lowtime, uptime}]
+	//  dest: [],
+	// }
+	// host
+	// timeLow
+	// timeHigh
 }
 
-func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
+// private?
+func (s *Shard) GetAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
 	config.hashtreeHeight, err = optParseInt(
 		os.Getenv("ASYNC_REPLICATION_HASHTREE_HEIGHT"), defaultHashtreeHeight, minHashtreeHeight, maxHashtreeHeight)
 	if err != nil {
@@ -184,7 +199,8 @@ func optParseDuration(s string, defaultDuration time.Duration) (time.Duration, e
 	return time.ParseDuration(s)
 }
 
-func (s *Shard) initAsyncReplication() error {
+// private?
+func (s *Shard) InitAsyncReplication() error {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	if bucket.GetSecondaryIndices() < 2 {
@@ -199,7 +215,7 @@ func (s *Shard) initAsyncReplication() error {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	s.asyncReplicationCancelFunc = cancelFunc
 
-	config, err := s.getAsyncReplicationConfig()
+	config, err := s.GetAsyncReplicationConfig()
 	if err != nil {
 		return err
 	}
@@ -285,7 +301,7 @@ func (s *Shard) initAsyncReplication() error {
 			WithField("took", fmt.Sprintf("%v", time.Since(start))).
 			Info("hashtree successfully initialized")
 
-		s.initHashBeater(ctx, config)
+		s.InitHashBeater(ctx, config)
 		return nil
 	}
 
@@ -300,6 +316,7 @@ func (s *Shard) initAsyncReplication() error {
 		objCount := 0
 		prevProgressLogging := time.Now()
 
+		// use config here, jero
 		err := bucket.ApplyToObjectDigests(ctx, func(object *storobj.Object) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -321,6 +338,7 @@ func (s *Shard) initAsyncReplication() error {
 				return err
 			}
 
+			// config here, jero
 			err = s.mayUpsertObjectHashTree(object, uuidBytes, objectInsertStatus{})
 			if err != nil {
 				return err
@@ -373,7 +391,7 @@ func (s *Shard) initAsyncReplication() error {
 
 		s.asyncReplicationRWMux.Unlock()
 
-		s.initHashBeater(ctx, config)
+		s.InitHashBeater(ctx, config)
 	}, s.index.logger)
 
 	return nil
@@ -405,6 +423,7 @@ func (s *Shard) mayStopAsyncReplication() {
 	s.hashtreeFullyInitialized = false
 }
 
+// add target node/upperlower time bound here, take in whole config, jero
 func (s *Shard) updateAsyncReplicationConfig(_ context.Context, enabled bool) error {
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
@@ -414,7 +433,8 @@ func (s *Shard) updateAsyncReplicationConfig(_ context.Context, enabled bool) er
 			return nil
 		}
 
-		return s.initAsyncReplication()
+		// to force regen, set hashtree to nil and init, jero
+		return s.InitAsyncReplication()
 	}
 
 	if s.hashtree == nil {
@@ -488,7 +508,8 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	return digests[:n], nil
 }
 
-func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfig) {
+// private?
+func (s *Shard) InitHashBeater(ctx context.Context, config asyncReplicationConfig) {
 	propagationRequired := make(chan struct{})
 
 	var lastHashbeat time.Time
@@ -519,7 +540,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 			case <-ctx.Done():
 				return
 			case <-propagationRequired:
-				stats, err := s.hashBeat(ctx, config)
+				stats, err := s.HashBeat(ctx, config)
 				if err != nil {
 					if ctx.Err() != nil {
 						return
@@ -653,7 +674,7 @@ type hashBeatHostStats struct {
 	objectProgationTook time.Duration
 }
 
-func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (stats *hashBeatHostStats, err error) {
+func (s *Shard) HashBeat(ctx context.Context, config asyncReplicationConfig) (stats *hashBeatHostStats, err error) {
 	var ht hashtree.AggregatedHashTree
 
 	s.asyncReplicationRWMux.RLock()
@@ -667,7 +688,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 
 	diffCalculationStart := time.Now()
 
-	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout)
+	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, config.OptionalHostAddrOverride)
 	if err != nil {
 		return nil, fmt.Errorf("collecting differences: %w", err)
 	}
@@ -878,6 +899,7 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 
 			remoteObjectsCount += len(remoteDigests)
 
+			// could skip here depending on config host bound, jero
 			for _, d := range remoteDigests {
 				localDigest, ok := localDigestsByUUID[d.ID]
 				if ok {

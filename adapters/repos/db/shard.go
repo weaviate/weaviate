@@ -177,6 +177,10 @@ type ShardLike interface {
 	RegisterAddToPropertyValueIndex(callback onAddToPropertyValueIndex)
 	RegisterDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex)
 	markSearchableBlockmaxProperties(propNames ...string)
+
+	InitAsyncReplication() error
+	HashBeat(ctx context.Context, config asyncReplicationConfig) (stats *hashBeatHostStats, err error)
+	GetAsyncReplicationConfig() (asyncReplicationConfig, error)
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -214,6 +218,9 @@ type Shard struct {
 
 	lastComparedHosts    []string
 	lastComparedHostsMux sync.RWMutex
+
+	// jero
+	hostStatuses map[string]string // {source: status}
 	//
 
 	status              ShardStatus

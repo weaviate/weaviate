@@ -351,6 +351,24 @@ func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
 	}
 	files = append(files, sd.Files...)
 
+	// nate, not jero
+	fmt.Println("NATEE initing async replication")
+	err = localShard.InitAsyncReplication()
+	if err != nil {
+		return nil, fmt.Errorf("init async replication on shard %q: %w", localShard.ID(), err)
+	}
+	fmt.Println("NATEE getting async replication config")
+	config, err := localShard.GetAsyncReplicationConfig()
+	if err != nil {
+		return nil, fmt.Errorf("get async replication config on shard %q: %w", localShard.ID(), err)
+	}
+	fmt.Println("NATEE starting hashbeat", config, err)
+	stats, err := localShard.HashBeat(ctx, config)
+	fmt.Println("NATEE done hashbeat", stats, err)
+	if err != nil {
+		return nil, fmt.Errorf("hashbeat on shard %q: %w", localShard.ID(), err)
+	}
+
 	return files, nil
 }
 

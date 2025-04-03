@@ -310,6 +310,7 @@ type ShardDifferenceReader struct {
 
 func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
+	optionalHostAddrOverride string,
 ) (diffReader *ShardDifferenceReader, err error) {
 	routingPlan, err := f.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:       f.class,
@@ -364,8 +365,23 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 	ec := errorcompounder.New()
 
-	localHostAddr, _ := f.router.NodeHostname(f.nodeName)
-	for _, host := range routingPlan.ReplicasHostAddrs {
+	// hostAddrs := routingPlan.ReplicasHostAddrs
+	// localHostAddr, _ := f.router.NodeHostname(f.nodeName)
+	// hostAddrs := routingPlan.ReplicasHostAddrs
+	// if optionalHostAddrOverride != "" {
+	// 	hostAddrs = []string{optionalHostAddrOverride}
+	// }
+
+	// jero
+	// only modify on the correct node
+	addrs, ok := config.hostMappings[localhostName]
+	if ok {
+		hostAddrs = config.hostMappings[localhostName]
+	}
+
+	for _, host := range hostAddrs {
+		// skip local node
+		// use config here to skip nodes we don't care about
 		if host == localHostAddr {
 			continue
 		}
