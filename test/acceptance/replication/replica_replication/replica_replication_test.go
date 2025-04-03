@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package replica_replication
 
 import (
@@ -22,33 +33,18 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-var (
-	paragraphIDs = []strfmt.UUID{
-		strfmt.UUID("3bf331ac-8c86-4f95-b127-2f8f96bbc093"),
-		strfmt.UUID("47b26ba1-6bc9-41f8-a655-8b9a5b60e1a3"),
-		strfmt.UUID("5fef6289-28d2-4ea2-82a9-48eb501200cd"),
-		strfmt.UUID("34a673b4-8859-4cb4-bb30-27f5622b47e9"),
-		strfmt.UUID("9fa362f5-c2dc-4fb8-b5b2-11701adc5f75"),
-		strfmt.UUID("63735238-6723-4caf-9eaa-113120968ff4"),
-		strfmt.UUID("2236744d-b2d2-40e5-95d8-2574f20a7126"),
-		strfmt.UUID("1a54e25d-aaf9-48d2-bc3c-bef00b556297"),
-		strfmt.UUID("0b8a0e70-a240-44b2-ac6d-26dda97523b9"),
-		strfmt.UUID("50566856-5d0a-4fb1-a390-e099bc236f66"),
-	}
-
-	articleIDs = []strfmt.UUID{
-		strfmt.UUID("aeaf8743-5a8f-4149-b960-444181d3131a"),
-		strfmt.UUID("2a1e9834-064e-4ca8-9efc-35707c6bae6d"),
-		strfmt.UUID("8d101c0c-4deb-48d0-805c-d9c691042a1a"),
-		strfmt.UUID("b9715fec-ef6c-4e8d-a89e-55e2eebee3f6"),
-		strfmt.UUID("faf520f2-f6c3-4cdf-9c16-0348ffd0f8ac"),
-		strfmt.UUID("d4c695dd-4dc7-4e49-bc73-089ef5f90fc8"),
-		strfmt.UUID("c7949324-e07f-4ffc-8be0-194f0470d375"),
-		strfmt.UUID("9c112e01-7759-43ed-a6e8-5defb267c8ee"),
-		strfmt.UUID("9bf847f3-3a1a-45a5-b656-311163e536b5"),
-		strfmt.UUID("c1975388-d67c-404a-ae77-5983fbaea4bb"),
-	}
-)
+var paragraphIDs = []strfmt.UUID{
+	strfmt.UUID("3bf331ac-8c86-4f95-b127-2f8f96bbc093"),
+	strfmt.UUID("47b26ba1-6bc9-41f8-a655-8b9a5b60e1a3"),
+	strfmt.UUID("5fef6289-28d2-4ea2-82a9-48eb501200cd"),
+	strfmt.UUID("34a673b4-8859-4cb4-bb30-27f5622b47e9"),
+	strfmt.UUID("9fa362f5-c2dc-4fb8-b5b2-11701adc5f75"),
+	strfmt.UUID("63735238-6723-4caf-9eaa-113120968ff4"),
+	strfmt.UUID("2236744d-b2d2-40e5-95d8-2574f20a7126"),
+	strfmt.UUID("1a54e25d-aaf9-48d2-bc3c-bef00b556297"),
+	strfmt.UUID("0b8a0e70-a240-44b2-ac6d-26dda97523b9"),
+	strfmt.UUID("50566856-5d0a-4fb1-a390-e099bc236f66"),
+}
 
 type ReplicaReplicationTestSuite struct {
 	suite.Suite
@@ -108,6 +104,9 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 		common.StartNodeAt(ctx, t, compose, 3)
 	})
 
+	// Setup client again after restart to avoid HTTP error if client setup to container that now has a changed port
+	helper.SetupClient(compose.GetWeaviate().URI())
+
 	t.Run("insert paragraphs", func(t *testing.T) {
 		batch := make([]*models.Object, len(paragraphIDs))
 		for i, id := range paragraphIDs {
@@ -117,17 +116,6 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 				Object()
 		}
 		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
-	})
-
-	t.Run("insert articles", func(t *testing.T) {
-		batch := make([]*models.Object, len(articleIDs))
-		for i, id := range articleIDs {
-			batch[i] = articles.NewArticle().
-				WithID(id).
-				WithTitle(fmt.Sprintf("Article#%d", i)).
-				Object()
-		}
-		common.CreateObjects(t, compose.GetWeaviateNode(2).URI(), batch)
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
@@ -176,8 +164,8 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 				hasFoundShard = true
 
 				t.Logf("Starting replica replication from %s to %s for shard %s", node.Name, targetNode, shard.Name)
-				sourceNode = i
-				helper.SetupClient(compose.ContainerURI(i))
+				// i + 1 because stop/start routine are 1 based not 0
+				sourceNode = i + 1
 				resp, err := helper.Client(t).Replication.Replicate(
 					replication.NewReplicateParams().WithBody(
 						&models.ReplicationReplicateReplicaRequest{
@@ -197,31 +185,31 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 		require.True(t, hasFoundNode, "could not find node with shards for paragraph")
 	})
 
+	// If no node was found fail now
 	if sourceNode == -1 {
 		t.FailNow()
 	}
 
-	t.Run(fmt.Sprintf("stop node %d", sourceNode), func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, sourceNode+1)
-	})
-
 	// TODO: Start watch status until completion
-	// For now we sleep, remove the sleep and instead poll status
+	// For now we sleep, remove the sleep and instead poll status once API is up
 	time.Sleep(20 * time.Second)
+
+	// Kills the original node with the data to ensure we have only one replica available (the new one)
+	t.Run(fmt.Sprintf("stop node %d", sourceNode), func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, sourceNode)
+	})
 
 	t.Run("assert data is available for paragraph on node3 with consistency level one", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp := common.GQLGet(t, compose.ContainerURI(2), "Paragraph", types.ConsistencyLevelOne)
-			assert.Len(ct, resp, len(paragraphIDs))
+			for _, objId := range paragraphIDs {
+				exists, err := common.ObjectExistsCL(t, compose.ContainerURI(3), paragraphClass.Class, objId, types.ConsistencyLevelOne)
+				assert.Nil(ct, err)
+				assert.True(ct, exists)
+
+				resp, err := common.GetObjectCL(t, compose.ContainerURI(3), paragraphClass.Class, objId, types.ConsistencyLevelOne)
+				assert.Nil(ct, err)
+				assert.NotNil(ct, resp)
+			}
 		}, 10*time.Second, 1*time.Second, "node3 doesn't have paragraph data")
 	})
-
-	t.Run("assert data is not available for paragraph on node3 with consistency level one", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp := common.GQLGet(t, compose.ContainerURI(2), "Article", types.ConsistencyLevelOne)
-			assert.Len(ct, resp, 0)
-		}, 10*time.Second, 1*time.Second, "node3 does have articles data")
-	})
-
-	time.Sleep(10 * time.Minute)
 }

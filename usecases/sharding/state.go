@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"sort"
 
 	"github.com/spaolacci/murmur3"
@@ -74,6 +75,26 @@ type Physical struct {
 // always returns the first node of the list
 func (p Physical) BelongsToNode() string {
 	return p.BelongsToNodes[0]
+}
+
+func (s *State) AddReplicaToShard(shard string, replica string) error {
+	phys, ok := s.Physical[shard]
+	if !ok {
+		return fmt.Errorf("could not find shard %s", shard)
+	}
+	if err := phys.AddReplica(replica); err != nil {
+		return err
+	}
+	s.Physical[shard] = phys
+	return nil
+}
+
+func (p *Physical) AddReplica(replica string) error {
+	if slices.Contains(p.BelongsToNodes, replica) {
+		return fmt.Errorf("replica %s already exists", replica)
+	}
+	p.BelongsToNodes = append(p.BelongsToNodes, replica)
+	return nil
 }
 
 // AdjustReplicas shrinks or extends the replica set (p.BelongsToNodes)
