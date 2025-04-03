@@ -47,7 +47,7 @@ type ShardReplicationEngine struct {
 func NewShardReplicationEngine(logger *logrus.Logger, node string, replicationFSM *ShardReplicationFSM, leaderClient types.FSMUpdater, replicaCopier types.ReplicaCopier) *ShardReplicationEngine {
 	return &ShardReplicationEngine{
 		node:                  node,
-		logger:                logger.WithFields(logrus.Fields{"action": replicationEngineLogAction}),
+		logger:                logger.WithFields(logrus.Fields{"action": replicationEngineLogAction, "node": node}),
 		replicationFSM:        replicationFSM,
 		leaderClient:          leaderClient,
 		ongoingReplicationOps: make(map[shardReplicationOp]struct{}),
@@ -165,18 +165,21 @@ func (s *ShardReplicationEngine) startShardReplication(op shardReplicationOp) {
 
 			logger.Info("completed replica replication file copy")
 
+			// Update FSM that we are done copying files and we can start final sync follower phase
+			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.FINALIZING); err != nil {
+				logger.WithError(err).Errorf("failed to update replica op state to %s", api.FINALIZING)
+			}
+
+			// TODO: Sync follower + async replication
+
 			// Update schema to register the shard
+			// TODO: We should handle recovering the FINALIZING state and re-add to the sharding state of necessary
 			if _, err := s.leaderClient.AddReplicaToShard(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.targetShard.nodeId); err != nil {
 				logger.WithError(err).Errorf("failed to add replica to shard")
 				return err
 			}
 
 			logger.Info("added replica to sharding state")
-
-			// Update FSM that we are done copying files and we can start final sync follower phase
-			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.FINALIZING); err != nil {
-				logger.WithError(err).Errorf("failed to update replica op state to %s", api.FINALIZING)
-			}
 
 			logger.Info("replica replication state updated")
 
