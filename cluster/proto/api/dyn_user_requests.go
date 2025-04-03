@@ -12,6 +12,8 @@
 package api
 
 import (
+	"time"
+
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 )
 
@@ -21,10 +23,12 @@ const (
 )
 
 type CreateUsersRequest struct {
-	UserId         string
-	SecureHash     string
-	UserIdentifier string
-	Version        int
+	UserId             string
+	SecureHash         string
+	UserIdentifier     string
+	ApiKeyFirstLetters string
+	CreatedAt          time.Time
+	Version            int
 }
 
 type RotateUserApiKeyRequest struct {

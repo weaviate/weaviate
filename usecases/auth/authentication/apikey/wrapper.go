@@ -12,6 +12,7 @@
 package apikey
 
 import (
+	"github.com/go-openapi/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -40,7 +41,11 @@ func New(cfg config.Config) (*ApiKey, error) {
 
 func (a *ApiKey) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
 	if randomKey, userIdentifier, err := keys.DecodeApiKey(token); err == nil {
-		return a.Dynamic.ValidateAndExtract(randomKey, userIdentifier)
+		principal, err := a.Dynamic.ValidateAndExtract(randomKey, userIdentifier)
+		if err != nil {
+			return nil, errors.New(401, "unauthorized: %v", err)
+		}
+		return principal, nil
 	} else {
 		return a.static.ValidateAndExtract(token, scopes)
 	}

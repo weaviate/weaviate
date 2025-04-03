@@ -75,7 +75,7 @@ func CreateApiKeyAndHash(existingIdentifier string) (string, string, string, err
 }
 
 func generateApiKey(randomKey, userIdentifier string) string {
-	fullString := randomKey + "_" + userIdentifier + "_" + DynUserIdentifier
+	fullString := userIdentifier + "_" + randomKey + "_" + DynUserIdentifier
 	return base64.StdEncoding.EncodeToString([]byte(fullString))
 }
 
@@ -101,8 +101,8 @@ func DecodeApiKey(fullApiKey string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid token")
 	}
 
-	randomKey := parts[0]
-	userIdentifier := parts[1]
+	userIdentifier := parts[0]
+	randomKey := parts[1]
 	version := parts[2]
 	if version != DynUserIdentifier {
 		return "", "", fmt.Errorf("invalid token")
