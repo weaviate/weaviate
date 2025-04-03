@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package checks
+package modelsext
 
 import (
 	"testing"
@@ -18,7 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func TestHasLegacyVectorIndex(t *testing.T) {
+func TestClassHasLegacyVectorIndex(t *testing.T) {
 	for _, tt := range []struct {
 		name  string
 		class *models.Class
@@ -56,7 +56,7 @@ func TestHasLegacyVectorIndex(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, HasLegacyVectorIndex(tt.class))
+			require.Equal(t, tt.want, ClassHasLegacyVectorIndex(tt.class))
 		})
 	}
 }
