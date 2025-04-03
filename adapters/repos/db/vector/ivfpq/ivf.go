@@ -19,6 +19,7 @@ import (
 	"math"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -32,9 +33,9 @@ import (
 
 const (
 	targetProbe        = 250
-	ivfProbing         = 1_000
+	ivfProbing         = 1000
 	rescoreConcurrency = 10
-	bucketThreshold    = 1000
+	bucketThreshold    = 100
 	dims               = 1536
 )
 
@@ -43,6 +44,7 @@ type bucket struct {
 	code          []byte
 	ids           []uint64
 	codes         []uint64
+	flatId        int
 	accessCounter byte
 }
 
@@ -54,7 +56,7 @@ func (b *bucket) store(store *lsmkv.Bucket) {
 	binary.Write(buf, binary.LittleEndian, b.codes)
 	toWrite := buf.Bytes()
 	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, uint64(b.code[0])*256+uint64(b.code[1]))
+	binary.BigEndian.PutUint64(idBytes, uint64(b.flatId))
 	store.Put(idBytes, toWrite)
 	if len(b.ids) > bucketThreshold {
 		b.codes = nil
@@ -70,7 +72,7 @@ func (b *bucket) load(store *lsmkv.Bucket, sketchSize int) int {
 	read := 0
 	if b.accessCounter == 1 {
 		idBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(idBytes, uint64(b.code[0])*256+uint64(b.code[1]))
+		binary.BigEndian.PutUint64(idBytes, uint64(b.flatId))
 		buf, _ := store.Get(idBytes)
 		b.codes = make([]uint64, len(b.ids)*sketchSize)
 		binary.Read(bytes.NewReader(buf), binary.LittleEndian, &b.codes)
@@ -153,7 +155,8 @@ func (i *FlatPQ) Add(id uint64, vector []float32) {
 	i.locks.Lock(flatId)
 	if i.buckets[flatId] == nil {
 		i.buckets[flatId] = &bucket{
-			code: code,
+			code:   code,
+			flatId: int(flatId),
 		}
 	}
 	i.buckets[flatId].ids = append(i.buckets[flatId].ids, id)
@@ -175,6 +178,7 @@ func (i *FlatPQ) SearchByVector(ctx context.Context, searchVec []float32, k int)
 	heap := priorityqueue.NewMax[byte](ivfProbing)
 	distancer := i.pq.NewDistancer(searchVec)
 
+	before := time.Now()
 	for id := uint64(0); id < uint64(len(i.buckets)); id++ {
 		i.locks.RLock(id)
 		bucket := i.buckets[id]
@@ -191,8 +195,10 @@ func (i *FlatPQ) SearchByVector(ctx context.Context, searchVec []float32, k int)
 			heap.Pop()
 		}
 		heap.Insert(id, d)
-
 	}
+	ellapsed := time.Since(before)
+	logger := logrus.New()
+	logger.Println("PQ: ", ellapsed)
 
 	heap_ids := priorityqueue.NewMax[byte](targetProbe)
 	searchVecCode := i.bq.Encode(searchVec)
@@ -203,8 +209,8 @@ func (i *FlatPQ) SearchByVector(ctx context.Context, searchVec []float32, k int)
 
 	ivfBucket := i.store.Bucket("ivf")
 
-	logger := logrus.New()
 	eg := enterrors.NewErrorGroupWrapper(logger)
+	before = time.Now()
 	for workerID := 0; workerID < rescoreConcurrency; workerID++ {
 		workerID := workerID
 
@@ -224,10 +230,13 @@ func (i *FlatPQ) SearchByVector(ctx context.Context, searchVec []float32, k int)
 			return nil
 		}, logger)
 	}
+	ellapsed = time.Since(before)
+	logger.Println("loading: ", ellapsed)
 
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
+	before = time.Now()
 	for _, bid := range bids {
 		i.locks.RLock(bid)
 		bucket := i.buckets[bid]
@@ -245,6 +254,8 @@ func (i *FlatPQ) SearchByVector(ctx context.Context, searchVec []float32, k int)
 
 		}
 	}
+	ellapsed = time.Since(before)
+	logger.Println("BQ: ", ellapsed)
 
 	ids := make([]uint64, heap_ids.Len())
 	j := heap_ids.Len() - 1

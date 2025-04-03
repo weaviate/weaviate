@@ -18,6 +18,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -251,7 +252,10 @@ func TestIVF(t *testing.T) {
 		if i == 100_000 {
 			go func() {
 				defer wg1.Done()
-				ivf = ivfpq.NewFlatPQ(vectors[:100_000], distancer.NewDotProductProvider(), 3, 128, testinghelpers.NewDummyStore(t))
+				for idx := 0; idx < 100_000; idx++ {
+					reverseFloat32Slice(vectors[idx])
+				}
+				ivf = ivfpq.NewFlatPQ(vectors[:100_000], distancer.NewCosineDistanceProvider(), 2, 64, testinghelpers.NewDummyStore(t))
 				log.Println("PQ trained...")
 			}()
 		}
@@ -267,7 +271,10 @@ func TestIVF(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for current := id * (int(rows) / 10); current < (id+1)*(int(rows)/10); current++ {
-				ivf.Add(uint64(current), reverseFloat32Slice(vectors[current]))
+				if current > 100_000 {
+					reverseFloat32Slice(vectors[current])
+				}
+				ivf.Add(uint64(current), vectors[current])
 			}
 		}(i)
 	}
@@ -296,6 +303,7 @@ func TestIVF(t *testing.T) {
 	lock := sync.Mutex{}
 	concurrencyLevel := 10
 	totalProbed := 0
+	latencies := make([]int, 0, rows)
 	before = time.Now()
 	for i := 0; i < concurrencyLevel; i++ {
 		wg2.Add(1)
@@ -308,6 +316,7 @@ func TestIVF(t *testing.T) {
 				rec := float32(testinghelpers.MatchesInLists(neighbors[current][:10], ids)) / 10
 
 				lock.Lock()
+				latencies = append(latencies, int(ellapsed.Milliseconds()))
 				totaEllapsed += ellapsed
 				recall += rec / float32(rows)
 				totalProbed += len(ids)
@@ -320,6 +329,7 @@ func TestIVF(t *testing.T) {
 	stopProfiling()
 
 	captureMemoryProfile("after_querying")
+	sort.Ints(latencies)
 
 	log.Println("Latency: ", totaEllapsed.Milliseconds()/int64(rows), "ms")
 	log.Println("QPS: ", int64(rows)*1000/ellapsed.Milliseconds(), "QPS")
@@ -327,5 +337,19 @@ func TestIVF(t *testing.T) {
 	log.Println("Memory: ", ivf.MemoryInUse()/1024/1024, "MB")
 	log.Println("Average bytes read per query: ", float32(ivf.BytesRead())/1024/1024/float32(rows), "MB")
 	log.Println("Active buckets: ", ivf.ActiveBuckets())
+	p50 := calculatePercentile(latencies, 50)
+	p90 := calculatePercentile(latencies, 90)
+	p95 := calculatePercentile(latencies, 95)
+	p99 := calculatePercentile(latencies, 99)
+	log.Println(p50, p90, p95, p99)
 	assert.NotNil(t, nil)
+}
+
+func calculatePercentile(sortedValues []int, percentile int) int {
+	if len(sortedValues) == 0 {
+		return 0
+	}
+
+	index := int(float64(percentile) / 100.0 * float64(len(sortedValues)-1))
+	return sortedValues[index]
 }
