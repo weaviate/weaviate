@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/batch"
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
@@ -125,18 +126,21 @@ func TestAuthZBatchRefAuthZTenantFiltering(t *testing.T) {
 	}
 	c2 := &models.Class{
 		Class: className2,
-		Properties: []*models.Property{
-			{
-				Name:     "prop2",
-				DataType: schema.DataTypeText.PropString(),
-			},
-		},
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
 		},
 	}
 	require.Nil(t, createClass(t, c2, adminAuth))
 	require.Nil(t, createClass(t, c1, adminAuth))
+	_, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(
+		clschema.NewSchemaObjectsPropertiesAddParams().
+			WithClassName(className2).
+			WithBody(&models.Property{
+				Name:     "ref",
+				DataType: []string{className1},
+			}),
+		adminAuth)
+	require.Nil(t, err)
 
 	tenants := []*models.Tenant{{Name: "tenant1"}, {Name: "tenant2"}}
 	require.Nil(t, createTenant(t, className1, tenants, adminKey))
@@ -146,8 +150,8 @@ func TestAuthZBatchRefAuthZTenantFiltering(t *testing.T) {
 	helper.CreateObjectAuth(t, &models.Object{ID: UUID1, Class: className1}, adminKey)
 	helper.CreateObjectAuth(t, &models.Object{ID: UUID1, Class: className2}, adminKey)
 
-	addReferences := func(tenant string) (*batch.BatchReferencesCreateOK, error) {
-		from := beaconStart + className1 + "/" + UUID1.String() + "/ref"
+	addReferences := func(class, tenant string) (*batch.BatchReferencesCreateOK, error) {
+		from := beaconStart + class + "/" + UUID1.String() + "/ref"
 		to := beaconStart + UUID1
 
 		var refs []*models.BatchReference
@@ -171,28 +175,58 @@ func TestAuthZBatchRefAuthZTenantFiltering(t *testing.T) {
 	var errForbidden *batch.BatchReferencesCreateForbidden
 
 	t.Run("Fail to batch references without any permissions", func(t *testing.T) {
-		_, err := addReferences(tenants[0].Name)
+		_, err := addReferences(className1, tenants[0].Name)
 		assertError(err, errForbidden)
 	})
 
-	role := &models.Role{
-		Name: String("test-role"),
-		Permissions: []*models.Permission{
-			helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(className1).Permission(),
-			helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(className1).WithTenant(tenants[0].Name).Permission(),
-			helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(className2).WithTenant(tenants[0].Name).Permission(),
-		},
+	makeRole := func(from, to string) *models.Role {
+		return &models.Role{
+			Name: String("test-role"),
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(from).Permission(),
+				helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(from).WithTenant(tenants[0].Name).Permission(),
+				helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(to).WithTenant(tenants[0].Name).Permission(),
+			},
+		}
 	}
-	helper.CreateRole(t, adminKey, role)
-	helper.AssignRoleToUser(t, adminKey, *role.Name, customUser)
+	oneToTwo := makeRole(className1, className2)
+	helper.CreateRole(t, adminKey, oneToTwo)
+	helper.AssignRoleToUser(t, adminKey, *oneToTwo.Name, customUser)
 
-	t.Run(fmt.Sprintf("Succeed to batch references within %s", tenants[0].Name), func(t *testing.T) {
-		_, err := addReferences(tenants[0].Name)
+	t.Run(fmt.Sprintf("Succeed to batch references from %s to %s within %s", className1, className2, tenants[0].Name), func(t *testing.T) {
+		_, err := addReferences(className1, tenants[0].Name)
 		require.NoError(t, err)
 	})
 
-	t.Run(fmt.Sprintf("Fail to batch references within %s", tenants[1].Name), func(t *testing.T) {
-		_, err := addReferences(tenants[1].Name)
+	t.Run(fmt.Sprintf("Fail to batch references from %s to %s within %s", className2, className1, tenants[0].Name), func(t *testing.T) {
+		_, err := addReferences(className2, tenants[1].Name)
+		assertError(err, errForbidden)
+	})
+
+	t.Run(fmt.Sprintf("Fail to batch references from %s to %s within %s", className1, className2, tenants[1].Name), func(t *testing.T) {
+		_, err := addReferences(className1, tenants[1].Name)
+		assertError(err, errForbidden)
+	})
+
+	helper.RevokeRoleFromUser(t, adminKey, *oneToTwo.Name, customUser)
+	helper.DeleteRole(t, adminKey, *oneToTwo.Name)
+
+	twoToOne := makeRole(className2, className1)
+	helper.CreateRole(t, adminKey, twoToOne)
+	helper.AssignRoleToUser(t, adminKey, *twoToOne.Name, customUser)
+
+	t.Run(fmt.Sprintf("Succeed to batch references from %s to %s within %s", className2, className1, tenants[0].Name), func(t *testing.T) {
+		_, err := addReferences(className2, tenants[0].Name)
+		require.NoError(t, err)
+	})
+
+	t.Run(fmt.Sprintf("Fail to batch references from %s to %s within %s", className1, className2, tenants[0].Name), func(t *testing.T) {
+		_, err := addReferences(className1, tenants[0].Name)
+		assertError(err, errForbidden)
+	})
+
+	t.Run(fmt.Sprintf("Fail to batch references from %s to %s within %s", className1, className2, tenants[1].Name), func(t *testing.T) {
+		_, err := addReferences(className2, tenants[1].Name)
 		assertError(err, errForbidden)
 	})
 }
