@@ -895,7 +895,7 @@ func (w *chunkWriter) Open() error {
 			if err != nil {
 				return errors.Wrap(err, "failed to sync chunk file")
 			}
-			w.size -= 4
+			w.size -= uint64(n)
 			break
 		}
 		if err != nil {
