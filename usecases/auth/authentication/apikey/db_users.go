@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,7 +33,7 @@ const (
 )
 
 type DBUsers interface {
-	CreateUser(userId, secureHash, userIdentifier string, createdAt time.Time) error
+	CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error
 	DeleteUser(userId string) error
 	ActivateUser(userId string) error
 	DeactivateUser(userId string, revokeKey bool) error
@@ -45,6 +46,7 @@ type User struct {
 	Id                 string
 	Active             bool
 	InternalIdentifier string
+	ApiKeyFirstLetters string
 	CreatedAt          time.Time
 }
 
@@ -113,14 +115,18 @@ func NewDBUser(path string) (*DBUser, error) {
 	}, nil
 }
 
-func (c *DBUser) CreateUser(userId, secureHash, userIdentifier string, createdAt time.Time) error {
+func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+
+	if len(apiKeyFirstLetters) > 3 {
+		return errors.New("api key first letters too long")
+	}
 
 	c.data.SecureKeyStorageById[userId] = secureHash
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
-	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier, CreatedAt: createdAt}
+	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier, CreatedAt: createdAt, ApiKeyFirstLetters: apiKeyFirstLetters}
 	return c.storeToFile()
 }
 

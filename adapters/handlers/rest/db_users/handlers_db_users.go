@@ -254,7 +254,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		count++
 	}
 
-	if err := h.dbUsers.CreateUser(params.UserID, hash, userIdentifier, time.Now()); err != nil {
+	if err := h.dbUsers.CreateUser(params.UserID, hash, userIdentifier, apiKey[:3], time.Now()); err != nil {
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
 	}
 

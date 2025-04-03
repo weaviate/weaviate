@@ -20,13 +20,14 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-func (s *Raft) CreateUser(userId, secureHash, userIdentifier string, createdAt time.Time) error {
+func (s *Raft) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error {
 	req := cmd.CreateUsersRequest{
-		UserId:         userId,
-		SecureHash:     secureHash,
-		UserIdentifier: userIdentifier,
-		CreatedAt:      createdAt,
-		Version:        cmd.DynUserLatestCommandPolicyVersion,
+		UserId:             userId,
+		SecureHash:         secureHash,
+		UserIdentifier:     userIdentifier,
+		CreatedAt:          createdAt,
+		ApiKeyFirstLetters: apiKeyFirstLetters,
+		Version:            cmd.DynUserLatestCommandPolicyVersion,
 	}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
