@@ -8,6 +8,7 @@ packages:
   github.com/weaviate/weaviate/cluster/replication/types:
     interfaces:
       ReplicationFSMReader:
+      ReplicationDetailsProvider:
   github.com/weaviate/weaviate/cluster/schema/types:
     interfaces:
       SchemaReader:

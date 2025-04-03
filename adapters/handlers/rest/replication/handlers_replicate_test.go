@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"testing"
 
+	replicationMocks "github.com/weaviate/weaviate/mocks/cluster/replication/types"
+
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 
@@ -32,10 +34,6 @@ import (
 )
 
 type MockAuthorizer struct {
-	mock.Mock
-}
-
-type MockReplicationDetailsProvider struct {
 	mock.Mock
 }
 
@@ -53,24 +51,19 @@ func (m *MockAuthorizer) FilterAuthorizedResources(principal *models.Principal, 
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *MockReplicationDetailsProvider) GetReplicationDetailsByReplicationId(id uint64) (api.ReplicationDetailsResponse, error) {
-	args := m.Called(id)
-	return args.Get(0).(api.ReplicationDetailsResponse), args.Error(1)
-}
-
-func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*replicationHandler, *MockAuthorizer, *MockReplicationDetailsProvider) {
+func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*replicationHandler, *MockAuthorizer, *replicationMocks.ReplicationDetailsProvider) {
 	t.Helper()
 	mockAuthorizer := new(MockAuthorizer)
-	mockReplicationStatusProvider := new(MockReplicationDetailsProvider)
+	mockReplicationDetailsProvider := new(replicationMocks.ReplicationDetailsProvider)
 
 	handler := &replicationHandler{
 		authorizer:                 mockAuthorizer,
 		replicationManager:         nil, // not used at the moment
-		replicationDetailsProvider: mockReplicationStatusProvider,
+		replicationDetailsProvider: mockReplicationDetailsProvider,
 		logger:                     logger,
 	}
 
-	return handler, mockAuthorizer, mockReplicationStatusProvider
+	return handler, mockAuthorizer, mockReplicationDetailsProvider
 }
 
 func TestGetReplicationDetailsByReplicationId(t *testing.T) {
