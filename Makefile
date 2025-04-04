@@ -1,7 +1,7 @@
 SHELL:=/usr/bin/env bash -o pipefail
 
 # Adapted from https://www.thapaliya.com/en/writings/well-documented-makefiles/
-# .PHONY: help
+# .PHONY: help mocks
 help:
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-45s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
@@ -96,5 +96,5 @@ debug: ## Connect local weaviate server via delv for debugging
 banner: ## Add Weaviate banner with license details
 	./tools/gen-code-from-swagger.sh
 
-mocks:
+mocks: .mockery.yaml
 	mockery

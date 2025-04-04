@@ -102,7 +102,7 @@ message QueryRequest {
 
     TYPE_GET_USERS = 61;
     TYPE_USER_IDENTIFIER_EXISTS = 62;
-
+    TYPE_GET_REPLICATION_DETAILS = 200;
   }
 
   Type type = 1;

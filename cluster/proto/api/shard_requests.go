@@ -17,6 +17,10 @@ const (
 
 type ShardReplicationState string
 
+func (s ShardReplicationState) String() string {
+	return string(s)
+}
+
 const (
 	REGISTERED  ShardReplicationState = "REGISTERED"
 	HYDRATING   ShardReplicationState = "HYDRATING"
@@ -55,3 +59,16 @@ type ReplicationDeleteOpRequest struct {
 }
 
 type ReplicationDeleteOpResponse struct{}
+
+type ReplicationDetailsRequest struct {
+	Id uint64
+}
+
+type ReplicationDetailsResponse struct {
+	Id           uint64
+	ShardId      string
+	Collection   string
+	SourceNodeId string
+	TargetNodeId string
+	Status       string
+}
