@@ -172,8 +172,13 @@ func (f *fakeCache) PreloadPassage(id uint64, docID uint64, relativeID uint64, v
 	panic("not implemented")
 }
 
+func (f *fakeCache) GetDoc(ctx context.Context, docID uint64) ([][]float32, error) {
+	panic("not implemented")
+}
+
 func generateDummyVertices(amount int) []*vertex {
 	out := make([]*vertex, amount)
+
 	for i := range out {
 		out[i] = &vertex{
 			id:    uint64(i),
