@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -1830,7 +1831,7 @@ func Test_UpdateClass(t *testing.T) {
 					Vectorizer:      "text2vec-contextionary",
 					VectorIndexType: hnswT,
 					VectorConfig: map[string]models.VectorConfig{
-						schema.DefaultNamedVectorName: {
+						modelsext.DefaultNamedVectorName: {
 							VectorIndexType: hnswT,
 							Vectorizer: map[string]interface{}{
 								"text2vec-contextionary": map[string]interface{}{},
@@ -1838,7 +1839,7 @@ func Test_UpdateClass(t *testing.T) {
 						},
 					},
 				},
-				expectedError: fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", schema.DefaultNamedVectorName),
+				expectedError: fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", modelsext.DefaultNamedVectorName),
 			},
 		}
 
