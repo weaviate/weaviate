@@ -9,8 +9,15 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package schema
+package modelsext
+
+import "github.com/weaviate/weaviate/entities/models"
 
 // DefaultNamedVectorName is a default vector named used to create a named vector or to allow access
 // to legacy vector through named vector API.
 const DefaultNamedVectorName = "default"
+
+// ClassHasLegacyVectorIndex checks whether there is a legacy index configured on a class.
+func ClassHasLegacyVectorIndex(class *models.Class) bool {
+	return class.Vectorizer != "" || class.VectorIndexConfig != nil || class.VectorIndexType != ""
+}
