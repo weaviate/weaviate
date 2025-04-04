@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
+
 	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/stretchr/testify/require"
