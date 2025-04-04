@@ -97,7 +97,7 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	monitoring.GetMetrics().OpenAIRequests.WithLabelValues("generate", "openai").Inc()
 	startTime := time.Now()
 	defer func() {
-		monitoring.GetMetrics().OpenAIRequestDuration.WithLabelValues("generate","openai").Observe(time.Since(startTime).Seconds())
+		monitoring.GetMetrics().OpenAIRequestDuration.WithLabelValues("generate", "openai").Observe(time.Since(startTime).Seconds())
 	}()
 	params := v.getParameters(cfg, options, imageProperties)
 	isAzure := config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID)

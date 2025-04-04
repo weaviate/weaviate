@@ -144,15 +144,15 @@ type PrometheusMetrics struct {
 	TokenCountPerRequest        *prometheus.HistogramVec
 
 	// OpenAI
-	OpenAIRequests                 *prometheus.CounterVec
-	OpenAIRequestDuration          *prometheus.HistogramVec
-	OpenAIBatchLength                *prometheus.HistogramVec
-	OpenAIRequestSingleCount       *prometheus.CounterVec
-	OpenAIRequestBatchCount          *prometheus.CounterVec
-	OpenAIRequestSize              *prometheus.HistogramVec
-	OpenAIResponseSize             *prometheus.HistogramVec
-	OpenAIRequestTokens            *prometheus.HistogramVec
-	OpenAIError                    *prometheus.CounterVec
+	OpenAIRequests           *prometheus.CounterVec
+	OpenAIRequestDuration    *prometheus.HistogramVec
+	OpenAIBatchLength        *prometheus.HistogramVec
+	OpenAIRequestSingleCount *prometheus.CounterVec
+	OpenAIRequestBatchCount  *prometheus.CounterVec
+	OpenAIRequestSize        *prometheus.HistogramVec
+	OpenAIResponseSize       *prometheus.HistogramVec
+	OpenAIRequestTokens      *prometheus.HistogramVec
+	OpenAIError              *prometheus.CounterVec
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
@@ -792,7 +792,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		OpenAIError: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "openai_error_total",
 			Help: "Number of OpenAI errors",
-		}, []string{"op", "module", "endpoint","error"}),
+		}, []string{"op", "module", "endpoint", "error"}),
 	}
 }
 
