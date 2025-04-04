@@ -92,9 +92,8 @@ jobs:
         with:
           api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
           project_key: ${{ env.PROJECT_KEY }}
-          path:
-            # scanning the entire repository
-            "."
+          # diff scans against the entire git history, so should only scan changes in this PR
+          fetch-depth: 0
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
