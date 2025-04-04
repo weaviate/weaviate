@@ -295,7 +295,15 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 		if job.ctx.Err() != nil {
 			for j := objCounter; j < len(job.texts); j++ {
 				if !job.skipObject[j] {
-					job.errs[j] = fmt.Errorf("context deadline exceeded or cancelled")
+					switch job.ctx.Err() {
+					case context.Canceled:
+						job.errs[j] = fmt.Errorf("context cancelled")
+					case context.DeadlineExceeded:
+						job.errs[j] = fmt.Errorf("context deadline exceeded")
+					default:
+						// this should not happen but we need to handle it
+						job.errs[j] = fmt.Errorf("context error: %w", job.ctx.Err())
+					}
 				}
 			}
 			break
@@ -434,6 +442,8 @@ func (b *Batch[T]) makeRequest(job BatchJob[T], texts []string, cfg moduletools.
 	res, rateLimitNew, tokensUsed, err := b.client.Vectorize(job.ctx, texts, cfg)
 
 	if err != nil {
+		b.logger.WithField("class", job.cfg.Class()).WithError(err).Error("vectorization failed")
+		monitoring.GetMetrics().BatchVectorizeError.WithLabelValues("batchVectorize", b.label).Inc()
 		for j := 0; j < len(texts); j++ {
 			job.errs[origIndex[j]] = err
 		}

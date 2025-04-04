@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -72,6 +73,8 @@ func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.
 	if skipAll {
 		return make([]T, len(objects)), make(map[int]error)
 	}
+
+	monitoring.GetMetrics().VectorizerBatchLength.WithLabelValues("vectorizeBatch", objects[0].Class).Observe(float64(len(objects)))
 
 	return v.batchVectorizer.SubmitBatchAndWait(ctx, cfg, skipObject, tokenCounts, texts)
 }
