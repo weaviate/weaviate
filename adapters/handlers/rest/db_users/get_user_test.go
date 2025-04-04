@@ -155,3 +155,19 @@ func TestListForbidden(t *testing.T) {
 	_, ok := res.(*users.GetUserInfoForbidden)
 	assert.True(t, ok)
 }
+
+func TestGetNoDynamic(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+
+	h := dynUserHandler{
+		dbUsers:       mocks.NewDbUserAndRolesGetter(t),
+		authorizer:    authorizer,
+		dbUserEnabled: false,
+	}
+
+	res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)
+	_, ok := res.(*users.GetUserInfoUnprocessableEntity)
+	assert.True(t, ok)
+}
