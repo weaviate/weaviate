@@ -862,7 +862,7 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 		}
 
 		// iteration should stop when all local digests within the range has been read
-		shouldContinueFetchingLocalData = len(localDigests) == config.diffBatchSize
+		shouldContinueFetchingLocalData = len(allLocalDigests) == config.diffBatchSize
 
 		lastLocalUUID := strfmt.UUID(localDigests[len(localDigests)-1].ID)
 
