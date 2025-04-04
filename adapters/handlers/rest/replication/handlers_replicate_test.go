@@ -151,19 +151,19 @@ func TestReplicationReplicate(t *testing.T) {
 		assert.IsType(t, &replication.ReplicateBadRequest{}, response)
 	})
 
-	t.Run("missing target node id in request body", func(t *testing.T) {
+	t.Run("missing source node id in request body", func(t *testing.T) {
 		// GIVEN
 		handler, _, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
 		collection := fmt.Sprintf("Collection%d", randomInt(10))
 		shardId := fmt.Sprintf("shard-%d", randomInt(10))
-		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
+		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		params := replication.ReplicateParams{
 			HTTPRequest: &http.Request{},
 			Body: &models.ReplicationReplicateReplicaRequest{
-				CollectionID:   &collection,
-				ShardID:        &shardId,
-				SourceNodeName: &sourceNodeId,
+				CollectionID:        &collection,
+				ShardID:             &shardId,
+				DestinationNodeName: &targetNodeId,
 			},
 		}
 
