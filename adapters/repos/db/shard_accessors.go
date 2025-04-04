@@ -17,6 +17,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -78,7 +79,7 @@ func (s *Shard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, boo
 	s.vectorIndexMu.RLock()
 	defer s.vectorIndexMu.RUnlock()
 
-	if targetVector == "" {
+	if s.isTargetVectorLegacyWithLock(targetVector) {
 		return s.queue, s.queue != nil
 	}
 
@@ -92,12 +93,20 @@ func (s *Shard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
 	s.vectorIndexMu.RLock()
 	defer s.vectorIndexMu.RUnlock()
 
-	if targetVector == "" {
+	if s.isTargetVectorLegacyWithLock(targetVector) {
 		return s.vectorIndex, s.vectorIndex != nil
 	}
 
 	index, ok := s.vectorIndexes[targetVector]
 	return index, ok
+}
+
+func (s *Shard) isTargetVectorLegacyWithLock(targetVector string) bool {
+	if targetVector == "" {
+		return true
+	}
+
+	return s.vectorIndex != nil && targetVector == modelsext.DefaultNamedVectorName
 }
 
 func (s *Shard) hasLegacyVectorIndex() bool {

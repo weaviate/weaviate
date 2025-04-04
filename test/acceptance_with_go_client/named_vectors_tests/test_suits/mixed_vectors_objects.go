@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
@@ -92,7 +93,7 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 			require.Len(t, resultVectors[transformers], 384)
 		})
 
-		for _, targetVector := range []string{"", contextionary} {
+		for _, targetVector := range []string{"", modelsext.DefaultNamedVectorName, contextionary} {
 			t.Run(fmt.Sprintf("targetVector=%q", targetVector), func(t *testing.T) {
 				t.Run("nearText search", func(t *testing.T) {
 					nearText := client.GraphQL().NearTextArgBuilder().

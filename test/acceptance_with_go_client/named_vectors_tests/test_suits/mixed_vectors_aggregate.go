@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,7 +47,7 @@ func testMixedVectorsAggregate(host string) func(t *testing.T) {
 		require.NoError(t, err)
 
 		testAllObjectsIndexed(t, client, class.Class)
-		for _, targetVector := range []string{"", contextionary} {
+		for _, targetVector := range []string{"", modelsext.DefaultNamedVectorName, contextionary} {
 			t.Run(fmt.Sprintf("vector=%q", targetVector), func(t *testing.T) {
 				no := &graphql.NearObjectArgumentBuilder{}
 				no = no.WithID(id1).WithCertainty(0.9)
