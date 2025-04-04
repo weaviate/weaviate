@@ -183,6 +183,52 @@ func TestHashTreeComparisonOneLeafAtATime(t *testing.T) {
 	}
 }
 
+func TestHashTreeAllDiffInSingleIteration(t *testing.T) {
+	height := 8
+
+	ht1, err := NewHashTree(height)
+	require.NoError(t, err)
+
+	ht2, err := NewHashTree(height)
+	require.NoError(t, err)
+
+	diff, err := ht1.Diff(ht2)
+	require.NoError(t, err)
+	require.NotNil(t, diff)
+
+	rangeReader := ht1.NewRangeReader(diff)
+
+	_, _, err = rangeReader.Next()
+	require.ErrorIs(t, err, ErrNoMoreRanges)
+
+	leavesCount := LeavesCount(height)
+
+	for l := range leavesCount {
+		if l%2 == 0 {
+			err = ht1.AggregateLeafWith(uint64(l), fmt.Appendf(nil, "val_%d", l))
+			require.NoError(t, err)
+		} else {
+			err = ht2.AggregateLeafWith(uint64(l), fmt.Appendf(nil, "val_%d", l))
+			require.NoError(t, err)
+		}
+	}
+
+	diff, err = ht1.Diff(ht2)
+	require.NoError(t, err)
+	require.NotNil(t, diff)
+
+	rangeReader = ht1.NewRangeReader(diff)
+
+	i, j, err := rangeReader.Next()
+	require.NoError(t, err)
+
+	require.Zero(t, i, 0)
+	require.EqualValues(t, leavesCount-1, j)
+
+	_, _, err = rangeReader.Next()
+	require.ErrorIs(t, err, ErrNoMoreRanges)
+}
+
 func TestHashTreeComparisonIncrementalConciliation(t *testing.T) {
 	height := 7
 
