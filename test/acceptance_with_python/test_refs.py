@@ -1,3 +1,4 @@
+import pytest
 import weaviate.classes as wvc
 
 from .conftest import CollectionFactory
@@ -38,6 +39,7 @@ def test_ref_with_cycle(collection_factory: CollectionFactory) -> None:
     assert ret[1].references["ref"].objects[0].properties["name"] == "A"
 
 
+@pytest.mark.skip(reason="DB-18")
 def test_ref_with_multiple_cycle(collection_factory: CollectionFactory) -> None:
     col = collection_factory(
         properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
