@@ -17,6 +17,8 @@ import (
 
 	acceptance_with_go_client "acceptance_tests_with_client"
 
+	"github.com/weaviate/weaviate/entities/modelsext"
+
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
@@ -77,6 +79,18 @@ func testMixedVectorsHybrid(host string) func(t *testing.T) {
 			Do(ctx)
 		require.NoError(t, err)
 
+		legacyRespUsingNamedVector, err := client.GraphQL().Get().
+			WithClassName(class.Class).
+			WithHybrid(client.GraphQL().
+				HybridArgumentBuilder().
+				WithQuery("Some text goes here").
+				WithAlpha(0.5).
+				WithTargetVectors(modelsext.DefaultNamedVectorName)).
+			WithFields(field).
+			Do(ctx)
+		require.NoError(t, err)
+
 		require.Equal(t, namedResp, legacyResp)
+		require.Equal(t, legacyRespUsingNamedVector, legacyResp)
 	}
 }

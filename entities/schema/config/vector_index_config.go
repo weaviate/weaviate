@@ -55,7 +55,7 @@ func TypeAssertVectorIndex(class *models.Class, targetVectors []string) ([]Vecto
 
 	configs := make([]VectorIndexConfig, 0, len(targetVectors))
 	for _, targetVector := range targetVectors {
-		vectorConfig, ok := class.VectorConfig[targetVector]
+		vectorConfig, ok := modelsext.ClassGetVectorConfig(class, targetVector)
 		if !ok {
 			return nil, errors.Errorf("vector config not found for target vector: %s", targetVector)
 		}

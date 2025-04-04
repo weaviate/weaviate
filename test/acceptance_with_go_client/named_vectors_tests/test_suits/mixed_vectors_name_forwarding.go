@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
-func testMixedVectorsNamedForwarding(endpoint string) func(t *testing.T) {
+func testMixedVectorsDefaultNameForwarding(endpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 

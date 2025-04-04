@@ -21,3 +21,21 @@ const DefaultNamedVectorName = "default"
 func ClassHasLegacyVectorIndex(class *models.Class) bool {
 	return class.Vectorizer != "" || class.VectorIndexConfig != nil || class.VectorIndexType != ""
 }
+
+// ClassGetVectorConfig returns the vector config for a given class and target vector.
+// There is a special case for the default vector name, which is used to access the legacy vector.
+func ClassGetVectorConfig(class *models.Class, targetVector string) (models.VectorConfig, bool) {
+	if cfg, ok := class.VectorConfig[targetVector]; ok {
+		return cfg, ok
+	}
+
+	if (ClassHasLegacyVectorIndex(class) && targetVector == DefaultNamedVectorName) || targetVector == "" {
+		return models.VectorConfig{
+			VectorIndexConfig: class.VectorIndexConfig,
+			VectorIndexType:   class.VectorIndexType,
+			Vectorizer:        class.Vectorizer,
+		}, true
+	}
+
+	return models.VectorConfig{}, false
+}
