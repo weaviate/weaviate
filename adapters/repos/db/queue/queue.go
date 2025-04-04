@@ -886,6 +886,10 @@ func (w *chunkWriter) Open() error {
 		}
 		if errors.Is(err, io.ErrUnexpectedEOF) {
 			// a record was not fully written, probably because of a crash.
+			w.logger.WithField("action", "queue_log_corruption").
+				WithField("path", filepath.Join(w.dir, lastChunk)).
+				Error(errors.Wrap(err, "queue ended abruptly, some elements may not have been recovered"))
+
 			// truncate the file to the last complete record
 			err = w.f.Truncate(int64(w.size) - int64(n))
 			if err != nil {
@@ -911,6 +915,10 @@ func (w *chunkWriter) Open() error {
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				// a record was not fully written, probably because of a crash.
+				w.logger.WithField("action", "queue_log_corruption").
+					WithField("path", filepath.Join(w.dir, lastChunk)).
+					Error(errors.Wrap(err, "queue ended abruptly, some elements may not have been recovered"))
+
 				// truncate the file to the last complete record
 				err = w.f.Truncate(int64(w.size) - 4 - int64(n))
 				if err != nil {
