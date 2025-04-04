@@ -42,9 +42,9 @@ func DefaultMuveraConfig() MuveraConfig {
 
 type MuveraEncoder struct {
 	config    MuveraConfig
-	gaussians [][]float32 // Random Gaussian vectors for SimHash projection
-	S         [][]float32 // Random projection matrix with ±1 entries
-	Sfinal    [][]float32 // Random projection matrix with ±1 entries
+	gaussians [][]float32   // Random Gaussian vectors for SimHash projection
+	S         [][][]float32 // Random projection matrix with ±1 entries
+	Sfinal    [][]float32   // Random projection matrix with ±1 entries
 }
 
 func NewMuveraEncoder(config MuveraConfig) *MuveraEncoder {
@@ -53,18 +53,18 @@ func NewMuveraEncoder(config MuveraConfig) *MuveraEncoder {
 	}
 
 	encoder.gaussians = make([][]float32, config.Repetitions)
-	for i := 0; i < config.Repetitions; i++ {
-		encoder.gaussians[i] = make([]float32, config.KSim*config.Dimensions)
-	}
-
-	encoder.S = make([][]float32, config.DProjections)
-	for i := 0; i < config.DProjections; i++ {
-		encoder.S[i] = make([]float32, config.Dimensions)
-		for j := 0; j < config.Dimensions; j++ {
-			if rand.Float64() < 0.5 {
-				encoder.S[i][j] = 1.0
-			} else {
-				encoder.S[i][j] = -1.0
+	encoder.S = make([][][]float32, config.Repetitions)
+	for rep := 0; rep < config.Repetitions; rep++ {
+		encoder.gaussians[rep] = make([]float32, config.KSim*config.Dimensions)
+		encoder.S[rep] = make([][]float32, config.DProjections)
+		for i := 0; i < config.DProjections; i++ {
+			encoder.S[rep][i] = make([]float32, config.Dimensions)
+			for j := 0; j < config.Dimensions; j++ {
+				if rand.Float64() < 0.5 {
+					encoder.S[rep][i][j] = 1.0
+				} else {
+					encoder.S[rep][i][j] = -1.0
+				}
 			}
 		}
 	}
@@ -159,7 +159,7 @@ func (e *MuveraEncoder) projectVecFlat(vec []float32, dprojections int) []float3
 			subvector := vec[start:end]
 			startProjected := offsetRepsProjected + (j * dprojections)
 			endProjected := startProjected + dprojections
-			copy(projectedVec[startProjected:endProjected], e.computeMatrixVecProduct(e.S, subvector, scale))
+			copy(projectedVec[startProjected:endProjected], e.computeMatrixVecProduct(e.S[i], subvector, scale))
 		}
 	}
 
@@ -227,13 +227,30 @@ func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 			}
 		}
 
+		clusterMappings := make([]uint64, len(fullDoc))
+		for docIdx, doc := range fullDoc {
+			cluster := e.simHash(doc, e.gaussians[rep])
+			clusterMappings[docIdx] = cluster
+		}
+
 		// Handle empty clusters by finding nearest non-empty cluster
 		for cluster := uint64(0); cluster < uint64(e.config.NumClusters); cluster++ {
 			if repetitionClusterCounts[rep][cluster] == 0 {
 				// Find nearest non-empty cluster
 				minHamming := math.MaxInt32
-				nearestCluster := uint64(0)
-				for c, count := range repetitionClusterCounts[rep] {
+				nearestPoint := uint64(0)
+				for docIdx, clusterMapped := range clusterMappings {
+					hamming := hammingDistance(cluster, clusterMapped)
+					if hamming < minHamming {
+						minHamming = hamming
+						nearestPoint = uint64(docIdx)
+					}
+				}
+				startIdx := uint64(offsetRep) + cluster*uint64(e.config.Dimensions)
+				for i := 0; i < e.config.Dimensions; i++ {
+					encodedDoc[startIdx+uint64(i)] = fullDoc[nearestPoint][i]
+				}
+				/*for c, count := range repetitionClusterCounts[rep] {
 					if count > 0 {
 						hamming := hammingDistance(cluster, c)
 						if hamming < minHamming {
@@ -246,7 +263,7 @@ func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 				nearestStartIdx := uint64(offsetRep) + nearestCluster*uint64(e.config.Dimensions)
 				for i := 0; i < e.config.Dimensions; i++ {
 					encodedDoc[startIdx+uint64(i)] = encodedDoc[nearestStartIdx+uint64(i)]
-				}
+				}*/
 			}
 		}
 	}
