@@ -85,6 +85,10 @@ func SetupHandlers(api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, au
 func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
 	isRootUser := h.isRequestFromRootUser(principal)
 
+	if !h.dbUserEnabled {
+		return users.NewListAllUsersOK().WithPayload([]*models.DBUserInfo{})
+	}
+
 	allDbUsers, err := h.dbUsers.GetUsers()
 	if err != nil {
 		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -154,6 +158,10 @@ func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id,
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
 		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if !h.dbUserEnabled {
+		return users.NewGetUserInfoUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
 	// also check for existing static users if request comes from root
