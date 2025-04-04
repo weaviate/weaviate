@@ -55,64 +55,35 @@ func NewMuveraEncoder(config MuveraConfig) *MuveraEncoder {
 	encoder.gaussians = make([][]float32, config.Repetitions)
 	encoder.S = make([][][]float32, config.Repetitions)
 	for rep := 0; rep < config.Repetitions; rep++ {
+		// Initialize random Gaussian vectors
 		encoder.gaussians[rep] = make([]float32, config.KSim*config.Dimensions)
-		encoder.S[rep] = make([][]float32, config.DProjections)
-		for i := 0; i < config.DProjections; i++ {
-			encoder.S[rep][i] = make([]float32, config.Dimensions)
-			for j := 0; j < config.Dimensions; j++ {
-				if rand.Float64() < 0.5 {
-					encoder.S[rep][i][j] = 1.0
-				} else {
-					encoder.S[rep][i][j] = -1.0
-				}
-			}
+		for i := 0; i < config.KSim*config.Dimensions; i++ {
+			u1 := rand.Float64()
+			u2 := rand.Float64()
+			encoder.gaussians[rep][i] = float32(math.Sqrt(-2.0*math.Log(u1)) * math.Cos(2*math.Pi*u2))
 		}
+
+		encoder.S[rep] = initProjectionMatrix(config.DProjections, config.Dimensions)
 	}
 
-	encoder.Sfinal = make([][]float32, config.DFinal)
-	for i := 0; i < config.DFinal; i++ {
-		dim := config.DProjections * config.NumClusters * config.Repetitions
-		encoder.Sfinal[i] = make([]float32, dim)
-		for j := 0; j < dim; j++ {
-			if rand.Float64() < 0.5 {
-				encoder.Sfinal[i][j] = 1.0
-			} else {
-				encoder.Sfinal[i][j] = -1.0
-			}
-		}
-	}
+	//encoder.Sfinal = initProjectionMatrix(config.DFinal, config.DProjections*config.NumClusters*config.Repetitions)
 
 	return encoder
 }
 
-func boxMullerVector(dimensions int) []float32 {
-	vector := make([]float32, dimensions)
-
-	for i := 0; i < dimensions; i++ {
-		u1 := rand.Float64()
-		u2 := rand.Float64()
-		vector[i] = float32(math.Sqrt(-2.0*math.Log(u1)) * math.Cos(2*math.Pi*u2))
-	}
-
-	return vector
-}
-
-func (e *MuveraEncoder) InitSimHash() error {
-	for rep := 0; rep < e.config.Repetitions; rep++ {
-		/*for i := 0; i < e.config.Dimensions*e.config.KSim; i++ {
-			// Box-Muller transform
-			u1 := rand.Float64()
-			u2 := rand.Float64()
-			z0 := math.Sqrt(-2*math.Log(u1)) * math.Cos(2*math.Pi*u2)
-			e.gaussians[rep][i] = float32(z0)
-		}*/
-		for i := 0; i < e.config.KSim; i++ {
-			offsetKSim := i * e.config.Dimensions
-			vec := boxMullerVector(e.config.Dimensions)
-			copy(e.gaussians[rep][offsetKSim:offsetKSim+e.config.Dimensions], vec)
+func initProjectionMatrix(rows int, cols int) [][]float32 {
+	matrix := make([][]float32, rows)
+	for i := 0; i < rows; i++ {
+		matrix[i] = make([]float32, cols)
+		for j := 0; j < cols; j++ {
+			if rand.Float64() < 0.5 {
+				matrix[i][j] = 1.0
+			} else {
+				matrix[i][j] = -1.0
+			}
 		}
 	}
-	return nil
+	return matrix
 }
 
 // simHash computes the SimHash of a vector using random Gaussian projections
@@ -156,18 +127,17 @@ func (e *MuveraEncoder) projectVecFlat(vec []float32, dprojections int) []float3
 		for j := 0; j < e.config.NumClusters; j++ {
 			start := offsetReps + (j * e.config.Dimensions)
 			end := start + e.config.Dimensions
-			subvector := vec[start:end]
 			startProjected := offsetRepsProjected + (j * dprojections)
 			endProjected := startProjected + dprojections
-			copy(projectedVec[startProjected:endProjected], e.computeMatrixVecProduct(e.S[i], subvector, scale))
+			copy(projectedVec[startProjected:endProjected], e.computeMatrixVecProduct(e.S[i], vec[start:end], scale))
 		}
 	}
 
 	return projectedVec
 }
 
-func (e *MuveraEncoder) finalProjection(vec []float32, dfinal int) []float32 {
-	if dfinal == e.config.Dimensions*e.config.Repetitions*e.config.NumClusters {
+/*func (e *MuveraEncoder) finalProjection(vec []float32, dfinal int) []float32 {
+	if dfinal == e.config.DProjections*e.config.Repetitions*e.config.NumClusters {
 		return vec
 	}
 	projectedVec := make([]float32, dfinal)
@@ -181,7 +151,7 @@ func (e *MuveraEncoder) finalProjection(vec []float32, dfinal int) []float32 {
 		projectedVec[i] = scale * sum
 	}
 	return projectedVec
-}
+}*/
 
 func (e *MuveraEncoder) encode(fullVec [][]float32) ([]float32, []map[uint64]int) {
 	encodedVec := make([]float32, e.config.Repetitions*e.config.NumClusters*e.config.Dimensions)
@@ -209,7 +179,8 @@ func (e *MuveraEncoder) encode(fullVec [][]float32) ([]float32, []map[uint64]int
 func (e *MuveraEncoder) EncodeQuery(query [][]float32) []float32 {
 	encodedQuery, _ := e.encode(query)
 	projectedQuery := e.projectVecFlat(encodedQuery, e.config.DProjections)
-	return e.finalProjection(projectedQuery, e.config.DFinal)
+	//return e.finalProjection(projectedQuery, e.config.DFinal)
+	return projectedQuery
 }
 
 // EncodeDoc encodes a document vector using Muvera
@@ -228,8 +199,8 @@ func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 		}
 
 		clusterMappings := make([]uint64, len(fullDoc))
-		for docIdx, doc := range fullDoc {
-			cluster := e.simHash(doc, e.gaussians[rep])
+		for docIdx, token := range fullDoc {
+			cluster := e.simHash(token, e.gaussians[rep])
 			clusterMappings[docIdx] = cluster
 		}
 
@@ -268,7 +239,8 @@ func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 		}
 	}
 	projectedDoc := e.projectVecFlat(encodedDoc, e.config.DProjections)
-	return e.finalProjection(projectedDoc, e.config.DFinal)
+	//return e.finalProjection(projectedDoc, e.config.DFinal)
+	return projectedDoc
 }
 
 // hammingDistance calculates the Hamming distance between two uint64 numbers

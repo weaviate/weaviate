@@ -354,9 +354,6 @@ func New(cfg Config, uc ent.UserConfig,
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
 			}
-			if err := index.muveraEncoder.InitSimHash(); err != nil {
-				return nil, err
-			}
 		}
 	}
 

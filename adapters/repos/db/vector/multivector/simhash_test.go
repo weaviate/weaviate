@@ -9,12 +9,6 @@ func TestSimHashTest(t *testing.T) {
 	config := DefaultMuveraConfig()
 	encoder := NewMuveraEncoder(config)
 
-	// Initialize the SimHash with random Gaussian vectors
-	err := encoder.InitSimHash()
-	if err != nil {
-		t.Fatalf("Failed to initialize SimHash: %v", err)
-	}
-
 	// Test case 1: Similar vectors should produce similar hashes
 	vec1 := make([]float32, config.Dimensions)
 	vec2 := make([]float32, config.Dimensions)
