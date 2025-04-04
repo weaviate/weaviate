@@ -780,7 +780,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name:    "openai_request_tokens",
 			Help:    "Number of tokens in the request sent to OpenAI",
 			Buckets: []float64{1, 10, 50, 100, 500, 1000, 5000, 10000, 100000, 1000000},
-		}, []string{"op", "api"}),
+		}, []string{"op", "class"}),
 		OpenAIRequestSingleCount: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "openai_request_single_count",
 			Help: "Number of single-item OpenAI requests",
