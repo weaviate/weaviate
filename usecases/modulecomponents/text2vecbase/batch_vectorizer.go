@@ -75,7 +75,7 @@ func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.
 	}
 
 	for i, obj := range objects {
-		monitoring.GetMetrics().OpenAIRequestTokens.WithLabelValues(obj.Class, "batchvectorize").Observe(float64(tokenCounts[i]))
+		monitoring.GetMetrics().OpenAIRequestTokens.WithLabelValues("batchvectorize", obj.Class).Observe(float64(tokenCounts[i]))
 	}
 
 	return v.batchVectorizer.SubmitBatchAndWait(ctx, cfg, skipObject, tokenCounts, texts)
