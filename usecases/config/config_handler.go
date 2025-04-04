@@ -171,6 +171,12 @@ type MapToBlockamaxConfig struct {
 	PauseDurationSeconds      int  `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
 }
 
+type CollectionPropsTenants struct {
+	Collection string   `json:"collection" yaml:"collection"`
+	Props      []string `json:"props" yaml:"props"`
+	Tenants    []string `json:"tenants" yaml:"tenants"`
+}
+
 // Validate the configuration
 func (c *Config) Validate() error {
 	if err := c.Authentication.Validate(); err != nil {
