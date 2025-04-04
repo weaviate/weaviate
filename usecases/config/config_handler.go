@@ -163,12 +163,13 @@ type Config struct {
 }
 
 type MapToBlockamaxConfig struct {
-	SwapBuckets               bool `json:"swap_buckets" yaml:"swap_buckets"`
-	UnswapBuckets             bool `json:"unswap_buckets" yaml:"unswap_buckets"`
-	TidyBuckets               bool `json:"tidy_buckets" yaml:"tidy_buckets"`
-	Rollback                  bool `json:"rollback" yaml:"rollback"`
-	ProcessingDurationSeconds int  `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
-	PauseDurationSeconds      int  `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
+	SwapBuckets               bool                     `json:"swap_buckets" yaml:"swap_buckets"`
+	UnswapBuckets             bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
+	TidyBuckets               bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
+	Rollback                  bool                     `json:"rollback" yaml:"rollback"`
+	ProcessingDurationSeconds int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
+	PauseDurationSeconds      int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
+	CollectionsPropsTenants   []CollectionPropsTenants `json:"collections_props_tenants" yaml:"collections_props_tenants"`
 }
 
 type CollectionPropsTenants struct {
