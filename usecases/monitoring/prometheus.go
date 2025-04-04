@@ -33,8 +33,6 @@ type Config struct {
 	MetricsNamespace string `json:"metrics_namespace" yaml:"metrics_namespace" long:"metrics_namespace" default:""`
 }
 
-// NOTE: Do not add any new metrics to this global `PrometheusMetrics` struct.
-// Instead add your metrics close the corresponding component.
 type PrometheusMetrics struct {
 	Registerer prometheus.Registerer
 
@@ -144,6 +142,17 @@ type PrometheusMetrics struct {
 	TokenizerInitializeDuration *prometheus.HistogramVec
 	TokenCount                  *prometheus.CounterVec
 	TokenCountPerRequest        *prometheus.HistogramVec
+
+	// OpenAI
+	OpenAIRequests                 *prometheus.CounterVec
+	OpenAIRequestDuration          *prometheus.HistogramVec
+	OpenAIBatchLength                *prometheus.HistogramVec
+	OpenAIRequestSingleCount       *prometheus.CounterVec
+	OpenAIRequestBatchCount          *prometheus.CounterVec
+	OpenAIRequestSize              *prometheus.HistogramVec
+	OpenAIResponseSize             *prometheus.HistogramVec
+	OpenAIRequestTokens            *prometheus.HistogramVec
+	OpenAIError                    *prometheus.CounterVec
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
@@ -743,6 +752,47 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help:    "Number of tokens processed per request",
 			Buckets: []float64{1, 10, 50, 100, 500, 1000, 10000, 100000, 1000000},
 		}, []string{"tokenizer"}),
+		OpenAIRequests: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "openai_requests_total",
+			Help: "Number of OpenAI requests",
+		}, []string{"op", "api"}),
+		OpenAIRequestDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "openai_request_duration_seconds",
+			Help:    "Duration of an individual request to OpenAI",
+			Buckets: LatencyBuckets,
+		}, []string{"op", "api"}),
+		OpenAIBatchLength: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "openai_requests_per_batch",
+			Help:    "Number of items in a batch",
+			Buckets: []float64{1, 2, 5, 10, 100, 1000},
+		}, []string{"op", "api"}),
+		OpenAIRequestSize: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "openai_request_size_bytes",
+			Help:    "Size (in bytes) of the request sent to OpenAI",
+			Buckets: sizeBuckets,
+		}, []string{"op", "api"}),
+		OpenAIResponseSize: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "openai_response_size_bytes",
+			Help:    "Size (in bytes) of the response received from OpenAI",
+			Buckets: sizeBuckets,
+		}, []string{"op", "api"}),
+		OpenAIRequestTokens: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "openai_request_tokens",
+			Help:    "Number of tokens in the request sent to OpenAI",
+			Buckets: []float64{1, 10, 50, 100, 500, 1000, 5000, 10000, 100000, 1000000},
+		}, []string{"op", "api"}),
+		OpenAIRequestSingleCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "openai_request_single_count",
+			Help: "Number of single-item OpenAI requests",
+		}, []string{"op", "api"}),
+		OpenAIRequestBatchCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "openai_request_batch_count",
+			Help: "Number of batched OpenAI requests",
+		}, []string{"op", "api"}),
+		OpenAIError: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "openai_error_total",
+			Help: "Number of OpenAI errors",
+		}, []string{"op", "module", "endpoint","error"}),
 	}
 }
 
