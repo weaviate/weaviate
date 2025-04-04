@@ -11,6 +11,8 @@
 
 package replication
 
+import "fmt"
+
 // shardFQDN uniquely identify a shard in a weaviate cluster
 type shardFQDN struct {
 	// nodeId is the node containing the shard
@@ -27,4 +29,8 @@ func newShardFQDN(nodeId, collectionId, shardId string) shardFQDN {
 		collectionId: collectionId,
 		shardId:      shardId,
 	}
+}
+
+func (s shardFQDN) String() string {
+	return fmt.Sprintf("%s/%s/%s", s.nodeId, s.collectionId, s.shardId)
 }

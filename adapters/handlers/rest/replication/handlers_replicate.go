@@ -42,7 +42,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}
 
 	h.logger.WithFields(logrus.Fields{
-		"action":       "replication",
+		"action":       "replication_engine",
 		"op":           "replicate",
 		"collection":   *params.Body.CollectionID,
 		"shardId":      *params.Body.ShardID,

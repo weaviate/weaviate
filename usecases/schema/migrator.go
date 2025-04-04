@@ -38,6 +38,7 @@ type Migrator interface {
 	DropClass(ctx context.Context, className string, hasFrozen bool) error
 	// UpdateClass(ctx context.Context, className string,newClassName *string) error
 	GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error)
+	AddReplicaToShard(ctx context.Context, class, shard string) error
 
 	AddProperty(ctx context.Context, className string,
 		props ...*models.Property) error

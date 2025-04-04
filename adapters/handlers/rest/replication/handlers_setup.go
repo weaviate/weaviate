@@ -31,9 +31,10 @@ type replicationHandler struct {
 func SetupHandlers(api *operations.WeaviateAPI, replicationManager replicationTypes.Manager, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
 	h := &replicationHandler{
-		authorizer: authorizer,
-		logger:     logger,
-		metrics:    metrics,
+		replicationManager: replicationManager,
+		authorizer:         authorizer,
+		logger:             logger,
+		metrics:            metrics,
 	}
 	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(h.replicate)
 	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(h.getReplicationOperationDetails)

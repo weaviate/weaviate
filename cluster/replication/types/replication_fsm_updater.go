@@ -11,8 +11,13 @@
 
 package types
 
-import "github.com/weaviate/weaviate/cluster/proto/api"
+import (
+	"context"
 
-type ReplicationFSMUpdater interface {
+	"github.com/weaviate/weaviate/cluster/proto/api"
+)
+
+type FSMUpdater interface {
+	AddReplicaToShard(context.Context, string, string, string) (uint64, error)
 	ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplicationState) error
 }
