@@ -342,11 +342,16 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 
 	sortByName(filteredRoles)
 
-	h.logger.WithFields(logrus.Fields{
+	logFields := logrus.Fields{
 		"action":    "read_all_roles",
 		"component": authorization.ComponentName,
-		"user":      principal.Username,
-	}).Info("roles requested")
+	}
+
+	if principal != nil {
+		logFields["user"] = principal.Username
+	}
+
+	h.logger.WithFields(logFields).Info("roles requested")
 
 	return authz.NewGetRolesOK().WithPayload(filteredRoles)
 }
