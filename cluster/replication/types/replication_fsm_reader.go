@@ -11,23 +11,6 @@
 
 package types
 
-import "github.com/weaviate/weaviate/cluster/proto/api"
-
 type ReplicationFSMReader interface {
 	FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string)
-}
-
-// ReplicationDetailsProvider defines an interface for retrieving information about
-// replication operations and their status.
-type ReplicationDetailsProvider interface {
-	// GetReplicationDetailsByReplicationId retrieves the details of a replication operation by its ID.
-	//
-	// Parameters:
-	//   - id: The unique identifier for the replication operation (uint64).
-	//
-	// Returns:
-	//   - api.ReplicationDetailsResponse: Contains the details of the requested replication operation.
-	//   - error: Returns ErrReplicationOperationNotFound if the operation doesn't exist,
-	//     or another error explaining why retrieving the replication operation details failed.
-	GetReplicationDetailsByReplicationId(id uint64) (api.ReplicationDetailsResponse, error)
 }
