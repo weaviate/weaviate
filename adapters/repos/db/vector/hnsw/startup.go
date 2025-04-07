@@ -75,13 +75,19 @@ func (h *hnsw) restoreFromDisk() error {
 			h.logger.
 				WithError(err).
 				WithField("action", "restore_from_disk").
-				WithField("id", h.id).
-				WithField("class", h.className).
 				Error("failed to read last snapshot, loading from commit log")
 
 			state = nil
 			stateTimestamp = 0
+		} else if state == nil {
+			h.logger.
+				WithField("action", "restore_from_disk").
+				Info("no snapshot found, loading from commit log")
 		}
+	} else {
+		h.logger.
+			WithField("action", "restore_from_disk").
+			Info("snapshots disabled, loading from commit log")
 	}
 
 	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp)

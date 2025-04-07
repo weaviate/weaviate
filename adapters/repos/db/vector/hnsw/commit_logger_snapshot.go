@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -48,6 +49,11 @@ func (l *hnswCommitLogger) CreateSnapshot() (bool, error) {
 		// no snapshot needed
 		return false, nil
 	}
+
+	start := time.Now()
+
+	l.logger.WithField("action", "hnsw_create_snapshot").
+		Info("creating snapshot")
 
 	// load the last snapshot
 	var state *DeserializationResult
@@ -86,6 +92,11 @@ func (l *hnswCommitLogger) CreateSnapshot() (bool, error) {
 			WithField("path", snapshotFileName).
 			Warn("cleanup snapshots")
 	}
+
+	l.logger.WithField("action", "hnsw_create_snapshot").
+		WithField("path", snapshotFileName).
+		WithField("duration", time.Since(start)).
+		Info("snapshot created")
 
 	return true, nil
 }
