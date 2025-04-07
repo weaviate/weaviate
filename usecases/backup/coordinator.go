@@ -154,7 +154,7 @@ func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]strin
 }
 
 // Backup coordinates a distributed backup among participants
-func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error { // TODO: start
+func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
 	req.Method = OpCreate
 	leader := c.nodeResolver.LeaderID()
 	if leader == "" {
