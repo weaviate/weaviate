@@ -97,6 +97,16 @@ func TestDowngradeRoles(t *testing.T) {
 }
 
 func TestDowngradeGroupings(t *testing.T) {
+	path := t.TempDir()
+	tmpFile, err := os.Create(path + "/version")
+	require.NoError(t, err)
+	writer := bufio.NewWriter(tmpFile)
+	_, err = fmt.Fprint(writer, "1.30.0")
+	require.NoError(t, err)
+	require.NoError(t, writer.Flush())
+	require.NoError(t, tmpFile.Sync())
+	require.NoError(t, tmpFile.Close())
+
 	tests := []struct {
 		name               string
 		rolesToAdd         []string
@@ -148,7 +158,7 @@ func TestDowngradeGroupings(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			require.NoError(t, downgradesAssignmentsFrom130(enforcer))
+			require.NoError(t, downgradesAssignmentsFrom130(enforcer, path))
 			roles, _ := enforcer.GetAllSubjects()
 			require.Len(t, roles, len(tt.rolesToAdd))
 			for user, role := range tt.expectedAfterWards {

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/casbin/casbin/v2"
@@ -29,6 +30,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/build"
 )
+
+const DEFAULT_POLICY_VERSION = "1.29.0"
 
 const (
 	// MODEL is the used model for casbin to store roles, permissions, users and comparisons patterns
@@ -96,11 +99,6 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		return nil, errors.Wrapf(err, "create storage path: %v", rbacStorageFilePath)
 	}
 
-	err = writeVersion(rbacStoragePath, build.Version)
-	if err != nil {
-		return nil, err
-	}
-
 	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStorageFilePath))
 
 	if err := enforcer.LoadPolicy(); err != nil {
@@ -110,10 +108,15 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
-	if err := downgradesAssignmentsFrom130(enforcer); err != nil {
+	if err := downgradesAssignmentsFrom130(enforcer, rbacStoragePath); err != nil {
 		return nil, err
 	}
 	if err := downgradeRolesFrom130(enforcer); err != nil {
+		return nil, err
+	}
+
+	err = writeVersion(rbacStoragePath, build.Version)
+	if err != nil {
 		return nil, err
 	}
 
@@ -192,7 +195,22 @@ func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
 	return (bool)(WeaviateMatcher(name1, name2)), nil
 }
 
-func downgradesAssignmentsFrom130(enforcer *casbin.SyncedCachedEnforcer) error {
+func downgradesAssignmentsFrom130(enforcer *casbin.SyncedCachedEnforcer, path string) error {
+	version, err := getVersion(path)
+	if err != nil {
+		return err
+	}
+
+	versionParts := strings.Split(version, ".")
+	minorVersion, err := strconv.Atoi(versionParts[1])
+	if err != nil {
+		return err
+	}
+
+	if minorVersion < 30 {
+		return nil
+	}
+
 	// remove build-in roles with potentially changed verbs. These will be re-added in the next step
 	policies, err := enforcer.GetPolicy()
 	if err != nil {
@@ -309,4 +327,17 @@ func writeVersion(path, version string) error {
 	}
 
 	return os.Rename(tempFilename, path+"/version")
+}
+
+func getVersion(path string) (string, error) {
+	filePath := path + "/version"
+	_, err := os.Stat(filePath)
+	if err != nil { // file exists
+		return DEFAULT_POLICY_VERSION, nil
+	}
+	b, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
