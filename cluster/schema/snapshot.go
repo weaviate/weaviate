@@ -24,6 +24,7 @@ type snapshot struct {
 	NodeID     string                `json:"node_id"`
 	SnapshotID string                `json:"snapshot_id"`
 	Classes    map[string]*metaClass `json:"classes"`
+	Tasks      []*distributedTask    `json:"tasks"`
 }
 
 // LegacySnapshot returns a ready-to-use in-memory Raft snapshot based on the provided legacy schema

@@ -17,10 +17,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/distributedtasks"
 	gproto "google.golang.org/protobuf/proto"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -38,6 +40,8 @@ type SchemaManager struct {
 	db     Indexer
 	parser Parser
 	log    *logrus.Logger
+
+	tasksManager *distributedtasks.Manager
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -385,6 +389,138 @@ func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOn
 			schemaOnly:   schemaOnly,
 		},
 	)
+}
+
+// TODO: notify task manager when task is started and cancelled
+
+func (s *SchemaManager) AddDistributedTask(cmd *command.ApplyRequest, schemaOnly bool) error { // TODO: think do we need this schemaOnly thing
+	req := &command.AddDistributedTaskRequest{}
+	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(applyOp{
+		op: cmd.GetType().String(),
+		updateSchema: func() error {
+			sch := s.schema
+			sch.tasksMu.Lock()
+			defer sch.tasksMu.Unlock()
+
+			// TODO: check for duplication
+
+			sch.tasks = append(sch.tasks, &distributedTask{
+				TaskType:      req.TaskType,
+				TaskID:        req.TaskId,
+				TaskPayload:   req.TaskPayload,
+				Status:        taskStatusStarted,
+				StartedAt:     time.UnixMilli(req.SubmittedAtUnixMillis),
+				FinishedNodes: make(map[string]struct{}),
+			})
+
+			return nil
+		},
+		updateStore: func() error {
+			return s.tasksManager.AddTask(req.TaskType, req.TaskId, req.TaskPayload)
+		},
+		schemaOnly: schemaOnly,
+	})
+}
+
+func (s *SchemaManager) DistributedTaskFinishedByTheNode(cmd *command.ApplyRequest, nodesCount int, schemaOnly bool) error { // TODO: think do we need this schemaOnly thing
+	req := &command.DistributedTaskFinishedByTheNodeRequest{}
+	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(applyOp{
+		op: cmd.GetType().String(),
+		updateSchema: func() error {
+			s.schema.tasksMu.Lock()
+			defer s.schema.tasksMu.Unlock()
+
+			task := s.findTaskWithLock(req.TaskType, req.TaskId)
+			if task == nil {
+				return fmt.Errorf("not found")
+			}
+
+			if task.Status != taskStatusStarted {
+				return fmt.Errorf("task already finished %v", task.Status)
+			}
+
+			task.FinishedNodes[req.NodeId] = struct{}{}
+
+			if len(task.FinishedNodes) == nodesCount {
+				task.Status = taskStatusFinished
+				task.FinishedAt = time.UnixMilli(req.FinishedAtUnixMillis)
+			}
+
+			return nil
+		},
+		updateStore: func() error {
+			//s.schema.tasksMu.Lock()
+			//defer s.schema.tasksMu.Unlock()
+			//
+			//task := s.findTaskWithLock(req.TaskType, req.TaskId)
+			//if task == nil {
+			//	return fmt.Errorf("not found")
+			//}
+			//
+			//if task.Status == taskStatusCancelled {
+			//
+			//}
+
+			// TODO: call task manager, or maybe it should simply poll
+			return nil
+		},
+		schemaOnly: schemaOnly,
+	})
+}
+
+func (s *SchemaManager) CancelDistributedTask(cmd *command.ApplyRequest, schemaOnly bool) error { // TODO: think do we need this schemaOnly thing
+	req := &command.CancelDistributedTaskRequest{}
+	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(applyOp{
+		op: cmd.GetType().String(),
+		updateSchema: func() error {
+			s.schema.tasksMu.Lock()
+			defer s.schema.tasksMu.Unlock()
+
+			task := s.findTaskWithLock(req.TaskType, req.TaskId)
+			if task == nil {
+				return fmt.Errorf("not found")
+			}
+
+			if task.Status != taskStatusStarted {
+				return fmt.Errorf("task is not running %v", task.Status)
+			}
+
+			task.Status = taskStatusCancelled
+			task.FinishedAt = time.UnixMilli(req.CancelledAtUnixMillis)
+
+			// TODO: we should have a timer in the background which issues task clean up requests after X hours once the task is finished
+
+			return nil
+		},
+		updateStore: func() error {
+			return s.tasksManager.CancelTask(req.TaskType, req.TaskId)
+		},
+		schemaOnly: schemaOnly,
+	})
+}
+
+func (s *SchemaManager) findTaskWithLock(taskType, taskID string) *distributedTask {
+	sch := s.schema
+	var task *distributedTask
+	for _, t := range sch.tasks {
+		if t.TaskType == taskType && t.TaskID == taskID {
+			task = t
+			break
+		}
+	}
+	return task
 }
 
 type applyOp struct {

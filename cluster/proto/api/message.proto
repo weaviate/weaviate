@@ -71,6 +71,10 @@ message ApplyRequest {
     TYPE_REPLICATION_REPLICATE_ABORT = 202;
     TYPE_REPLICATION_REPLICA_DISABLE = 210;
     TYPE_REPLICATION_REPLICA_DELETE = 211;
+
+    TYPE_DISTRIBUTED_TASK_ADD = 300;
+    TYPE_DISTRIBUTED_TASK_CANCELLED = 301;
+    TYPE_DISTRIBUTED_TASK_NODE_FINISHED = 302;
   }
   Type type = 1;
   string class = 2;
@@ -153,4 +157,24 @@ message DeleteTenantsRequest {
 message Tenant {
   string name = 1;
   string status = 2;
+}
+
+message AddDistributedTaskRequest {
+  string task_id = 1;
+  string task_type = 2;
+  bytes task_payload = 3;
+  int64 submittedAtUnixMillis = 4; // TODO: consider using native time type
+}
+
+message DistributedTaskFinishedByTheNodeRequest {
+  string task_id = 1;
+  string task_type = 2;
+  string node_id = 3;
+  int64 finishedAtUnixMillis = 4; // TODO: consider using native time type
+}
+
+message CancelDistributedTaskRequest {
+  string task_id = 1;
+  string task_type = 2;
+  int64 cancelledAtUnixMillis = 4; // TODO: consider using native time type
 }

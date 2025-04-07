@@ -2619,6 +2619,28 @@
           }
         }
       ]
+    },
+    "RevectorizationStatusResponse": {
+      "type": "object",
+      "properties": {
+        "taskType": {
+          "description": "TODO",
+          "type": "string"
+        },
+        "taskID": {
+          "description": "TODO",
+          "type": "string"
+        },
+        "status": {
+          "description": "TODO",
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "CANCELLED",
+            "FINISHED"
+          ]
+        }
+      }
     }
   },
   "externalDocs": {
@@ -7172,6 +7194,38 @@
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/revectorization/{collectionName}/{targetVector}": {
+      "post": {
+        "operationId": "revectorization",
+        "tags": [
+          "revectorization"
+        ],
+        "parameters": [
+          {
+            "name": "collectionName",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "TODO"
+          },
+          {
+            "name": "targetVector",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "TODO"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revectorization process successfully started",
+            "schema": {
+              "$ref": "#/definitions/RevectorizationStatusResponse"
             }
           }
         }

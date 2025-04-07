@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/revectorization"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
@@ -246,6 +247,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		ReplicationReplicationDetailsHandler: replication.ReplicationDetailsHandlerFunc(func(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ReplicationDetails has not yet been implemented")
+		}),
+		RevectorizationRevectorizationHandler: revectorization.RevectorizationHandlerFunc(func(params revectorization.RevectorizationParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation revectorization.Revectorization has not yet been implemented")
 		}),
 		AuthzRevokeRoleFromGroupHandler: authz.RevokeRoleFromGroupHandlerFunc(func(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.RevokeRoleFromGroup has not yet been implemented")
@@ -492,6 +496,8 @@ type WeaviateAPI struct {
 	ReplicationReplicateHandler replication.ReplicateHandler
 	// ReplicationReplicationDetailsHandler sets the operation handler for the replication details operation
 	ReplicationReplicationDetailsHandler replication.ReplicationDetailsHandler
+	// RevectorizationRevectorizationHandler sets the operation handler for the revectorization operation
+	RevectorizationRevectorizationHandler revectorization.RevectorizationHandler
 	// AuthzRevokeRoleFromGroupHandler sets the operation handler for the revoke role from group operation
 	AuthzRevokeRoleFromGroupHandler authz.RevokeRoleFromGroupHandler
 	// AuthzRevokeRoleFromUserHandler sets the operation handler for the revoke role from user operation
@@ -792,6 +798,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ReplicationReplicationDetailsHandler == nil {
 		unregistered = append(unregistered, "replication.ReplicationDetailsHandler")
+	}
+	if o.RevectorizationRevectorizationHandler == nil {
+		unregistered = append(unregistered, "revectorization.RevectorizationHandler")
 	}
 	if o.AuthzRevokeRoleFromGroupHandler == nil {
 		unregistered = append(unregistered, "authz.RevokeRoleFromGroupHandler")
@@ -1189,6 +1198,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/replication/replicate/{id}"] = replication.NewReplicationDetails(o.context, o.ReplicationReplicationDetailsHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/revectorization/{collectionName}/{targetVector}"] = revectorization.NewRevectorization(o.context, o.RevectorizationRevectorizationHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

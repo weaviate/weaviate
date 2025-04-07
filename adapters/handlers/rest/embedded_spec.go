@@ -3557,6 +3557,38 @@ func init() {
         ]
       }
     },
+    "/revectorization/{collectionName}/{targetVector}": {
+      "post": {
+        "tags": [
+          "revectorization"
+        ],
+        "operationId": "revectorization",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "TODO",
+            "name": "collectionName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "TODO",
+            "name": "targetVector",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revectorization process successfully started",
+            "schema": {
+              "$ref": "#/definitions/RevectorizationStatusResponse"
+            }
+          }
+        }
+      }
+    },
     "/schema": {
       "get": {
         "description": "Fetch an array of all collection definitions from the schema.",
@@ -6858,6 +6890,28 @@ func init() {
         },
         "Path": {
           "description": "Path within the bucket",
+          "type": "string"
+        }
+      }
+    },
+    "RevectorizationStatusResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "description": "TODO",
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "CANCELLED",
+            "FINISHED"
+          ]
+        },
+        "taskID": {
+          "description": "TODO",
+          "type": "string"
+        },
+        "taskType": {
+          "description": "TODO",
           "type": "string"
         }
       }
@@ -11157,6 +11211,38 @@ func init() {
         ]
       }
     },
+    "/revectorization/{collectionName}/{targetVector}": {
+      "post": {
+        "tags": [
+          "revectorization"
+        ],
+        "operationId": "revectorization",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "TODO",
+            "name": "collectionName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "TODO",
+            "name": "targetVector",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revectorization process successfully started",
+            "schema": {
+              "$ref": "#/definitions/RevectorizationStatusResponse"
+            }
+          }
+        }
+      }
+    },
     "/schema": {
       "get": {
         "description": "Fetch an array of all collection definitions from the schema.",
@@ -14761,6 +14847,28 @@ func init() {
         },
         "Path": {
           "description": "Path within the bucket",
+          "type": "string"
+        }
+      }
+    },
+    "RevectorizationStatusResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "description": "TODO",
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "CANCELLED",
+            "FINISHED"
+          ]
+        },
+        "taskID": {
+          "description": "TODO",
+          "type": "string"
+        },
+        "taskType": {
+          "description": "TODO",
           "type": "string"
         }
       }

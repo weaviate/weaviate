@@ -775,6 +775,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger)
 	replicationHandlers.SetupHandlers(api, appState.ClusterService.Raft, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
+	setupRevectorizationHandlers(api, appState.ClusterService.Raft)
 
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, appState.Logger)
 

@@ -60,6 +60,9 @@ type schema struct {
 	mu      sync.RWMutex
 	classes map[string]*metaClass
 
+	tasksMu sync.RWMutex
+	tasks   []*distributedTask
+
 	// metrics
 	// collectionsCount represents the number of collections on this specific node.
 	collectionsCount prometheus.Gauge
@@ -535,6 +538,18 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return classesCopy
 }
 
+func (s *schema) distributedTasks() []*distributedTask {
+	s.tasksMu.RLock()
+	defer s.tasksMu.RUnlock()
+
+	// do a proper deep copy
+	data, _ := json.Marshal(s.tasks)
+	var tasks []*distributedTask
+	_ = json.Unmarshal(data, &tasks)
+
+	return tasks
+}
+
 func (s *schema) Restore(r io.Reader, parser Parser) error {
 	snap := snapshot{}
 	if err := json.NewDecoder(r).Decode(&snap); err != nil {
@@ -548,6 +563,13 @@ func (s *schema) Restore(r io.Reader, parser Parser) error {
 	}
 
 	s.replaceClasses(snap.Classes)
+
+	// TODO: refactor to something nicer
+	s.tasksMu.Lock()
+	s.tasks = snap.Tasks
+	s.tasksMu.Unlock()
+	// TODO: do we need to notify the manager
+
 	return nil
 }
 
@@ -560,6 +582,7 @@ func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
 		NodeID:     s.nodeID,
 		SnapshotID: sink.ID(),
 		Classes:    s.MetaClasses(),
+		Tasks:      s.distributedTasks(),
 	}
 	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
 		return fmt.Errorf("encode: %w", err)

@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/hashicorp/raft"
@@ -240,7 +241,28 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
 		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		f = func() {
+			ret.Error = st.schemaManager.AddDistributedTask(&cmd, schemaOnly)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCELLED:
+		f = func() {
+			ret.Error = st.schemaManager.CancelDistributedTask(&cmd, schemaOnly)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_NODE_FINISHED:
+		numberOfNodesStr, ok := st.raft.Stats()["num_peers"]
+		if !ok {
+			panic("Aaaahhhh!!!!")
+		}
 
+		numberOfNodes, err := strconv.Atoi(numberOfNodesStr)
+		if err != nil {
+			panic(fmt.Errorf("again: Aaaahhhh!!!! %w", err))
+		}
+
+		f = func() {
+			ret.Error = st.schemaManager.DistributedTaskFinishedByTheNode(&cmd, numberOfNodes, schemaOnly)
+		}
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
