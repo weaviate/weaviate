@@ -29,7 +29,7 @@ func TestNamedVectors_Cluster(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("tests", test_suits.AllTests(endpoint))
+	t.Run("tests", test_suits.AllTests(endpoint, false))
 	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
 }
 
@@ -41,7 +41,7 @@ func TestNamedVectors_Cluster_AsyncIndexing(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("tests", test_suits.AllTests(endpoint))
+	t.Run("tests", test_suits.AllTests(endpoint, true))
 	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
 }
 
