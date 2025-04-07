@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func testColBERT(host string) func(t *testing.T) {
+func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
@@ -658,7 +658,12 @@ func testColBERT(host string) func(t *testing.T) {
 				// Weaviate overrides the multivector setting if it finds that someone has enabled
 				// multi vector vectorizer
 				require.Error(t, err)
-				assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"dynamic\", only supported type is hnsw`)
+
+				if asyncIndexingEnabled {
+					assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"dynamic\", only supported type is hnsw`)
+				} else {
+					assert.ErrorContains(t, err, `the dynamic index can only be created under async indexing environment`)
+				}
 			})
 		})
 
