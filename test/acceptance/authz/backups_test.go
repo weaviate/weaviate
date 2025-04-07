@@ -82,7 +82,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(testRoleName),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.ReadRoles), Backups: &models.PermissionBackups{Collection: String(testRoleName)}},
+				{Action: String(authorization.ReadRoles), Backups: &models.PermissionBackups{Collection: String("IDoNotExist")}},
 			},
 		})
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)

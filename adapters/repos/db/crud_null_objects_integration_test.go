@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -169,6 +170,7 @@ func createClassWithEverything(IndexNullState bool, IndexPropertyLength bool) *m
 			},
 			IndexNullState:      IndexNullState,
 			IndexPropertyLength: IndexPropertyLength,
+			UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 		},
 		Class: "EverythingClass",
 		Properties: []*models.Property{

@@ -289,7 +289,7 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 		require.NotNil(t, resp[0].Result)
 		require.Nil(t, resp[0].Result.Errors)
 		require.NotNil(t, resp[0].Object)
-		assert.True(t, len(resp[0].Object.Vector) > 0)
+		require.NotEmpty(t, resp[0].Object.Vectors)
 
 		objs, err := c.Data().ObjectsGetter().WithClassName(className).Do(ctx)
 		require.Nil(t, err)
@@ -297,5 +297,74 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 
 		err = c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 		require.Nil(t, err)
+	})
+}
+
+func TestAutoschemaCreatesDefaultNamedVector(t *testing.T) {
+	className := "TestClass"
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.NoError(t, err)
+
+	verifySchemaAndObject := func(t *testing.T) {
+		class, err := c.Schema().ClassGetter().WithClassName(className).Do(ctx)
+		require.NoError(t, err)
+
+		// verify legacy vector is not created in the schema
+		require.Empty(t, class.Vectorizer)
+		require.Empty(t, class.VectorIndexType)
+		require.Nil(t, class.VectorIndexConfig)
+
+		require.Len(t, class.VectorConfig, 1)
+		indexCfg, ok := class.VectorConfig["default"]
+		require.True(t, ok)
+
+		require.Contains(t, indexCfg.Vectorizer.(map[string]any), "text2vec-contextionary")
+		require.NotEmpty(t, indexCfg.VectorIndexConfig.(map[string]any))
+
+		objWrapper, err := c.Data().ObjectsGetter().
+			WithClassName(className).
+			WithID(UUID1).
+			WithVector().
+			Do(ctx)
+		require.NoError(t, err)
+		require.Len(t, objWrapper, 1)
+
+		obj := objWrapper[0]
+		require.Nil(t, obj.Vector)
+		require.Len(t, obj.Vectors["default"], 300)
+	}
+
+	t.Run("single object insertion", func(t *testing.T) {
+		require.NoError(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
+
+		_, err = c.Data().Creator().
+			WithClassName(className).
+			WithID(UUID1).
+			WithProperties(map[string]any{
+				"text": "some text",
+			}).
+			Do(ctx)
+		require.NoError(t, err)
+
+		verifySchemaAndObject(t)
+	})
+
+	t.Run("batch object insertion", func(t *testing.T) {
+		require.NoError(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
+
+		result, err := c.Batch().ObjectsBatcher().
+			WithObjects(&models.Object{
+				Class: className,
+				ID:    UUID1,
+				Properties: map[string]interface{}{
+					"text": "some text",
+				},
+			}).
+			Do(ctx)
+		require.NoError(t, err)
+		for _, r := range result {
+			require.Empty(t, r.Result.Errors)
+		}
+		verifySchemaAndObject(t)
 	})
 }

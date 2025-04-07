@@ -22,12 +22,18 @@ func TestValidatePermissions(t *testing.T) {
 	tests := []struct {
 		name        string
 		permissions []*models.Permission
+		allowEmpty  bool
 		expectedErr string
 	}{
 		{
-			name:        "no permissions",
+			name:        "no permissions - not allowed",
 			permissions: []*models.Permission{},
 			expectedErr: "role has to have at least 1 permission",
+		},
+		{
+			name:        "no permissions - allowed",
+			permissions: []*models.Permission{},
+			allowEmpty:  true,
 		},
 		{
 			name: "invalid collection name with space",
@@ -151,7 +157,7 @@ func TestValidatePermissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validatePermissions(tt.permissions...)
+			err := validatePermissions(tt.allowEmpty, tt.permissions...)
 			if tt.expectedErr != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErr)

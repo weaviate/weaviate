@@ -13,11 +13,14 @@ package replication
 
 import (
 	"errors"
+	"fmt"
+	"strconv"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -50,4 +53,75 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}).Info("replicate operation registered")
 
 	return replication.NewReplicateOK()
+}
+
+func (h *replicationHandler) getReplicationDetailsByReplicationId(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
+		return h.handleForbiddenError(err)
+	}
+
+	id, err := strconv.ParseUint(params.ID, 10, 64)
+	if err != nil {
+		return h.handleMalformedRequestError(params.ID, err)
+	}
+
+	response, err := h.replicationDetailsProvider.GetReplicationDetailsByReplicationId(id)
+	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+		return h.handleOperationNotFoundError(params.ID, err)
+	} else if err != nil {
+		return h.handleInternalServerError(params.ID, err)
+	}
+
+	return h.handleReplicationDetailsResponse(response)
+}
+
+func (h *replicationHandler) handleReplicationDetailsResponse(response api.ReplicationDetailsResponse) *replication.ReplicationDetailsOK {
+	idAsString := strconv.FormatUint(response.Id, 10)
+	return replication.NewReplicationDetailsOK().WithPayload(&models.ReplicationReplicateDetailsReplicaResponse{
+		ID:           &idAsString,
+		Collection:   &response.Collection,
+		ShardID:      &response.ShardId,
+		SourceNodeID: &response.SourceNodeId,
+		TargetNodeID: &response.TargetNodeId,
+		Status:       &response.Status,
+	})
+}
+
+func (h *replicationHandler) handleForbiddenError(err error) middleware.Responder {
+	return replication.NewReplicationDetailsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("access denied: %w", err)))
+}
+
+func (h *replicationHandler) handleMalformedRequestError(id string, err error) middleware.Responder {
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "replication_details",
+		"id":     id,
+		"error":  err,
+	}).Debug("malformed request for replication operation")
+
+	return replication.NewReplicationDetailsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(
+		fmt.Errorf("malformed request for replication operation with id '%s'", id)))
+}
+
+func (h *replicationHandler) handleOperationNotFoundError(id string, err error) middleware.Responder {
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "replication_details",
+		"id":     id,
+		"error":  err,
+	}).Debug("replication operation not found")
+
+	return replication.NewReplicationDetailsNotFound()
+}
+
+func (h *replicationHandler) handleInternalServerError(id string, err error) middleware.Responder {
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "replication_details",
+		"id":     id,
+		"error":  err,
+	}).Error("error while retrieving replication operation details")
+
+	return replication.NewReplicationDetailsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(
+		fmt.Errorf("error while retrieving details for replication operation id '%s': %w", id, err)))
 }

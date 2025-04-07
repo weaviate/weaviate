@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -159,6 +160,7 @@ func Test_AddClass(t *testing.T) {
 			Bm25:                   expectedBM25Config,
 			CleanupIntervalSeconds: 60,
 			Stopwords:              expectedStopwordConfig,
+			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -176,7 +178,8 @@ func Test_AddClass(t *testing.T) {
 		class := models.Class{
 			Class: "NewClass",
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				Bm25: expectedBM25Config,
+				Bm25:              expectedBM25Config,
+				UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 			},
 			Vectorizer: "none",
 		}
@@ -191,6 +194,7 @@ func Test_AddClass(t *testing.T) {
 			Bm25:                   expectedBM25Config,
 			CleanupIntervalSeconds: 60,
 			Stopwords:              expectedStopwordConfig,
+			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -487,6 +491,62 @@ func Test_AddClassWithLimits(t *testing.T) {
 					require.Nil(t, err)
 				}
 				fakeSchemaManager.AssertExpectations(t)
+			})
+		}
+	})
+
+	t.Run("adding dynamic index", func(t *testing.T) {
+		for _, tt := range []struct {
+			name                 string
+			asyncIndexingEnabled bool
+
+			expectError string
+		}{
+			{
+				name:                 "async indexing disabled",
+				asyncIndexingEnabled: false,
+
+				expectError: "the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)",
+			},
+			{
+				name:                 "async indexing enabled",
+				asyncIndexingEnabled: true,
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				handler, schemaManager := newTestHandler(t, &fakeDB{})
+				handler.asyncIndexingEnabled = tt.asyncIndexingEnabled
+
+				if tt.expectError == "" {
+					schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+					schemaManager.On("QueryCollectionsCount").Return(0, nil)
+					defer schemaManager.AssertExpectations(t)
+				}
+
+				assertError := func(err error) {
+					if tt.expectError != "" {
+						require.ErrorContains(t, err, tt.expectError)
+					} else {
+						require.NoError(t, err)
+					}
+				}
+
+				_, _, err := handler.AddClass(ctx, nil, &models.Class{
+					Class:           "NewClass",
+					VectorIndexType: "dynamic",
+				})
+				assertError(err)
+
+				_, _, err = handler.AddClass(ctx, nil, &models.Class{
+					Class: "NewClass",
+					VectorConfig: map[string]models.VectorConfig{
+						"vec1": {
+							VectorIndexType: "dynamic",
+							Vectorizer:      map[string]any{"text2vec-contextionary": map[string]any{}},
+						},
+					},
+				})
+				assertError(err)
 			})
 		}
 	})
@@ -1320,6 +1380,7 @@ func Test_UpdateClass(t *testing.T) {
 					Vectorizer: "none",
 					InvertedIndexConfig: &models.InvertedIndexConfig{
 						CleanupIntervalSeconds: 17,
+						UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 					},
 				},
 				update: &models.Class{
@@ -1331,6 +1392,7 @@ func Test_UpdateClass(t *testing.T) {
 							K1: config.DefaultBM25k1,
 							B:  config.DefaultBM25b,
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 			},
@@ -1345,6 +1407,7 @@ func Test_UpdateClass(t *testing.T) {
 							K1: 1.012,
 							B:  0.125,
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 				update: &models.Class{
@@ -1356,6 +1419,7 @@ func Test_UpdateClass(t *testing.T) {
 							K1: 1.012,
 							B:  0.125,
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 			},
@@ -1369,6 +1433,7 @@ func Test_UpdateClass(t *testing.T) {
 						Stopwords: &models.StopwordConfig{
 							Preset: "en",
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 				update: &models.Class{
@@ -1381,6 +1446,7 @@ func Test_UpdateClass(t *testing.T) {
 							Additions: []string{"banana", "passionfruit", "kiwi"},
 							Removals:  []string{"a", "the"},
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 			},
@@ -1765,7 +1831,7 @@ func Test_UpdateClass(t *testing.T) {
 					Vectorizer:      "text2vec-contextionary",
 					VectorIndexType: hnswT,
 					VectorConfig: map[string]models.VectorConfig{
-						schema.DefaultNamedVectorName: {
+						modelsext.DefaultNamedVectorName: {
 							VectorIndexType: hnswT,
 							Vectorizer: map[string]interface{}{
 								"text2vec-contextionary": map[string]interface{}{},
@@ -1773,7 +1839,7 @@ func Test_UpdateClass(t *testing.T) {
 						},
 					},
 				},
-				expectedError: fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", schema.DefaultNamedVectorName),
+				expectedError: fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", modelsext.DefaultNamedVectorName),
 			},
 		}
 

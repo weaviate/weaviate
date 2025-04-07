@@ -19,7 +19,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/meta"
@@ -56,7 +56,7 @@ func CreateClass(t *testing.T, class *models.Class) {
 
 	// if the schema has mixed vectors, we have to create it in two steps as single step creation is forbidden
 	var capturedVectorConfig map[string]models.VectorConfig
-	if schemachecks.HasLegacyVectorIndex(class) && class.VectorConfig != nil {
+	if modelsext.ClassHasLegacyVectorIndex(class) && class.VectorConfig != nil {
 		capturedVectorConfig = class.VectorConfig
 		class.VectorConfig = nil
 	}

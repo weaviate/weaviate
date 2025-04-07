@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -25,12 +27,13 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ  authorization.Controller
-	logger logrus.FieldLogger
+	authZ       authorization.Controller
+	authNconfig config.Authentication
+	logger      logrus.FieldLogger
 }
 
-func NewManager(authZ authorization.Controller, logger logrus.FieldLogger) *Manager {
-	return &Manager{authZ: authZ, logger: logger}
+func NewManager(authZ authorization.Controller, authNconfig config.Authentication, logger logrus.FieldLogger) *Manager {
+	return &Manager{authZ: authZ, authNconfig: authNconfig, logger: logger}
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
@@ -191,7 +194,7 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	reqs := migrateAssignRoles(req)
+	reqs := migrateAssignRoles(req, m.authNconfig)
 	for _, req := range reqs {
 		if err := m.authZ.AddRolesForUser(req.User, req.Roles); err != nil {
 			return err

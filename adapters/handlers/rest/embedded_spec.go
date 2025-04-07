@@ -3503,6 +3503,60 @@ func init() {
         ]
       }
     },
+    "/replication/replicate/{id}": {
+      "get": {
+        "description": "Returns the details of a replication operation for a given shard, identified by the provided replication operation id.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the details of a replication operation.",
+        "operationId": "replicationDetails",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The replication operation id to get details for.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The details of the replication operation.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.details"
+        ]
+      }
+    },
     "/schema": {
       "get": {
         "description": "Fetch an array of all collection definitions from the schema.",
@@ -5564,6 +5618,14 @@ func init() {
           "description": "activity status of the returned user",
           "type": "boolean"
         },
+        "createdAt": {
+          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
         "dbUserType": {
           "description": "type of the returned user",
           "type": "string",
@@ -5782,6 +5844,10 @@ func init() {
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
+        },
+        "usingBlockMaxWAND": {
+          "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
+          "type": "boolean"
         }
       }
     },
@@ -6694,6 +6760,50 @@ func init() {
         },
         "shardId": {
           "description": "The shard id holding the replica to be disabled",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaResponse": {
+      "description": "The current status and details of a replication operation, including information about the resources involved in the replication process.",
+      "required": [
+        "id",
+        "shardId",
+        "sourceNodeId",
+        "targetNodeId",
+        "collection",
+        "status"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The name of the collection holding data being replicated.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The id of the shard to collect replication details for.",
+          "type": "string"
+        },
+        "sourceNodeId": {
+          "description": "The id of the node where the source replica is allocated.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
+          "type": "string",
+          "enum": [
+            "READY",
+            "INDEXING",
+            "REPLICATION_FINALIZING",
+            "REPLICATION_HYDRATING",
+            "REPLICATION_DEHYDRATING"
+          ]
+        },
+        "targetNodeId": {
+          "description": "The id of the node where the target replica is allocated.",
           "type": "string"
         }
       }
@@ -10993,6 +11103,60 @@ func init() {
         ]
       }
     },
+    "/replication/replicate/{id}": {
+      "get": {
+        "description": "Returns the details of a replication operation for a given shard, identified by the provided replication operation id.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the details of a replication operation.",
+        "operationId": "replicationDetails",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The replication operation id to get details for.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The details of the replication operation.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.details"
+        ]
+      }
+    },
     "/schema": {
       "get": {
         "description": "Fetch an array of all collection definitions from the schema.",
@@ -13209,6 +13373,14 @@ func init() {
           "description": "activity status of the returned user",
           "type": "boolean"
         },
+        "createdAt": {
+          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
         "dbUserType": {
           "description": "type of the returned user",
           "type": "string",
@@ -13448,6 +13620,10 @@ func init() {
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
+        },
+        "usingBlockMaxWAND": {
+          "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
+          "type": "boolean"
         }
       }
     },
@@ -14487,6 +14663,50 @@ func init() {
         },
         "shardId": {
           "description": "The shard id holding the replica to be disabled",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaResponse": {
+      "description": "The current status and details of a replication operation, including information about the resources involved in the replication process.",
+      "required": [
+        "id",
+        "shardId",
+        "sourceNodeId",
+        "targetNodeId",
+        "collection",
+        "status"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The name of the collection holding data being replicated.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The id of the shard to collect replication details for.",
+          "type": "string"
+        },
+        "sourceNodeId": {
+          "description": "The id of the node where the source replica is allocated.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
+          "type": "string",
+          "enum": [
+            "READY",
+            "INDEXING",
+            "REPLICATION_FINALIZING",
+            "REPLICATION_HYDRATING",
+            "REPLICATION_DEHYDRATING"
+          ]
+        },
+        "targetNodeId": {
+          "description": "The id of the node where the target replica is allocated.",
           "type": "string"
         }
       }

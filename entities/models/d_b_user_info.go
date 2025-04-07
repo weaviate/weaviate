@@ -35,6 +35,10 @@ type DBUserInfo struct {
 	// Required: true
 	Active *bool `json:"active"`
 
+	// Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+	// Format: date-time
+	CreatedAt strfmt.DateTime `json:"createdAt,omitempty"`
+
 	// type of the returned user
 	// Required: true
 	// Enum: [db_user db_env_user]
@@ -54,6 +58,10 @@ func (m *DBUserInfo) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateActive(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateCreatedAt(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -78,6 +86,18 @@ func (m *DBUserInfo) Validate(formats strfmt.Registry) error {
 func (m *DBUserInfo) validateActive(formats strfmt.Registry) error {
 
 	if err := validate.Required("active", "body", m.Active); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *DBUserInfo) validateCreatedAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.CreatedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("createdAt", "body", "date-time", m.CreatedAt.String(), formats); err != nil {
 		return err
 	}
 

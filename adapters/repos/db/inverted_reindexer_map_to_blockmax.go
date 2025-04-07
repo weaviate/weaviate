@@ -29,10 +29,63 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	schema "github.com/weaviate/weaviate/usecases/schema"
 )
+
+func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
+	swapBuckets, unswapBuckets, tidyBuckets, rollback bool,
+	processingDuration, pauseDuration time.Duration, concurrency int,
+	schemaManager *schema.Manager,
+) *ShardReindexTask_MapToBlockmax {
+	name := "MapToBlockmax"
+	keyParser := &uuidKeyParser{}
+	objectsIteratorAsync := uuidObjectsIteratorAsync
+
+	logger = logger.WithField("task", name)
+	newReindexTracker := func(lsmPath string) (mapToBlockmaxReindexTracker, error) {
+		rt := newFileMapToBlockmaxReindexTracker(lsmPath, keyParser)
+		if err := rt.init(); err != nil {
+			return nil, err
+		}
+		return rt, nil
+	}
+
+	config := mapToBlockmaxConfig{
+		swapBuckets:                   swapBuckets,
+		unswapBuckets:                 unswapBuckets,
+		tidyBuckets:                   tidyBuckets,
+		rollback:                      rollback,
+		concurrency:                   concurrency,
+		memtableOptBlockmaxFactor:     4,
+		processingDuration:            processingDuration,
+		pauseDuration:                 pauseDuration,
+		checkProcessingEveryNoObjects: 1000,
+	}
+
+	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("task created")
+
+	return &ShardReindexTask_MapToBlockmax{
+		name:                 name,
+		logger:               logger,
+		newReindexTracker:    newReindexTracker,
+		keyParser:            keyParser,
+		objectsIteratorAsync: objectsIteratorAsync,
+		schemaManager:        schemaManager,
+		config:               config,
+	}
+}
+
+type ShardReindexTask_MapToBlockmax struct {
+	name                 string
+	logger               logrus.FieldLogger
+	newReindexTracker    func(lsmPath string) (mapToBlockmaxReindexTracker, error)
+	keyParser            indexKeyParser
+	objectsIteratorAsync objectsIteratorAsync
+	config               mapToBlockmaxConfig
+	schemaManager        *schema.Manager
+}
 
 type mapToBlockmaxConfig struct {
 	swapBuckets                   bool
@@ -46,82 +99,24 @@ type mapToBlockmaxConfig struct {
 	checkProcessingEveryNoObjects int
 }
 
-type ShardInvertedReindexTask_MapToBlockmax struct {
-	logger               logrus.FieldLogger
-	newReindexTracker    func(lsmPath string) (reindexTracker, error)
-	keyParser            indexKeyParser
-	objectsIteratorAsync objectsIteratorAsync
-	config               mapToBlockmaxConfig
+func (t *ShardReindexTask_MapToBlockmax) Name() string {
+	return t.name
 }
 
-func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
-	swapBuckets, unswapBuckets, tidyBuckets, rollback bool,
-	processingDuration, pauseDuration time.Duration,
-) *ShardInvertedReindexTask_MapToBlockmax {
-	keyParser := &uuidKeyParser{}
-	objectsIteratorAsync := uuidObjectsIteratorAsync
-
-	logger = logger.WithField("task", "MapToBlockmax")
-	newReindexTracker := func(lsmPath string) (reindexTracker, error) {
-		rt := newFileReindexTracker(lsmPath, keyParser)
-		if err := rt.init(); err != nil {
-			return nil, err
-		}
-		return rt, nil
-	}
-
-	return &ShardInvertedReindexTask_MapToBlockmax{
-		logger:               logger,
-		newReindexTracker:    newReindexTracker,
-		keyParser:            keyParser,
-		objectsIteratorAsync: objectsIteratorAsync,
-		config: mapToBlockmaxConfig{
-			swapBuckets:                   swapBuckets,
-			unswapBuckets:                 unswapBuckets,
-			tidyBuckets:                   tidyBuckets,
-			rollback:                      rollback,
-			concurrency:                   concurrency.NUMCPU_2,
-			memtableOptBlockmaxFactor:     4,
-			processingDuration:            processingDuration,
-			pauseDuration:                 pauseDuration,
-			checkProcessingEveryNoObjects: 1000,
-		},
-	}
-}
-
-func (t *ShardInvertedReindexTask_MapToBlockmax) HasOnBefore() bool {
-	return true
-}
-
-func (t *ShardInvertedReindexTask_MapToBlockmax) OnBefore(ctx context.Context) (err error) {
-	logger := t.logger.WithField("method", "OnBefore")
-	logger.Debug("starting")
-	defer func(started time.Time) {
-		logger = logger.WithField("took", time.Since(started))
-		if err != nil {
-			logger.WithError(err).Error("finished with error")
-		} else {
-			logger.Debug("finished")
-		}
-	}(time.Now())
-
-	return nil
-}
-
-func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Context, shard ShardLike) (err error) {
+func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, shard *Shard) (err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
 		"shard":      shard.Name(),
-		"method":     "OnBeforeShard",
+		"method":     "OnBeforeLsmInit",
 	})
-	logger.Debug("starting")
+	logger.Info("starting")
 	defer func(started time.Time) {
 		logger = logger.WithField("took", time.Since(started))
 		if err != nil {
 			logger.WithError(err).Error("finished with error")
 		} else {
-			logger.Debug("finished")
+			logger.Info("finished")
 		}
 	}(time.Now())
 
@@ -131,12 +126,11 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 		return
 	}
 
-	props, err := t.getPropsToReindex(shard, rt)
+	props, err := t.readPropsToReindex(rt)
 	if err != nil {
-		err = fmt.Errorf("getting reindexable props: %w", err)
+		err = fmt.Errorf("reading reindexable props: %w", err)
 		return
 	}
-	logger.WithField("props", props).Debug("props found")
 
 	if t.config.rollback {
 		logger.Debug("rollback started")
@@ -167,49 +161,47 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 	}
 
 	if len(props) == 0 {
+		logger.Debug("no props read. nothing to do")
 		return nil
 	}
 
 	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("context check (1): %w", err)
+		err = fmt.Errorf("context check (1): %w / %w", err, context.Cause(ctx))
 		return
 	}
 
 	isMerged := rt.isMerged()
-	if !isMerged {
-		if rt.isReindexed() {
-			logger.Debug("reindexed, not merged. merging buckets")
+	if !isMerged && rt.isReindexed() {
+		logger.Debug("reindexed, not merged. merging buckets")
 
-			if err = t.mergeReindexAndIngestBuckets(ctx, logger, shard, rt, props); err != nil {
-				err = fmt.Errorf("merging reindex and ingest buckets:%w", err)
-				return
-			}
-			isMerged = true
+		if err = t.mergeReindexAndIngestBuckets(ctx, logger, shard, rt, props); err != nil {
+			err = fmt.Errorf("merging reindex and ingest buckets:%w", err)
+			return
 		}
+		isMerged = true
 	}
 
 	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("context check (2): %w", err)
+		err = fmt.Errorf("context check (2): %w / %w", err, context.Cause(ctx))
 		return
 	}
 
 	isSwapped := rt.isSwapped()
 	isTidied := rt.isTidied()
-
-	if !isSwapped {
-		shard.markSearchableBlockmaxProperties(props...)
-	}
-
 	if isMerged {
 		if isSwapped {
-			if t.config.unswapBuckets && !isTidied {
-				logger.Debug("swapped, not tidied. unswapping buckets")
+			if t.config.unswapBuckets {
+				if isTidied {
+					logger.Debug("swapped and tidied. can not be unswapped")
+				} else {
+					logger.Debug("swapped, not tidied. unswapping buckets")
 
-				if err = t.unswapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
-					err = fmt.Errorf("unswapping ingest and map buckets:%w", err)
-					return
+					if err = t.unswapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
+						err = fmt.Errorf("unswapping ingest and map buckets:%w", err)
+						return
+					}
+					isSwapped = false
 				}
-				isSwapped = false
 			}
 		} else {
 			if t.config.swapBuckets {
@@ -225,44 +217,107 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 	}
 
 	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("context check (3): %w", err)
+		err = fmt.Errorf("context check (3): %w / %w", err, context.Cause(ctx))
 		return
 	}
 
 	if isSwapped {
-		if !isTidied {
-			if t.config.tidyBuckets {
-				logger.Debug("swapped, not tidied. tidying buckets")
+		if isTidied {
+			logger.Debug("tidied. nothing to do")
+			return nil
+		}
 
-				if err = t.tidyMapBuckets(ctx, logger, shard, rt, props); err != nil {
-					err = fmt.Errorf("tidying map buckets:%w", err)
-					return
-				}
-			} else {
-				logger.Debug("swapped, not tidied. starting map buckets")
+		if t.config.tidyBuckets {
+			logger.Debug("swapped, not tidied. tidying buckets")
 
-				if err = t.loadMapSearchBuckets(ctx, logger, shard, props); err != nil {
-					err = fmt.Errorf("starting map buckets:%w", err)
-					return
-				}
-				if err = t.duplicateToMapBuckets(ctx, logger, shard, props); err != nil {
-					err = fmt.Errorf("duplicating map buckets:%w", err)
+			if err = t.tidyMapBuckets(ctx, logger, shard, rt, props); err != nil {
+				err = fmt.Errorf("tidying map buckets:%w", err)
+				return
+			}
+		}
+	}
+
+	return nil
+}
+
+func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, shard *Shard) (err error) {
+	collectionName := shard.Index().Config.ClassName.String()
+	logger := t.logger.WithFields(map[string]any{
+		"collection": collectionName,
+		"shard":      shard.Name(),
+		"method":     "OnAfterLsmInit",
+	})
+	logger.Info("starting")
+	defer func(started time.Time) {
+		logger = logger.WithField("took", time.Since(started))
+		if err != nil {
+			logger.WithError(err).Error("finished with error")
+		} else {
+			logger.Info("finished")
+		}
+	}(time.Now())
+
+	if t.config.rollback {
+		logger.Debug("rollback. nothing to do")
+		return nil
+	}
+
+	rt, err := t.newReindexTracker(shard.pathLSM())
+	if err != nil {
+		err = fmt.Errorf("creating reindex tracker: %w", err)
+		return
+	}
+
+	props, err := t.getPropsToReindex(shard, rt)
+	if err != nil {
+		err = fmt.Errorf("getting reindexable props: %w", err)
+		return
+	}
+	logger.WithField("props", props).Debug("props found")
+	if len(props) == 0 {
+		logger.Debug("no props found. nothing to do")
+		return nil
+	}
+
+	if rt.isSwapped() {
+		if !rt.isTidied() {
+			logger.Debug("swapped, not tidied. starting map buckets")
+
+			if err = t.loadMapSearchBuckets(ctx, logger, shard, props); err != nil {
+				err = fmt.Errorf("starting map buckets:%w", err)
+				return
+			}
+			if err = t.duplicateToMapBuckets(shard, props); err != nil {
+				err = fmt.Errorf("duplicating map buckets:%w", err)
+				return
+			}
+		}
+	} else {
+		isMerged := rt.isMerged()
+		if isMerged {
+			logger.Debug("merged, not swapped. starting ingest buckets")
+		} else {
+			if !rt.isReindexed() {
+				logger.Debug("not reindexed. starting reindex buckets")
+
+				if err = t.loadReindexSearchBuckets(ctx, logger, shard, props); err != nil {
+					err = fmt.Errorf("starting reindex buckets: %w", err)
 					return
 				}
 			}
-		} else {
-			logger.Debug("tidied. nothing to do")
+
+			logger.Debug("not merged. starting ingest buckets")
 		}
-	} else {
-		logger.Debug("merged, not swapped. starting ingest buckets")
+
+		shard.markSearchableBlockmaxProperties(props...)
 
 		// since reindex bucket will be merged into ingest bucket with reindex segments being before ingest,
-		// ingest segments should not be compacted and tombstones kept
+		// ingest segments should not be compacted and tombstones should be kept
 		if err = t.loadIngestSearchBuckets(ctx, logger, shard, props, !isMerged, !isMerged); err != nil {
 			err = fmt.Errorf("starting ingest buckets:%w", err)
 			return
 		}
-		if err = t.duplicateToIngestBuckets(ctx, logger, shard, props); err != nil {
+		if err = t.duplicateToIngestBuckets(shard, props); err != nil {
 			err = fmt.Errorf("duplicating ingest buckets:%w", err)
 			return
 		}
@@ -271,8 +326,169 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) OnBeforeByShard(ctx context.Con
 	return nil
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
+func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
+) (rerunAt time.Time, err error) {
+	collectionName := shard.Index().Config.ClassName.String()
+	logger := t.logger.WithFields(map[string]any{
+		"collection": collectionName,
+		"shard":      shard.Name(),
+		"method":     "OnAfterLsmInitAsync",
+	})
+	logger.Info("starting")
+	defer func(started time.Time) {
+		logger = logger.WithField("took", time.Since(started))
+		if err != nil {
+			logger.WithError(err).Error("finished with error")
+		} else {
+			logger.Info("finished")
+		}
+	}(time.Now())
+
+	zerotime := time.Time{}
+
+	if t.config.rollback {
+		logger.Debug("rollback. nothing to do")
+		return zerotime, nil
+	}
+
+	rt, err := t.newReindexTracker(shard.pathLSM())
+	if err != nil {
+		err = fmt.Errorf("creating reindex tracker: %w", err)
+		return zerotime, err
+	}
+
+	props, err := t.readPropsToReindex(rt)
+	if err != nil {
+		err = fmt.Errorf("reading reindexable props: %w", err)
+		return zerotime, err
+	}
+
+	if rt.isTidied() {
+		err = updateToBlockMaxInvertedIndexConfig(ctx, t.schemaManager, shard.Index().Config.ClassName.String())
+		if err != nil {
+			err = fmt.Errorf("updating inverted index config: %w", err)
+		}
+		return zerotime, err
+	}
+
+	if len(props) == 0 {
+		logger.Debug("no props read. nothing to do")
+		return zerotime, nil
+	}
+
+	if rt.isReindexed() {
+		logger.Debug("reindexed. nothing to do")
+		return zerotime, nil
+	}
+
+	reindexStarted := time.Now()
+	if rt.isStarted() {
+		if reindexStarted, err = rt.getStarted(); err != nil {
+			err = fmt.Errorf("getting reindex started: %w", err)
+			return zerotime, err
+		}
+	} else if err = rt.markStarted(reindexStarted); err != nil {
+		err = fmt.Errorf("marking reindex started: %w", err)
+		return zerotime, err
+	}
+
+	var lastStoredKey indexKey
+	if lastStoredKey, err = rt.getProgress(); err != nil {
+		err = fmt.Errorf("getting reindex progress: %w", err)
+		return zerotime, err
+	}
+
+	logger.WithFields(map[string]any{
+		"last_stored_key": lastStoredKey,
+		"reindex_started": reindexStarted,
+	}).Debug("reindexing")
+
+	if err = ctx.Err(); err != nil {
+		err = fmt.Errorf("context check (1): %w / %w", err, context.Cause(ctx))
+		return zerotime, err
+	}
+
+	processedCount := 0
+	indexedCount := 0
+	lastProcessedKey := lastStoredKey.Clone()
+
+	defer func() {
+		if err != nil && !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
+			logger.WithField("last_processed_key", lastProcessedKey).Debug("marking progress on error")
+			rt.markProgress(lastProcessedKey, processedCount, indexedCount)
+		}
+	}()
+
+	store := shard.Store()
+	propExtraction := storobj.NewPropExtraction()
+	bucketsByPropName := map[string]*lsmkv.Bucket{}
+	for _, prop := range props {
+		propExtraction.Add(prop)
+		bucketName := t.reindexBucketName(prop)
+		bucketsByPropName[prop] = store.Bucket(bucketName)
+	}
+
+	breakCh := make(chan bool, 1)
+	breakCh <- false
+	finished := false
+
+	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
+		propExtraction, reindexStarted, breakCh)
+
+	for md := range mdCh {
+		if md == nil {
+			finished = true
+		} else if md.err != nil {
+			err = md.err
+			return zerotime, err
+		} else if err = ctx.Err(); err != nil {
+			breakCh <- true
+			err = fmt.Errorf("context check (loop): %w / %w", err, context.Cause(ctx))
+			return zerotime, err
+		} else {
+			if len(md.props) > 0 {
+				for _, invprop := range md.props {
+					if bucket, ok := bucketsByPropName[invprop.Name]; ok {
+						propLen := t.calcPropLenInverted(invprop.Items)
+						for _, item := range invprop.Items {
+							pair := shard.pairPropertyWithFrequency(md.docID, item.TermFrequency, propLen)
+							if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
+								breakCh <- true
+								err = fmt.Errorf("adding object '%s' prop '%s': %w", md.key.String(), invprop.Name, err)
+								return zerotime, err
+							}
+						}
+					}
+				}
+				indexedCount++
+			}
+			processedCount++
+			lastProcessedKey = md.key
+
+			// check execution time every X objects processed to close the cursor and pause shard's migration
+			breakCh <- processedCount%t.config.checkProcessingEveryNoObjects == 0 &&
+				time.Since(processingStarted) > t.config.processingDuration
+		}
+	}
+	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
+		if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
+			err = fmt.Errorf("marking reindex progress: %w", err)
+			return zerotime, err
+		}
+		lastStoredKey = lastProcessedKey.Clone()
+	}
+	if finished {
+		if err = rt.markReindexed(); err != nil {
+			err = fmt.Errorf("marking reindexed: %w", err)
+			return zerotime, err
+		}
+		return zerotime, nil
+	}
+	return time.Now().Add(t.config.pauseDuration), nil
+}
+
+func (t *ShardReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ctx context.Context,
+	logger logrus.FieldLogger, shard ShardLike, rt mapToBlockmaxReindexTracker, props []string,
 ) error {
 	lsmPath := shard.pathLSM()
 	segmentPathsToMove := [][2]string{}
@@ -293,7 +509,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ct
 			for {
 				propSegmentPathsToMove, needsRecover, err := t.getSegmentPathsToMove(reindexBucketPath, ingestBucketPath)
 				if err != nil {
-					return fmt.Errorf("buckets %q & %q: %w", reindexBucketName, ingestBucketName, err)
+					return fmt.Errorf("buckets '%s' & '%s': %w", reindexBucketName, ingestBucketName, err)
 				}
 
 				if needsRecover {
@@ -317,7 +533,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ct
 	logger.WithField("segments_to_move", segmentPathsToMove).WithField("buckets_to_remove", bucketPathsToRemove).
 		Debug("merging reindex and ingest buckets")
 
-	eg, gctx = enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	eg, _ = enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	eg.SetLimit(t.config.concurrency)
 	for i := range segmentPathsToMove {
 		i := i
@@ -329,7 +545,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ct
 		return fmt.Errorf("moving segment: %w", err)
 	}
 
-	eg, gctx = enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	eg, _ = enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	eg.SetLimit(t.config.concurrency)
 	for i := range bucketPathsToRemove {
 		i := i
@@ -347,7 +563,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ct
 	return nil
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) getSegmentPathsToMove(bucketPathSrc, bucketPathDst string,
+func (t *ShardReindexTask_MapToBlockmax) getSegmentPathsToMove(bucketPathSrc, bucketPathDst string,
 ) ([][2]string, bool, error) {
 	segmentPaths := [][2]string{}
 	needsRecover := false
@@ -387,71 +603,44 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) getSegmentPathsToMove(bucketPat
 	return segmentPaths, false, nil
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) swapIngestAndMapBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
+func (t *ShardReindexTask_MapToBlockmax) swapIngestAndMapBuckets(ctx context.Context,
+	logger logrus.FieldLogger, shard ShardLike, rt mapToBlockmaxReindexTracker, props []string,
 ) error {
 	lsmPath := shard.pathLSM()
-	store := shard.Store()
-	propsToSwap := make([]string, 0, len(props))
 
-	eg, gctx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	eg, _ := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	eg.SetLimit(t.config.concurrency)
 	for i := range props {
 		propName := props[i]
 
 		if !rt.isSwappedProp(props[i]) {
-			propsToSwap = append(propsToSwap, propName)
-
 			eg.Go(func() error {
 				bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+				bucketPath := filepath.Join(lsmPath, bucketName)
+				ingestBucketName := t.ingestBucketName(propName)
+				ingestBucketPath := filepath.Join(lsmPath, ingestBucketName)
+				mapBucketName := t.mapBucketName(propName)
+				mapBucketPath := filepath.Join(lsmPath, mapBucketName)
 
-				logger.WithField("bucket", bucketName).Debug("shutting down bucket")
-				if err := store.ShutdownBucket(gctx, bucketName); err != nil {
+				logger.WithFields(map[string]any{
+					"bucket":        bucketName,
+					"ingest_bucket": ingestBucketName,
+					"map_bucket":    mapBucketName,
+				}).Debug("swapping buckets")
+
+				if err := os.Rename(bucketPath, mapBucketPath); err != nil {
 					return err
+				}
+				if err := os.Rename(ingestBucketPath, bucketPath); err != nil {
+					return err
+				}
+				if err := rt.markSwappedProp(propName); err != nil {
+					return fmt.Errorf("marking reindex swapped for '%s': %w", propName, err)
 				}
 				return nil
 			})
 		}
 	}
-	if err := eg.Wait(); err != nil {
-		return err
-	}
-
-	logger.Debug("shut down searchable buckets for swap")
-
-	// TODO aliszka:blockmax handle partially swapped buckets?
-	eg, gctx = enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
-	eg.SetLimit(t.config.concurrency)
-	for i := range propsToSwap {
-		propName := propsToSwap[i]
-
-		eg.Go(func() error {
-			bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-			bucketPath := filepath.Join(lsmPath, bucketName)
-			ingestBucketName := t.ingestBucketName(propName)
-			ingestBucketPath := filepath.Join(lsmPath, ingestBucketName)
-			mapBucketName := t.mapBucketName(propName)
-			mapBucketPath := filepath.Join(lsmPath, mapBucketName)
-
-			logger.WithFields(map[string]any{
-				"bucket":        bucketName,
-				"ingest_bucket": ingestBucketName,
-				"map_bucket":    mapBucketName,
-			}).Debug("swapping buckets")
-
-			if err := os.Rename(bucketPath, mapBucketPath); err != nil {
-				return err
-			}
-			if err := os.Rename(ingestBucketPath, bucketPath); err != nil {
-				return err
-			}
-			if err := rt.markSwappedProp(propName); err != nil {
-				return fmt.Errorf("marking reindex swapped for %q: %w", propName, err)
-			}
-			return nil
-		})
-	}
-
 	if err := eg.Wait(); err != nil {
 		return err
 	}
@@ -461,78 +650,47 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) swapIngestAndMapBuckets(ctx con
 
 	logger.Debug("swapped searchable buckets")
 
-	if err := t.loadSwappedSearchBuckets(ctx, logger, shard, props); err != nil {
-		return err
-	}
-	logger.Debug("loaded searchable buckets after swap")
-
 	return nil
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) unswapIngestAndMapBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
+func (t *ShardReindexTask_MapToBlockmax) unswapIngestAndMapBuckets(ctx context.Context,
+	logger logrus.FieldLogger, shard ShardLike, rt mapToBlockmaxReindexTracker, props []string,
 ) error {
 	lsmPath := shard.pathLSM()
-	store := shard.Store()
-	propsToUnswap := make([]string, 0, len(props))
 
-	eg, gctx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	eg, _ := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	eg.SetLimit(t.config.concurrency)
 	for i := range props {
 		propName := props[i]
 
 		if rt.isSwappedProp(props[i]) {
-			propsToUnswap = append(propsToUnswap, propName)
-
 			eg.Go(func() error {
 				bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+				bucketPath := filepath.Join(lsmPath, bucketName)
+				ingestBucketName := t.ingestBucketName(propName)
+				ingestBucketPath := filepath.Join(lsmPath, ingestBucketName)
+				mapBucketName := t.mapBucketName(propName)
+				mapBucketPath := filepath.Join(lsmPath, mapBucketName)
 
-				logger.WithField("bucket", bucketName).Debug("shutting down bucket")
-				if err := store.ShutdownBucket(gctx, bucketName); err != nil {
+				logger.WithFields(map[string]any{
+					"bucket":        bucketName,
+					"ingest_bucket": ingestBucketName,
+					"map_bucket":    mapBucketName,
+				}).Debug("unswapping buckets")
+
+				if err := os.Rename(bucketPath, ingestBucketPath); err != nil {
 					return err
+				}
+				if err := os.Rename(mapBucketPath, bucketPath); err != nil {
+					return err
+				}
+				if err := rt.unmarkSwappedProp(propName); err != nil {
+					return fmt.Errorf("unmarking reindex swapped for '%s': %w", propName, err)
 				}
 				return nil
 			})
 		}
 	}
-	if err := eg.Wait(); err != nil {
-		return err
-	}
-
-	logger.Debug("shut down searchable buckets for unswap")
-
-	eg, gctx = enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
-	eg.SetLimit(t.config.concurrency)
-	for i := range propsToUnswap {
-		propName := propsToUnswap[i]
-
-		eg.Go(func() error {
-			bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-			bucketPath := filepath.Join(lsmPath, bucketName)
-			ingestBucketName := t.ingestBucketName(propName)
-			ingestBucketPath := filepath.Join(lsmPath, ingestBucketName)
-			mapBucketName := t.mapBucketName(propName)
-			mapBucketPath := filepath.Join(lsmPath, mapBucketName)
-
-			logger.WithFields(map[string]any{
-				"bucket":        bucketName,
-				"ingest_bucket": ingestBucketName,
-				"map_bucket":    mapBucketName,
-			}).Debug("unswapping buckets")
-
-			if err := os.Rename(bucketPath, ingestBucketPath); err != nil {
-				return err
-			}
-			if err := os.Rename(mapBucketPath, bucketPath); err != nil {
-				return err
-			}
-			if err := rt.unmarkSwappedProp(propName); err != nil {
-				return fmt.Errorf("unmarking reindex swapped for %q: %w", propName, err)
-			}
-			return nil
-		})
-	}
-
 	if err := eg.Wait(); err != nil {
 		return err
 	}
@@ -542,16 +700,11 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) unswapIngestAndMapBuckets(ctx c
 
 	logger.Debug("unswapped searchable buckets")
 
-	if err := t.loadUnswappedSearchBuckets(ctx, logger, shard, props); err != nil {
-		return err
-	}
-	logger.Debug("loaded searchable buckets after unswap")
-
 	return nil
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) tidyMapBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
+func (t *ShardReindexTask_MapToBlockmax) tidyMapBuckets(ctx context.Context,
+	logger logrus.FieldLogger, shard ShardLike, rt mapToBlockmaxReindexTracker, props []string,
 ) error {
 	lsmPath := shard.pathLSM()
 
@@ -579,14 +732,14 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) tidyMapBuckets(ctx context.Cont
 	return nil
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) loadReindexSearchBuckets(ctx context.Context,
+func (t *ShardReindexTask_MapToBlockmax) loadReindexSearchBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, false, false, t.config.memtableOptBlockmaxFactor)
 	return t.loadBuckets(ctx, logger, shard, props, t.reindexBucketName, bucketOpts)
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) loadIngestSearchBuckets(ctx context.Context,
+func (t *ShardReindexTask_MapToBlockmax) loadIngestSearchBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 	disableCompaction, keepTombstones bool,
 ) error {
@@ -594,28 +747,14 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) loadIngestSearchBuckets(ctx con
 	return t.loadBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) loadMapSearchBuckets(ctx context.Context,
+func (t *ShardReindexTask_MapToBlockmax) loadMapSearchBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyMapCollection, false, false, 1)
 	return t.loadBuckets(ctx, logger, shard, props, t.mapBucketName, bucketOpts)
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) loadSwappedSearchBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string,
-) error {
-	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, false, false, 1)
-	return t.loadBuckets(ctx, logger, shard, props, helpers.BucketSearchableFromPropNameLSM, bucketOpts)
-}
-
-func (t *ShardInvertedReindexTask_MapToBlockmax) loadUnswappedSearchBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string,
-) error {
-	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyMapCollection, false, false, 1)
-	return t.loadBuckets(ctx, logger, shard, props, helpers.BucketSearchableFromPropNameLSM, bucketOpts)
-}
-
-func (t *ShardInvertedReindexTask_MapToBlockmax) loadBuckets(ctx context.Context,
+func (t *ShardReindexTask_MapToBlockmax) loadBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string, bucketNamer func(string) string,
 	bucketOpts []lsmkv.BucketOption,
 ) error {
@@ -643,38 +782,38 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) loadBuckets(ctx context.Context
 	return nil
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) recoverReindexBucket(ctx context.Context,
+func (t *ShardReindexTask_MapToBlockmax) recoverReindexBucket(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, bucketName string,
 ) error {
 	store := shard.Store()
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, true, false, t.config.memtableOptBlockmaxFactor)
 
-	logger.WithField("bucket", bucketName).Debug("loading bucket")
+	logger.WithField("bucket", bucketName).Debug("recover wals, loading bucket")
 	if err := store.CreateOrLoadBucket(ctx, bucketName, bucketOpts...); err != nil {
-		return fmt.Errorf("bucket %q: %w", bucketName, err)
+		return fmt.Errorf("bucket '%s': %w", bucketName, err)
 	}
-	logger.WithField("bucket", bucketName).Debug("shutting down bucket")
+	logger.WithField("bucket", bucketName).Debug("recover wals, shutting down bucket")
 	if err := store.ShutdownBucket(ctx, bucketName); err != nil {
-		return fmt.Errorf("bucket %q: %w", bucketName, err)
+		return fmt.Errorf("bucket '%s': %w", bucketName, err)
 	}
-	logger.WithField("bucket", bucketName).Debug("shut down bucket")
+	logger.WithField("bucket", bucketName).Debug("recover wals, shut down bucket")
 
 	return nil
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) removeReindexBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
+func (t *ShardReindexTask_MapToBlockmax) removeReindexBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
 	shard ShardLike, props []string,
 ) error {
 	return t.removeBucketsDirs(ctx, logger, shard, props, t.reindexBucketName)
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) removeIngestBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
+func (t *ShardReindexTask_MapToBlockmax) removeIngestBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
 	shard ShardLike, props []string,
 ) error {
 	return t.removeBucketsDirs(ctx, logger, shard, props, t.ingestBucketName)
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) removeBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
+func (t *ShardReindexTask_MapToBlockmax) removeBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
 	shard ShardLike, props []string, bucketNamer func(string) string,
 ) error {
 	lsmPath := shard.pathLSM()
@@ -695,28 +834,25 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) removeBucketsDirs(ctx context.C
 	return eg.Wait()
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) duplicateToIngestBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string,
+func (t *ShardReindexTask_MapToBlockmax) duplicateToIngestBuckets(shard *Shard, props []string,
 ) error {
-	return t.duplicateToBuckets(ctx, logger, shard, props, t.ingestBucketName, t.calcPropLenInverted)
+	return t.duplicateToBuckets(shard, props, t.ingestBucketName, t.calcPropLenInverted)
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) duplicateToMapBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string,
+func (t *ShardReindexTask_MapToBlockmax) duplicateToMapBuckets(shard *Shard, props []string,
 ) error {
-	return t.duplicateToBuckets(ctx, logger, shard, props, t.mapBucketName, t.calcPropLenMap)
+	return t.duplicateToBuckets(shard, props, t.mapBucketName, t.calcPropLenMap)
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) duplicateToBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string, bucketNamer func(string) string,
-	calcPropLen func([]inverted.Countable) float32,
+func (t *ShardReindexTask_MapToBlockmax) duplicateToBuckets(shard *Shard, props []string,
+	bucketNamer func(string) string, calcPropLen func([]inverted.Countable) float32,
 ) error {
 	propsByName := map[string]struct{}{}
 	for i := range props {
 		propsByName[props[i]] = struct{}{}
 	}
 
-	shard.RegisterAddToPropertyValueIndex(func(s *Shard, docID uint64, property *inverted.Property) error {
+	shard.registerAddToPropertyValueIndex(func(s *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
 		}
@@ -730,12 +866,12 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) duplicateToBuckets(ctx context.
 		for _, item := range property.Items {
 			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 			if err := s.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
-				return fmt.Errorf("adding prop %q to bucket %q: %w", item.Data, bucketName, err)
+				return fmt.Errorf("adding prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
 			}
 		}
 		return nil
 	})
-	shard.RegisterDeleteFromPropertyValueIndex(func(s *Shard, docID uint64, property *inverted.Property) error {
+	shard.registerDeleteFromPropertyValueIndex(func(s *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
 		}
@@ -747,7 +883,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) duplicateToBuckets(ctx context.
 		bucket := s.store.Bucket(bucketName)
 		for _, item := range property.Items {
 			if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
-				return fmt.Errorf("deleting prop %q from bucket %q: %w", item.Data, bucketName, err)
+				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)
 			}
 		}
 		return nil
@@ -756,23 +892,23 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) duplicateToBuckets(ctx context.
 	return nil
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) isSegmentDb(filename string) bool {
+func (t *ShardReindexTask_MapToBlockmax) isSegmentDb(filename string) bool {
 	return strings.HasPrefix(filename, "segment-") && strings.HasSuffix(filename, ".db")
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) isSegmentBloom(filename string) bool {
+func (t *ShardReindexTask_MapToBlockmax) isSegmentBloom(filename string) bool {
 	return strings.HasPrefix(filename, "segment-") && strings.HasSuffix(filename, ".bloom")
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) isSegmentWal(filename string) bool {
+func (t *ShardReindexTask_MapToBlockmax) isSegmentWal(filename string) bool {
 	return strings.HasPrefix(filename, "segment-") && strings.HasSuffix(filename, ".wal")
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) calcPropLenMap(items []inverted.Countable) float32 {
+func (t *ShardReindexTask_MapToBlockmax) calcPropLenMap(items []inverted.Countable) float32 {
 	return float32(len(items))
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) calcPropLenInverted(items []inverted.Countable) float32 {
+func (t *ShardReindexTask_MapToBlockmax) calcPropLenInverted(items []inverted.Countable) float32 {
 	propLen := float32(0)
 	for _, item := range items {
 		propLen += item.TermFrequency
@@ -780,7 +916,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) calcPropLenInverted(items []inv
 	return propLen
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, strategy string,
+func (t *ShardReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, strategy string,
 	disableCompaction, keepTombstones bool, memtableOptFactor int,
 ) []lsmkv.BucketOption {
 	index := shard.Index()
@@ -809,183 +945,22 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, 
 	return opts
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) ReindexByShard(ctx context.Context, shard ShardLike,
-) (rerunAt time.Time, err error) {
-	collectionName := shard.Index().Config.ClassName.String()
-	logger := t.logger.WithFields(map[string]any{
-		"collection": collectionName,
-		"shard":      shard.Name(),
-		"method":     "ReindexByShard",
-	})
-	logger.Debug("starting")
-	defer func(started time.Time) {
-		logger = logger.WithField("took", time.Since(started))
-		if err != nil {
-			logger.WithError(err).Error("finished with error")
-		} else {
-			logger.Debug("finished")
-		}
-	}(time.Now())
-
-	zerotime := time.Time{}
-
-	if t.config.rollback {
-		return zerotime, nil
-	}
-
-	rt, err := t.newReindexTracker(shard.pathLSM())
-	if err != nil {
-		err = fmt.Errorf("creating reindex tracker: %w", err)
-		return zerotime, err
-	}
-
-	props, err := t.getPropsToReindex(shard, rt)
-	if err != nil {
-		err = fmt.Errorf("getting reindexable props: %w", err)
-		return zerotime, err
-	}
-	logger.WithField("props", props).Debug("props found")
-	if len(props) == 0 {
-		return zerotime, nil
-	}
-
-	if rt.isReindexed() {
-		logger.Debug("reindexed. nothing to do")
-		return zerotime, nil
-	}
-
-	reindexStarted := time.Now()
-	if rt.isStarted() {
-		if reindexStarted, err = rt.getStarted(); err != nil {
-			err = fmt.Errorf("getting reindex started: %w", err)
-			return zerotime, err
-		}
-	} else if err = rt.markStarted(reindexStarted); err != nil {
-		err = fmt.Errorf("marking reindex started: %w", err)
-		return zerotime, err
-	}
-
-	var lastStoredKey indexKey
-	if lastStoredKey, err = rt.getProgress(); err != nil {
-		err = fmt.Errorf("getting reindex progress: %w", err)
-		return zerotime, err
-	}
-
-	logger.WithFields(map[string]any{
-		"last_stored_key": lastStoredKey,
-		"reindex_started": reindexStarted,
-	}).Debug("reindexing")
-
-	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("context check (1): %w", err)
-		return zerotime, err
-	}
-
-	if err = t.loadReindexSearchBuckets(ctx, logger, shard, props); err != nil {
-		err = fmt.Errorf("starting reindex buckets: %w", err)
-		return zerotime, err
-	}
-
-	if err = ctx.Err(); err != nil {
-		err = fmt.Errorf("context check (2): %w", err)
-		return zerotime, err
-	}
-
-	processedCount := 0
-	indexedCount := 0
-	lastProcessedKey := lastStoredKey.Clone()
-
-	defer func() {
-		if err != nil && !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
-			logger.WithField("last_processed_key", lastProcessedKey).Debug("marking progress on error")
-			rt.markProgress(lastProcessedKey, processedCount, indexedCount)
-		}
-	}()
-
-	store := shard.Store()
-	propExtraction := storobj.NewPropExtraction()
-	bucketsByPropName := map[string]*lsmkv.Bucket{}
-	for _, prop := range props {
-		propExtraction.Add(prop)
-		bucketName := t.reindexBucketName(prop)
-		bucketsByPropName[prop] = store.Bucket(bucketName)
-	}
-
-	breakCh := make(chan bool, 1)
-	breakCh <- false
-	finished := false
-
-	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
-		propExtraction, reindexStarted, breakCh)
-
-	for md := range mdCh {
-		if md == nil {
-			finished = true
-		} else if md.err != nil {
-			err = md.err
-			return zerotime, err
-		} else if err = ctx.Err(); err != nil {
-			breakCh <- true
-			err = fmt.Errorf("context check (loop): %w", err)
-			return zerotime, err
-		} else {
-			if len(md.props) > 0 {
-				for _, invprop := range md.props {
-					if bucket, ok := bucketsByPropName[invprop.Name]; ok {
-						propLen := t.calcPropLenInverted(invprop.Items)
-						for _, item := range invprop.Items {
-							pair := shard.pairPropertyWithFrequency(md.docID, item.TermFrequency, propLen)
-							if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
-								breakCh <- true
-								err = fmt.Errorf("adding object %q prop %q: %w", md.key.String(), invprop.Name, err)
-								return zerotime, err
-							}
-						}
-					}
-				}
-				indexedCount++
-			}
-			processedCount++
-			lastProcessedKey = md.key
-
-			// check execution time every X objects processed to close the cursor and pause shard's migration
-			breakCh <- processedCount%t.config.checkProcessingEveryNoObjects == 0 &&
-				time.Since(processingStarted) > t.config.processingDuration
-		}
-	}
-	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
-		if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
-			err = fmt.Errorf("marking reindex progress: %w", err)
-			return zerotime, err
-		}
-		lastStoredKey = lastProcessedKey.Clone()
-	}
-	if finished {
-		if err = rt.markReindexed(); err != nil {
-			err = fmt.Errorf("marking reindexed: %w", err)
-			return zerotime, err
-		}
-		return zerotime, nil
-	}
-	return time.Now().Add(t.config.pauseDuration), nil
-}
-
-func (t *ShardInvertedReindexTask_MapToBlockmax) reindexBucketName(propName string) string {
+func (t *ShardReindexTask_MapToBlockmax) reindexBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName) + "__blockmax_reindex"
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) ingestBucketName(propName string) string {
+func (t *ShardReindexTask_MapToBlockmax) ingestBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName) + "__blockmax_ingest"
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) mapBucketName(propName string) string {
+func (t *ShardReindexTask_MapToBlockmax) mapBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName) + "__blockmax_map"
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) findPropsToReindex(shard ShardLike) []string {
+func (t *ShardReindexTask_MapToBlockmax) findPropsToReindex(shard ShardLike) []string {
 	propNames := []string{}
 	for name, bucket := range shard.Store().GetBucketsByName() {
-		if bucket.Strategy() == lsmkv.StrategyMapCollection && bucket.DesiredStrategy() == lsmkv.StrategyInverted {
+		if bucket.Strategy() == lsmkv.StrategyMapCollection {
 			propName, indexType := GetPropNameAndIndexTypeFromBucketName(name)
 
 			switch indexType {
@@ -999,7 +974,7 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) findPropsToReindex(shard ShardL
 	return propNames
 }
 
-func (t *ShardInvertedReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLike, rt reindexTracker) ([]string, error) {
+func (t *ShardReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLike, rt mapToBlockmaxReindexTracker) ([]string, error) {
 	if rt.hasProps() {
 		props, err := rt.getProps()
 		if err != nil {
@@ -1013,6 +988,19 @@ func (t *ShardInvertedReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLi
 	}
 	return props, nil
 }
+
+func (T *ShardReindexTask_MapToBlockmax) readPropsToReindex(rt mapToBlockmaxReindexTracker) ([]string, error) {
+	if rt.hasProps() {
+		props, err := rt.getProps()
+		if err != nil {
+			return nil, err
+		}
+		return props, nil
+	}
+	return []string{}, nil
+}
+
+// -----------------------------------------------------------------------------
 
 type migrationData struct {
 	key   indexKey
@@ -1052,14 +1040,14 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 			ik := keyParse(k)
 			obj, err := storobj.FromBinaryOptional(v, addProps, propExtraction)
 			if err != nil {
-				mdCh <- &migrationData{err: fmt.Errorf("unmarshalling object %q: %w", ik.String(), err)}
+				mdCh <- &migrationData{err: fmt.Errorf("unmarshalling object '%s': %w", ik.String(), err)}
 				break
 			}
 
 			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
 				props, _, err := shard.AnalyzeObject(obj)
 				if err != nil {
-					mdCh <- &migrationData{err: fmt.Errorf("analyzing object %q: %w", ik.String(), err)}
+					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
 					break
 				}
 
@@ -1084,7 +1072,9 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 	return <-startedCh, mdCh
 }
 
-type reindexTracker interface {
+// -----------------------------------------------------------------------------
+
+type mapToBlockmaxReindexTracker interface {
 	isStarted() bool
 	markStarted(time.Time) error
 	getStarted() (time.Time, error)
@@ -1115,8 +1105,8 @@ type reindexTracker interface {
 	reset() error
 }
 
-func newFileReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReindexTracker {
-	return &fileReindexTracker{
+func newFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser) *fileMapToBlockmaxReindexTracker {
+	return &fileMapToBlockmaxReindexTracker{
 		progressCheckpoint: 1,
 		keyParser:          keyParser,
 		config: fileReindexTrackerConfig{
@@ -1132,7 +1122,7 @@ func newFileReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReinde
 	}
 }
 
-type fileReindexTracker struct {
+type fileMapToBlockmaxReindexTracker struct {
 	progressCheckpoint int
 	keyParser          indexKeyParser
 	config             fileReindexTrackerConfig
@@ -1149,22 +1139,22 @@ type fileReindexTrackerConfig struct {
 	migrationPath      string
 }
 
-func (t *fileReindexTracker) init() error {
+func (t *fileMapToBlockmaxReindexTracker) init() error {
 	if err := os.MkdirAll(t.config.migrationPath, 0o777); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (t *fileReindexTracker) isStarted() bool {
+func (t *fileMapToBlockmaxReindexTracker) isStarted() bool {
 	return t.fileExists(t.config.filenameStarted)
 }
 
-func (t *fileReindexTracker) markStarted(started time.Time) error {
+func (t *fileMapToBlockmaxReindexTracker) markStarted(started time.Time) error {
 	return t.createFile(t.config.filenameStarted, []byte(t.encodeTime(started)))
 }
 
-func (t *fileReindexTracker) getStarted() (time.Time, error) {
+func (t *fileMapToBlockmaxReindexTracker) getStarted() (time.Time, error) {
 	path := t.filepath(t.config.filenameStarted)
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -1173,7 +1163,7 @@ func (t *fileReindexTracker) getStarted() (time.Time, error) {
 	return t.decodeTime(string(content))
 }
 
-func (t *fileReindexTracker) findLastProgressFile() (string, error) {
+func (t *fileMapToBlockmaxReindexTracker) findLastProgressFile() (string, error) {
 	prefix := t.config.filenameProgress + "."
 	expectedLen := len(prefix) + 9 // 9 digits
 
@@ -1194,7 +1184,7 @@ func (t *fileReindexTracker) findLastProgressFile() (string, error) {
 	return lastProgressFilename, err
 }
 
-func (t *fileReindexTracker) markProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error {
+func (t *fileMapToBlockmaxReindexTracker) markProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error {
 	filename := fmt.Sprintf("%s.%09d", t.config.filenameProgress, t.progressCheckpoint)
 	content := strings.Join([]string{
 		t.encodeTime(time.Now()),
@@ -1210,7 +1200,7 @@ func (t *fileReindexTracker) markProgress(lastProcessedKey indexKey, processedCo
 	return nil
 }
 
-func (t *fileReindexTracker) getProgress() (indexKey, error) {
+func (t *fileMapToBlockmaxReindexTracker) getProgress() (indexKey, error) {
 	filename, err := t.findLastProgressFile()
 	if err != nil {
 		return nil, err
@@ -1240,59 +1230,59 @@ func (t *fileReindexTracker) getProgress() (indexKey, error) {
 	return key, nil
 }
 
-func (t *fileReindexTracker) isReindexed() bool {
+func (t *fileMapToBlockmaxReindexTracker) isReindexed() bool {
 	return t.fileExists(t.config.filenameReindexed)
 }
 
-func (t *fileReindexTracker) markReindexed() error {
+func (t *fileMapToBlockmaxReindexTracker) markReindexed() error {
 	return t.createFile(t.config.filenameReindexed, []byte(t.encodeTimeNow()))
 }
 
-func (t *fileReindexTracker) isMerged() bool {
+func (t *fileMapToBlockmaxReindexTracker) isMerged() bool {
 	return t.fileExists(t.config.filenameMerged)
 }
 
-func (t *fileReindexTracker) markMerged() error {
+func (t *fileMapToBlockmaxReindexTracker) markMerged() error {
 	return t.createFile(t.config.filenameMerged, []byte(t.encodeTimeNow()))
 }
 
-func (t *fileReindexTracker) isSwappedProp(propName string) bool {
+func (t *fileMapToBlockmaxReindexTracker) isSwappedProp(propName string) bool {
 	return t.fileExists(t.config.filenameSwapped + "." + propName)
 }
 
-func (t *fileReindexTracker) markSwappedProp(propName string) error {
+func (t *fileMapToBlockmaxReindexTracker) markSwappedProp(propName string) error {
 	return t.createFile(t.config.filenameSwapped+"."+propName, []byte(t.encodeTimeNow()))
 }
 
-func (t *fileReindexTracker) unmarkSwappedProp(propName string) error {
+func (t *fileMapToBlockmaxReindexTracker) unmarkSwappedProp(propName string) error {
 	return t.removeFile(t.config.filenameSwapped + "." + propName)
 }
 
-func (t *fileReindexTracker) isSwapped() bool {
+func (t *fileMapToBlockmaxReindexTracker) isSwapped() bool {
 	return t.fileExists(t.config.filenameSwapped)
 }
 
-func (t *fileReindexTracker) markSwapped() error {
+func (t *fileMapToBlockmaxReindexTracker) markSwapped() error {
 	return t.createFile(t.config.filenameSwapped, []byte(t.encodeTimeNow()))
 }
 
-func (t *fileReindexTracker) unmarkSwapped() error {
+func (t *fileMapToBlockmaxReindexTracker) unmarkSwapped() error {
 	return t.removeFile(t.config.filenameSwapped)
 }
 
-func (t *fileReindexTracker) isTidied() bool {
+func (t *fileMapToBlockmaxReindexTracker) isTidied() bool {
 	return t.fileExists(t.config.filenameTidied)
 }
 
-func (t *fileReindexTracker) markTidied() error {
+func (t *fileMapToBlockmaxReindexTracker) markTidied() error {
 	return t.createFile(t.config.filenameTidied, []byte(t.encodeTimeNow()))
 }
 
-func (t *fileReindexTracker) filepath(filename string) string {
+func (t *fileMapToBlockmaxReindexTracker) filepath(filename string) string {
 	return filepath.Join(t.config.migrationPath, filename)
 }
 
-func (t *fileReindexTracker) fileExists(filename string) bool {
+func (t *fileMapToBlockmaxReindexTracker) fileExists(filename string) bool {
 	if _, err := os.Stat(t.filepath(filename)); err == nil {
 		return true
 	} else if errors.Is(err, os.ErrNotExist) {
@@ -1301,7 +1291,7 @@ func (t *fileReindexTracker) fileExists(filename string) bool {
 	return false
 }
 
-func (t *fileReindexTracker) createFile(filename string, content []byte) error {
+func (t *fileMapToBlockmaxReindexTracker) createFile(filename string, content []byte) error {
 	path := t.filepath(filename)
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
 	if err != nil {
@@ -1316,32 +1306,32 @@ func (t *fileReindexTracker) createFile(filename string, content []byte) error {
 	return nil
 }
 
-func (t *fileReindexTracker) removeFile(filename string) error {
+func (t *fileMapToBlockmaxReindexTracker) removeFile(filename string) error {
 	return os.Remove(t.filepath(filename))
 }
 
-func (t *fileReindexTracker) encodeTimeNow() string {
+func (t *fileMapToBlockmaxReindexTracker) encodeTimeNow() string {
 	return t.encodeTime(time.Now())
 }
 
-func (t *fileReindexTracker) encodeTime(tm time.Time) string {
+func (t *fileMapToBlockmaxReindexTracker) encodeTime(tm time.Time) string {
 	return tm.UTC().Format(time.RFC3339Nano)
 }
 
-func (t *fileReindexTracker) decodeTime(tm string) (time.Time, error) {
+func (t *fileMapToBlockmaxReindexTracker) decodeTime(tm string) (time.Time, error) {
 	return time.Parse(time.RFC3339Nano, tm)
 }
 
-func (t *fileReindexTracker) hasProps() bool {
+func (t *fileMapToBlockmaxReindexTracker) hasProps() bool {
 	return t.fileExists(t.config.filenameProperties)
 }
 
-func (t *fileReindexTracker) saveProps(propNames []string) error {
+func (t *fileMapToBlockmaxReindexTracker) saveProps(propNames []string) error {
 	props := []byte(strings.Join(propNames, ","))
 	return t.createFile(t.config.filenameProperties, props)
 }
 
-func (t *fileReindexTracker) getProps() ([]string, error) {
+func (t *fileMapToBlockmaxReindexTracker) getProps() ([]string, error) {
 	content, err := os.ReadFile(t.filepath(t.config.filenameProperties))
 	if err != nil {
 		return nil, err
@@ -1352,9 +1342,11 @@ func (t *fileReindexTracker) getProps() ([]string, error) {
 	return strings.Split(string(content), ","), nil
 }
 
-func (t *fileReindexTracker) reset() error {
+func (t *fileMapToBlockmaxReindexTracker) reset() error {
 	return os.RemoveAll(t.config.migrationPath)
 }
+
+// -----------------------------------------------------------------------------
 
 type indexKey interface {
 	String() string
@@ -1403,6 +1395,8 @@ func (b uuidBytes) Clone() indexKey {
 // 	copy(buf, b)
 // 	return uint64Bytes(buf)
 // }
+
+// -----------------------------------------------------------------------------
 
 type indexKeyParser interface {
 	FromString(key string) (indexKey, error)

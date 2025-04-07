@@ -46,6 +46,9 @@ type InvertedIndexConfig struct {
 
 	// stopwords
 	Stopwords *StopwordConfig `json:"stopwords,omitempty"`
+
+	// Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).
+	UsingBlockMaxWAND bool `json:"usingBlockMaxWAND,omitempty"`
 }
 
 // Validate validates this inverted index config

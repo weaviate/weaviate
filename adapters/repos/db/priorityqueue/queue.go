@@ -134,6 +134,25 @@ func (q *Queue[T]) InsertWithValue(id uint64, distance float32, val T) int {
 	return q.insert(item)
 }
 
+// DeleteItem deletes item meeting predicate's conditions
+// TODO aliszka optimize?
+func (q *Queue[T]) DeleteItem(match func(item Item[T]) bool) bool {
+	for i := range q.items {
+		if match(q.items[i]) {
+			if i == 0 {
+				q.Pop()
+			} else {
+				last := q.Len() - 1
+				q.items[i] = q.items[last]
+				q.items = q.items[:last]
+				q.heapify(0)
+			}
+			return true
+		}
+	}
+	return false
+}
+
 func (q *Queue[T]) insert(item Item[T]) int {
 	q.items = append(q.items, item)
 	i := len(q.items) - 1

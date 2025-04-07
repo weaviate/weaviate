@@ -16,6 +16,11 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"time"
+
+	"github.com/go-openapi/strfmt"
+
+	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 
@@ -38,6 +43,7 @@ type dynUserHandler struct {
 	dbUsers              DbUserAndRolesGetter
 	staticApiKeysConfigs config.StaticAPIKey
 	rbacConfig           rbacconf.Config
+	adminListConfig      adminlist.Config
 	logger               logrus.FieldLogger
 	dbUserEnabled        bool
 }
@@ -55,15 +61,16 @@ const (
 
 var validateUserNameRegex = regexp.MustCompile(`^` + userNameRegexCore + `$`)
 
-func SetupHandlers(api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, authorizer authorization.Authorizer, authConfig config.Authentication, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
+func SetupHandlers(api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, authorizer authorization.Authorizer, authNConfig config.Authentication, authZConfig config.Authorization, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:           authorizer,
 		dbUsers:              dbUsers,
-		staticApiKeysConfigs: authConfig.APIKey,
-		dbUserEnabled:        authConfig.DBUsers.Enabled,
-		rbacConfig:           rbacConfig,
-		logger:               logger,
+		staticApiKeysConfigs: authNConfig.APIKey,
+		dbUserEnabled:        authNConfig.DBUsers.Enabled,
+		rbacConfig:           authZConfig.Rbac,
+
+		logger: logger,
 	}
 
 	api.UsersCreateUserHandler = users.CreateUserHandlerFunc(h.createUser)
@@ -101,7 +108,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dbUser := range filteredUsers {
-		response, err = h.addToListAllResponse(response, dbUser.Id, string(models.UserTypeOutputDbUser), dbUser.Active)
+		response, err = h.addToListAllResponse(response, dbUser.Id, string(models.UserTypeOutputDbUser), dbUser.Active, &dbUser.CreatedAt)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -109,7 +116,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 
 	if isRootUser {
 		for _, staticUser := range h.staticApiKeysConfigs.Users {
-			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true)
+			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true, nil)
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 			}
@@ -119,7 +126,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool) ([]*models.DBUserInfo, error) {
+func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool, createdAt *time.Time) ([]*models.DBUserInfo, error) {
 	roles, err := h.dbUsers.GetRolesForUser(id, models.UserTypeInputDb)
 	if err != nil {
 		return response, err
@@ -129,12 +136,18 @@ func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id,
 	for role := range roles {
 		roleNames = append(roleNames, role)
 	}
-	response = append(response, &models.DBUserInfo{
+
+	resp := &models.DBUserInfo{
 		Active:     &active,
 		UserID:     &id,
 		DbUserType: &userType,
 		Roles:      roleNames,
-	})
+	}
+	if createdAt != nil {
+		resp.CreatedAt = strfmt.DateTime(*createdAt)
+	}
+
+	response = append(response, resp)
 	return response, nil
 }
 
@@ -147,6 +160,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	isStaticUser := h.isRequestFromRootUser(principal) && h.staticUserExists(params.UserID)
 
 	active := true
+	response := &models.DBUserInfo{UserID: &params.UserID, Active: &active}
 	if !isStaticUser {
 		existingDbUsers, err := h.dbUsers.GetUsers(params.UserID)
 		if err != nil {
@@ -157,7 +171,8 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 			return users.NewGetUserInfoNotFound()
 		}
 		user := existingDbUsers[params.UserID]
-		active = user.Active
+		response.Active = &user.Active
+		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
 	}
 
 	existedRoles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
@@ -169,13 +184,15 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	for roleName := range existedRoles {
 		roles = append(roles, roleName)
 	}
+	response.Roles = roles
 
 	userType := string(models.UserTypeOutputDbUser)
 	if isStaticUser {
 		userType = string(models.UserTypeOutputDbEnvUser)
 	}
+	response.DbUserType = &userType
 
-	return users.NewGetUserInfoOK().WithPayload(&models.DBUserInfo{UserID: &params.UserID, Roles: roles, DbUserType: &userType, Active: &active})
+	return users.NewGetUserInfoOK().WithPayload(response)
 }
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
@@ -195,7 +212,10 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' already exists", params.UserID)))
 	}
 	if h.isRootUser(params.UserID) {
-		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot delete root user")))
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot create db user with root user name")))
+	}
+	if h.isAdminlistUser(params.UserID) {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot create db user with admin list name")))
 	}
 
 	existingUser, err := h.dbUsers.GetUsers(params.UserID)
@@ -234,7 +254,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		count++
 	}
 
-	if err := h.dbUsers.CreateUser(params.UserID, hash, userIdentifier); err != nil {
+	if err := h.dbUsers.CreateUser(params.UserID, hash, userIdentifier, apiKey[:3], time.Now()); err != nil {
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
 	}
 
@@ -415,6 +435,20 @@ func (h *dynUserHandler) staticUserExists(newUser string) bool {
 func (h *dynUserHandler) isRootUser(name string) bool {
 	for i := range h.rbacConfig.RootUsers {
 		if h.rbacConfig.RootUsers[i] == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *dynUserHandler) isAdminlistUser(name string) bool {
+	for i := range h.adminListConfig.Users {
+		if h.adminListConfig.Users[i] == name {
+			return true
+		}
+	}
+	for i := range h.adminListConfig.ReadOnlyUsers {
+		if h.adminListConfig.ReadOnlyUsers[i] == name {
 			return true
 		}
 	}

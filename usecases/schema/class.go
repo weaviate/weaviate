@@ -21,7 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -234,6 +234,12 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	return UpdateClassInternal(h, ctx, className, updated)
+}
+
+// bypass the auth check for internal class update requests
+func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
+) error {
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
@@ -290,7 +296,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	_, err = h.schemaManager.UpdateClass(ctx, updated, shardingState)
+	_, err := h.schemaManager.UpdateClass(ctx, updated, shardingState)
 	return err
 }
 
@@ -325,7 +331,7 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 	// set legacy vector index defaults only when:
 	// 	- no target vectors are configured
 	//  - OR, there are target vectors configured AND there is a legacy vector configured
-	if !hasTargetVectors(class) || schemachecks.HasLegacyVectorIndex(class) {
+	if !hasTargetVectors(class) || modelsext.ClassHasLegacyVectorIndex(class) {
 		if class.Vectorizer == "" {
 			class.Vectorizer = h.config.DefaultVectorizerModule
 		}
@@ -607,7 +613,9 @@ func (h *Handler) validateProperty(
 
 func setInvertedConfigDefaults(class *models.Class) {
 	if class.InvertedIndexConfig == nil {
-		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
+		class.InvertedIndexConfig = &models.InvertedIndexConfig{
+			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
+		}
 	}
 
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
@@ -631,7 +639,7 @@ func setInvertedConfigDefaults(class *models.Class) {
 func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
-	if schemachecks.HasLegacyVectorIndex(class) && len(class.VectorConfig) > 0 {
+	if modelsext.ClassHasLegacyVectorIndex(class) && len(class.VectorConfig) > 0 {
 		return fmt.Errorf("creating a class with both a class level vector index and named vectors is forbidden")
 	}
 
@@ -768,7 +776,7 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 }
 
 func (h *Handler) validateVectorSettings(class *models.Class) error {
-	if schemachecks.HasLegacyVectorIndex(class) {
+	if modelsext.ClassHasLegacyVectorIndex(class) {
 		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
 		}
@@ -819,7 +827,12 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 
 func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 	switch vectorIndexType {
-	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC:
+	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT:
+		return nil
+	case vectorindex.VectorIndexTypeDYNAMIC:
+		if !h.asyncIndexingEnabled {
+			return fmt.Errorf("the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)")
+		}
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
