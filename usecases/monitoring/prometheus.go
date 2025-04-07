@@ -151,7 +151,7 @@ type PrometheusMetrics struct {
 	OpenAIRequestBatchCount  *prometheus.CounterVec
 	OpenAIRequestSize        *prometheus.HistogramVec
 	OpenAIResponseSize       *prometheus.HistogramVec
-	OpenAIResponseStatus	 *prometheus.CounterVec
+	OpenAIResponseStatus     *prometheus.CounterVec
 	OpenAIRequestTokens      *prometheus.HistogramVec
 	OpenAIError              *prometheus.CounterVec
 }

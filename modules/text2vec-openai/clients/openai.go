@@ -193,7 +193,6 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	monitoring.GetMetrics().OpenAIResponseSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(bodyBytes)))
 	monitoring.GetMetrics().OpenAIResponseStatus.WithLabelValues("text2vec", endpoint, strconv.Itoa(res.StatusCode)).Inc()
 
-
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, nil, 0, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
