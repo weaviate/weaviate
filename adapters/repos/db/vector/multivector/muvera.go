@@ -70,7 +70,7 @@ func NewMuveraEncoder(config ent.MuveraConfig) *MuveraEncoder {
 		encoder.S[rep] = initProjectionMatrix(config.DProjections, encoder.config.Dimensions)
 	}
 
-	//encoder.Sfinal = initProjectionMatrix(config.DFinal, config.DProjections*config.NumClusters*config.Repetitions)
+	// encoder.Sfinal = initProjectionMatrix(config.DFinal, config.DProjections*config.NumClusters*config.Repetitions)
 
 	return encoder
 }
@@ -105,17 +105,6 @@ func (e *MuveraEncoder) simHash(vec []float32, gaussians []float32) uint64 {
 		}
 	}
 	return result
-}
-
-func (e *MuveraEncoder) computeMatrixVecProduct(matrix [][]float32, vec []float32, scale float32) []float32 {
-	projectedVec := make([]float32, len(matrix))
-	for i := 0; i < len(matrix); i++ {
-		for j := 0; j < len(matrix[i]); j++ {
-			projectedVec[i] += matrix[i][j] * vec[j]
-		}
-		projectedVec[i] = scale * projectedVec[i]
-	}
-	return projectedVec
 }
 
 func (e *MuveraEncoder) projectVecFlat(vec []float32, dprojections int) []float32 {
@@ -216,7 +205,7 @@ func (e *MuveraEncoder) encode(fullVec [][]float32) ([]float32, []map[uint64]int
 func (e *MuveraEncoder) EncodeQuery(query [][]float32) []float32 {
 	encodedQuery, _ := e.encode(query)
 	projectedQuery := e.projectVecFlat(encodedQuery, e.config.DProjections)
-	//return e.finalProjection(projectedQuery, e.config.DFinal)
+	// return e.finalProjection(projectedQuery, e.config.DFinal)
 	return projectedQuery
 }
 
@@ -276,7 +265,7 @@ func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 		}
 	}
 	projectedDoc := e.projectVecFlat(encodedDoc, e.config.DProjections)
-	//return e.finalProjection(projectedDoc, e.config.DFinal)
+	// return e.finalProjection(projectedDoc, e.config.DFinal)
 	return projectedDoc
 }
 
