@@ -295,7 +295,15 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 		if job.ctx.Err() != nil {
 			for j := objCounter; j < len(job.texts); j++ {
 				if !job.skipObject[j] {
-					job.errs[j] = fmt.Errorf("context deadline exceeded or cancelled")
+					switch job.ctx.Err() {
+					case context.Canceled:
+						job.errs[j] = fmt.Errorf("context cancelled")
+					case context.DeadlineExceeded:
+						job.errs[j] = fmt.Errorf("context deadline exceeded")
+					default:
+						// this should not happen but we need to handle it
+						job.errs[j] = fmt.Errorf("context error: %w", job.ctx.Err())
+					}
 				}
 			}
 			break
