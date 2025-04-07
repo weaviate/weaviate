@@ -152,6 +152,20 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 			})
 		}
 
+		t.Run("multi target search", func(t *testing.T) {
+			res, err := client.GraphQL().Get().WithClassName(class.Class).
+				WithNearText(client.GraphQL().
+					NearTextArgBuilder().
+					WithConcepts([]string{"reading", "book"}).
+					WithTargetVectors("contextionary", modelsext.DefaultNamedVectorName)).
+				WithLimit(1).
+				WithFields(idField).
+				Do(ctx)
+			require.NoError(t, err)
+
+			require.Equal(t, []string{id1}, acceptance_with_go_client.GetIds(t, res, class.Class))
+		})
+
 		t.Run("update object", func(t *testing.T) {
 			vectorsToCheck := []string{"", contextionary}
 
