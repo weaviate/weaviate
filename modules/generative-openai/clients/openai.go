@@ -94,11 +94,7 @@ func (v *openai) GenerateAllResults(ctx context.Context, properties []*modulecap
 }
 
 func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	monitoring.GetMetrics().OpenAIRequests.WithLabelValues("generate", "openai").Inc()
-	startTime := time.Now()
-	defer func() {
-		monitoring.GetMetrics().OpenAIRequestDuration.WithLabelValues("generate", "openai").Observe(time.Since(startTime).Seconds())
-	}()
+
 	params := v.getParameters(cfg, options, imageProperties)
 	isAzure := config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID)
 	debugInformation := v.getDebugInformation(debug, prompt)
@@ -113,12 +109,18 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "generate input")
 	}
 
+	monitoring.GetMetrics().OpenAIRequests.WithLabelValues("generate", "openai").Inc()
+	startTime := time.Now()
+	defer func() {
+		monitoring.GetMetrics().OpenAIRequestDuration.WithLabelValues("generate", oaiUrl).Observe(time.Since(startTime).Seconds())
+	}()
+
 	body, err := json.Marshal(input)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	monitoring.GetMetrics().OpenAIRequestSize.WithLabelValues("generate", "openai").Observe(float64(len(body)))
+	monitoring.GetMetrics().OpenAIRequestSize.WithLabelValues("generate", oaiUrl).Observe(float64(len(body)))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
 		bytes.NewReader(body))
@@ -147,7 +149,7 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "read response body")
 	}
 
-	monitoring.GetMetrics().OpenAIResponseSize.WithLabelValues("generate", "openai").Observe(float64(len(bodyBytes)))
+	monitoring.GetMetrics().OpenAIResponseSize.WithLabelValues("generate", oaiUrl).Observe(float64(len(bodyBytes)))
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {

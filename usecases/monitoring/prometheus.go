@@ -151,6 +151,7 @@ type PrometheusMetrics struct {
 	OpenAIRequestBatchCount  *prometheus.CounterVec
 	OpenAIRequestSize        *prometheus.HistogramVec
 	OpenAIResponseSize       *prometheus.HistogramVec
+	OpenAIResponseStatus	 *prometheus.CounterVec
 	OpenAIRequestTokens      *prometheus.HistogramVec
 	OpenAIError              *prometheus.CounterVec
 }
@@ -793,6 +794,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "openai_error_total",
 			Help: "Number of OpenAI errors",
 		}, []string{"op", "module", "endpoint", "error"}),
+		OpenAIResponseStatus: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "openai_response_status_total",
+			Help: "Number of OpenAI response statuses",
+		}, []string{"op", "endpoint", "status"}),
 	}
 }
 

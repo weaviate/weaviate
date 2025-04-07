@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/logrusext"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
@@ -142,6 +143,8 @@ func (v *client) VectorizeQuery(ctx context.Context, input []string,
 }
 
 func (v *client) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	startTime := time.Now()
+
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure, config.Dimensions))
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "marshal body")
@@ -151,6 +154,10 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "join OpenAI API host and path")
 	}
+
+	defer func() {
+		monitoring.GetMetrics().OpenAIRequestDuration.WithLabelValues("text2vec", "vectorize").Observe(time.Since(startTime).Seconds())
+	}()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
 		bytes.NewReader(body))
@@ -167,6 +174,10 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	}
 	req.Header.Add("Content-Type", "application/json")
 
+	monitoring.GetMetrics().OpenAIRequestSingleCount.WithLabelValues("text2vec", endpoint).Inc()
+
+	monitoring.GetMetrics().OpenAIRequestSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(body)))
+
 	res, err := v.httpClient.Do(req)
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "send POST request")
@@ -178,6 +189,10 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "read response body")
 	}
+
+	monitoring.GetMetrics().OpenAIResponseSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(bodyBytes)))
+	monitoring.GetMetrics().OpenAIResponseStatus.WithLabelValues("text2vec", endpoint, strconv.Itoa(res.StatusCode)).Inc()
+
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
