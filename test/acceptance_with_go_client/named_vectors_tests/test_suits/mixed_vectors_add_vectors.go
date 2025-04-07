@@ -186,7 +186,7 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 					},
 				},
 				Vectorizer:      text2vecContextionary,
-				VectorIndexType: "hnsw",
+				VectorIndexType: "flat",
 				VectorConfig:    map[string]models.VectorConfig{},
 			}
 
@@ -235,6 +235,16 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 			require.Len(t, obj2.Vector, 300)
 			require.Len(t, obj2.Vectors, 1)
 			require.Equal(t, multiVec, obj2.Vectors["multi"].([][]float32))
+
+			nearVector := client.GraphQL().
+				NearVectorArgBuilder().
+				WithVectorsPerTarget(map[string][]models.Vector{
+					"multi": {multiVec},
+				})
+
+			vectors := getVectorsWithNearVector(t, client, className, UUID2, nearVector, "multi")
+			require.Len(t, vectors, 1)
+			require.Equal(t, multiVec, vectors["multi"].([][]float32))
 		})
 	}
 }
