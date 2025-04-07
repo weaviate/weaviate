@@ -235,31 +235,9 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' already exists", params.UserID)))
 	}
 
-	var apiKey, hash, userIdentifier string
-
-	// the user identifier is random, and we need to be sure that there is no reuse. Otherwise, an existing apikey would
-	// become invalid. The chances are minimal, but with a lot of users it can happen (birthday paradox!).
-	// If we happen to have a collision by chance, simply generate a new key
-	count := 0
-	for {
-		apiKey, hash, userIdentifier, err = keys.CreateApiKeyAndHash("")
-		if err != nil {
-			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-		}
-
-		exists, err := h.dbUsers.CheckUserIdentifierExists(userIdentifier)
-		if err != nil {
-			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-		}
-		if !exists {
-			break
-		}
-
-		// make sure we don't deadlock. The chance for one collision is very small, so this should never happen. But better be safe than sorry.
-		if count >= 10 {
-			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("could not create a new user identifier")))
-		}
-		count++
+	apiKey, hash, userIdentifier, err := h.getApiKey()
+	if err != nil {
+		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if err := h.dbUsers.CreateUser(params.UserID, hash, userIdentifier, apiKey[:3], time.Now()); err != nil {
@@ -290,17 +268,45 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 	if len(existingUser) == 0 {
 		return users.NewRotateUserAPIKeyNotFound()
 	}
+	oldUserIdentifier := existingUser[params.UserID].InternalIdentifier
 
-	apiKey, hash, _, err := keys.CreateApiKeyAndHash(existingUser[params.UserID].InternalIdentifier)
+	apiKey, hash, newUserIdentifier, err := h.getApiKey()
 	if err != nil {
-		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("generating key: %w", err)))
+		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.dbUsers.RotateKey(params.UserID, hash); err != nil {
+	if err := h.dbUsers.RotateKey(params.UserID, hash, oldUserIdentifier, newUserIdentifier); err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("rotate key: %w", err)))
 	}
 
 	return users.NewRotateUserAPIKeyOK().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
+}
+
+func (h *dynUserHandler) getApiKey() (string, string, string, error) {
+	// the user identifier is random, and we need to be sure that there is no reuse. Otherwise, an existing apikey would
+	// become invalid. The chances are minimal, but with a lot of users it can happen (birthday paradox!).
+	// If we happen to have a collision by chance, simply generate a new key
+	count := 0
+	for {
+		apiKey, hash, userIdentifier, err := keys.CreateApiKeyAndHash()
+		if err != nil {
+			return "", "", "", err
+		}
+
+		exists, err := h.dbUsers.CheckUserIdentifierExists(userIdentifier)
+		if err != nil {
+			return "", "", "", err
+		}
+		if !exists {
+			return apiKey, hash, userIdentifier, nil
+		}
+
+		// make sure we don't deadlock. The chance for one collision is very small, so this should never happen. But better be safe than sorry.
+		if count >= 10 {
+			return "", "", "", errors.New("could not create a new user identifier")
+		}
+		count++
+	}
 }
 
 func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
