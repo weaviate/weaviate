@@ -47,9 +47,11 @@ func (h *hnsw) init(cfg Config) error {
 	// added.
 	h.metrics.SetSize(len(h.nodes))
 
-	_, err = h.commitLog.CreateSnapshot()
-	if err != nil {
-		return errors.Wrap(err, "create snapshot")
+	if !snapshotsDisabled() {
+		_, err = h.commitLog.CreateSnapshot()
+		if err != nil {
+			return errors.Wrap(err, "create snapshot")
+		}
 	}
 
 	return nil
@@ -61,19 +63,25 @@ func (h *hnsw) restoreFromDisk() error {
 	beforeAll := time.Now()
 	defer h.metrics.TrackStartupTotal(beforeAll)
 
-	state, stateTimestamp, err := readLastSnapshot(h.rootPath, h.id, h.logger)
-	if err != nil {
-		// errors reading the last snapshot are not fatal
-		// we can still read the commit log from the beginning
-		h.logger.
-			WithError(err).
-			WithField("action", "restore_from_disk").
-			WithField("id", h.id).
-			WithField("class", h.className).
-			Error("failed to read last snapshot, loading from commit log")
+	var state *DeserializationResult
+	var stateTimestamp int64
+	var err error
 
-		state = nil
-		stateTimestamp = 0
+	if !snapshotsDisabled() {
+		state, stateTimestamp, err = readLastSnapshot(h.rootPath, h.id, h.logger)
+		if err != nil {
+			// errors reading the last snapshot are not fatal
+			// we can still read the commit log from the beginning
+			h.logger.
+				WithError(err).
+				WithField("action", "restore_from_disk").
+				WithField("id", h.id).
+				WithField("class", h.className).
+				Error("failed to read last snapshot, loading from commit log")
+
+			state = nil
+			stateTimestamp = 0
+		}
 	}
 
 	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp)

@@ -25,10 +25,15 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const checkpointChunkSize = 100_000
+
+func snapshotsDisabled() bool {
+	return entcfg.Enabled(os.Getenv("DISABLE_SNAPSHOTS"))
+}
 
 func snapshotTimestamp(path string) (int64, error) {
 	return asTimeStamp(strings.TrimSuffix(filepath.Base(path), ".snapshot"))
