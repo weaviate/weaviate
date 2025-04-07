@@ -250,7 +250,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 	var vectorCache cache.Cache[float32]
 
-	if uc.Multivector.Enabled && !uc.Multivector.Muvera {
+	if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	} else {
@@ -320,7 +320,7 @@ func New(cfg Config, uc ent.UserConfig,
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
-	index.muvera.Store(uc.Multivector.Muvera)
+	index.muvera.Store(uc.Multivector.MuveraConfig.Enabled)
 
 	if uc.BQ.Enabled {
 		var err error
@@ -343,13 +343,13 @@ func New(cfg Config, uc ent.UserConfig,
 
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
-		if !uc.Multivector.Muvera {
+		if !uc.Multivector.MuveraConfig.Enabled {
 			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
 			}
 		} else {
-			index.muveraEncoder = multivector.NewMuveraEncoder(multivector.DefaultMuveraConfig())
+			index.muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig)
 			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_muvera_vectors", lsmkv.WithStrategy(lsmkv.StrategyReplace))
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")

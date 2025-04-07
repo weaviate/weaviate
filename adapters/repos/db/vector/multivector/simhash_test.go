@@ -10,15 +10,15 @@ func TestSimHashTest(t *testing.T) {
 	encoder := NewMuveraEncoder(config)
 
 	// Test case 1: Similar vectors should produce similar hashes
-	vec1 := make([]float32, config.Dimensions)
-	vec2 := make([]float32, config.Dimensions)
-	vec3 := make([]float32, config.Dimensions)
-	for i := 0; i < config.Dimensions; i++ {
+	vec1 := make([]float32, encoder.config.Dimensions)
+	vec2 := make([]float32, encoder.config.Dimensions)
+	vec3 := make([]float32, encoder.config.Dimensions)
+	for i := 0; i < encoder.config.Dimensions; i++ {
 		vec1[i] = 1.0
 		vec2[i] = 0.9  // Slightly different but similar vector
 		vec3[i] = -1.0 // Opposite direction
 	}
-	zeroVec := make([]float32, config.Dimensions)
+	zeroVec := make([]float32, encoder.config.Dimensions)
 
 	for i := 0; i < encoder.config.Repetitions; i++ {
 		hash1 := encoder.simHash(vec1, encoder.gaussians[i])

@@ -14,6 +14,8 @@ package multivector
 import (
 	"math"
 	"math/rand"
+
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type MuveraConfig struct {
@@ -25,17 +27,13 @@ type MuveraConfig struct {
 	Repetitions  int // Number of repetitions (20 in the Python implementation)
 }
 
-func DefaultMuveraConfig() MuveraConfig {
+func DefaultMuveraConfig() ent.MuveraConfig {
 	kSim := 3
-	numClusters := int(math.Pow(2, float64(kSim)))
 	dProjections := 8
 	reps := 20
-	return MuveraConfig{
+	return ent.MuveraConfig{
 		KSim:         kSim,
-		NumClusters:  numClusters,
-		Dimensions:   128,
 		DProjections: dProjections,
-		DFinal:       dProjections * numClusters * reps, // DProjections * NumClusters * Repetitions
 		Repetitions:  reps,
 	}
 }
@@ -47,23 +45,29 @@ type MuveraEncoder struct {
 	Sfinal    [][]float32   // Random projection matrix with ±1 entries
 }
 
-func NewMuveraEncoder(config MuveraConfig) *MuveraEncoder {
+func NewMuveraEncoder(config ent.MuveraConfig) *MuveraEncoder {
 	encoder := &MuveraEncoder{
-		config: config,
+		config: MuveraConfig{
+			KSim:         config.KSim,
+			NumClusters:  int(math.Pow(2, float64(config.KSim))),
+			Dimensions:   128,
+			DProjections: config.DProjections,
+			Repetitions:  config.Repetitions,
+		},
 	}
 
 	encoder.gaussians = make([][]float32, config.Repetitions)
 	encoder.S = make([][][]float32, config.Repetitions)
 	for rep := 0; rep < config.Repetitions; rep++ {
 		// Initialize random Gaussian vectors
-		encoder.gaussians[rep] = make([]float32, config.KSim*config.Dimensions)
-		for i := 0; i < config.KSim*config.Dimensions; i++ {
+		encoder.gaussians[rep] = make([]float32, config.KSim*encoder.config.Dimensions)
+		for i := 0; i < config.KSim*encoder.config.Dimensions; i++ {
 			u1 := rand.Float64()
 			u2 := rand.Float64()
 			encoder.gaussians[rep][i] = float32(math.Sqrt(-2.0*math.Log(u1)) * math.Cos(2*math.Pi*u2))
 		}
 
-		encoder.S[rep] = initProjectionMatrix(config.DProjections, config.Dimensions)
+		encoder.S[rep] = initProjectionMatrix(config.DProjections, encoder.config.Dimensions)
 	}
 
 	//encoder.Sfinal = initProjectionMatrix(config.DFinal, config.DProjections*config.NumClusters*config.Repetitions)
@@ -118,18 +122,51 @@ func (e *MuveraEncoder) projectVecFlat(vec []float32, dprojections int) []float3
 	if dprojections == e.config.Dimensions {
 		return vec
 	}
-	projectedVec := make([]float32, e.config.Repetitions*e.config.NumClusters*dprojections)
+
+	// Pre-calculate constants and dimensions
+	reps := e.config.Repetitions
+	clusters := e.config.NumClusters
+	dim := e.config.Dimensions
 	scale := 1.0 / float32(math.Sqrt(float64(dprojections)))
 
-	for i := 0; i < e.config.Repetitions; i++ {
-		offsetReps := i * e.config.NumClusters * e.config.Dimensions
-		offsetRepsProjected := i * e.config.NumClusters * dprojections
-		for j := 0; j < e.config.NumClusters; j++ {
-			start := offsetReps + (j * e.config.Dimensions)
-			end := start + e.config.Dimensions
-			startProjected := offsetRepsProjected + (j * dprojections)
-			endProjected := startProjected + dprojections
-			copy(projectedVec[startProjected:endProjected], e.computeMatrixVecProduct(e.S[i], vec[start:end], scale))
+	// Pre-calculate stride sizes
+	dimStride := clusters * dim
+	projStride := clusters * dprojections
+
+	// Allocate result vector once
+	projectedVec := make([]float32, reps*projStride)
+
+	// Process each repetition
+	for i := 0; i < reps; i++ {
+		// Pre-calculate offsets for this repetition
+		vecOffset := i * dimStride
+		projOffset := i * projStride
+
+		// Get the projection matrix for this repetition
+		matrix := e.S[i]
+
+		// Process each cluster
+		for j := 0; j < clusters; j++ {
+			// Calculate source and destination offsets
+			srcStart := vecOffset + (j * dim)
+			dstStart := projOffset + (j * dprojections)
+
+			// Process in chunks of 4 for better cache utilization
+			for k := 0; k < dprojections; k++ {
+				var sum float32
+				// Process 4 elements at a time
+				for l := 0; l < dim; l += 4 {
+					end := l + 4
+					if end > dim {
+						end = dim
+					}
+					// Unroll the inner loop
+					for m := l; m < end; m++ {
+						sum += matrix[k][m] * vec[srcStart+m]
+					}
+				}
+				projectedVec[dstStart+k] = sum * scale
+			}
 		}
 	}
 

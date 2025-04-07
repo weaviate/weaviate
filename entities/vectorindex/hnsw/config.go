@@ -114,8 +114,13 @@ func (u *UserConfig) SetDefaults() {
 		u.FilterStrategy = FilterStrategySweeping
 	}
 	u.Multivector = MultivectorConfig{
-		Enabled:     DefaultMultivectorEnabled,
-		Muvera:      DefaultMultivectorMuvera,
+		Enabled: DefaultMultivectorEnabled,
+		MuveraConfig: MuveraConfig{
+			Enabled:      DefaultMultivectorMuveraEnabled,
+			KSim:         DefaultMultivectorKSim,
+			DProjections: DefaultMultivectorDProjections,
+			Repetitions:  DefaultMultivectorRepetitions,
+		},
 		Aggregation: DefaultMultivectorAggregation,
 	}
 }
