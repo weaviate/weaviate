@@ -38,7 +38,7 @@ type DBUsers interface {
 	ActivateUser(userId string) error
 	DeactivateUser(userId string, revokeKey bool) error
 	GetUsers(userIds ...string) (map[string]*User, error)
-	RotateKey(userId, secureHash string) error
+	RotateKey(userId, secureHash, oldIdentifier, newIdentifier string) error
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
 }
 
@@ -130,9 +130,17 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 	return c.storeToFile()
 }
 
-func (c *DBUser) RotateKey(userId, secureHash string) error {
+func (c *DBUser) RotateKey(userId, secureHash, oldIdentifier, newIdentifier string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+
+	// replay of old raft commands can have these be ""
+	if oldIdentifier != "" && newIdentifier != "" {
+		c.data.IdToIdentifier[userId] = newIdentifier
+		delete(c.data.IdentifierToId, oldIdentifier)
+		c.data.IdentifierToId[newIdentifier] = userId
+		c.data.Users[userId].InternalIdentifier = newIdentifier
+	}
 
 	c.data.SecureKeyStorageById[userId] = secureHash
 	delete(c.memoryOnyData.WeakKeyStorageById, userId)
