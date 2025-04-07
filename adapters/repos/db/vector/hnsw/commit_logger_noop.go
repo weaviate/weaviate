@@ -85,6 +85,10 @@ func (n *NoopCommitLogger) Shutdown(context.Context) error {
 	return nil
 }
 
+func (n *NoopCommitLogger) CreateSnapshot() (bool, error) {
+	return false, nil
+}
+
 func MakeNoopCommitLogger() (CommitLogger, error) {
 	return &NoopCommitLogger{}, nil
 }

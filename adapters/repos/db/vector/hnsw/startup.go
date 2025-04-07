@@ -12,12 +12,9 @@
 package hnsw
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
-	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -27,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -51,6 +47,11 @@ func (h *hnsw) init(cfg Config) error {
 	// added.
 	h.metrics.SetSize(len(h.nodes))
 
+	_, err = h.commitLog.CreateSnapshot()
+	if err != nil {
+		return errors.Wrap(err, "create snapshot")
+	}
+
 	return nil
 }
 
@@ -60,9 +61,19 @@ func (h *hnsw) restoreFromDisk() error {
 	beforeAll := time.Now()
 	defer h.metrics.TrackStartupTotal(beforeAll)
 
-	state, stateTimestamp, lastSnapshotPath, err := getLastSnapshot(h.rootPath, h.id, h.logger)
+	state, stateTimestamp, err := readLastSnapshot(h.rootPath, h.id, h.logger)
 	if err != nil {
-		return errors.Wrap(err, "get last snapshot")
+		// errors reading the last snapshot are not fatal
+		// we can still read the commit log from the beginning
+		h.logger.
+			WithError(err).
+			WithField("action", "restore_from_disk").
+			WithField("id", h.id).
+			WithField("class", h.className).
+			Error("failed to read last snapshot, loading from commit log")
+
+		state = nil
+		stateTimestamp = 0
 	}
 
 	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp)
@@ -70,115 +81,9 @@ func (h *hnsw) restoreFromDisk() error {
 		return err
 	}
 
-	fileNames, err = NewCorruptedCommitLogFixer(h.logger).Do(fileNames)
+	state, err = loadCommitLoggerState(h.logger, fileNames, state)
 	if err != nil {
-		return errors.Wrap(err, "corrupted commit log fixer")
-	}
-
-	for i, fileName := range fileNames {
-		beforeIndividual := time.Now()
-
-		fd, err := os.Open(fileName)
-		if err != nil {
-			return errors.Wrapf(err, "open commit log %q for reading", fileName)
-		}
-
-		defer fd.Close()
-
-		metered := diskio.NewMeteredReader(fd,
-			h.metrics.TrackStartupReadCommitlogDiskIO)
-		fdBuf := bufio.NewReaderSize(metered, 256*1024)
-
-		var valid int
-		state, valid, err = NewDeserializer(h.logger).Do(fdBuf, state, false)
-		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				// we need to check for both EOF or UnexpectedEOF, as we don't know where
-				// the commit log got corrupted, a field ending that weset a longer
-				// encoding for would return EOF, whereas a field read with binary.Read
-				// with a fixed size would return UnexpectedEOF. From our perspective both
-				// are unexpected.
-
-				h.logger.WithField("action", "hnsw_load_commit_log_corruption").
-					WithField("path", fileName).
-					Error("write-ahead-log ended abruptly, some elements may not have been recovered")
-
-				// we need to truncate the file to its valid length!
-				if err := os.Truncate(fileName, int64(valid)); err != nil {
-					return errors.Wrapf(err, "truncate corrupt commit log %q", fileName)
-				}
-			} else {
-				// only return an actual error on non-EOF errors, otherwise we'll end
-				// up in a startup crashloop
-				return errors.Wrapf(err, "deserialize commit log %q", fileName)
-			}
-		}
-
-		h.metrics.StartupProgress(float64(i+1) / float64(len(fileNames)))
-		h.metrics.TrackStartupIndividual(beforeIndividual)
-	}
-
-	if len(fileNames) > 0 {
-		// some commit files has been processed, a new snapshot is created
-		snapshotFileName := snapshotFileName(fileNames[len(fileNames)-1])
-
-		tmpSnapshotFileName := fmt.Sprintf("%s.tmp", snapshotFileName)
-		checkPointsFileName := fmt.Sprintf("%s.checkpoints", snapshotFileName)
-
-		snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
-		if err != nil {
-			return errors.Wrapf(err, "create snapshot file %q", tmpSnapshotFileName)
-		}
-		defer snap.Close()
-
-		w := bufio.NewWriter(snap)
-
-		checkpoints, err := writeStateTo(state, w)
-		if err != nil {
-			return errors.Wrapf(err, "writing snapshot file %q", tmpSnapshotFileName)
-		}
-
-		err = w.Flush()
-		if err != nil {
-			return errors.Wrapf(err, "flushing snapshot file %q", tmpSnapshotFileName)
-		}
-
-		err = snap.Sync()
-		if err != nil {
-			return errors.Wrapf(err, "fsync snapshot file %q", tmpSnapshotFileName)
-		}
-
-		err = snap.Close()
-		if err != nil {
-			return errors.Wrapf(err, "close snapshot file %q", tmpSnapshotFileName)
-		}
-
-		writeCheckpoints(checkPointsFileName, checkpoints)
-
-		err = os.Rename(tmpSnapshotFileName, snapshotFileName)
-		if err != nil {
-			return errors.Wrapf(err, "rename snapshot file %q", tmpSnapshotFileName)
-		}
-
-		if lastSnapshotPath != "" {
-			// remove old snapshot
-			if err := os.Remove(lastSnapshotPath); err != nil {
-				return errors.Wrapf(err, "remove snapshot file %q", lastSnapshotPath)
-			}
-
-			cpfn := lastSnapshotPath + ".checkpoints"
-			if err := os.Remove(cpfn); err != nil {
-				return errors.Wrapf(err, "remove checkpoints file %q", cpfn)
-			}
-		}
-
-		// commit log files can be deleted because an snapshot includes its actions
-		for _, fileName := range fileNames {
-			err := os.Remove(fileName)
-			if err != nil {
-				return errors.Wrapf(err, "remove commit log file %q", fileName)
-			}
-		}
+		return errors.Wrap(err, "load commit logger state")
 	}
 
 	if state == nil {

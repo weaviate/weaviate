@@ -210,6 +210,7 @@ type CommitLogger interface {
 	SwitchCommitLogs(bool) error
 	AddPQCompression(compressionhelpers.PQData) error
 	AddSQCompression(compressionhelpers.SQData) error
+	CreateSnapshot() (bool, error)
 }
 
 type BufferedLinksLogger interface {

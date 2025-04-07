@@ -41,10 +41,6 @@ func commitLogDirectory(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
-func snapshotFileName(commitLogFileName string) string {
-	return fmt.Sprintf("%s.snapshot", commitLogFileName)
-}
-
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	maintenanceCallbacks cyclemanager.CycleCallbackGroup, opts ...CommitlogOption,
 ) (*hnswCommitLogger, error) {
@@ -128,7 +124,7 @@ func getCommitFileNames(rootPath, name string, createdAfter int64) ([]string, er
 	}
 
 	if createdAfter > 0 {
-		files, err = removeOldOrEmptyCommitFiles(dir, files, createdAfter)
+		files, err = filterCommitLogFiles(dir, files, createdAfter)
 		if err != nil {
 			return nil, errors.Wrap(err, "remove old commit files")
 		}
@@ -161,79 +157,6 @@ func getCommitFileNames(rootPath, name string, createdAfter int64) ([]string, er
 	}
 
 	return out, nil
-}
-
-func getLastSnapshot(rootPath, name string, logger logrus.FieldLogger) (snap *DeserializationResult, ts int64, snapPath string, err error) {
-	dir := commitLogDirectory(rootPath, name)
-	err = os.MkdirAll(dir, os.ModePerm)
-	if err != nil {
-		return nil, 0, "", errors.Wrap(err, "create commit logger directory")
-	}
-
-	files, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, 0, "", errors.Wrap(err, "browse commit logger directory")
-	}
-
-	for i := len(files) - 1; i >= 0; i-- {
-		info := files[i]
-		path := filepath.Join(dir, info.Name())
-
-		if strings.HasSuffix(info.Name(), ".snapshot.tmp") {
-			// a temporary snapshot file was found which means that the snapshoting
-			// process never completed, this file is thus considered corrupt (too
-			// short) and must be deleted. The original sources still exist (because
-			// the only get deleted after the .tmp file is removed), so it's safe to
-			// delete this without data loss.
-			if err := os.Remove(path); err != nil {
-				return nil, 0, "", errors.Wrap(err, "remove tmp snapshot file")
-			}
-			continue
-		}
-
-		if !strings.HasSuffix(info.Name(), ".snapshot") {
-			// not a snapshot file
-			continue
-		}
-
-		if snap == nil {
-			snapPath = path
-			snapFile, err := os.Open(snapPath)
-			if err != nil {
-				return nil, 0, "", errors.Wrapf(err, "open snapshot file %q", snapPath)
-			}
-			defer snapFile.Close()
-
-			checkpoints, err := readCheckpoints(snapPath)
-			if err != nil {
-				return nil, 0, "", errors.Wrapf(err, "read checkpoints file for snapshot %q", snapPath)
-			}
-
-			snap, err = readStateFrom(snapFile, 8, checkpoints, logger)
-			if err != nil {
-				return nil, 0, "", errors.Wrapf(err, "read snapshot file %q", snapPath)
-			}
-
-			ts, err = asTimeStamp(strings.TrimSuffix(info.Name(), ".snapshot"))
-			if err != nil {
-				return nil, 0, "", errors.Wrapf(err, "read snapshot timestamp %q", snapPath)
-			}
-
-			continue
-		}
-
-		// remove older snapshot
-		if err := os.Remove(path); err != nil {
-			return nil, 0, "", errors.Wrapf(err, "remove snapshot file %q", path)
-		}
-
-		cpfn := path + ".checkpoints"
-		if err := os.Remove(cpfn); err != nil {
-			return nil, 0, "", errors.Wrapf(err, "remove checkpoints file %q", cpfn)
-		}
-	}
-
-	return snap, ts, snapPath, nil
 }
 
 // getCurrentCommitLogFileName returns the fileName and true if a file was
@@ -332,7 +255,7 @@ func removeTmpCombiningFiles(dirPath string, in []os.DirEntry) ([]os.DirEntry, e
 	return out[:i], nil
 }
 
-func removeOldOrEmptyCommitFiles(dirPath string,
+func filterCommitLogFiles(dirPath string,
 	in []os.DirEntry, createdAfter int64,
 ) ([]os.DirEntry, error) {
 	out := make([]os.DirEntry, len(in))
@@ -344,9 +267,6 @@ func removeOldOrEmptyCommitFiles(dirPath string,
 		}
 
 		if ts <= createdAfter {
-			if err := os.Remove(filepath.Join(dirPath, info.Name())); err != nil {
-				return out, errors.Wrapf(err, "remove old commit file %q", info.Name())
-			}
 			continue
 		}
 
@@ -358,9 +278,6 @@ func removeOldOrEmptyCommitFiles(dirPath string,
 		}
 
 		if fileInfo.Size() == 0 {
-			if err := os.Remove(filePath); err != nil {
-				return out, errors.Wrapf(err, "remove empty commit file %q", info.Name())
-			}
 			continue
 		}
 
@@ -580,6 +497,7 @@ func (l *hnswCommitLogger) startCombineAndCondenseLogs(shouldAbort cyclemanager.
 			WithField("action", "hnsw_commit_log_condensing").
 			Error("hnsw commit log maintenance (condensing) failed")
 	}
+
 	return executed1 || executed2
 }
 
@@ -696,8 +614,12 @@ func (l *hnswCommitLogger) combineLogs() (bool, error) {
 	// can set the combining threshold higher than the final threshold under the
 	// assumption that the combined file will be considerably smaller than the
 	// sum of both input files
-	threshold := int64(float64(l.maxSizeCombining) * 1.75)
+	threshold := l.logCombiningThreshold()
 	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do()
+}
+
+func (l *hnswCommitLogger) logCombiningThreshold() int64 {
+	return int64(float64(l.maxSizeCombining) * 1.75)
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context) error {
