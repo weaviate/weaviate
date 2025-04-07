@@ -14,13 +14,16 @@ package authz
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/testcontainers/testcontainers-go"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/stretchr/testify/require"
 	gql "github.com/weaviate/weaviate/client/graphql"
+	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/client/objects"
@@ -98,6 +101,11 @@ func updateObject(t *testing.T, object *models.Object, key string) (*objects.Obj
 	return helper.Client(t).Objects.ObjectsClassPatch(params, helper.CreateAuth(key))
 }
 
+func replaceObject(t *testing.T, object *models.Object, key string) (*objects.ObjectsClassPutOK, error) {
+	params := objects.NewObjectsClassPutParams().WithBody(object).WithID(object.ID).WithClassName(object.Class)
+	return helper.Client(t).Objects.ObjectsClassPut(params, helper.CreateAuth(key))
+}
+
 func addRef(t *testing.T, fromId strfmt.UUID, fromProp string, ref *models.SingleRef, key string) (*objects.ObjectsReferencesCreateOK, error) {
 	params := objects.NewObjectsReferencesCreateParams().WithBody(ref).WithID(fromId).WithPropertyName(fromProp)
 	return helper.Client(t).Objects.ObjectsReferencesCreate(params, helper.CreateAuth(key))
@@ -139,10 +147,26 @@ func readTenant(t *testing.T, class string, tenant string, key string) error {
 	return err
 }
 
-func readTenants(t *testing.T, class string, key string) error {
+func readTenantGRPC(t *testing.T, ctx context.Context, class, tenant, key string) (*protocol.TenantsGetReply, error) {
+	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", key))
+	return helper.ClientGRPC(t).TenantsGet(ctx, &protocol.TenantsGetRequest{
+		Collection: class,
+		Params: &protocol.TenantsGetRequest_Names{
+			Names: &protocol.TenantNames{Values: []string{tenant}},
+		},
+	})
+}
+
+func readTenants(t *testing.T, class string, key string) (*clschema.TenantsGetOK, error) {
 	params := clschema.NewTenantsGetParams().WithClassName(class)
-	_, err := helper.Client(t).Schema.TenantsGet(params, helper.CreateAuth(key))
-	return err
+	return helper.Client(t).Schema.TenantsGet(params, helper.CreateAuth(key))
+}
+
+func readTenantsGRPC(t *testing.T, ctx context.Context, class string, key string) (*protocol.TenantsGetReply, error) {
+	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", key))
+	return helper.ClientGRPC(t).TenantsGet(ctx, &protocol.TenantsGetRequest{
+		Collection: class,
+	})
 }
 
 func existsTenant(t *testing.T, class string, tenant string, key string) error {

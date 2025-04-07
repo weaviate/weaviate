@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func testReferenceProperties(host string) func(t *testing.T) {
@@ -67,7 +68,7 @@ func testReferenceProperties(host string) func(t *testing.T) {
 						DataType: []string{"text"},
 					},
 				},
-				InvertedIndexConfig: &models.InvertedIndexConfig{IndexTimestamps: true},
+				InvertedIndexConfig: &models.InvertedIndexConfig{IndexTimestamps: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 				VectorConfig: map[string]models.VectorConfig{
 					c11y_bookshelf_name: {
 						Vectorizer: map[string]interface{}{

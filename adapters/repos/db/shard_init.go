@@ -32,8 +32,8 @@ import (
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	scheduler *queue.Scheduler,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
+	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
+	reindexer ShardReindexerV3,
 ) (_ *Shard, err error) {
 	promMetrics.StartLoadingShard()
 	defer promMetrics.FinishLoadingShard()
@@ -65,6 +65,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 		status:                          NewShardStatus(),
 		searchableBlockmaxPropNamesLock: new(sync.Mutex),
+		reindexer:                       reindexer,
+		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 	}
 
 	defer func() {
@@ -114,6 +116,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
+	// init the store itself synchronously
+	if err := s.initLSMStore(); err != nil {
+		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
+	}
+
+	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
+
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
@@ -142,6 +151,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
+
+	_ = s.reindexer.RunAfterLsmInit(ctx, s)
+	_ = s.reindexer.RunAfterLsmInitAsync(ctx, s)
 	return s, nil
 }
 

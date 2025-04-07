@@ -169,10 +169,6 @@ type ShardLike interface {
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
-
-	RegisterAddToPropertyValueIndex(callback onAddToPropertyValueIndex)
-	RegisterDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex)
-	markSearchableBlockmaxProperties(propNames ...string)
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -254,6 +250,7 @@ type Shard struct {
 	// allows concurrent shut read/write
 	shutdownLock *sync.RWMutex
 
+	reindexer                             ShardReindexerV3
 	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
 	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
 	// stores names of properties that are searchable and use buckets of
@@ -261,6 +258,8 @@ type Shard struct {
 	// computing delta between previous and current values of properties
 	searchableBlockmaxPropNames     []string
 	searchableBlockmaxPropNamesLock *sync.Mutex
+
+	usingBlockMaxWAND bool
 }
 
 func (s *Shard) ID() string {
@@ -423,10 +422,10 @@ func (s *Shard) Activity() int32 {
 	return s.activityTracker.Load()
 }
 
-func (s *Shard) RegisterAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {
+func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {
 	s.callbacksAddToPropertyValueIndex = append(s.callbacksAddToPropertyValueIndex, callback)
 }
 
-func (s *Shard) RegisterDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
+func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
 	s.callbacksRemoveFromPropertyValueIndex = append(s.callbacksRemoveFromPropertyValueIndex, callback)
 }

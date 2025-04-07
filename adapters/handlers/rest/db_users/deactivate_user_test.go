@@ -38,7 +38,7 @@ func TestSuccessDeactivate(t *testing.T) {
 			principal := &models.Principal{}
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
-			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+			dynUser := mocks.NewDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user", Active: true}}, nil)
 			dynUser.On("DeactivateUser", "user", test.revokeKey).Return(nil)
 
@@ -58,7 +58,7 @@ func TestDeactivateNotFound(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
-	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
@@ -88,7 +88,7 @@ func TestDeactivateBadParameters(t *testing.T) {
 			principal := &models.Principal{Username: test.principal}
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users(test.user)[0]).Return(nil)
-			dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+			dynUser := mocks.NewDbUserAndRolesGetter(t)
 			if test.getUserReturn != nil {
 				dynUser.On("GetUsers", test.user).Return(test.getUserReturn, nil)
 			}
@@ -112,7 +112,7 @@ func TestDoubleDeactivate(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authzMocks.NewAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users(user)[0]).Return(nil)
-	dynUser := mocks.NewDynamicUserAndRolesGetter(t)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{user: {Id: user, Active: false}}, nil)
 
 	h := dynUserHandler{
@@ -133,7 +133,7 @@ func TestSuspendNoDynamic(t *testing.T) {
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
-		dbUsers:       mocks.NewDynamicUserAndRolesGetter(t),
+		dbUsers:       mocks.NewDbUserAndRolesGetter(t),
 		authorizer:    authorizer,
 		dbUserEnabled: false,
 	}

@@ -143,7 +143,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		convertToVectorIndexConfigs(class.VectorConfig),
 		m.db.router, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
-		m.db.memMonitor)
+		m.db.memMonitor, m.db.reindexer)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -801,16 +801,6 @@ func (m *Migrator) InvertedReindex(ctx context.Context, taskNamesWithArgs map[st
 	errs.Add(m.doInvertedReindex(ctx, taskNamesWithArgs))
 	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNamesWithArgs))
 	return errs.ToError()
-}
-
-func (m *Migrator) ReindexerV2(tasksNames []string, args map[string]any) (*ReindexerV2, error) {
-	reindexer := NewReindexerV2(m.logger, m.db.indices, &m.db.indexLock)
-	for _, name := range tasksNames {
-		if err := reindexer.RegisterTask(name, args[name]); err != nil {
-			return nil, err
-		}
-	}
-	return reindexer, nil
 }
 
 func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {

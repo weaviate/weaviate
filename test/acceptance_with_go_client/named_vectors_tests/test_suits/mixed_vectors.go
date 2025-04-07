@@ -23,5 +23,6 @@ func AllMixedVectorsTests(endpoint string) func(t *testing.T) {
 		t.Run("batch byov", testMixedVectorsBatchBYOV(endpoint))
 		t.Run("hybrid", testMixedVectorsHybrid(endpoint))
 		t.Run("aggregate", testMixedVectorsAggregate(endpoint))
+		t.Run("name forwarding", testMixedVectorsNamedForwarding(endpoint))
 	}
 }

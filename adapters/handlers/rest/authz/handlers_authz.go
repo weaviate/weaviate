@@ -127,6 +127,10 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is invalid")))
 	}
 
+	if err := validatePermissions(true, params.Body.Permissions...); err != nil {
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role permissions are invalid: %w", err)))
+	}
+
 	policies, err := conv.RolesToPolicies(params.Body)
 	if err != nil {
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid role: %w", err)))
@@ -169,7 +173,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update built-in role %s", params.ID)))
 	}
 
-	if err := validatePermissions(params.Body.Permissions...); err != nil {
+	if err := validatePermissions(false, params.Body.Permissions...); err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -213,7 +217,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	// we don't validate permissions entity existence
 	// in case of the permissions gets removed after the entity got removed
 	// delete class ABC, then remove permissions on class ABC
-	if err := validatePermissions(params.Body.Permissions...); err != nil {
+	if err := validatePermissions(false, params.Body.Permissions...); err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -266,7 +270,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("permission is required")))
 	}
 
-	if err := validatePermissions(params.Body); err != nil {
+	if err := validatePermissions(false, params.Body); err != nil {
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permissions %w", err)))
 	}
 
