@@ -278,7 +278,7 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		require.Equal(t, []string{"1000.condensed", "1001.condensed", "1001.snapshot", "1001.snapshot.checkpoints", "1002.condensed"}, files)
 
 		// corrupt the snapshot
-		err = os.WriteFile(filepath.Join(clDir, "1001.snapshot"), []byte("corrupt"), 0644)
+		err = os.WriteFile(filepath.Join(clDir, "1001.snapshot"), []byte("corrupt"), 0o644)
 		require.NoError(t, err)
 
 		// add new files
