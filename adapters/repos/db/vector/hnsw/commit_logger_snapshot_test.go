@@ -244,7 +244,7 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, created)
 		files := readDir(t, clDir)
-		require.Equal(t, []string{"1000.condensed", "1000.snapshot.tmp", "1001.condensed", "1001.snapshot", "1001.snapshot.checkpoints", "1002.condensed"}, files)
+		require.Equal(t, []string{"1000.condensed", "1001.condensed", "1001.snapshot", "1001.snapshot.checkpoints", "1002.condensed"}, files)
 	})
 
 	t.Run("missing checkpoints", func(t *testing.T) {

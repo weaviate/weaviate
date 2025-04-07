@@ -174,6 +174,16 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 	}
 	for _, file := range files {
 		name := file.Name()
+
+		if strings.HasSuffix(name, ".snapshot.tmp") {
+			// a temporary snapshot file was found which means that a previous
+			// snapshoting process never completed, we can safely remove it.
+			err := os.Remove(filepath.Join(commitLogDir, name))
+			if err != nil {
+				return errors.Wrapf(err, "remove tmp snapshot file %q", name)
+			}
+		}
+
 		if strings.HasSuffix(name, ".snapshot") {
 			tmstr := strings.TrimSuffix(name, ".snapshot")
 			i, err := strconv.ParseInt(tmstr, 10, 64)
