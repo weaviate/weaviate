@@ -156,7 +156,7 @@ type PrometheusMetrics struct {
 	OpenAIResponseStatus     *prometheus.CounterVec
 	OpenAIRequestTokens      *prometheus.HistogramVec
 	OpenAIError              *prometheus.CounterVec
-	BatchVectorizeError	     *prometheus.CounterVec
+	BatchVectorizeError      *prometheus.CounterVec
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
@@ -805,7 +805,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "batch_vectorize_error_total",
 			Help: "Number of batch vectorization errors",
 		}, []string{"operation", "class_name", "error"}),
-
 	}
 }
 
