@@ -44,7 +44,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}
 
 	h.logger.WithFields(logrus.Fields{
-		"action":       "replication",
+		"action":       "replication_engine",
 		"op":           "replicate",
 		"collection":   *params.Body.CollectionID,
 		"shardId":      *params.Body.ShardID,
@@ -65,7 +65,7 @@ func (h *replicationHandler) getReplicationDetailsByReplicationId(params replica
 		return h.handleMalformedRequestError(params.ID, err)
 	}
 
-	response, err := h.replicationDetailsProvider.GetReplicationDetailsByReplicationId(id)
+	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(id)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
 		return h.handleOperationNotFoundError(params.ID, err)
 	} else if err != nil {
