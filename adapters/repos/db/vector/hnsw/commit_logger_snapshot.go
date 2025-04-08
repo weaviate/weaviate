@@ -260,7 +260,7 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 		}
 		defer fd.Close()
 
-		var fdMetered io.Reader
+		var fdMetered io.Reader = fd
 		if metrics != nil {
 			fdMetered = diskio.NewMeteredReader(fd,
 				metrics.TrackStartupReadCommitlogDiskIO)
