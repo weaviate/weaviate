@@ -1903,8 +1903,7 @@ func Test_ResetNodesDuringTombstoneCleanup(t *testing.T) {
 		MaxConnections:        30,
 		EFConstruction:        128,
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), store)
+	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
 	index.logger = logrus.New() // Ensure logging is set up for debugging
 
