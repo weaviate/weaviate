@@ -140,9 +140,10 @@ func (t *ShardReindexTask_MapToBlockmax) Name() string {
 
 func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, shard *Shard) (err error) {
 	collectionName := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
-		"shard":      shard.Name(),
+		"shard":      shardName,
 		"method":     "OnBeforeLsmInit",
 	})
 	logger.Info("starting")
@@ -154,6 +155,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 			logger.Info("finished")
 		}
 	}(time.Now())
+
+	if !t.isShardSelected(collectionName, shardName) {
+		logger.Debug("different collection/shard selected. nothing to do")
+		return nil
+	}
 
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
@@ -277,9 +283,10 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 
 func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, shard *Shard) (err error) {
 	collectionName := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
-		"shard":      shard.Name(),
+		"shard":      shardName,
 		"method":     "OnAfterLsmInit",
 	})
 	logger.Info("starting")
@@ -292,7 +299,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 		}
 	}(time.Now())
 
-	if t.config.rollback {
+	// skip shard only if not started or rollback requested
+	// otherwise double writes have to be enabled if migration was already started
+	isShardSelected := t.isShardSelected(collectionName, shardName)
+
+	if t.config.rollback && isShardSelected {
 		logger.Debug("rollback. nothing to do")
 		return nil
 	}
@@ -301,6 +312,12 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
 		return
+	}
+
+	isStarted := rt.isStarted()
+	if !isStarted && !isShardSelected {
+		logger.Debug("different collection/shard selected. nothing to do")
+		return nil
 	}
 
 	props, err := t.getPropsToReindex(shard, rt)
@@ -314,7 +331,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 		return nil
 	}
 
-	if !rt.isStarted() {
+	if !isStarted {
 		if err = rt.markStarted(time.Now()); err != nil {
 			err = fmt.Errorf("marking reindex started: %w", err)
 			return
@@ -371,9 +388,10 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
 ) (rerunAt time.Time, reloadShard bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
-		"shard":      shard.Name(),
+		"shard":      shardName,
 		"method":     "OnAfterLsmInitAsync",
 	})
 	logger.Info("starting")
@@ -387,6 +405,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	}(time.Now())
 
 	zerotime := time.Time{}
+
+	if !t.isShardSelected(collectionName, shardName) {
+		logger.Debug("different collection/shard selected. nothing to do")
+		return zerotime, false, nil
+	}
 
 	if t.config.rollback {
 		logger.Debug("rollback. nothing to do")
@@ -998,26 +1021,17 @@ func (t *ShardReindexTask_MapToBlockmax) mapBucketName(propName string) string {
 }
 
 func (t *ShardReindexTask_MapToBlockmax) findPropsToReindex(shard ShardLike) (props []string, save bool) {
+	collectionName := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
 	propNames := []string{}
-	checkPropSelected := func(propName string) bool {
-		return true
+
+	if !t.isShardSelected(collectionName, shardName) {
+		return propNames, false
 	}
 
+	checkPropSelected := func(propName string) bool { return true }
 	if t.config.selectionEnabled {
-		collectionName := shard.Index().Config.ClassName.String()
-		selectedShards, isCollectionSelected := t.config.selectedShardsByCollection[collectionName]
-		if !isCollectionSelected {
-			return propNames, false
-		}
-
-		if len(selectedShards) > 0 {
-			if _, isShardSelected := selectedShards[shard.Name()]; !isShardSelected {
-				return propNames, false
-			}
-		}
-
-		selectedProps := t.config.selectedPropsByCollection[collectionName]
-		if len(selectedProps) > 0 {
+		if selectedProps := t.config.selectedPropsByCollection[collectionName]; len(selectedProps) > 0 {
 			checkPropSelected = func(propName string) bool {
 				_, ok := selectedProps[propName]
 				return ok
@@ -1063,6 +1077,22 @@ func (t *ShardReindexTask_MapToBlockmax) readPropsToReindex(rt mapToBlockmaxRein
 		return props, nil
 	}
 	return []string{}, nil
+}
+
+func (t *ShardReindexTask_MapToBlockmax) isShardSelected(collectionName, shardName string) bool {
+	if t.config.selectionEnabled {
+		selectedShards, isCollectionSelected := t.config.selectedShardsByCollection[collectionName]
+		if !isCollectionSelected {
+			return false
+		}
+
+		if len(selectedShards) > 0 {
+			if _, isShardSelected := selectedShards[shardName]; !isShardSelected {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // -----------------------------------------------------------------------------
