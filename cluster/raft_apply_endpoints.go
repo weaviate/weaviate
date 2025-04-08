@@ -110,6 +110,23 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 	return s.Execute(ctx, command)
 }
 
+func (s *Raft) AddReplicaToShard(ctx context.Context, class, shard, replica string) (uint64, error) {
+	if class == "" || shard == "" || replica == "" {
+		return 0, fmt.Errorf("empty class or shard or replica : %w", schema.ErrBadRequest)
+	}
+	req := cmd.AddReplicaToShardRequest{Class: class, Shard: shard, Replica: replica}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD,
+		Class:      req.Class,
+		SubCommand: subCommand,
+	}
+	return s.Execute(ctx, command)
+}
+
 func (s *Raft) UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error) {
 	if class == "" || shard == "" {
 		return 0, fmt.Errorf("empty class or shard : %w", schema.ErrBadRequest)

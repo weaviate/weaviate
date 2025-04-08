@@ -39,7 +39,7 @@ type ShardReplicationFSM struct {
 	opsByCollection map[string][]shardReplicationOp
 	// opsByShard stores the array of shardReplicationOp for each shard
 	opsByShard map[string][]shardReplicationOp
-	// opsByShard stores the registered shardReplicationOp (if any) for each destination replica
+	// opsByTargetFQDN stores the registered shardReplicationOp (if any) for each destination replica
 	opsByTargetFQDN map[shardFQDN]shardReplicationOp
 	// opsByShard stores opId -> replicationOp
 	opsById map[uint64]shardReplicationOp
