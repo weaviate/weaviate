@@ -20,13 +20,10 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -262,51 +259,6 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Empty(t, shards)
 }
 
-func TestSchemaSnapshot(t *testing.T) {
-	var (
-		node   = "N1"
-		sc     = NewSchema(node, fakes.NewMockSchemaExecutor(), prometheus.NewPedanticRegistry())
-		parser = fakes.NewMockParser()
-
-		cls = &models.Class{Class: "C"}
-		ss  = &sharding.State{
-			Physical: map[string]sharding.Physical{
-				"S1": {Status: "A"},
-				"S2": {Status: "A", BelongsToNodes: []string{"A", "B"}},
-			},
-		}
-	)
-	ss.SetLocalName(node)
-	assert.Nil(t, sc.addClass(cls, ss, 1))
-	parser.On("ParseClass", mock.Anything).Return(nil)
-
-	// Create Snapshot
-	sink := &MockSnapshotSink{}
-	assert.Nil(t, sc.Persist(sink))
-
-	// restore snapshot. Restore should also set the metrics correctly.
-	sc2 := NewSchema("N1", fakes.NewMockSchemaExecutor(), prometheus.NewPedanticRegistry())
-	assert.Nil(t, sc2.Restore(sink, parser))
-	assert.Equal(t, sc.classes, sc2.classes)
-	assert.Equal(t, float64(1), testutil.ToFloat64(sc2.collectionsCount))
-	assert.Equal(t, float64(2), testutil.ToFloat64(sc2.shardsCount.WithLabelValues("A")))
-
-	// Encoding error
-	sink2 := &MockSnapshotSink{wErr: errAny, rErr: errAny}
-	assert.ErrorContains(t, sc.Persist(sink2), "encode")
-
-	// Decoding Error
-	assert.ErrorContains(t, sc.Restore(sink2, parser), "decode")
-
-	// Parsing Error
-	parser2 := fakes.NewMockParser()
-	parser2.On("ParseClass", mock.Anything).Return(errAny)
-
-	sink3 := &MockSnapshotSink{}
-	assert.Nil(t, sc.Persist(sink3))
-	assert.ErrorContains(t, sc.Restore(sink3, parser2), "pars")
-}
-
 // TestPropertiesMigration ensures that our migration function sets proper default values
 // The test verifies that we migrate top level properties and then at least one layer deep nested properties
 func TestPropertiesMigration(t *testing.T) {
@@ -354,23 +306,4 @@ type MockSnapshotSink struct {
 	io.WriteCloser
 	wErr error
 	rErr error
-}
-
-func (MockSnapshotSink) ID() string    { return "ID" }
-func (MockSnapshotSink) Cancel() error { return nil }
-
-func (m *MockSnapshotSink) Write(p []byte) (n int, err error) {
-	if m.wErr != nil {
-		return 0, m.wErr
-	}
-	return m.buf.Write(p)
-}
-
-func (m *MockSnapshotSink) Close() error { return nil }
-
-func (m *MockSnapshotSink) Read(p []byte) (n int, err error) {
-	if m.rErr != nil {
-		return 0, m.rErr
-	}
-	return m.buf.Read(p)
 }

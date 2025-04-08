@@ -20,16 +20,16 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-type snapshot struct {
+type FSMSnapshot struct {
 	NodeID     string `json:"node_id"`
 	SnapshotID string `json:"snapshot_id"`
 	*schema.Snapshot
-	RBAC *rbac.Snapshot `json:"rbac"`
+	RBAC *authorization.Snapshot `json:"rbac,omitempty"`
 }
 
 // Persist should dump all necessary state to the WriteCloser 'sink',
@@ -40,7 +40,7 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 	if err != nil {
 		return fmt.Errorf("rbac snapshot: %w", err)
 	}
-	snap := snapshot{
+	snap := FSMSnapshot{
 		NodeID:     s.cfg.NodeID,
 		SnapshotID: sink.ID(),
 		Snapshot:   s.schemaManager.Snapshot(),

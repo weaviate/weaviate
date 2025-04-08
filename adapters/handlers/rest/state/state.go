@@ -16,7 +16,6 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
@@ -53,7 +52,7 @@ type State struct {
 	APIKey                *apikey.Client
 	Authorizer            authorization.Authorizer
 	AuthzController       authorization.Controller
-	RBACStorage           *casbin.SyncedCachedEnforcer
+	RBACSnapshotter       authorization.Snapshotter
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration
 	Locks                 locks.ConnectorSchemaLock

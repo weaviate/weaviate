@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -26,13 +25,13 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ   authorization.Controller
-	storage *casbin.SyncedCachedEnforcer
-	logger  logrus.FieldLogger
+	authZ       authorization.Controller
+	snapshotter authorization.Snapshotter
+	logger      logrus.FieldLogger
 }
 
-func NewManager(authZ authorization.Controller, rbacStorage *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *Manager {
-	return &Manager{authZ: authZ, storage: rbacStorage, logger: logger}
+func NewManager(authZ authorization.Controller, snapshotter authorization.Snapshotter, logger logrus.FieldLogger) *Manager {
+	return &Manager{authZ: authZ, snapshotter: snapshotter, logger: logger}
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {

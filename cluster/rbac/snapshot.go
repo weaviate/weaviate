@@ -12,52 +12,23 @@
 package rbac
 
 import (
-	"encoding/json"
-	"fmt"
 	"io"
+
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-type Snapshot struct {
-	Policy         [][]string `json:"roles_policies"`
-	GroupingPolicy [][]string `json:"grouping_policies"`
-}
-
-func (s *Manager) SnapShot() (*Snapshot, error) {
-	if s.storage == nil {
+func (m *Manager) SnapShot() (*authorization.Snapshot, error) {
+	// this check because RBAC is optional
+	if m.snapshotter == nil {
 		return nil, nil
 	}
-	policy, err := s.storage.GetPolicy()
-	if err != nil {
-		return nil, err
-	}
-	groupingPolicy, err := s.storage.GetGroupingPolicy()
-	if err != nil {
-		return nil, err
-	}
-	return &Snapshot{Policy: policy, GroupingPolicy: groupingPolicy}, nil
+	return m.snapshotter.SnapShot()
 }
 
-func (s *Manager) Restore(r io.Reader) error {
-	if s.storage == nil {
+func (m *Manager) Restore(r io.Reader) error {
+	// this check because RBAC is optional
+	if m.snapshotter == nil {
 		return nil
 	}
-	snapshot := Snapshot{}
-	if err := json.NewDecoder(r).Decode(&snapshot); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %w", err)
-	}
-	if s.storage == nil {
-		return nil
-	}
-	//TODO : migration has to be done here if needed
-	_, err := s.storage.AddPolicies(snapshot.Policy)
-	if err != nil {
-		return fmt.Errorf("add policies: %w", err)
-	}
-
-	//TODO : migration has to be done here if needed
-	_, err = s.storage.AddGroupingPolicies(snapshot.GroupingPolicy)
-	if err != nil {
-		return fmt.Errorf("add grouping policies: %w", err)
-	}
-	return s.storage.LoadPolicy()
+	return m.snapshotter.Restore(r)
 }
