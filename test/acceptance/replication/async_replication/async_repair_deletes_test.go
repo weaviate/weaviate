@@ -14,19 +14,19 @@ package replication
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
@@ -63,87 +63,62 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	paragraphCount := 10
-
-	// pick one node to be down during insertion
-	node := 2 + rand.Intn(clusterSize-1)
-
-	t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, node)
-	})
+	paragraphCount := len(paragraphIDs)
 
 	t.Run("insert paragraphs", func(t *testing.T) {
 		batch := make([]*models.Object, paragraphCount)
-		for i, id := range paragraphIDs[:paragraphCount] {
+		for i, id := range paragraphIDs {
 			batch[i] = articles.NewParagraph().
 				WithID(id).
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
 
-		// choose one more node to insert the objects into
-		var targetNode int
-		for {
-			targetNode = 1 + rand.Intn(clusterSize)
-			if targetNode != node {
-				break
-			}
-		}
-
-		common.CreateObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, replica.One)
+		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelAll)
 	})
 
-	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-		common.StartNodeAt(ctx, t, compose, node)
-		time.Sleep(time.Second)
+	node := 2
+
+	t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, node)
 	})
 
-	objectNotDeletedAt := make(map[strfmt.UUID]int)
-
-	for _, id := range paragraphIDs[:paragraphCount] {
-		// pick one node to be down during upserts
-		node := 2 + rand.Intn(clusterSize-1)
-
-		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			common.StopNodeAt(ctx, t, compose, node)
-		})
-
-		objectNotDeletedAt[id] = node
-
-		// choose one more node to delete the object
-		var targetNode int
-		for {
-			targetNode = 1 + rand.Intn(clusterSize)
-			if targetNode != node {
-				break
-			}
-		}
-
-		host := compose.GetWeaviateNode(targetNode).URI()
+	for _, id := range paragraphIDs {
+		host := compose.GetWeaviate().URI()
 
 		helper.SetupClient(host)
 
-		toDelete, err := helper.GetObjectCL(t, paragraphClass.Class, id, replica.One)
+		toDelete, err := helper.GetObjectCL(t, paragraphClass.Class, id, types.ConsistencyLevelOne)
 		require.NoError(t, err)
 
-		helper.DeleteObjectCL(t, toDelete.Class, toDelete.ID, replica.Quorum)
-
-		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			common.StartNodeAt(ctx, t, compose, node)
-			time.Sleep(time.Second)
-		})
+		helper.DeleteObjectCL(t, toDelete.Class, toDelete.ID, types.ConsistencyLevelQuorum)
 	}
 
-	// wait for some time for async replication to propagate deleted objects
-	t.Run("assert each node has all the objects at its latest version when object was not deleted", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			for _, id := range paragraphIDs[:paragraphCount] {
-				node := objectNotDeletedAt[id]
+	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
+		common.StartNodeAt(ctx, t, compose, node)
+	})
 
-				resp, err := common.ObjectExistsCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, replica.Quorum)
-				assert.NoError(ct, err)
-				assert.False(ct, resp)
+	t.Run("verify that all nodes are running", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verbose := verbosity.OutputVerbose
+			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+
+			resp := body.Payload
+			require.Len(ct, resp.Nodes, clusterSize)
+			for _, n := range resp.Nodes {
+				require.NotNil(ct, n.Status)
+				assert.Equal(ct, "HEALTHY", *n.Status)
 			}
-		}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
+		}, 15*time.Second, 500*time.Millisecond)
+	})
+
+	t.Run("assert node has objects already deleted", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", types.ConsistencyLevelOne)
+			assert.Len(ct, resp, 0)
+		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }

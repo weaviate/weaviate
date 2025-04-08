@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
@@ -28,14 +29,13 @@ import (
 func Test_ExploreConcepts(t *testing.T) {
 	t.Run("without any near searchers", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
 		params := ExploreParams{}
 
@@ -45,14 +45,13 @@ func Test_ExploreConcepts(t *testing.T) {
 
 	t.Run("with two searchers set at the same time", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil, -1)
 		params := ExploreParams{
 			NearVector: &searchparams.NearVector{},
@@ -66,14 +65,13 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 	t.Run("nearCustomText with no movements set", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
 		params := ExploreParams{
 			ModuleParams: map[string]interface{}{
@@ -129,18 +127,17 @@ func Test_ExploreConcepts(t *testing.T) {
 
 	t.Run("nearCustomText without optional params", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil, -1)
 		params := ExploreParams{
 			NearVector: &searchparams.NearVector{
-				Vectors: [][]float32{{7.8, 9}},
+				Vectors: []models.Vector{[]float32{7.8, 9}},
 			},
 		}
 		vectorSearcher.results = []search.Result{
@@ -189,14 +186,13 @@ func Test_ExploreConcepts(t *testing.T) {
 
 	t.Run("nearObject with id param", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil, -1)
 		params := ExploreParams{
 			NearObject: &searchparams.NearObject{
@@ -255,14 +251,13 @@ func Test_ExploreConcepts(t *testing.T) {
 
 	t.Run("nearObject with beacon param", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil, -1)
 		params := ExploreParams{
 			NearObject: &searchparams.NearObject{
@@ -321,19 +316,18 @@ func Test_ExploreConcepts(t *testing.T) {
 
 	t.Run("nearCustomText with limit and distance set", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
 		params := ExploreParams{
 			Limit: 100,
 			NearVector: &searchparams.NearVector{
-				Vectors:      [][]float32{{7.8, 9}},
+				Vectors:      []models.Vector{[]float32{7.8, 9}},
 				Distance:     0.2,
 				WithDistance: true,
 			},
@@ -365,19 +359,18 @@ func Test_ExploreConcepts(t *testing.T) {
 
 	t.Run("nearCustomText with limit and certainty set", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
 		params := ExploreParams{
 			Limit: 100,
 			NearVector: &searchparams.NearVector{
-				Vectors:   [][]float32{{7.8, 9}},
+				Vectors:   []models.Vector{[]float32{7.8, 9}},
 				Certainty: 0.8,
 			},
 		}
@@ -406,14 +399,13 @@ func Test_ExploreConcepts(t *testing.T) {
 
 	t.Run("nearCustomText with minimum distance set to 0.4", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
 		params := ExploreParams{
 			ModuleParams: map[string]interface{}{
@@ -435,14 +427,13 @@ func Test_ExploreConcepts(t *testing.T) {
 
 	t.Run("nearCustomText with minimum certainty set to 0.6", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
 		params := ExploreParams{
 			ModuleParams: map[string]interface{}{
@@ -476,14 +467,13 @@ func Test_ExploreConcepts(t *testing.T) {
 
 	t.Run("near text with movements set", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
 		params := ExploreParams{
 			Limit: 100,
@@ -549,14 +539,13 @@ func Test_ExploreConcepts(t *testing.T) {
 
 	t.Run("near text with movements and objects set", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
 
 		params := ExploreParams{

@@ -31,9 +31,6 @@ import (
 )
 
 func TestBM25FJourneyBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -228,8 +225,8 @@ func TestBM25FJourneyBlock(t *testing.T) {
 			require.Nil(t, err)
 
 			require.Equal(t, uint64(9), res[0].DocID)
-			require.Equal(t, uint64(8), res[1].DocID)
-			require.Equal(t, uint64(0), res[2].DocID)
+			require.Equal(t, uint64(0), res[1].DocID)
+			require.Equal(t, uint64(8), res[2].DocID)
 			require.Len(t, res, 3)
 		})
 
@@ -296,10 +293,6 @@ func TestBM25FJourneyBlock(t *testing.T) {
 }
 
 func TestBM25FSinglePropBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -354,10 +347,6 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 }
 
 func TestBM25FWithFiltersBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -433,10 +422,6 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 }
 
 func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -508,10 +493,6 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 }
 
 func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -562,7 +543,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 
 			// Check scores
 			EqualFloats(t, float32(0.98), scores[0], 2)
-			EqualFloats(t, float32(0.63), scores[1], 2)
+			EqualFloats(t, float32(0.59), scores[1], 2)
 		})
 
 		for _, index := range repo.indices {
@@ -577,10 +558,6 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
 func TestBM25FCompareBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -666,10 +643,6 @@ func TestBM25FCompareBlock(t *testing.T) {
 }
 
 func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -767,10 +740,6 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 }
 
 func TestBM25F_SortMultiPropBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()

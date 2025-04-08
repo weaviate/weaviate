@@ -17,16 +17,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/auth"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/fault"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/auth"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
 	"github.com/weaviate/weaviate/entities/models"
 
-	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 )
 
 const (
-	wcsUserOnAdmin    = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
-	wcsUserNotOnAdmin = "ms_f0559e7899681721a44d9ca1f7418ff3cc6321c3@muellmail.com"
+	wcsUserOnAdmin    = "oidc-test-user@weaviate.io"
+	wcsUserNotOnAdmin = "oidc-test-user2@weaviate.io"
 )
 
 func TestAuthGraphQLUnauthenticated(t *testing.T) {

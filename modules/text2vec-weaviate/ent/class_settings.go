@@ -22,7 +22,7 @@ import (
 const (
 	// TODO: replace docker internal host with actual host
 	DefaultBaseURL               = "https://api.embedding.weaviate.io"
-	DefaultWeaviateModel         = SnowflakeArcticEmbedM
+	DefaultWeaviateModel         = SnowflakeArcticEmbedL
 	DefaultTruncate              = "right"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
@@ -31,10 +31,24 @@ const (
 )
 
 const (
+	SnowflakeArcticEmbedL = "Snowflake/snowflake-arctic-embed-l-v2.0"
 	SnowflakeArcticEmbedM = "Snowflake/snowflake-arctic-embed-m-v1.5"
 )
 
-var SnowflakeArcticEmbedMDefaultDimensions int64 = 768
+var availableModels = []string{
+	SnowflakeArcticEmbedL,
+	SnowflakeArcticEmbedM,
+}
+
+var (
+	SnowflakeArcticEmbedLDefaultDimensions int64 = 1024
+	SnowflakeArcticEmbedMDefaultDimensions int64 = 768
+)
+
+var availableDimensions = map[string][]int64{
+	SnowflakeArcticEmbedL: {256, SnowflakeArcticEmbedLDefaultDimensions},
+	SnowflakeArcticEmbedM: {256, SnowflakeArcticEmbedMDefaultDimensions},
+}
 
 type classSettings struct {
 	basesettings.BaseClassSettings
@@ -67,24 +81,26 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	if cs.Model() == SnowflakeArcticEmbedM {
-		if err := cs.ValidateSnowflakeArctic(); err != nil {
-			return err
+	model := cs.Model()
+	if !basesettings.ValidateSetting[string](model, availableModels) {
+		return fmt.Errorf("wrong model name, available model names are: %v", availableModels)
+	}
+
+	dimensions := cs.Dimensions()
+	if dimensions != nil {
+		availableModelDimensions := availableDimensions[model]
+		if !basesettings.ValidateSetting[int64](*dimensions, availableModelDimensions) {
+			return fmt.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableModelDimensions)
 		}
 	}
 
 	return nil
 }
 
-func (cs *classSettings) ValidateSnowflakeArctic() error {
-	if cs.Dimensions() != nil && *cs.Dimensions() != 256 && *cs.Dimensions() != 768 {
-		return fmt.Errorf("available dimensions for model %v are: [256 768]. Got %v", cs.Model(), *cs.Dimensions())
-	}
-
-	return nil
-}
-
 func PickDefaultDimensions(model string) *int64 {
+	if model == SnowflakeArcticEmbedL {
+		return &SnowflakeArcticEmbedLDefaultDimensions
+	}
 	if model == SnowflakeArcticEmbedM {
 		return &SnowflakeArcticEmbedMDefaultDimensions
 	}

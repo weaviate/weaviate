@@ -20,13 +20,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 // In this scenario, we are testing two things:
@@ -70,7 +70,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
 	defer cancel()
 
 	paragraphClass := articles.ParagraphsClass()
@@ -108,7 +108,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 				WithTenant(tenantName).
 				Object()
 		}
-		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, replica.One)
+		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelOne)
 	})
 
 	t.Run("start node 2", func(t *testing.T) {
@@ -120,8 +120,10 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-			resp, err := body.Payload, clientErr
-			require.NoError(ct, err)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+
+			resp := body.Payload
 			require.Len(ct, resp.Nodes, clusterSize)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)
@@ -132,8 +134,8 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 
 	t.Run("validate async object propagation", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp := common.GQLTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
+			resp := common.GQLTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, types.ConsistencyLevelOne, tenantName)
 			assert.Len(ct, resp, objectCount)
-		}, 40*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
+		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }

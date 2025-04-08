@@ -38,7 +38,7 @@ type vectorizer struct {
 
 func New(jinaAIApiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		client: jinaai.New[[][]float32](jinaAIApiKey, timeout, defaultRPM, defaultTPM, logger),
+		client: jinaai.New[[][]float32](jinaAIApiKey, timeout, defaultRPM, defaultTPM, jinaai.MultiVectorBuildUrlFn, logger),
 		logger: logger,
 	}
 }

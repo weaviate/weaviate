@@ -15,9 +15,12 @@ import (
 	"context"
 	"testing"
 
+	acceptance_with_go_client "acceptance_tests_with_client"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -109,7 +112,8 @@ func testCreateObject(host string) func(t *testing.T) {
 						WithTargetVectors(c11y)
 					resultVectors := getVectorsWithNearTextWithCertainty(t, client, className, id1, nearText, c11y)
 					require.NotEmpty(t, resultVectors[c11y])
-					vectorC11y = resultVectors[c11y]
+					require.IsType(t, []float32{}, resultVectors[c11y])
+					vectorC11y = resultVectors[c11y].([]float32)
 				})
 
 				t.Run("nearVector", func(t *testing.T) {
@@ -127,6 +131,24 @@ func testCreateObject(host string) func(t *testing.T) {
 					resultVectors := getVectorsWithNearObjectWithCertainty(t, client, className, id1, nearObject, c11y)
 					require.NotEmpty(t, resultVectors[c11y])
 				})
+			})
+
+			t.Run("nearText with certainty limit", func(t *testing.T) {
+				nearText := client.GraphQL().NearTextArgBuilder().
+					WithTargetVectors(c11y).
+					WithConcepts([]string{"book"}).
+					WithCertainty(0.9)
+
+				res, err := client.GraphQL().Get().
+					WithClassName(className).
+					WithNearText(nearText).
+					WithFields(graphql.Field{
+						Name:   "_additional",
+						Fields: []graphql.Field{{Name: "id"}},
+					}).
+					Do(ctx)
+				require.NoError(t, err)
+				require.Equal(t, []string{id1}, acceptance_with_go_client.GetIds(t, res, className))
 			})
 
 			t.Run("delete 1 object", func(t *testing.T) {
@@ -244,8 +266,9 @@ func testCreateObject(host string) func(t *testing.T) {
 				targetVecUpdate := targetVectors[0]
 				beforeUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
 				checkTargetVectors(t, beforeUpdateVectors)
-				vecForNewObject := make([]float32, len(beforeUpdateVectors[targetVecUpdate]))
-				copy(vecForNewObject, beforeUpdateVectors[targetVecUpdate])
+				require.IsType(t, []float32{}, beforeUpdateVectors[targetVecUpdate])
+				vecForNewObject := make([]float32, len(beforeUpdateVectors[targetVecUpdate].([]float32)))
+				copy(vecForNewObject, beforeUpdateVectors[targetVecUpdate].([]float32))
 				vecForNewObject[0] = vecForNewObject[0] + 0.1
 
 				require.NoError(t, client.Data().Updater().

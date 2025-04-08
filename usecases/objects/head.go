@@ -16,6 +16,7 @@ import (
 	"errors"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -28,23 +29,14 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
-		return false, &Error{err.Error(), StatusForbidden, err}
-	}
-
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return false, &Error{"cannot lock", StatusInternalServerError, err}
-	}
-	defer unlock()
 
 	m.metrics.HeadObjectInc()
 	defer m.metrics.HeadObjectDec()
 
 	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
 	if err != nil {
-		switch err.(type) {
-		case ErrMultiTenancy:
+		switch {
+		case errors.As(err, &ErrMultiTenancy{}):
 			return false, &Error{"repo.exists", StatusUnprocessableEntity, err}
 		default:
 			if (errors.As(err, &ErrDirtyReadOfDeletedObject{})) {

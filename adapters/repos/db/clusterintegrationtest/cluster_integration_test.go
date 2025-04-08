@@ -211,7 +211,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 					Limit: 25,
 				},
 				ClassName: distributedClass,
-			}, []string{""}, [][]float32{query})
+			}, []string{""}, []models.Vector{query})
 			assert.Nil(t, err)
 			for i, obj := range res {
 				assert.Equal(t, groundTruth[i].ID, obj.ID, fmt.Sprintf("at pos %d", i))
@@ -738,10 +738,12 @@ func TestDistributedVectorDistance(t *testing.T) {
 					Class:   collection.Class,
 					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 				}
-				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, nil, 0))
+				objVectors, _, err := dto.GetVectors(obj.Vectors)
+				require.NoError(t, err)
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, objVectors, nil, nil, 0))
 
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2", "custom3"}, [][]float32{vectors[1], vectors[2], vectors[3]})
+					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2", "custom3"}, []models.Vector{vectors[1], vectors[2], vectors[3]})
 					if !assert.Nil(collect, err) {
 						return
 					}
@@ -765,10 +767,12 @@ func TestDistributedVectorDistance(t *testing.T) {
 					Class:   collection.Class,
 					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 				}
-				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, nil, 0))
+				objVectors, _, err := dto.GetVectors(obj.Vectors)
+				require.NoError(t, err)
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, objVectors, nil, nil, 0))
 
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2"}, [][]float32{vectors[1], vectors[2]})
+					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2"}, []models.Vector{vectors[1], vectors[2]})
 					if !assert.Nil(collect, err) {
 						return
 					}
@@ -790,10 +794,12 @@ func TestDistributedVectorDistance(t *testing.T) {
 					Class:   collection.Class,
 					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1]},
 				}
-				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, nil, 0))
+				objVectors, _, err := dto.GetVectors(obj.Vectors)
+				require.NoError(t, err)
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, objVectors, nil, nil, 0))
 
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
+					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, []models.Vector{vectors[1], vectors[2]})
 					if !assert.Nil(collect, err) {
 						return
 					}
@@ -814,11 +820,13 @@ func TestDistributedVectorDistance(t *testing.T) {
 						Vectors: map[string]models.Vector{"custom1": vectors[i%len(vectors)], "custom2": vectors[(i+1)%len(vectors)], "custom3": vectors[(i+2)%len(vectors)]},
 					}
 					ids[i] = obj.ID
-					require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, nil, 0))
+					vectors, _, err := dto.GetVectors(obj.Vectors)
+					require.NoError(t, err)
+					require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, vectors, nil, nil, 0))
 				}
 
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
+					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, []models.Vector{vectors[1], vectors[2]})
 					assert.Nil(collect, err)
 					assert.Greater(collect, len(res), 0)
 				}, 20*time.Second, 1*time.Second)

@@ -83,7 +83,8 @@ func (p *commitloggerParser) parseCollectionNode(reader io.Reader) error {
 		return err
 	}
 
-	if p.strategy == StrategyMapCollection {
+	// Commit log nodes are the same for MapCollection and Inverted strategies
+	if p.strategy == StrategyMapCollection || p.strategy == StrategyInverted {
 		return p.parseMapNode(n)
 	}
 
@@ -97,6 +98,13 @@ func (p *commitloggerParser) parseMapNode(n segmentCollectionNode) error {
 			return err
 		}
 		mp.Tombstone = val.tombstone
+
+		if p.memtable.strategy == StrategyInverted && val.tombstone {
+			docID := binary.BigEndian.Uint64(val.value)
+			if err := p.memtable.SetTombstone(docID); err != nil {
+				return err
+			}
+		}
 
 		if err := p.memtable.appendMapSorted(n.primaryKey, mp); err != nil {
 			return err

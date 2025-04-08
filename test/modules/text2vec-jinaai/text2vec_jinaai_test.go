@@ -21,9 +21,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
 
-func testText2VecJinaAI(host string) func(t *testing.T) {
+func testText2VecJinaAI(rest, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
-		helper.SetupClient(host)
+		helper.SetupClient(rest)
 		// Data
 		className := "BooksGenerativeTest"
 		data := companies.Companies
@@ -32,10 +32,6 @@ func testText2VecJinaAI(host string) func(t *testing.T) {
 			name  string
 			model string
 		}{
-			{
-				name:  "jina-embeddings-v2-base-en",
-				model: "jina-embeddings-v2-base-en",
-			},
 			{
 				name:  "jina-embeddings-v3",
 				model: "jina-embeddings-v3",
@@ -62,7 +58,7 @@ func testText2VecJinaAI(host string) func(t *testing.T) {
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					companies.InsertObjects(t, host, class.Class)
+					companies.InsertObjects(t, rest, class.Class)
 				})
 				t.Run("check objects existence", func(t *testing.T) {
 					for _, company := range data {
@@ -71,13 +67,13 @@ func testText2VecJinaAI(host string) func(t *testing.T) {
 							require.NoError(t, err)
 							require.NotNil(t, obj)
 							require.Len(t, obj.Vectors, 1)
-							assert.True(t, len(obj.Vectors["description"]) > 0)
+							require.IsType(t, []float32{}, obj.Vectors["description"])
+							assert.True(t, len(obj.Vectors["description"].([]float32)) > 0)
 						})
 					}
 				})
-				// vector search
-				t.Run("perform vector search", func(t *testing.T) {
-					companies.PerformVectorSearchTest(t, host, class.Class)
+				t.Run("search tests", func(t *testing.T) {
+					companies.PerformAllSearchTests(t, rest, grpc, class.Class)
 				})
 			})
 		}

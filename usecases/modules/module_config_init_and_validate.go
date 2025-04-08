@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -24,14 +25,13 @@ import (
 // SetClassDefaults sets the module-specific defaults for the class itself, but
 // also for each prop
 func (p *Provider) SetClassDefaults(class *models.Class) {
-	if !p.hasTargetVectors(class) {
+	if modelsext.ClassHasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {
 		p.setClassDefaults(class, class.Vectorizer, "", func(vectorizerConfig map[string]interface{}) {
 			if class.ModuleConfig == nil {
 				class.ModuleConfig = map[string]interface{}{}
 			}
 			class.ModuleConfig.(map[string]interface{})[class.Vectorizer] = vectorizerConfig
 		})
-		return
 	}
 
 	for targetVector, vectorConfig := range class.VectorConfig {
@@ -94,9 +94,8 @@ func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
 	props ...*models.Property,
 ) {
 	for _, prop := range props {
-		if !p.hasTargetVectors(class) {
+		if modelsext.ClassHasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {
 			p.setSinglePropertyDefaults(prop, class.Vectorizer)
-			continue
 		}
 
 		for _, vectorConfig := range class.VectorConfig {
@@ -250,6 +249,12 @@ func (p *Provider) validateClassesModuleConfig(ctx context.Context,
 		return fmt.Errorf("multiple vectorizers configured in class's moduleConfig: %v. class.vectorizer is set to %q",
 			configuredVectorizers, class.Vectorizer)
 	}
+	if len(configuredVectorizers) == 1 && p.IsMultiVector(configuredVectorizers[0]) {
+		return fmt.Errorf("multi vector vectorizer: %q is only allowed to be defined using named vector configuration", configuredVectorizers[0])
+	}
+	if p.IsMultiVector(class.Vectorizer) {
+		return fmt.Errorf("multi vector vectorizer: %q is only allowed to be defined using named vector configuration", class.Vectorizer)
+	}
 	return nil
 }
 
@@ -290,8 +295,4 @@ func (p *Provider) validateVectorConfig(class *models.Class, moduleName string, 
 		}
 		class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"] = propsTyped
 	}
-}
-
-func (p *Provider) hasTargetVectors(class *models.Class) bool {
-	return len(class.VectorConfig) > 0
 }

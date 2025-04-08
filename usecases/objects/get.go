@@ -18,11 +18,14 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 )
 
 // GetObject Class from the connected DB
@@ -34,12 +37,6 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, err
 	}
-
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
 
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
@@ -66,15 +63,27 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
-
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
-	return m.getObjectsFromRepo(ctx, offset, limit, sort, order, after, addl, tenant)
+
+	objects, err := m.getObjectsFromRepo(ctx, offset, limit, sort, order, after, addl, tenant)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter objects based on authorization
+	resourceFilter := filter.New[*models.Object](m.authorizer, m.config.Config.Authorization.Rbac)
+	filteredObjects := resourceFilter.Filter(
+		m.logger,
+		principal,
+		objects,
+		authorization.READ,
+		func(obj *models.Object) string {
+			return authorization.Objects(obj.Class, tenant, obj.ID)
+		},
+	)
+
+	return filteredObjects, nil
 }
 
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
@@ -85,11 +94,6 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 		return nil, err
 	}
 
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
@@ -118,10 +122,13 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds, tenant)
 	}
 	if err != nil {
-		switch err.(type) {
-		case ErrMultiTenancy:
+		switch {
+		case errors.As(err, &ErrMultiTenancy{}):
 			return nil, NewErrMultiTenancy(fmt.Errorf("repo: object by id: %w", err))
 		default:
+			if errors.As(err, &authzerrs.Forbidden{}) {
+				return nil, fmt.Errorf("repo: object by id: %w", err)
+			}
 			return nil, NewErrInternal("repo: object by id: %v", err)
 		}
 	}
@@ -133,7 +140,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	if m.modulesProvider != nil {
 		res, err = m.modulesProvider.GetObjectAdditionalExtend(ctx, res, adds.ModuleParams)
 		if err != nil {
-			return nil, fmt.Errorf("get extend: %v", err)
+			return nil, fmt.Errorf("get extend: %w", err)
 		}
 	}
 

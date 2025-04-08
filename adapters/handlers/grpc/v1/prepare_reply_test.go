@@ -63,6 +63,15 @@ func byteVector(vec []float32) []byte {
 	return vector
 }
 
+func byteVectorMulti(mat [][]float32) []byte {
+	matrix := make([]byte, 2)
+	binary.LittleEndian.PutUint16(matrix, uint16(len(mat[0])))
+	for _, vec := range mat {
+		matrix = append(matrix, byteVector(vec)...)
+	}
+	return matrix
+}
+
 func idByte(id string) []byte {
 	hexInteger, _ := new(big.Int).SetString(strings.Replace(id, "-", "", -1), 16)
 	return hexInteger.Bytes()
@@ -187,14 +196,13 @@ func TestGRPCReply(t *testing.T) {
 	}
 
 	tests := []struct {
-		name               string
-		res                []any
-		searchParams       dto.GetParams // only a few things are needed to control what is returned
-		outSearch          []*pb.SearchResult
-		outGenerative      string
-		outGroup           []*pb.GroupByResult
-		usesWeaviateStruct bool
-		hasError           bool
+		name          string
+		res           []any
+		searchParams  dto.GetParams // only a few things are needed to control what is returned
+		outSearch     []*pb.SearchResult
+		outGenerative string
+		outGroup      []*pb.GroupByResult
+		hasError      bool
 	}{
 		{
 			name: "vector only",
@@ -211,23 +219,21 @@ func TestGRPCReply(t *testing.T) {
 				{Metadata: &pb.MetadataResult{Vector: []float32{1}, VectorBytes: byteVector([]float32{1})}, Properties: &pb.PropertiesResult{}},
 				{Metadata: &pb.MetadataResult{Vector: []float32{2}, VectorBytes: byteVector([]float32{2})}, Properties: &pb.PropertiesResult{}},
 			},
-			usesWeaviateStruct: true,
 		},
 		{
 			name: "named vector only",
 			res: []interface{}{
 				map[string]interface{}{
-					"_additional": map[string]interface{}{"vectors": map[string][]float32{"custom": {1}, "first": {2}}},
+					"_additional": map[string]interface{}{"vectors": map[string]models.Vector{"custom": []float32{1}, "first": []float32{2}}},
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}}},
 			outSearch: []*pb.SearchResult{
 				{Metadata: &pb.MetadataResult{Vectors: []*pb.Vectors{
-					{Name: "custom", VectorBytes: byteVector([]float32{1})},
-					{Name: "first", VectorBytes: byteVector([]float32{2})},
+					{Name: "custom", VectorBytes: byteVector([]float32{1}), Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32},
+					{Name: "first", VectorBytes: byteVector([]float32{2}), Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32},
 				}}, Properties: &pb.PropertiesResult{}},
 			},
-			usesWeaviateStruct: true,
 		},
 		{
 			name: "all additional",
@@ -310,49 +316,6 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
-			name: "primitive properties deprecated",
-			res: []interface{}{
-				map[string]interface{}{
-					"word": "word",
-					"age":  21,
-				},
-				map[string]interface{}{
-					"word": "other",
-					"age":  26,
-				},
-			},
-			searchParams: dto.GetParams{
-				ClassName:  className,
-				Properties: search.SelectProperties{{Name: "word", IsPrimitive: true}, {Name: "age", IsPrimitive: true}},
-			},
-			outSearch: []*pb.SearchResult{
-				{
-					Metadata: &pb.MetadataResult{},
-					Properties: &pb.PropertiesResult{
-						TargetCollection: className,
-						NonRefProperties: newStruct(t, map[string]interface{}{
-							"word": "word",
-							"age":  21,
-						}),
-						RefProps:          []*pb.RefPropertiesResult{},
-						RefPropsRequested: false,
-					},
-				},
-				{
-					Metadata: &pb.MetadataResult{},
-					Properties: &pb.PropertiesResult{
-						TargetCollection: className,
-						NonRefProperties: newStruct(t, map[string]interface{}{
-							"word": "other",
-							"age":  26,
-						}),
-						RefProps:          []*pb.RefPropertiesResult{},
-						RefPropsRequested: false,
-					},
-				},
-			},
-		},
-		{
 			name: "primitive properties",
 			res: []interface{}{
 				map[string]interface{}{
@@ -398,7 +361,6 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
-			usesWeaviateStruct: true,
 		},
 		{
 			name: "request property with nil value",
@@ -408,8 +370,12 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{
-				ClassName:  className,
-				Properties: search.SelectProperties{{Name: "word", IsPrimitive: true}, {Name: "age", IsPrimitive: true}},
+				ClassName: className,
+				Properties: search.SelectProperties{
+					{Name: "word", IsPrimitive: true},
+					{Name: "age", IsPrimitive: true},
+					{Name: "nested", IsPrimitive: false, IsObject: true, Props: []search.SelectProperty{{Name: "text", IsPrimitive: true}}},
+				},
 			},
 			outSearch: []*pb.SearchResult{
 				{
@@ -418,8 +384,9 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
-								"age":  {Kind: &pb.Value_NullValue{}},
+								"word":   {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"age":    {Kind: &pb.Value_NullValue{}},
+								"nested": {Kind: &pb.Value_NullValue{}},
 							},
 						},
 						RefProps:          []*pb.RefPropertiesResult{},
@@ -427,7 +394,6 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
-			usesWeaviateStruct: true,
 		},
 		{
 			name: "array properties",
@@ -457,31 +423,6 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
-			usesWeaviateStruct: true,
-		},
-		{
-			name: "array properties deprecated",
-			res: []interface{}{
-				map[string]interface{}{"nums": []float64{1, 2, 3}}, // ints are encoded as float64 in json
-			},
-			searchParams: dto.GetParams{
-				ClassName:  className,
-				Properties: search.SelectProperties{{Name: "nums", IsPrimitive: true}},
-			},
-			outSearch: []*pb.SearchResult{
-				{
-					Metadata: &pb.MetadataResult{},
-					Properties: &pb.PropertiesResult{
-						TargetCollection: className,
-						NonRefProperties: newStruct(t, map[string]interface{}{}),
-						IntArrayProperties: []*pb.IntArrayProperties{{
-							PropName: "nums",
-							Values:   []int64{1, 2, 3},
-						}},
-					},
-				},
-			},
-			usesWeaviateStruct: false,
 		},
 		{
 			name: "nested object properties",
@@ -589,7 +530,6 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
-			usesWeaviateStruct: true,
 		},
 		{
 			name: "nested object properties with missing values",
@@ -695,110 +635,6 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
-			usesWeaviateStruct: true,
-		},
-		{
-			name: "nested object properties deprecated",
-			res: []interface{}{
-				map[string]interface{}{
-					"something": map[string]interface{}{
-						"name":  "Bob",
-						"names": []string{"Jo", "Jill"},
-						"else": map[string]interface{}{
-							"name":  "Bill",
-							"names": []string{"Jo", "Jill"},
-						},
-						"objs": []interface{}{
-							map[string]interface{}{"name": "Bill"},
-						},
-					},
-				},
-			},
-			searchParams: dto.GetParams{
-				ClassName: objClass,
-				Properties: search.SelectProperties{{
-					Name:        "something",
-					IsPrimitive: false,
-					IsObject:    true,
-					Props: []search.SelectProperty{
-						{
-							Name:        "name",
-							IsPrimitive: true,
-						},
-						{
-							Name:        "names",
-							IsPrimitive: true,
-						},
-						{
-							Name:        "else",
-							IsPrimitive: false,
-							IsObject:    true,
-							Props: []search.SelectProperty{
-								{
-									Name:        "name",
-									IsPrimitive: true,
-								},
-								{
-									Name:        "names",
-									IsPrimitive: true,
-								},
-							},
-						},
-						{
-							Name:        "objs",
-							IsPrimitive: false,
-							IsObject:    true,
-							Props: []search.SelectProperty{{
-								Name:        "name",
-								IsPrimitive: true,
-							}},
-						},
-					},
-				}},
-			},
-			outSearch: []*pb.SearchResult{
-				{
-					Metadata: &pb.MetadataResult{},
-					Properties: &pb.PropertiesResult{
-						TargetCollection: objClass,
-						ObjectProperties: []*pb.ObjectProperties{
-							{
-								PropName: "something",
-								Value: &pb.ObjectPropertiesValue{
-									NonRefProperties: newStruct(t, map[string]interface{}{
-										"name": "Bob",
-									}),
-									TextArrayProperties: []*pb.TextArrayProperties{{
-										PropName: "names",
-										Values:   []string{"Jo", "Jill"},
-									}},
-									ObjectProperties: []*pb.ObjectProperties{{
-										PropName: "else",
-										Value: &pb.ObjectPropertiesValue{
-											NonRefProperties: newStruct(t, map[string]interface{}{
-												"name": "Bill",
-											}),
-											TextArrayProperties: []*pb.TextArrayProperties{{
-												PropName: "names",
-												Values:   []string{"Jo", "Jill"},
-											}},
-										},
-									}},
-									ObjectArrayProperties: []*pb.ObjectArrayProperties{{
-										PropName: "objs",
-										Values: []*pb.ObjectPropertiesValue{{
-											NonRefProperties: newStruct(t, map[string]interface{}{
-												"name": "Bill",
-											}),
-										}},
-									}},
-								},
-							},
-						},
-					},
-				},
-			},
-			usesWeaviateStruct: false,
 		},
 		{
 			name: "primitive and ref properties with no references",
@@ -851,7 +687,6 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
-			usesWeaviateStruct: true,
 		},
 		{
 			name: "primitive and ref properties",
@@ -948,7 +783,6 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
-			usesWeaviateStruct: true,
 		},
 		{
 			name: "nested ref properties",
@@ -1038,7 +872,6 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
-			usesWeaviateStruct: true,
 		},
 		{
 			name: "nested ref properties with no references",
@@ -1107,7 +940,6 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
-			usesWeaviateStruct: true,
 		},
 		{
 			name: "primitive and ref array properties",
@@ -1172,63 +1004,6 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
-			usesWeaviateStruct: true,
-		},
-		{
-			name: "primitive and ref array properties deprecated",
-			res: []interface{}{
-				map[string]interface{}{
-					"word": "word",
-					"ref": []interface{}{
-						search.LocalRef{
-							Class: refClass1,
-							Fields: map[string]interface{}{
-								"nums":        []float64{1, 2, 3}, // ints are encoded as float64 in json
-								"_additional": map[string]interface{}{"vector": []float32{3}},
-							},
-						},
-					},
-				},
-			},
-			searchParams: dto.GetParams{
-				ClassName: className,
-				Properties: search.SelectProperties{
-					{Name: "word", IsPrimitive: true},
-					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
-						{
-							ClassName:            refClass1,
-							RefProperties:        search.SelectProperties{{Name: "nums", IsPrimitive: true}},
-							AdditionalProperties: additional.Properties{Vector: true},
-						},
-					}},
-				},
-			},
-			outSearch: []*pb.SearchResult{
-				{
-					Metadata: &pb.MetadataResult{},
-					Properties: &pb.PropertiesResult{
-						TargetCollection: className,
-						NonRefProperties: newStruct(t, map[string]interface{}{
-							"word": "word",
-						}),
-						RefProps: []*pb.RefPropertiesResult{{
-							PropName: "ref",
-							Properties: []*pb.PropertiesResult{
-								{
-									TargetCollection: refClass1,
-									Metadata:         &pb.MetadataResult{Vector: []float32{3}, VectorBytes: byteVector([]float32{3})},
-									NonRefProperties: newStruct(t, map[string]interface{}{}),
-									IntArrayProperties: []*pb.IntArrayProperties{{
-										PropName: "nums",
-										Values:   []int64{1, 2, 3},
-									}},
-								},
-							},
-						}},
-					},
-				},
-			},
-			usesWeaviateStruct: false,
 		},
 		{
 			name: "generative single only with ID",
@@ -1438,8 +1213,8 @@ func TestGRPCReply(t *testing.T) {
 									PropName: "other",
 									Properties: []*pb.PropertiesResult{
 										{
-											NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
-											Metadata:         &pb.MetadataResult{Vector: []float32{2}, Id: UUID1.String()},
+											NonRefProps: &pb.Properties{Fields: map[string]*pb.Value{"something": {Kind: &pb.Value_TextValue{TextValue: "other"}}}},
+											Metadata:    &pb.MetadataResult{Vector: []float32{2}, Id: UUID1.String()},
 										},
 									},
 								},
@@ -1453,7 +1228,7 @@ func TestGRPCReply(t *testing.T) {
 					},
 					{
 						Properties: &pb.PropertiesResult{
-							NonRefProperties: newStruct(t, map[string]interface{}{"word": "other"}),
+							NonRefProps: &pb.Properties{Fields: map[string]*pb.Value{"word": {Kind: &pb.Value_TextValue{TextValue: "other"}}}},
 						},
 						Metadata: &pb.MetadataResult{
 							Id:     string(UUID1),
@@ -1553,7 +1328,7 @@ func TestGRPCReply(t *testing.T) {
 				Objects: []*pb.SearchResult{
 					{
 						Properties: &pb.PropertiesResult{
-							NonRefProperties: newStruct(t, map[string]interface{}{"word": "word"}),
+							NonRefProps: &pb.Properties{Fields: map[string]*pb.Value{"word": {Kind: &pb.Value_TextValue{TextValue: "word"}}}},
 							RefProps: []*pb.RefPropertiesResult{
 								{
 									PropName: "other",
@@ -1574,7 +1349,7 @@ func TestGRPCReply(t *testing.T) {
 					},
 					{
 						Properties: &pb.PropertiesResult{
-							NonRefProperties: newStruct(t, map[string]interface{}{"word": "other"}),
+							NonRefProps: &pb.Properties{Fields: map[string]*pb.Value{"word": {Kind: &pb.Value_TextValue{TextValue: "other"}}}},
 						},
 						Metadata: &pb.MetadataResult{
 							Id:     string(UUID1),
@@ -1587,7 +1362,7 @@ func TestGRPCReply(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		replier := NewReplier(tt.usesWeaviateStruct, false, false, fakeGenerativeParams{}, nil)
+		replier := NewReplier(false, false, fakeGenerativeParams{}, nil)
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := replier.Search(tt.res, time.Now(), tt.searchParams, scheme)
 			if tt.hasError {
@@ -1617,6 +1392,14 @@ func (f fakeGenerativeParams) ProviderName() string {
 	return ""
 }
 
-func (f fakeGenerativeParams) ReturnMetadata() bool {
+func (f fakeGenerativeParams) ReturnMetadataForSingle() bool {
+	return false
+}
+
+func (f fakeGenerativeParams) ReturnMetadataForGrouped() bool {
+	return false
+}
+
+func (f fakeGenerativeParams) Debug() bool {
 	return false
 }

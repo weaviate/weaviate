@@ -12,6 +12,7 @@
 package anonymous
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -21,13 +22,15 @@ import (
 
 // Client for anonymous access
 type Client struct {
-	config config.AnonymousAccess
+	config        config.AnonymousAccess
+	apiKeyEnabled bool
+	oidcEnabled   bool
 }
 
 // New anonymous access client. Client.Middleware can be used as a regular
 // golang http-middleware
 func New(cfg config.Config) *Client {
-	return &Client{config: cfg.Authentication.AnonymousAccess}
+	return &Client{config: cfg.Authentication.AnonymousAccess, apiKeyEnabled: cfg.Authentication.AnyApiKeyAvailable(), oidcEnabled: cfg.Authentication.OIDC.Enabled}
 }
 
 // Middleware will fail unauthenticated requests if anonymous access is
@@ -50,8 +53,18 @@ func (c *Client) Middleware(next http.Handler) http.Handler {
 		}
 
 		w.WriteHeader(401)
+		var authSchemas []string
+		if c.apiKeyEnabled {
+			authSchemas = append(authSchemas, "API-keys")
+		}
+		if c.oidcEnabled {
+			authSchemas = append(authSchemas, "OIDC")
+		}
+
 		w.Write([]byte(
-			`{"code":401,"message":"anonymous access not enabled, please provide an auth scheme such as OIDC"}`,
+			fmt.Sprintf(
+				`{"code":401,"message": "anonymous access not enabled. Please authenticate through one of the available methods: [%s]" }`, strings.Join(authSchemas, ", "),
+			),
 		))
 	})
 }

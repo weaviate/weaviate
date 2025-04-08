@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -39,7 +40,6 @@ type Manager struct {
 	repo         SchemaStore
 	logger       logrus.FieldLogger
 	Authorizer   authorization.Authorizer
-	config       config.Config
 	clusterState clusterState
 
 	sync.RWMutex
@@ -201,25 +201,30 @@ func NewManager(validator validator,
 	schemaManager SchemaManager,
 	schemaReader SchemaReader,
 	repo SchemaStore,
-	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer,
+	schemaConfig *config.SchemaHandlerConfig,
+	config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
+	parser Parser,
+	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
 		schemaManager,
 		validator,
 		logger, authorizer,
+		schemaConfig,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
-		moduleConfig, clusterState, scaleoutManager, cloud)
+		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
 	m := &Manager{
-		config:       config,
 		validator:    validator,
 		repo:         repo,
 		logger:       logger,
@@ -403,7 +408,6 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		Tenants:      make([]*api.Tenant, 0, len(status)),
 		ClusterNodes: m.schemaManager.StorageCandidates(),
 	}
-
 	for tenant, s := range status {
 		if s != models.TenantActivityStatusHOT {
 			req.Tenants = append(req.Tenants,

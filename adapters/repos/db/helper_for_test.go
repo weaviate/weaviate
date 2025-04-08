@@ -9,8 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build integrationTest
-
 package db
 
 import (
@@ -32,7 +30,9 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -258,19 +258,22 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 			RootPath:            tmpDir,
 			ClassName:           schema.ClassName(class.Class),
 			QueryMaximumResults: maxResults,
-			ReplicationFactor:   NewAtomicInt64(1),
+			ReplicationFactor:   1,
 		},
-		partitioningEnabled:   shardState.PartitioningEnabled,
-		invertedIndexConfig:   iic,
-		vectorIndexUserConfig: vic,
-		logger:                logger,
-		getSchema:             schemaGetter,
-		centralJobQueue:       repo.jobQueueCh,
-		stopwords:             sd,
-		indexCheckpoints:      checkpts,
-		allocChecker:          memwatch.NewDummyMonitor(),
-		shardCreateLocks:      esync.NewKeyLocker(),
-		scheduler:             repo.scheduler,
+		partitioningEnabled:    shardState.PartitioningEnabled,
+		invertedIndexConfig:    iic,
+		vectorIndexUserConfig:  vic,
+		vectorIndexUserConfigs: map[string]schemaConfig.VectorIndexConfig{},
+		logger:                 logger,
+		getSchema:              schemaGetter,
+		centralJobQueue:        repo.jobQueueCh,
+		stopwords:              sd,
+		indexCheckpoints:       checkpts,
+		allocChecker:           memwatch.NewDummyMonitor(),
+		shardCreateLocks:       esync.NewKeyLocker(),
+		scheduler:              repo.scheduler,
+		shardLoadLimiter:       NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		shardReindexer:         NewShardReindexerV3Noop(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
@@ -295,7 +298,6 @@ func testObject(className string) *storobj.Object {
 			ID:    strfmt.UUID(uuid.NewString()),
 			Class: className,
 		},
-		Vector: []float32{1, 2, 3},
 	}
 }
 
@@ -317,4 +319,16 @@ func createRandomObjects(r *rand.Rand, className string, numObj int, vectorDim i
 		}
 	}
 	return obj
+}
+
+func invertedConfig() *models.InvertedIndexConfig {
+	return &models.InvertedIndexConfig{
+		CleanupIntervalSeconds: 60,
+		Stopwords: &models.StopwordConfig{
+			Preset: "none",
+		},
+		IndexNullState:      true,
+		IndexPropertyLength: true,
+		UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
+	}
 }

@@ -22,7 +22,6 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
-	"golang.org/x/exp/slices"
 )
 
 // PeerJoiner is the interface we expect to be able to talk to the other peers to either Join or Notify them
@@ -34,7 +33,7 @@ type PeerJoiner interface {
 // Bootstrapper is used to bootstrap this node by attempting to join it to a RAFT cluster.
 type Bootstrapper struct {
 	peerJoiner   PeerJoiner
-	addrResolver resolver.NodeToAddress
+	addrResolver resolver.ClusterStateReader
 	isStoreReady func() bool
 
 	localRaftAddr string
@@ -46,7 +45,7 @@ type Bootstrapper struct {
 }
 
 // NewBootstrapper constructs a new bootsrapper
-func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, voter bool, r resolver.NodeToAddress, isStoreReady func() bool) *Bootstrapper {
+func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, voter bool, r resolver.ClusterStateReader, isStoreReady func() bool) *Bootstrapper {
 	return &Bootstrapper{
 		peerJoiner:    peerJoiner,
 		addrResolver:  r,
@@ -129,7 +128,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 }
 
 // notify attempts to notify all nodes in remoteNodes that this server is ready to bootstrap
-func (b *Bootstrapper) notify(ctx context.Context, remoteNodes []string) (err error) {
+func (b *Bootstrapper) notify(ctx context.Context, remoteNodes map[string]string) (err error) {
 	if entSentry.Enabled() {
 		span := sentry.StartSpan(ctx, "raft.bootstrap.notify",
 			sentry.WithOpName("notify"),
@@ -151,14 +150,13 @@ func (b *Bootstrapper) notify(ctx context.Context, remoteNodes []string) (err er
 
 // ResolveRemoteNodes returns a list of remoteNodes addresses resolved using addrResolver. The nodes id used are
 // taken from serverPortMap keys and ports from the values
-func ResolveRemoteNodes(addrResolver resolver.NodeToAddress, serverPortMap map[string]int) []string {
-	candidates := make([]string, 0, len(serverPortMap))
+func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap map[string]int) map[string]string {
+	candidates := make(map[string]string, len(serverPortMap))
 	for name, raftPort := range serverPortMap {
 		if addr := addrResolver.NodeAddress(name); addr != "" {
-			candidates = append(candidates, fmt.Sprintf("%s:%d", addr, raftPort))
+			candidates[name] = fmt.Sprintf("%s:%d", addr, raftPort)
 		}
 	}
-	slices.Sort(candidates)
 	return candidates
 }
 

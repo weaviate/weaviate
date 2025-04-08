@@ -24,7 +24,7 @@ import (
 
 func (m *WeaviateEmbedModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
-		"model":              ent.SnowflakeArcticEmbedM,
+		"model":              ent.DefaultWeaviateModel,
 		"truncate":           ent.DefaultTruncate,
 		"baseUrl":            ent.DefaultBaseURL,
 		"vectorizeClassName": ent.DefaultVectorizeClassName,

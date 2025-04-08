@@ -16,21 +16,24 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/sharding"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
@@ -368,7 +371,7 @@ func TestStoreApply(t *testing.T) {
 		{
 			name: "AddTenant/ClassNotFound",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, nil, &cmd.AddTenantsRequest{
-				Tenants: []*command.Tenant{nil, {Name: "T1"}, nil},
+				Tenants: []*cmd.Tenant{nil, {Name: "T1"}, nil},
 			})},
 			resp:     Response{Error: schema.ErrSchema},
 			doBefore: doFirst,
@@ -377,7 +380,7 @@ func TestStoreApply(t *testing.T) {
 			name: "AddTenant/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, nil, &cmd.AddTenantsRequest{
 				ClusterNodes: []string{"THIS"},
-				Tenants:      []*command.Tenant{nil, {Name: "T1"}, nil},
+				Tenants:      []*cmd.Tenant{nil, {Name: "T1"}, nil},
 			})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
@@ -412,14 +415,14 @@ func TestStoreApply(t *testing.T) {
 		{
 			name: "UpdateTenant/ClassNotFound",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
-				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{nil, {Name: "T1"}, nil}})},
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{nil, {Name: "T1"}, nil}})},
 			resp:     Response{Error: schema.ErrSchema},
 			doBefore: doFirst,
 		},
 		{
 			name: "UpdateTenant/NoFound",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
-				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
 					{Name: "T1", Status: models.TenantActivityStatusCOLD},
 				}})},
 			resp: Response{Error: schema.ErrSchema},
@@ -435,7 +438,7 @@ func TestStoreApply(t *testing.T) {
 		{
 			name: "UpdateTenant/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
-				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
 					{Name: "T1", Status: models.TenantActivityStatusCOLD},
 					{Name: "T2", Status: models.TenantActivityStatusCOLD},
 					{Name: "T3", Status: models.TenantActivityStatusCOLD},
@@ -522,6 +525,92 @@ func TestStoreApply(t *testing.T) {
 				return nil
 			},
 		},
+		{
+			name: "AddReplicaToShard/Success/UpdateDB",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShardRequest{Class: "C1", Shard: "T1", Replica: "Node-1"}, nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.indexer.On("AddReplicaToShard", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				replicas, err := ms.store.SchemaReader().ShardReplicas("C1", "T1")
+				if err != nil {
+					return err
+				}
+				if len(replicas) != 2 {
+					return fmt.Errorf("sharding state should have 2 shards for class C1")
+				}
+				if !slices.Contains(replicas, "THIS") || !slices.Contains(replicas, "Node-1") {
+					return fmt.Errorf("replias for coll C1 shard T1 is missing the correct replicas got=%v want=[\"THIS\", \"Node-1\"]", replicas)
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "AddReplicaToShard/Success/NotUpdateDB",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShardRequest{Class: "C1", Shard: "T1", Replica: "Node-3"}, nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				replicas, err := ms.store.SchemaReader().ShardReplicas("C1", "T1")
+				if err != nil {
+					return err
+				}
+				if len(replicas) != 2 {
+					return fmt.Errorf("sharding state should have 2 shards for class C1")
+				}
+				if !slices.Contains(replicas, "THIS") || !slices.Contains(replicas, "Node-3") {
+					return fmt.Errorf("replias for coll C1 shard T1 is missing the correct replicas got=%v want=[\"THIS\", \"Node-3\"]", replicas)
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "AddReplicaToShard/FailClassNotFound",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShardRequest{Class: "C1", Shard: "T1", Replica: "Node-3"}, nil)},
+			resp: Response{Error: schema.ErrSchema},
+		},
+		{
+			name: "AddReplicaToShard/FailShardNotFound",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShardRequest{Class: "C1", Shard: "T1000", Replica: "Node-3"}, nil)},
+			resp: Response{Error: schema.ErrSchema},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+		},
+		{
+			name: "AddReplicaToShard/FailReplicaAlreadyExists",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShardRequest{Class: "C1", Shard: "T1", Replica: "THIS"}, nil)},
+			resp: Response{Error: schema.ErrSchema},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -580,12 +669,12 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			SnapshotThreshold:      125,
 			DB:                     indexer,
 			Parser:                 parser,
-			NodeToAddressResolver:  fakes.NewMockAddressResolver(nil),
+			NodeSelector:           mocks.NewMockNodeSelector("localhost"),
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
 		},
 	}
-	s := NewFSM(ms.cfg)
+	s := NewFSM(ms.cfg, prometheus.NewPedanticRegistry())
 	ms.store = &s
 	return ms
 }
@@ -632,7 +721,7 @@ func cmdAsBytes(class string,
 		}
 	}
 
-	cmd := command.ApplyRequest{
+	cmd := cmd.ApplyRequest{
 		Type:       cmdType,
 		Class:      class,
 		SubCommand: subData,

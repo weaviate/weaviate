@@ -13,20 +13,20 @@ package schema
 
 import (
 	"fmt"
+	"math/rand"
+	"slices"
 	"strings"
 	"sync"
 
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"golang.org/x/exp/slices"
 )
 
 type (
-	NodeShardProcess map[string]*api.TenantsProcess
+	NodeShardProcess map[string]*command.TenantsProcess
 	metaClass        struct {
 		sync.RWMutex
 		Class        models.Class
@@ -94,6 +94,7 @@ func (m *metaClass) CloneClass() *models.Class {
 }
 
 // ShardOwner returns the node owner of the specified shard
+// will randomize the owner if there is more than one node
 func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 	m.RLock()
 	defer m.RUnlock()
@@ -105,7 +106,12 @@ func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
 		return "", 0, fmt.Errorf("owner node not found")
 	}
-	return x.BelongsToNodes[0], m.version(), nil
+
+	// we randomize the owner if there is more than one node
+	// - avoid hotspots
+	// - tolerate down nodes
+	// - distribute load
+	return x.BelongsToNodes[rand.Intn(len(x.BelongsToNodes))], m.version(), nil
 }
 
 // ShardFromUUID returns shard name of the provided uuid
@@ -164,6 +170,18 @@ func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
 	return nil
 }
 
+func (m *metaClass) AddReplicaToShard(v uint64, shard string, replica string) error {
+	m.Lock()
+	defer m.Unlock()
+
+	err := m.Sharding.AddReplicaToShard(shard, replica)
+	if err != nil {
+		return err
+	}
+	m.ClassVersion = v
+	return nil
+}
+
 // MergeProps makes sure duplicates are not created by ignoring new props
 // with the same names as old props.
 // If property of nested type is present in both new and old slices,
@@ -200,7 +218,7 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 	return mergedProps
 }
 
-func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, replFactor int64, v uint64) error {
+func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, replFactor int64, v uint64) (map[string]int, error) {
 	req.Tenants = removeNilTenants(req.Tenants)
 	m.Lock()
 	defer m.Unlock()
@@ -213,8 +231,11 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 	// First determine the partition based on the node *present at the time of the log entry being created*
 	partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, names, replFactor)
 	if err != nil {
-		return fmt.Errorf("get partitions: %w", err)
+		return nil, fmt.Errorf("get partitions: %w", err)
 	}
+
+	// sc tracks number of shards in this collection to be added by status.
+	sc := make(map[string]int)
 
 	// Iterate over requested tenants and assign them, if found, a partition
 	for i, t := range req.Tenants {
@@ -237,33 +258,45 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 		if !slices.Contains(part, nodeID) {
 			req.Tenants[i] = nil // is owned by another node
 		}
+		sc[p.Status]++
 	}
 	m.ShardVersion = v
 	req.Tenants = removeNilTenants(req.Tenants)
-	return nil
+	return sc, nil
 }
 
-func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) error {
+// DeleteTenants try to delete the tenants from given request and returns
+// total number of deleted tenants.
+func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
+
+	count := make(map[string]int)
 
 	for _, name := range req.Tenants {
-		m.Sharding.DeletePartition(name)
+		if status, ok := m.Sharding.DeletePartition(name); ok {
+			count[status]++
+		}
 	}
 	m.ShardVersion = v
-	return nil
+	return count, nil
 }
 
-func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProcessRequest, v uint64) error {
+func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProcessRequest, v uint64) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
+
+	// sc tracks number of tenants updated by "status"
+	sc := make(map[string]int)
 
 	for idx := range req.TenantsProcesses {
 		name := req.TenantsProcesses[idx].Tenant.Name
+
 		shard, ok := m.Sharding.Physical[name]
 		if !ok {
-			return fmt.Errorf("shard %s not found", name)
+			return nil, fmt.Errorf("shard %s not found", name)
 		}
+		oldStatus := shard.Status
 
 		if req.Action == command.TenantProcessRequest_ACTION_UNFREEZING {
 			// on unfreezing get the requested status from the shard process
@@ -271,6 +304,9 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 				req.TenantsProcesses[idx].Tenant.Status = status
 			}
 		}
+
+		// NOTE: Have to get the `newStatus` only after `findRequestedStatus`, else req.Tenant.Status can be empty.
+		newStatus := req.TenantsProcesses[idx].Tenant.Status
 
 		process := m.shardProcess(name, req.Action)
 		process[req.Node] = req.TenantsProcesses[idx]
@@ -287,17 +323,24 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 
 		m.ShardVersion = v
 		m.Sharding.Physical[shard.Name] = shard
+
+		sc[oldStatus]--
+		sc[newStatus]++
+
 		if !slices.Contains(shard.BelongsToNodes, nodeID) {
 			req.TenantsProcesses[idx] = nil
 			continue
 		}
 	}
-	return nil
+	return sc, nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) error {
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
+
+	// sc tracks number of tenants updated by "status"
+	sc := make(map[string]int)
 
 	// For each requested tenant update we'll check if we the schema is missing that shard. If we have any missing shard
 	// we'll return an error but any other successful shard will be updated.
@@ -306,7 +349,8 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	missingShards := []string{}
 	writeIndex := 0
 	for i, requestTenant := range req.Tenants {
-		schemaTenant, ok := m.Sharding.Physical[requestTenant.Name]
+		oldTenant, ok := m.Sharding.Physical[requestTenant.Name]
+		oldStatus := oldTenant.Status
 		// If we can't find the shard add it to missing shards to error later
 		if !ok {
 			missingShards = append(missingShards, requestTenant.Name)
@@ -314,7 +358,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		}
 
 		// validate status
-		switch schemaTenant.ActivityStatus() {
+		switch oldTenant.ActivityStatus() {
 		case req.Tenants[i].Status:
 			continue
 		case types.TenantActivityStatusFREEZING:
@@ -337,34 +381,38 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			}
 		}
 
-		existedSharedFrozen := schemaTenant.ActivityStatus() == models.TenantActivityStatusFROZEN || schemaTenant.ActivityStatus() == models.TenantActivityStatusFREEZING
+		existedSharedFrozen := oldTenant.ActivityStatus() == models.TenantActivityStatusFROZEN || oldTenant.ActivityStatus() == models.TenantActivityStatusFREEZING
 		requestedToFrozen := requestTenant.Status == models.TenantActivityStatusFROZEN
 
 		switch {
 		case existedSharedFrozen && !requestedToFrozen:
-			if err := m.unfreeze(nodeID, i, req, &schemaTenant); err != nil {
-				return err
+			if err := m.unfreeze(nodeID, i, req, &oldTenant); err != nil {
+				return sc, err
 			}
 			if req.Tenants[i] != nil {
 				requestTenant.Status = req.Tenants[i].Status
 			}
 
 		case requestedToFrozen && !existedSharedFrozen:
-			m.freeze(i, req, schemaTenant)
+			m.freeze(i, req, oldTenant)
 		default:
 			// do nothing
 		}
 
-		schemaTenant = schemaTenant.DeepCopy()
-		schemaTenant.Status = requestTenant.Status
+		newTenant := oldTenant.DeepCopy()
+		newTenant.Status = requestTenant.Status
 
 		// Update the schema tenant representation with the deep copy (necessary as the initial is a shallow copy from
 		// the map read
-		m.Sharding.Physical[schemaTenant.Name] = schemaTenant
+		m.Sharding.Physical[oldTenant.Name] = newTenant
+
+		// At this point we know, we are going to change the status of a tenant from old-state to new-state.
+		sc[oldStatus]--
+		sc[newTenant.ActivityStatus()]++
 
 		// If the shard is not stored on that node skip updating the request tenant as there will be nothing to load on
 		// the DB side
-		if !slices.Contains(schemaTenant.BelongsToNodes, nodeID) {
+		if !slices.Contains(oldTenant.BelongsToNodes, nodeID) {
 			continue
 		}
 
@@ -385,7 +433,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// Update the version of the shard to the current version
 	m.ShardVersion = v
 
-	return err
+	return sc, err
 }
 
 // LockGuard provides convenient mechanism for owning mutex by function which mutates the state.
@@ -489,14 +537,14 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 	delete(m.ShardProcesses, shardProcessID(name, action))
 }
 
-func (m *metaClass) shardProcess(name string, action command.TenantProcessRequest_Action) map[string]*api.TenantsProcess {
+func (m *metaClass) shardProcess(name string, action command.TenantProcessRequest_Action) map[string]*command.TenantsProcess {
 	if len(m.ShardProcesses) == 0 {
 		m.ShardProcesses = make(map[string]NodeShardProcess)
 	}
 
 	process, ok := m.ShardProcesses[shardProcessID(name, action)]
 	if !ok {
-		process = make(map[string]*api.TenantsProcess)
+		process = make(map[string]*command.TenantsProcess)
 	}
 	return process
 }
@@ -508,7 +556,7 @@ func (m *metaClass) freeze(i int, req *command.UpdateTenantsRequest, shard shard
 	process := m.shardProcess(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_FREEZING)
 
 	for _, node := range shard.BelongsToNodes {
-		process[node] = &api.TenantsProcess{
+		process[node] = &command.TenantsProcess{
 			Op: command.TenantsProcess_OP_START,
 			Tenant: &command.Tenant{
 				Name:   req.Tenants[i].Name,
@@ -558,7 +606,7 @@ func (m *metaClass) unfreeze(nodeID string, i int, req *command.UpdateTenantsReq
 			continue
 		}
 		newToOld[node] = oldNodes[idx]
-		process[node] = &api.TenantsProcess{
+		process[node] = &command.TenantsProcess{
 			Op: command.TenantsProcess_OP_START,
 			Tenant: &command.Tenant{
 				Name:   name,

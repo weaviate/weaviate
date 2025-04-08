@@ -77,8 +77,7 @@ func s3Backend_Backup(t *testing.T, override bool, containerName, overrideBucket
 }
 
 func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, overrideBucket, overridePath string) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	testCtx := context.Background()
 
 	bucketName := containerName
 

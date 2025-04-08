@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
@@ -108,6 +109,11 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 			if err := h.Delete(id); err != nil {
 				return err
 			}
+			idBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(idBytes, id)
+			if err := h.store.Bucket(h.id + "_mv_mappings").Delete(idBytes); err != nil {
+				return errors.Wrap(err, fmt.Sprintf("failed to delete %s_mv_mappings from the bucket", h.id))
+			}
 		}
 		h.Lock()
 		delete(h.docIDVectors, docID)
@@ -123,6 +129,8 @@ func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	defer h.resetLock.Unlock()
 	h.Lock()
 	defer h.Unlock()
+	h.tombstoneLock.Lock()
+	defer h.tombstoneLock.Unlock()
 
 	empty = func() bool {
 		h.shardedNodeLocks.RLock(h.entryPointID)
@@ -147,6 +155,8 @@ func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (only
 	defer h.resetLock.Unlock()
 	h.Lock()
 	defer h.Unlock()
+	h.tombstoneLock.Lock()
+	defer h.tombstoneLock.Unlock()
 
 	onlyNode = func() bool {
 		h.shardedNodeLocks.RLockAll()
@@ -176,6 +186,7 @@ func (h *hnsw) resetUnlocked() error {
 	h.currentMaximumLayer = 0
 	h.initialInsertOnce = &sync.Once{}
 	h.nodes = make([]*vertex, cache.InitialSize)
+	h.tombstones = make(map[uint64]struct{})
 
 	return h.commitLog.Reset()
 }
@@ -783,6 +794,19 @@ func (h *hnsw) hasTombstone(id uint64) bool {
 	defer h.tombstoneLock.RUnlock()
 	_, ok := h.tombstones[id]
 	return ok
+}
+
+// hasTombstones checks whether at least one node of the provided ids has a tombstone attached.
+func (h *hnsw) hasTombstones(ids []uint64) bool {
+	h.tombstoneLock.RLock()
+	defer h.tombstoneLock.RUnlock()
+
+	var has bool
+	for _, id := range ids {
+		_, ok := h.tombstones[id]
+		has = has || ok
+	}
+	return has
 }
 
 func (h *hnsw) addTombstone(ids ...uint64) error {

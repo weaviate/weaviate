@@ -19,10 +19,12 @@ import (
 	"io"
 
 	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	gproto "google.golang.org/protobuf/proto"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 var (
@@ -38,9 +40,9 @@ type SchemaManager struct {
 	log    *logrus.Logger
 }
 
-func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logger) *SchemaManager {
+func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, db),
+		schema: NewSchema(nodeId, db, reg),
 		db:     db,
 		parser: parser,
 		log:    log,
@@ -48,25 +50,25 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logg
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
-	return SchemaReader{
-		schema: s.schema,
+	return NewSchemaReader(
+		s.schema,
 		// Pass a versioned reader that will ignore all version and always return valid, we want to read the latest
 		// state and not have to wait on a version
-		versionedSchemaReader: VersionedSchemaReader{
+		VersionedSchemaReader{
 			schema:        s.schema,
 			WaitForUpdate: func(context.Context, uint64) error { return nil },
 		},
-	}
+	)
 }
 
 func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint64) error) SchemaReader {
-	return SchemaReader{
-		schema: s.schema,
-		versionedSchemaReader: VersionedSchemaReader{
+	return NewSchemaReader(
+		s.schema,
+		VersionedSchemaReader{
 			schema:        s.schema,
 			WaitForUpdate: f,
 		},
-	}
+	)
 }
 
 func (s *SchemaManager) SetIndexer(idx Indexer) {
@@ -117,12 +119,10 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	i := 0
 	for _, v := range classes {
 		migratePropertiesIfNecessary(&v.Class)
-		// an immutable copy of the sharding state has to be used to avoid conflicts
-		shardingState, _ := v.CopyShardingState()
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
+		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
-
+	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
 	s.db.ReloadLocalDB(context.Background(), cs)
 }
@@ -221,6 +221,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
 		meta.Class.Description = u.Description
+		meta.Class.Properties = u.Properties
 		meta.ClassVersion = cmd.Version
 		if req.State != nil {
 			meta.Sharding = *req.State
@@ -301,6 +302,27 @@ func (s *SchemaManager) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly 
 	)
 }
 
+func (s *SchemaManager) AddReplicaToShard(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.AddReplicaToShardRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.Replica) },
+			updateStore: func() error {
+				if req.Replica == s.schema.nodeID {
+					return s.db.AddReplicaToShard(req.Class, req.Shard, req.Replica)
+				}
+				return nil
+			},
+			schemaOnly: schemaOnly,
+		},
+	)
+}
+
 func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) error {
 	req := &command.AddTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
@@ -342,11 +364,29 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	tenantsResponse, err := s.schema.getTenants(cmd.Class, req.Tenants)
+	if err != nil {
+		// error are handled by the updateSchema, so they are ignored here.
+		// Instead, we log the error to detect tenant status before deleting
+		// them from the schema. this allows the database layer to decide whether
+		// to send the delete request to the cloud provider.
+		s.log.WithFields(logrus.Fields{
+			"class":   cmd.Class,
+			"tenants": req.Tenants,
+			"error":   err.Error(),
+		}).Error("error getting tenants")
+	}
+
+	tenants := make([]*models.Tenant, len(tenantsResponse))
+	for i := range tenantsResponse {
+		tenants[i] = &tenantsResponse[i].Tenant
+	}
+
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
-			updateStore:  func() error { return s.db.DeleteTenants(cmd.Class, req) },
+			updateStore:  func() error { return s.db.DeleteTenants(cmd.Class, tenants) },
 			schemaOnly:   schemaOnly,
 		},
 	)
@@ -392,12 +432,18 @@ func (op applyOp) validate() error {
 // apply does apply commands from RAFT to schema 1st and then db
 func (s *SchemaManager) apply(op applyOp) error {
 	if err := op.validate(); err != nil {
-		return fmt.Errorf("could not validate raft apply op: %s", err)
+		return fmt.Errorf("could not validate raft apply op: %w", err)
 	}
 
 	// schema applied 1st to make sure any validation happen before applying it to db
 	if err := op.updateSchema(); err != nil {
 		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
+	}
+
+	if op.enableSchemaCallback {
+		// TriggerSchemaUpdateCallbacks is concurrent and at
+		// this point of time schema shall be up to date.
+		s.db.TriggerSchemaUpdateCallbacks()
 	}
 
 	if !op.schemaOnly {
@@ -406,10 +452,6 @@ func (s *SchemaManager) apply(op applyOp) error {
 		}
 	}
 
-	// Always trigger the schema callback last
-	if op.enableSchemaCallback {
-		s.db.TriggerSchemaUpdateCallbacks()
-	}
 	return nil
 }
 

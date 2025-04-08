@@ -154,7 +154,7 @@ func referencePropertyFields(class *models.Class,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				ref, err := extractReferenceAggregation(p.Source)
 				if err != nil {
-					return nil, fmt.Errorf("ref property pointingTo: %v", err)
+					return nil, fmt.Errorf("ref property pointingTo: %w", err)
 				}
 
 				return ref.PointingTo, nil
@@ -245,7 +245,7 @@ func booleanResolver(extractor booleanExtractorFunc) func(p graphql.ResolveParam
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		boolean, err := extractBooleanAggregation(p.Source)
 		if err != nil {
-			return nil, fmt.Errorf("boolean: %v", err)
+			return nil, fmt.Errorf("boolean: %w", err)
 		}
 
 		return extractor(*boolean), nil
@@ -324,7 +324,7 @@ func textResolver(extractor textExtractorFunc) func(p graphql.ResolveParams) (in
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		text, err := extractTextAggregation(p.Source)
 		if err != nil {
-			return nil, fmt.Errorf("text: %v", err)
+			return nil, fmt.Errorf("text: %w", err)
 		}
 
 		return extractor(text)
@@ -433,7 +433,7 @@ func makeResolveNumericFieldAggregator(aggregator string) func(p graphql.Resolve
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		num, err := extractNumericAggregation(p.Source)
 		if err != nil {
-			return nil, fmt.Errorf("numerical aggregator %s: %v", aggregator, err)
+			return nil, fmt.Errorf("numerical aggregator %s: %w", aggregator, err)
 		}
 
 		return num[aggregator], nil
@@ -457,7 +457,7 @@ func makeResolveDateFieldAggregator(aggregator string) func(p graphql.ResolvePar
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		date, err := extractDateAggregation(p.Source)
 		if err != nil {
-			return nil, fmt.Errorf("date aggregator %s: %v", aggregator, err)
+			return nil, fmt.Errorf("date aggregator %s: %w", aggregator, err)
 		}
 
 		return date[aggregator], nil

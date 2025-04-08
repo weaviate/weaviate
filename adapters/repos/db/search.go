@@ -18,13 +18,15 @@ import (
 	"strings"
 	"sync"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -104,9 +106,9 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 }
 
 func (db *DB) VectorSearch(ctx context.Context,
-	params dto.GetParams, targetVectors []string, searchVectors [][]float32,
+	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
-	if len(searchVectors) == 0 || len(searchVectors) == 1 && len(searchVectors[0]) == 0 {
+	if len(searchVectors) == 0 || len(searchVectors) == 1 && isEmptyVector(searchVectors[0]) {
 		results, err := db.Search(ctx, params)
 		return results, err
 	}
@@ -139,6 +141,13 @@ func (db *DB) VectorSearch(ctx context.Context,
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
+func isEmptyVector(searchVector models.Vector) bool {
+	if isVectorEmpty, err := dto.IsVectorEmpty(searchVector); err == nil {
+		return isVectorEmpty
+	}
+	return false
+}
+
 func extractDistanceFromParams(params dto.GetParams) float32 {
 	certainty := traverser.ExtractCertaintyFromParams(params)
 	if certainty != 0 {
@@ -149,7 +158,7 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 	return float32(dist)
 }
 
-func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
+func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, targetVector string, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	var found search.Results
@@ -166,7 +175,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 		f := func() {
 			defer wg.Done()
 
-			objs, dist, err := index.objectVectorSearch(ctx, [][]float32{vector}, []string{targetVector},
+			objs, dist, err := index.objectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
 				additional.Properties{}, nil, "", nil, nil)
 			if err != nil {
@@ -229,8 +238,8 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters,
 		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0, nil)
 	if err != nil {
-		switch err.(type) {
-		case objects.ErrMultiTenancy:
+		switch {
+		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusUnprocessableEntity, Err: err}
 		default:
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}

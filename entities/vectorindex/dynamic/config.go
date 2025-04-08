@@ -98,6 +98,10 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 			return uc, fmt.Errorf("invalid hnsw configuration")
 		}
 		uc.HnswUC = castedHnswUC
+		if uc.HnswUC.Multivector.Enabled {
+			return uc, fmt.Errorf("multi vector index is not supported for dynamic index")
+		}
+
 	}
 
 	flatConfig, ok := asMap["flat"]

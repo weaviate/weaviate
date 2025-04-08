@@ -37,6 +37,8 @@ var defaultMaxTokens = map[string]int{
 	"claude-3-opus-20240229":     4096,
 	"claude-3-sonnet-20240229":   4096,
 	"claude-3-haiku-20240307":    4096,
+	"claude-3-5-sonnet-20241022": 8192,
+	"claude-3-5-haiku-20241022":  8192,
 }
 
 var (
@@ -101,8 +103,11 @@ func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []st
 	return &defaultValue
 }
 
-func (ic *classSettings) GetMaxTokensForModel(model string) int {
-	return defaultMaxTokens[model]
+func (ic *classSettings) GetMaxTokensForModel(model string) *int {
+	if maxTokens, ok := defaultMaxTokens[model]; ok {
+		return &maxTokens
+	}
+	return &DefaultAnthropicMaxTokens
 }
 
 func (ic *classSettings) BaseURL() string {
@@ -113,8 +118,8 @@ func (ic *classSettings) Model() string {
 	return *ic.getStringProperty(modelProperty, DefaultAnthropicModel)
 }
 
-func (ic *classSettings) MaxTokens() int {
-	return *ic.getIntProperty(maxTokensProperty, &DefaultAnthropicMaxTokens)
+func (ic *classSettings) MaxTokens() *int {
+	return ic.getIntProperty(maxTokensProperty, nil)
 }
 
 func (ic *classSettings) Temperature() float64 {

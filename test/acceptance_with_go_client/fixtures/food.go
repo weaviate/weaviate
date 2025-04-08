@@ -17,9 +17,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -148,7 +149,7 @@ func classPizza() *models.Class {
 	return &models.Class{
 		Class:               "Pizza",
 		Description:         "A delicious religion like food and arguably the best export of Italy.",
-		InvertedIndexConfig: &models.InvertedIndexConfig{IndexTimestamps: true},
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexTimestamps: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 		Properties:          classPropertiesFood(),
 	}
 }
@@ -165,7 +166,7 @@ func classRisotto() *models.Class {
 	return &models.Class{
 		Class:               "Risotto",
 		Description:         "Risotto is a northern Italian rice dish cooked with broth.",
-		InvertedIndexConfig: &models.InvertedIndexConfig{IndexTimestamps: true},
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexTimestamps: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 		Properties:          classPropertiesFood(),
 	}
 }

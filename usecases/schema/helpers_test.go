@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -45,11 +46,16 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
 	}
+	fakeClusterState := fakes.NewFakeClusterState()
+	fakeValidator := &fakeValidator{}
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{})
 	handler, err := NewHandler(
-		schemaManager, schemaManager, &fakeValidator{}, logger, mocks.NewMockAuthorizer(),
-		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
-	require.Nil(t, err)
+		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
+		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
+		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
+	require.NoError(t, err)
+	handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+	handler.parser.experimentBackwardsCompatibleNamedVectorsEnabled = true
 	return &handler, schemaManager
 }
 
@@ -62,10 +68,13 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 			"model1", "model2",
 		},
 	}
+	fakeClusterState := fakes.NewFakeClusterState()
+	fakeValidator := &fakeValidator{}
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
 	handler, err := NewHandler(
-		metaHandler, metaHandler, &fakeValidator{}, logger, authorizer,
-		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
+		metaHandler, metaHandler, fakeValidator, logger, authorizer,
+		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
+		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
 }
@@ -87,6 +96,10 @@ func (f *fakeDB) AddClass(cmd command.AddClassRequest) error {
 }
 
 func (f *fakeDB) RestoreClassDir(class string) error {
+	return nil
+}
+
+func (f *fakeDB) AddReplicaToShard(class string, shard string, replica string) error {
 	return nil
 }
 
@@ -122,7 +135,7 @@ func (f *fakeDB) UpdateTenantsProcess(class string, req *command.TenantProcessRe
 	return nil
 }
 
-func (f *fakeDB) DeleteTenants(class string, cmd *command.DeleteTenantsRequest) error {
+func (f *fakeDB) DeleteTenants(class string, tenants []*models.Tenant) error {
 	return nil
 }
 
@@ -289,6 +302,11 @@ func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop .
 	return args.Error(0)
 }
 
+func (f *fakeMigrator) AddReplicaToShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
+	return args.Error(0)
+}
+
 func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
 	return nil
 }
@@ -303,7 +321,7 @@ func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, u
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []string) error {
+func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
 	args := f.Called(ctx, class, tenants)
 	return args.Error(0)
 }

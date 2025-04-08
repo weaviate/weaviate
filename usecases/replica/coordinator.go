@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -42,11 +43,11 @@ type (
 	// coordinator coordinates replication of write and read requests
 	coordinator[T any] struct {
 		Client
-		Resolver *resolver // node_name -> host_address
-		log      logrus.FieldLogger
-		Class    string
-		Shard    string
-		TxID     string // transaction ID
+		Router router
+		log    logrus.FieldLogger
+		Class  string
+		Shard  string
+		TxID   string // transaction ID
 		// wait twice this duration for the first Pull backoff for each host
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
@@ -59,7 +60,7 @@ func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.Fiel
 ) *coordinator[T] {
 	return &coordinator[T]{
 		Client:                        r.client,
-		Resolver:                      r.resolver,
+		Router:                        r.router,
 		log:                           l,
 		Class:                         r.class,
 		Shard:                         shard,
@@ -76,7 +77,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 	deletionStrategy string,
 ) *coordinator[T] {
 	return &coordinator[T]{
-		Resolver:                      f.resolver,
+		Router:                        f.router,
 		Class:                         f.class,
 		Shard:                         shard,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
@@ -176,15 +177,19 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 
 // Push pushes updates to all replicas of a specific shard
 func (c *coordinator[T]) Push(ctx context.Context,
-	cl ConsistencyLevel,
+	cl types.ConsistencyLevel,
 	ask readyOp,
 	com commitOp[T],
 ) (<-chan _Result[T], int, error) {
-	state, err := c.Resolver.State(c.Shard, cl, "")
+	routingPlan, err := c.Router.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
+		Collection:       c.Class,
+		Shard:            c.Shard,
+		ConsistencyLevel: cl,
+	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
-	level := state.Level
+	level := routingPlan.IntConsistencyLevel
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
 	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
 	c.log.WithFields(logrus.Fields{
@@ -192,7 +197,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		"duration": 20 * time.Second,
 		"level":    level,
 	}).Debug("context.WithTimeout")
-	nodeCh := c.broadcast(ctxWithTimeout, state.Hosts, ask, level)
+	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
 	return c.commitAll(context.Background(), nodeCh, com), level, nil
 }
 
@@ -208,17 +213,22 @@ func (c *coordinator[T]) Push(ctx context.Context,
 //
 // Note that the first retry for a given host, may happen before c.pullBackOff.initial has passed
 func (c *coordinator[T]) Pull(ctx context.Context,
-	cl ConsistencyLevel,
+	cl types.ConsistencyLevel,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
-) (<-chan _Result[T], rState, error) {
-	state, err := c.Resolver.State(c.Shard, cl, directCandidate)
+) (<-chan _Result[T], int, error) {
+	routingPlan, err := c.Router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
+		Collection:             c.Class,
+		Shard:                  c.Shard,
+		ConsistencyLevel:       cl,
+		DirectCandidateReplica: directCandidate,
+	})
 	if err != nil {
-		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
+		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
-	level := state.Level
+	level := routingPlan.IntConsistencyLevel
+	hosts := routingPlan.ReplicasHostAddrs
 	replyCh := make(chan _Result[T], level)
-	hosts := state.Hosts
 	f := func() {
 		hostRetryQueue := make(chan hostRetry, len(hosts))
 
@@ -295,7 +305,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	}
 	enterrors.GoWrapper(f, c.log)
 
-	return replyCh, state, nil
+	return replyCh, level, nil
 }
 
 // hostRetry tracks how long we should wait to retry this host again

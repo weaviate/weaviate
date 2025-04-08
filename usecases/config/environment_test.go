@@ -13,6 +13,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -702,7 +703,7 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			name:         "Valid API Key",
 			auth_env_var: []string{"AUTHENTICATION_APIKEY_ENABLED"},
 			expected: Authentication{
-				APIKey: APIKey{
+				APIKey: StaticAPIKey{
 					Enabled: true,
 				},
 			},
@@ -723,6 +724,13 @@ func TestEnvironmentAuthentication(t *testing.T) {
 				OIDC: OIDC{
 					Enabled: true,
 				},
+			},
+		},
+		{
+			name:         "Enabled db user",
+			auth_env_var: []string{"AUTHENTICATION_DB_USERS_ENABLED"},
+			expected: Authentication{
+				DBUsers: DbUsers{Enabled: true},
 			},
 		},
 		{
@@ -865,6 +873,58 @@ func TestEnvironmentHNSWFlatSearchConcurrency(t *testing.T) {
 			} else {
 				require.Equal(t, tt.expected, conf.HNSWFlatSearchConcurrency)
 			}
+		})
+	}
+}
+
+func TestEnvironmentHNSWAcornFilterRatio(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    float64
+		expectedErr bool
+	}{
+		{"Valid", []string{"0.5"}, 0.5, false},
+		{"not given", []string{}, 0.4, false},
+		{"max", []string{"0.0"}, 0.0, false},
+		{"min", []string{"1.0"}, 1.0, false},
+		{"negative", []string{"-1.2"}, -1.0, true},
+		{"too large", []string{"1.2"}, -1.0, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("HNSW_ACORN_FILTER_RATIO", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.HNSWAcornFilterRatio)
+			}
+		})
+	}
+}
+
+func TestEnabledForHost(t *testing.T) {
+	localHostname := "weaviate-1"
+	envName := "HOSTBASED_SETTING"
+
+	enabledVals := []string{"enabled", "1", "true", "on", "weaviate-1", "weaviate-0,weaviate-1,weaviate-2"}
+	for _, val := range enabledVals {
+		t.Run(fmt.Sprintf("enabled %q", val), func(t *testing.T) {
+			t.Setenv(envName, val)
+			assert.True(t, enabledForHost(envName, localHostname))
+		})
+	}
+
+	disabledVals := []string{"disabled", "0", "false", "off", "weaviate-0", "weaviate-0,weaviate-2,weaviate-3", ""}
+	for _, val := range disabledVals {
+		t.Run(fmt.Sprintf("disabled %q", val), func(t *testing.T) {
+			t.Setenv(envName, val)
+			assert.False(t, enabledForHost(envName, localHostname))
 		})
 	}
 }

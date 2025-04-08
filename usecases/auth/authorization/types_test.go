@@ -108,10 +108,10 @@ func TestCollections(t *testing.T) {
 		classes  []string
 		expected []string
 	}{
-		{"No classes", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
-		{"Single empty class", []string{""}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
-		{"Single class", []string{"class1"}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
-		{"Multiple classes", []string{"class1", "class2"}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain), fmt.Sprintf("%s/collections/Class2/shards/*", SchemaDomain)}},
+		{"No classes", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)}},
+		{"Single empty class", []string{""}, []string{fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)}},
+		{"Single class", []string{"class1"}, []string{fmt.Sprintf("%s/collections/Class1/shards/#", SchemaDomain)}},
+		{"Multiple classes", []string{"class1", "class2"}, []string{fmt.Sprintf("%s/collections/Class1/shards/#", SchemaDomain), fmt.Sprintf("%s/collections/Class2/shards/#", SchemaDomain)}},
 	}
 
 	for _, tt := range tests {
@@ -167,6 +167,100 @@ func TestObjects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := Objects(tt.class, tt.shard, tt.id)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestTenants(t *testing.T) {
+	tests := []struct {
+		name     string
+		class    string
+		shards   []string
+		expected []string
+	}{
+		{"No class, no tenant", "", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
+		{"Class, no tenant", "class1", []string{}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
+		{"No class, single tenant", "", []string{"tenant1"}, []string{fmt.Sprintf("%s/collections/*/shards/tenant1", SchemaDomain)}},
+		{"Class, single tenants", "class1", []string{"tenant1"}, []string{fmt.Sprintf("%s/collections/Class1/shards/tenant1", SchemaDomain)}},
+		{"Class, multiple tenants", "class1", []string{"tenant1", "tenant2"}, []string{fmt.Sprintf("%s/collections/Class1/shards/tenant1", SchemaDomain), fmt.Sprintf("%s/collections/Class1/shards/tenant2", SchemaDomain)}},
+		{"Class, empty tenant", "class1", []string{"tenant1", ""}, []string{fmt.Sprintf("%s/collections/Class1/shards/tenant1", SchemaDomain), fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ShardsMetadata(tt.class, tt.shards...)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGetWildcardPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		resource string
+		expected string
+	}{
+		// Data domain tests
+		{
+			name:     "data domain full path",
+			resource: "data/collections/Class1/shards/Tenant1/objects/123",
+			expected: "data/collections/Class1/shards/Tenant1/objects/*",
+		},
+		{
+			name:     "data domain incomplete path",
+			resource: "data/collections/Class1/shards/Tenant1",
+			expected: "data/collections/Class1/shards/*",
+		},
+
+		// Schema domain tests
+		{
+			name:     "schema domain full path",
+			resource: "schema/collections/Class1/shards/Tenant1",
+			expected: "schema/collections/Class1/shards/*",
+		},
+		{
+			name:     "schema domain full path",
+			resource: "schema/collections/Class1/shards/Tenant1",
+			expected: "schema/collections/Class1/shards/*",
+		},
+		{
+			name:     "schema domain incomplete path",
+			resource: "schema/collections/Class1",
+			expected: "schema/collections/*",
+		},
+
+		// Backups domain tests
+		{
+			name:     "backups domain full path",
+			resource: "backups/collections/Class1",
+			expected: "backups/collections/*",
+		},
+		{
+			name:     "backups domain incomplete path",
+			resource: "backups/collections",
+			expected: "backups/*",
+		},
+
+		// Users domain tests
+		{
+			name:     "users domain",
+			resource: "users/user1",
+			expected: "users/*",
+		},
+
+		// Roles domain tests
+		{
+			name:     "roles domain",
+			resource: "roles/role1",
+			expected: "roles/*",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := WildcardPath(tt.resource)
+			assert.Equal(t, tt.expected, result, "WildcardPath(%q) = %q, want %q",
+				tt.resource, result, tt.expected)
 		})
 	}
 }

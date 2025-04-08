@@ -36,9 +36,12 @@ func (s *Store) PauseCompaction(ctx context.Context) error {
 		return errors.Wrap(err, "long-running auxiliary compaction in progress")
 	}
 
+	s.bucketAccessLock.RLock()
+	defer s.bucketAccessLock.RUnlock()
+
 	// TODO common_cycle_manager maybe not necessary, or to be replaced with store pause stats
 	for _, b := range s.bucketsByName {
-		label := b.dir
+		label := b.GetDir()
 		if monitoring.GetMetrics().Group {
 			label = "n/a"
 		}
@@ -55,6 +58,9 @@ func (s *Store) PauseCompaction(ctx context.Context) error {
 func (s *Store) ResumeCompaction(ctx context.Context) error {
 	s.cycleCallbacks.compactionAuxCallbacksCtrl.Activate()
 	s.cycleCallbacks.compactionCallbacksCtrl.Activate()
+
+	s.bucketAccessLock.RLock()
+	defer s.bucketAccessLock.RUnlock()
 
 	// TODO common_cycle_manager maybe not necessary, or to be replaced with store pause stats
 	for _, b := range s.bucketsByName {

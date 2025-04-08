@@ -28,6 +28,8 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(rest)
 		helper.SetupGRPCClient(t, grpc)
+		// Define path to test/helper/sample-schema/planets/data folder
+		dataFolderPath := "../../../test/helper/sample-schema/planets/data"
 		// Data
 		data := planets.Planets
 		// Define class
@@ -47,6 +49,7 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 			name               string
 			generativeModel    string
 			absentModuleConfig bool
+			withImages         bool
 		}{
 			{
 				name:            "gpt-3.5-turbo",
@@ -60,6 +63,11 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 				name:               "absent module config",
 				generativeModel:    "gpt-4",
 				absentModuleConfig: true,
+			},
+			{
+				name:            "gpt-4o-mini",
+				generativeModel: "gpt-4o-mini",
+				withImages:      true,
 			},
 		}
 		for _, tt := range tests {
@@ -78,7 +86,11 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					planets.InsertObjects(t, class.Class)
+					if tt.withImages {
+						planets.InsertObjectsWithImages(t, class.Class, dataFolderPath)
+					} else {
+						planets.InsertObjects(t, class.Class)
+					}
 				})
 				t.Run("check objects existence", func(t *testing.T) {
 					for _, planet := range data {
@@ -87,7 +99,8 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 							require.NoError(t, err)
 							require.NotNil(t, obj)
 							require.Len(t, obj.Vectors, 1)
-							assert.True(t, len(obj.Vectors["description"]) > 0)
+							require.IsType(t, []float32{}, obj.Vectors["description"])
+							assert.True(t, len(obj.Vectors["description"].([]float32)) > 0)
 						})
 					}
 				})
@@ -105,10 +118,11 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 				t.Run("create a tweet using grpc", func(t *testing.T) {
 					planets.CreateTweetTestGRPC(t, class.Class)
 				})
-				t.Run("create a tweet with params using grpc", func(t *testing.T) {
-					openaiParams := &pb.GenerativeOpenAI{
+
+				params := func() *pb.GenerativeOpenAI {
+					params := &pb.GenerativeOpenAI{
 						MaxTokens:        grpchelper.ToPtr(int64(90)),
-						Model:            tt.generativeModel,
+						Model:            grpchelper.ToPtr(tt.generativeModel),
 						Temperature:      grpchelper.ToPtr(0.9),
 						N:                grpchelper.ToPtr(int64(90)),
 						TopP:             grpchelper.ToPtr(0.9),
@@ -116,13 +130,68 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 						PresencePenalty:  grpchelper.ToPtr(0.9),
 					}
 					if tt.absentModuleConfig {
-						openaiParams.BaseUrl = grpchelper.ToPtr("https://api.openai.com")
+						params.BaseUrl = grpchelper.ToPtr("https://api.openai.com")
 					}
-					params := &pb.GenerativeProvider_Openai{
-						Openai: openaiParams,
-					}
-					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
+					return params
+				}
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
+						ReturnMetadata: true,
+						Kind: &pb.GenerativeProvider_Openai{
+							Openai: params(),
+						},
+					})
 				})
+				if tt.withImages {
+					t.Run("image prompt", func(t *testing.T) {
+						t.Run("graphql", func(t *testing.T) {
+							prompt := "Describe image"
+							params := "openai:{imageProperties:\"image\"}"
+							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
+						})
+
+						singlePrompt := "Give a short answer: What's on the image?"
+						groupPrompt := "Give a short answer: What are on the following images?"
+
+						t.Run("grpc server stored images", func(t *testing.T) {
+							params := params()
+							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Openai{Openai: params},
+							})
+						})
+
+						t.Run("grpc user provided images", func(t *testing.T) {
+							earth, err := planets.GetImageBlob(dataFolderPath, "earth")
+							require.NoError(t, err)
+							mars, err := planets.GetImageBlob(dataFolderPath, "mars")
+							require.NoError(t, err)
+
+							params := params()
+							params.Images = &pb.TextArray{Values: []string{earth, mars}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Openai{Openai: params},
+							})
+						})
+
+						t.Run("grpc mixed images", func(t *testing.T) {
+							earth, err := planets.GetImageBlob(dataFolderPath, "earth")
+							require.NoError(t, err)
+							mars, err := planets.GetImageBlob(dataFolderPath, "mars")
+							require.NoError(t, err)
+
+							params := params()
+							params.Images = &pb.TextArray{Values: []string{earth, mars}}
+							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Openai{Openai: params},
+							})
+						})
+					})
+				}
 			})
 		}
 	}

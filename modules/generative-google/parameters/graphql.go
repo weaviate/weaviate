@@ -71,6 +71,14 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 					Description: "stopSequences",
 					Type:        graphql.NewList(graphql.String),
 				},
+				"images": &graphql.InputObjectFieldConfig{
+					Description: "images",
+					Type:        graphql.NewList(graphql.String),
+				},
+				"imageProperties": &graphql.InputObjectFieldConfig{
+					Description: "imageProperties",
+					Type:        graphql.NewList(graphql.String),
+				},
 			},
 		}),
 		DefaultValue: nil,

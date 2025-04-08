@@ -15,13 +15,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"golang.org/x/exp/slices"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+
+var _NUMCPU = runtime.GOMAXPROCS(0)
 
 type executor struct {
 	schemaReader SchemaReader
@@ -54,16 +61,34 @@ func (e *executor) Open(ctx context.Context) error {
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))
 
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
+	g.SetLimit(_NUMCPU * 2)
+
 	var errList error
+	var errMutex sync.Mutex
+
 	for i, u := range all {
-		e.logger.WithField("index", u.Class.Class).Info("reload local index")
-		cs[i] = u.Class
-		if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
-			e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
-			errList = errors.Join(fmt.Errorf("failed to reload local index %q: %w", i, err))
-		}
+		i, u := i, u
+
+		g.Go(func() error {
+			e.logger.WithField("index", u.Class.Class).Info("reload local index")
+			cs[i] = u.Class
+
+			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
+				e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
+				err := fmt.Errorf("failed to reload local index %q: %w", i, err)
+
+				errMutex.Lock()
+				errList = errors.Join(errList, err)
+				errMutex.Unlock()
+			}
+			return nil
+		})
 	}
-	e.TriggerSchemaUpdateCallbacks()
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
 	return errList
 }
 
@@ -79,6 +104,16 @@ func (e *executor) AddClass(pl api.AddClassRequest) error {
 	return nil
 }
 
+func (e *executor) AddReplicaToShard(class string, shard string, replica string) error {
+	ctx := context.Background()
+	if replicas, err := e.schemaReader.ShardReplicas(class, shard); err != nil {
+		return fmt.Errorf("error reading replicas for collection %s shard %s: %w", class, shard, err)
+	} else if !slices.Contains(replicas, replica) {
+		return fmt.Errorf("replica %s does not exists for collection %s shard %s", replica, class, shard)
+	}
+	return e.migrator.AddReplicaToShard(ctx, class, shard)
+}
+
 // RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.
 // This function is invoked by the Raft store when a restoration request is sent by the backup coordinator.
 func (e *executor) RestoreClassDir(class string) error {
@@ -89,14 +124,15 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	className := req.Class.Class
 	ctx := context.Background()
 
-	if hasTargetVectors(req.Class) {
-		if err := e.migrator.UpdateVectorIndexConfigs(ctx, className, asVectorIndexConfigs(req.Class)); err != nil {
-			return fmt.Errorf("vector index configs update: %w", err)
-		}
-	} else {
-		if err := e.migrator.UpdateVectorIndexConfig(ctx,
-			className, asVectorIndexConfig(req.Class)); err != nil {
+	if cfg, ok := req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+		if err := e.migrator.UpdateVectorIndexConfig(ctx, className, cfg); err != nil {
 			return fmt.Errorf("vector index config update: %w", err)
+		}
+	}
+
+	if cfgs := asVectorIndexConfigs(req.Class); cfgs != nil {
+		if err := e.migrator.UpdateVectorIndexConfigs(ctx, className, cfgs); err != nil {
+			return fmt.Errorf("vector index configs update: %w", err)
 		}
 	}
 
@@ -230,9 +266,9 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 	return nil
 }
 
-func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) error {
+func (e *executor) DeleteTenants(class string, tenants []*models.Tenant) error {
 	ctx := context.Background()
-	if err := e.migrator.DeleteTenants(ctx, class, req.Tenants); err != nil {
+	if err := e.migrator.DeleteTenants(ctx, class, tenants); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "delete_tenants",
 			"class":  class,
@@ -271,10 +307,9 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 	defer e.callbacksLock.RUnlock()
 
 	s := e.schemaReader.ReadOnlySchema()
+	schema := schema.Schema{Objects: &s}
 	for _, cb := range e.callbacks {
-		cb(schema.Schema{
-			Objects: &s,
-		})
+		cb(schema)
 	}
 }
 

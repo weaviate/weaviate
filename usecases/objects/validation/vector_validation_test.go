@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
 func TestVectors(t *testing.T) {
@@ -62,6 +63,52 @@ func TestVectors(t *testing.T) {
 				Vectors: models.Vectors{"first": []float32{1, 2, 3}},
 			},
 			expErr: true,
+		},
+		"non existent named vectors": {
+			class: &models.Class{
+				VectorConfig: map[string]models.VectorConfig{"first": {}, "second": {}},
+			},
+			obj: &models.Object{
+				Vectors: models.Vectors{"third": []float32{1, 2, 3}},
+			},
+			expErr: true,
+		},
+		"mixed vectors": {
+			class: &models.Class{
+				Vectorizer:      "legacy",
+				VectorIndexType: "hnsw",
+				VectorConfig:    map[string]models.VectorConfig{"first": {}, "second": {}},
+			},
+			obj: &models.Object{
+				Vector:  []float32{1, 2, 3},
+				Vectors: models.Vectors{"first": []float32{1, 2, 3}, "second": []float32{4, 5, 6}},
+			},
+			expErr: false,
+		},
+		"default vector set to legacy in mixed vector class": {
+			class: &models.Class{
+				Vectorizer:      "legacy",
+				VectorIndexType: "hnsw",
+				VectorConfig:    map[string]models.VectorConfig{"first": {}, "second": {}},
+			},
+			obj: &models.Object{
+				Vectors: models.Vectors{"first": []float32{1, 2, 3}, "second": []float32{4, 5, 6}, modelsext.DefaultNamedVectorName: []float32{7, 8, 9}},
+			},
+			objNew: &models.Object{
+				Vectors: models.Vectors{"first": []float32{1, 2, 3}, "second": []float32{4, 5, 6}},
+				Vector:  []float32{7, 8, 9},
+			},
+		},
+		"default vector not touched in named vector class": {
+			class: &models.Class{
+				VectorConfig: map[string]models.VectorConfig{modelsext.DefaultNamedVectorName: {}},
+			},
+			obj: &models.Object{
+				Vectors: models.Vectors{modelsext.DefaultNamedVectorName: []float32{1, 2, 3}},
+			},
+			objNew: &models.Object{
+				Vectors: models.Vectors{modelsext.DefaultNamedVectorName: []float32{1, 2, 3}},
+			},
 		},
 	}
 	for name, spec := range specs {

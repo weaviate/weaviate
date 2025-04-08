@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
@@ -67,6 +68,10 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 			}
 		}
 
+		if err := s.onDeleteFromPropertyValueIndex(docID, &prop); err != nil {
+			return err
+		}
+
 		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
 		if isMetaCountProperty(prop) || isInternalProperty(prop) {
 			continue
@@ -107,7 +112,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
-	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyInverted)
 
 	docIDBytes := make([]byte, 8)
 	// Shard Index version 2 requires BigEndian for sorting, if the shard was
@@ -174,4 +179,12 @@ func (s *Shard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64
 	}
 
 	return bucket.RoaringSetRangeRemove(binary.BigEndian.Uint64(key), docID)
+}
+
+func (s *Shard) onDeleteFromPropertyValueIndex(docID uint64, property *inverted.Property) error {
+	ec := errorcompounder.New()
+	for i := range s.callbacksRemoveFromPropertyValueIndex {
+		ec.Add(s.callbacksRemoveFromPropertyValueIndex[i](s, docID, property))
+	}
+	return ec.ToError()
 }

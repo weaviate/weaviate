@@ -132,11 +132,11 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		if appState.ServerConfig.Config.Monitoring.Enabled {
 			handler = monitoring.InstrumentHTTP(
 				handler,
-				context,
-				appState.ServerMetrics.InflightRequests,
-				appState.ServerMetrics.RequestDuration,
-				appState.ServerMetrics.RequestBodySize,
-				appState.ServerMetrics.ResponseBodySize,
+				staticRoute(context),
+				appState.HTTPServerMetrics.InflightRequests,
+				appState.HTTPServerMetrics.RequestDuration,
+				appState.HTTPServerMetrics.RequestBodySize,
+				appState.HTTPServerMetrics.ResponseBodySize,
 			)
 		}
 		// Must be the last middleware as it might skip the next handler
@@ -146,6 +146,28 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		}
 
 		return handler
+	}
+}
+
+// staticRoute is used to convert routes in our main http server into static routes
+// by removing all the dynamic variables in the route. Useful for instrumentation
+// where "route cardinality" matters.
+
+// Example:
+// `/schema/Movies/properties` -> `/schema/{className}`
+func staticRoute(context *middleware.Context) monitoring.StaticRouteLabel {
+	return func(r *http.Request) (*http.Request, string) {
+		route := r.URL.String()
+		req := r
+
+		matched, rr, ok := context.RouteInfo(r)
+		if ok {
+			// convert dynamic route to static route.
+			// `/api/v1/schema/Question/tenant1` -> `/api/v1/schema/{class}/{tenant}`
+			route = matched.PathPattern
+			req = rr
+		}
+		return req, route
 	}
 }
 
@@ -207,7 +229,7 @@ func addInjectHeadersIntoContext(next http.Handler) http.Handler {
 		ctx := r.Context()
 		changed := false
 		for k, v := range r.Header {
-			if strings.HasPrefix(k, "X-") {
+			if strings.HasPrefix(k, "X-") || k == "Authorization" {
 				ctx = context.WithValue(ctx, k, v)
 				changed = true
 			}

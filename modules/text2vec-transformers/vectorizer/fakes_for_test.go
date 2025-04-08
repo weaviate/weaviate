@@ -14,6 +14,7 @@ package vectorizer
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
 )
 
@@ -86,4 +87,8 @@ func (f fakeClassConfig) Tenant() string {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
 }

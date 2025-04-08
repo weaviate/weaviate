@@ -21,6 +21,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/diskio"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -56,7 +57,8 @@ func newSegmentCleaner(sg *SegmentGroup) (segmentCleaner, error) {
 	case StrategyMapCollection,
 		StrategySetCollection,
 		StrategyRoaringSet,
-		StrategyRoaringSetRange:
+		StrategyRoaringSetRange,
+		StrategyInverted:
 		return &segmentCleanerNoop{}, nil
 	default:
 		return nil, fmt.Errorf("unrecognized strategy %q", sg.strategy)
@@ -192,16 +194,16 @@ func (c *segmentCleanerCommon) findCandidate() (int, int, int, onCompletedFunc, 
 }
 
 func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error) {
-	c.sg.maintenanceLock.RLock()
-	defer c.sg.maintenanceLock.RUnlock()
+	segments, release := c.sg.getAndLockSegments()
+	defer release()
 
 	var ids []int64
 	var sizes []int64
-	if count := len(c.sg.segments); count > 1 {
+	if count := len(segments); count > 1 {
 		ids = make([]int64, count)
 		sizes = make([]int64, count)
 
-		for i, seg := range c.sg.segments {
+		for i, seg := range segments {
 			idStr := segmentID(seg.path)
 			id, err := strconv.ParseInt(idStr, 10, 64)
 			if err != nil {
@@ -497,7 +499,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	case StrategyReplace:
 		c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
 			c.sg.makeKeyExistsOnUpperSegments(startIdx, lastIdx), oldSegment.level,
-			oldSegment.secondaryIndexCount, scratchSpacePath)
+			oldSegment.secondaryIndexCount, scratchSpacePath, c.sg.enableChecksumValidation)
 		if err = c.do(shouldAbort); err != nil {
 			return false, err
 		}
@@ -546,13 +548,13 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 		}
 
 		segAtPos := func() *segment {
-			sg.maintenanceLock.RLock()
-			defer sg.maintenanceLock.RUnlock()
+			segments, release := sg.getAndLockSegments()
+			defer release()
 
 			if i >= startIdx && i <= lastIdx {
 				j := i
 				updateI()
-				return sg.segments[j]
+				return segments[j]
 			}
 			return nil
 		}
@@ -574,7 +576,7 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 	countNetAdditions := oldSegment.countNetAdditions
 
 	precomputedFiles, err := preComputeSegmentMeta(tmpSegmentPath, countNetAdditions,
-		sg.logger, sg.useBloomFilter, sg.calcCountNetAdditions)
+		sg.logger, sg.useBloomFilter, sg.calcCountNetAdditions, sg.enableChecksumValidation)
 	if err != nil {
 		return nil, fmt.Errorf("precompute segment meta: %w", err)
 	}
@@ -611,7 +613,7 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 	if err := oldSegment.markForDeletion(); err != nil {
 		return nil, fmt.Errorf("drop disk segment %q: %w", oldSegment.path, err)
 	}
-	if err := fsync(sg.dir); err != nil {
+	if err := diskio.Fsync(sg.dir); err != nil {
 		return nil, fmt.Errorf("fsync segment directory %q: %w", sg.dir, err)
 	}
 
@@ -632,9 +634,15 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 	}
 
 	newSegment, err := newSegment(segmentPath, sg.logger, sg.metrics, nil,
-		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
+		segmentConfig{
+			mmapContents:             sg.mmapContents,
+			useBloomFilter:           sg.useBloomFilter,
+			calcCountNetAdditions:    sg.calcCountNetAdditions,
+			overwriteDerived:         false,
+			enableChecksumValidation: sg.enableChecksumValidation,
+		})
 	if err != nil {
-		return nil, fmt.Errorf("create new segment %q: %w", newSegment.path, err)
+		return nil, fmt.Errorf("create new segment %q: %w", segmentPath, err)
 	}
 
 	sg.segments[segmentIdx] = newSegment

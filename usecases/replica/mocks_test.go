@@ -13,11 +13,11 @@ package replica
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
@@ -47,16 +47,16 @@ func (f *fakeRClient) FetchObjects(ctx context.Context, host, index,
 
 func (f *fakeRClient) OverwriteObjects(ctx context.Context, host, index, shard string,
 	xs []*objects.VObject,
-) ([]RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	args := f.Called(ctx, host, index, shard, xs)
-	return args.Get(0).([]RepairResponse), args.Error(1)
+	return args.Get(0).([]types.RepairResponse), args.Error(1)
 }
 
 func (f *fakeRClient) DigestObjects(ctx context.Context, host, index, shard string,
 	ids []strfmt.UUID, numRetries int,
-) ([]RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	args := f.Called(ctx, host, index, shard, ids)
-	return args.Get(0).([]RepairResponse), args.Error(1)
+	return args.Get(0).([]types.RepairResponse), args.Error(1)
 }
 
 func (f *fakeRClient) FindUUIDs(ctx context.Context, host, index, shard string,
@@ -66,11 +66,11 @@ func (f *fakeRClient) FindUUIDs(ctx context.Context, host, index, shard string,
 	return args.Get(0).([]strfmt.UUID), args.Error(1)
 }
 
-func (f *fakeRClient) DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
-	initialToken, finalToken uint64, limit int,
-) ([]RepairResponse, uint64, error) {
-	args := f.Called(ctx, host, index, shard, initialToken, finalToken, limit)
-	return args.Get(0).([]RepairResponse), args.Get(1).(uint64), args.Error(2)
+func (f *fakeRClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
+	initialUUID, finalUUID strfmt.UUID, limit int,
+) ([]types.RepairResponse, error) {
+	args := f.Called(ctx, host, index, shard, initialUUID, finalUUID, limit)
+	return args.Get(0).([]types.RepairResponse), args.Error(1)
 }
 
 func (f *fakeRClient) HashTreeLevel(ctx context.Context,
@@ -134,66 +134,4 @@ func (f *fakeClient) Commit(ctx context.Context, host, index, shard, requestID s
 func (f *fakeClient) Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID)
 	return args.Get(0).(SimpleResponse), args.Error(1)
-}
-
-// Replica finder
-type fakeShardingState struct {
-	thisNode        string
-	ShardToReplicas map[string][]string
-	nodeResolver    *fakeNodeResolver
-}
-
-func newFakeShardingState(thisNode string, shardToReplicas map[string][]string, resolver *fakeNodeResolver) *fakeShardingState {
-	return &fakeShardingState{
-		thisNode:        thisNode,
-		ShardToReplicas: shardToReplicas,
-		nodeResolver:    resolver,
-	}
-}
-
-func (f *fakeShardingState) NodeName() string {
-	return f.thisNode
-}
-
-func (f *fakeShardingState) ResolveParentNodes(_ string, shard string) (map[string]string, error) {
-	replicas, ok := f.ShardToReplicas[shard]
-	if !ok {
-		return nil, fmt.Errorf("sharding state not found")
-	}
-
-	m := make(map[string]string)
-	for _, name := range replicas {
-		addr, _ := f.nodeResolver.NodeHostname(name)
-		m[name] = addr
-
-	}
-
-	return m, nil
-}
-
-// node resolver
-type fakeNodeResolver struct {
-	hosts map[string]string
-}
-
-func (r *fakeNodeResolver) AllHostnames() []string {
-	hosts := make([]string, 0, len(r.hosts))
-
-	for _, h := range r.hosts {
-		hosts = append(hosts, h)
-	}
-
-	return hosts
-}
-
-func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
-	return r.hosts[nodeName], true
-}
-
-func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
-	hosts := make(map[string]string)
-	for _, node := range nodes {
-		hosts[node] = node
-	}
-	return &fakeNodeResolver{hosts: hosts}
 }

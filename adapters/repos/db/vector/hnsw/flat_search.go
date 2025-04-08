@@ -144,7 +144,7 @@ func (h *hnsw) flatMultiSearch(ctx context.Context, queryVectors [][]float32, k 
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	kPrime := k
-	candidateSet := make(map[uint64]bool)
+	candidateSet := make(map[uint64]struct{})
 	for _, vec := range queryVectors {
 		ids, _, err := h.flatSearch(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
 		if err != nil {
@@ -157,7 +157,7 @@ func (h *hnsw) flatMultiSearch(ctx context.Context, queryVectors [][]float32, k 
 			} else {
 				docId, _ = h.compressor.GetKeys(id)
 			}
-			candidateSet[docId] = true
+			candidateSet[docId] = struct{}{}
 		}
 	}
 

@@ -19,6 +19,7 @@ package models
 import (
 	"context"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -31,17 +32,69 @@ type Principal struct {
 	// groups
 	Groups []string `json:"groups"`
 
+	// user type
+	UserType UserTypeInput `json:"userType,omitempty"`
+
 	// The username that was extracted either from the authentication information
 	Username string `json:"username,omitempty"`
 }
 
 // Validate validates this principal
 func (m *Principal) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateUserType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this principal based on context it is used
+func (m *Principal) validateUserType(formats strfmt.Registry) error {
+	if swag.IsZero(m.UserType) { // not required
+		return nil
+	}
+
+	if err := m.UserType.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("userType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("userType")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this principal based on the context it is used
 func (m *Principal) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateUserType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Principal) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.UserType.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("userType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("userType")
+		}
+		return err
+	}
+
 	return nil
 }
 

@@ -424,7 +424,7 @@ func TestRFJourney(t *testing.T) {
 				Properties: []search.SelectProperty{{Name: "title"}, {Name: "description"}},
 			},
 			[]string{""},
-			[][]float32{PeanutsVector()},
+			[]models.Vector{PeanutsVector()},
 		)
 
 		require.Nil(t, err)
@@ -439,7 +439,7 @@ func TestRFJourney(t *testing.T) {
 				Properties: []search.SelectProperty{{Name: "title"}, {Name: "description"}},
 			},
 			[]string{""},
-			[][]float32{JourneyVector()},
+			[]models.Vector{JourneyVector()},
 		)
 		require.Nil(t, err)
 
@@ -927,11 +927,11 @@ func (f *fakeObjectSearcher) Search(context.Context, dto.GetParams) ([]search.Re
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, []string, [][]float32) ([]search.Result, error) {
+func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, []string, []models.Vector) ([]search.Result, error) {
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, []float32, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
+func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, models.Vector, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
 	return nil, nil
 }
 

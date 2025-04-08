@@ -16,15 +16,15 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/entities/sentry"
-
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -38,6 +38,9 @@ const (
 	DefaultRaftBootstrapTimeout = 600
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
+	DefaultHNSWAcornFilterRatio = 0.4
+
+	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -162,6 +165,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
+		config.Authentication.DBUsers.Enabled = true
+	}
+
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
@@ -201,17 +208,27 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) {
+	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) || entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_ENABLED")) {
 		config.Authorization.Rbac.Enabled = true
 
-		adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
+		adminsString, ok := os.LookupEnv("AUTHORIZATION_RBAC_ROOT_USERS")
 		if ok {
-			config.Authorization.Rbac.Admins = strings.Split(adminsString, ",")
+			config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
+		} else {
+			adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
+			if ok {
+				config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
+			}
 		}
 
-		viewersString, ok := os.LookupEnv("AUTHORIZATION_VIEWER_USERS")
+		groupString, ok := os.LookupEnv("AUTHORIZATION_RBAC_ROOT_GROUPS")
 		if ok {
-			config.Authorization.Rbac.Viewers = strings.Split(viewersString, ",")
+			config.Authorization.Rbac.RootGroups = strings.Split(groupString, ",")
+		}
+
+		viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
+		if ok {
+			config.Authorization.Rbac.ViewerRootGroups = strings.Split(viewerGroupString, ",")
 		}
 	}
 
@@ -248,6 +265,18 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMSeparateObjectsCompactions = true
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_ENABLE_SEGMENTS_CHECKSUM_VALIDATION")) {
+		config.Persistence.LSMEnableSegmentsChecksumValidation = true
+	}
+
+	if err := parseInt(
+		"PERSISTENCE_LSM_CYCLEMANAGER_ROUTINES_FACTOR",
+		func(factor int) { config.Persistence.LSMCycleManagerRoutinesFactor = factor },
+		DefaultPersistenceLSMCycleManagerRoutinesFactor,
+	); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -261,9 +290,8 @@ func FromEnv(config *Config) error {
 
 	if err := parseInt(
 		"HNSW_VISITED_LIST_POOL_MAX_SIZE",
-		DefaultHNSWVisitedListPoolSize,
-		func(size int) error { return nil },
 		func(size int) { config.HNSWVisitedListPoolMaxSize = size },
+		DefaultHNSWVisitedListPoolSize,
 	); err != nil {
 		return err
 	}
@@ -272,6 +300,14 @@ func FromEnv(config *Config) error {
 		"HNSW_FLAT_SEARCH_CONCURRENCY",
 		func(val int) { config.HNSWFlatSearchConcurrency = val },
 		DefaultHNSWFlatSearchConcurrency,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePercentage(
+		"HNSW_ACORN_FILTER_RATIO",
+		func(val float64) { config.HNSWAcornFilterRatio = val },
+		DefaultHNSWAcornFilterRatio,
 	); err != nil {
 		return err
 	}
@@ -288,6 +324,32 @@ func FromEnv(config *Config) error {
 		if config.Persistence.DataPath == "" {
 			config.Persistence.DataPath = DefaultPersistenceDataPath
 		}
+	}
+
+	parsePositiveFloat("REINDEXER_GOROUTINES_FACTOR",
+		func(val float64) { config.ReindexerGoroutinesFactor = val },
+		DefaultReindexerGoroutinesFactor)
+
+	if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_AT_STARTUP", clusterCfg.Hostname) {
+		config.ReindexMapToBlockmaxAtStartup = true
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_SWAP_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.SwapBuckets = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_UNSWAP_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.UnswapBuckets = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.TidyBuckets = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.Rollback = true
+		}
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PROCESSING_DURATION_SECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds = val },
+			DefaultMapToBlockmaxProcessingDurationSeconds)
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
+			DefaultMapToBlockmaxPauseDurationSeconds)
 	}
 
 	if err := config.parseMemtableConfig(); err != nil {
@@ -446,6 +508,14 @@ func FromEnv(config *Config) error {
 		config.MaximumConcurrentGetRequests = DefaultMaxConcurrentGetRequests
 	}
 
+	if err = parsePositiveInt(
+		"MAXIMUM_CONCURRENT_SHARD_LOADS",
+		func(val int) { config.MaximumConcurrentShardLoads = val },
+		DefaultMaxConcurrentShardLoads,
+	); err != nil {
+		return err
+	}
+
 	if err := parsePositiveInt(
 		"GRPC_MAX_MESSAGE_SIZE",
 		func(val int) { config.GRPC.MaxMsgSize = val },
@@ -483,6 +553,8 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	config.Replication.AsyncReplicationDisabled = entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED"))
+
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
@@ -494,6 +566,14 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
 		config.HNSWStartupWaitForVectorCache = true
+	}
+
+	if err := parseInt(
+		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
+		func(val int) { config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = val },
+		DefaultMaximumAllowedCollectionsCount,
+	); err != nil {
+		return err
 	}
 
 	// explicitly reset sentry config
@@ -517,6 +597,20 @@ func FromEnv(config *Config) error {
 		DefaultMetadataServerDataEventsChannelCapacity,
 	); err != nil {
 		return err
+	}
+
+	config.RuntimeOverrides.Enabled = entcfg.Enabled(os.Getenv("RUNTIME_OVERRIDES_ENABLED"))
+
+	if v := os.Getenv("RUNTIME_OVERRIDES_PATH"); v != "" {
+		config.RuntimeOverrides.Path = v
+	}
+
+	if v := os.Getenv("RUNTIME_OVERRIDES_LOAD_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse RUNTIME_OVERRIDES_LOAD_INTERVAL as time.Duration: %w", err)
+		}
+		config.RuntimeOverrides.LoadInterval = interval
 	}
 
 	return nil
@@ -618,14 +712,6 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	cfg.EnableOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_ENABLE_ONE_NODE_RECOVERY"))
 	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
 
-	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside
-	// docker without a TLD available. However is running in k8s for example you have a TLD available.
-	if entcfg.Enabled(os.Getenv("RAFT_ENABLE_FQDN_RESOLVER")) {
-		cfg.EnableFQDNResolver = true
-	}
-
-	cfg.FQDNResolverTLD = os.Getenv("RAFT_FQDN_RESOLVER_TLD")
-
 	return cfg, nil
 }
 
@@ -704,25 +790,56 @@ func (c *Config) parseMemtableConfig() error {
 	return nil
 }
 
-func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
-	return parseInt(envName, defaultValue, func(val int) error {
-		if val <= 0 {
-			return fmt.Errorf("%s must be a positive value larger 0. Got: %v", envName, val)
+func parsePercentage(envName string, cb func(val float64), defaultValue float64) error {
+	return parseFloat64(envName, defaultValue, func(val float64) error {
+		if val < 0 || val > 1 {
+			return fmt.Errorf("%s must be between 0 and 1", envName)
 		}
 		return nil
 	}, cb)
+}
+
+func parseFloat64(envName string, defaultValue float64, verify func(val float64) error, cb func(val float64)) error {
+	var err error
+	asFloat := defaultValue
+
+	if v := os.Getenv(envName); v != "" {
+		asFloat, err = strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse %s as float64: %w", envName, err)
+		}
+		if err = verify(asFloat); err != nil {
+			return err
+		}
+	}
+
+	cb(asFloat)
+	return nil
+}
+
+func parseInt(envName string, cb func(val int), defaultValue int) error {
+	return parseIntVerify(envName, defaultValue, cb, func(val int) error { return nil })
+}
+
+func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
+	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
+		if val <= 0 {
+			return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
+		}
+		return nil
+	})
 }
 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
-	return parseInt(envName, defaultValue, func(val int) error {
+	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
 		if val < 0 {
-			return fmt.Errorf("%s must be an integer greater than or equal 0", envName)
+			return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
 		}
 		return nil
-	}, cb)
+	})
 }
 
-func parseInt(envName string, defaultValue int, verify func(val int) error, cb func(val int)) error {
+func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int) error) error {
 	var err error
 	asInt := defaultValue
 
@@ -737,6 +854,46 @@ func parseInt(envName string, defaultValue int, verify func(val int) error, cb f
 	}
 
 	cb(asInt)
+	return nil
+}
+
+// func parseFloat(envName string, cb func(val float64), defaultValue float64) error {
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error { return nil })
+// }
+
+func parsePositiveFloat(envName string, cb func(val float64), defaultValue float64) error {
+	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
+		if val <= 0 {
+			return fmt.Errorf("%s must be a float greater than 0. Got: %v", envName, val)
+		}
+		return nil
+	})
+}
+
+// func parseNonNegativeFloat(envName string, cb func(val float64), defaultValue float64) error {
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
+// 		if val < 0 {
+// 			return fmt.Errorf("%s must be a float greater than or equal 0. Got %v", envName, val)
+// 		}
+// 		return nil
+// 	})
+// }
+
+func parseFloatVerify(envName string, defaultValue float64, cb func(val float64), verify func(val float64) error) error {
+	var err error
+	asFloat := defaultValue
+
+	if v := os.Getenv(envName); v != "" {
+		asFloat, err = strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse %s as float: %w", envName, err)
+		}
+		if err = verify(asFloat); err != nil {
+			return err
+		}
+	}
+
+	cb(asFloat)
 	return nil
 }
 
@@ -809,9 +966,11 @@ const (
 	DefaultPersistenceMemtablesMinDuration     = 15
 	DefaultPersistenceMemtablesMaxDuration     = 45
 	DefaultMaxConcurrentGetRequests            = 0
+	DefaultMaxConcurrentShardLoads             = 500
 	DefaultGRPCPort                            = 50051
-	DefaultGRPCMaxMsgSize                      = 10 * 1024 * 1024
+	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultMinimumReplicationFactor            = 1
+	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
 )
 
 const VectorizerModuleNone = "none"
@@ -974,4 +1133,14 @@ func parseClusterConfig() (cluster.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func enabledForHost(envName string, localHostname string) bool {
+	if v := os.Getenv(envName); v != "" {
+		if entcfg.Enabled(v) {
+			return true
+		}
+		return slices.Contains(strings.Split(v, ","), localHostname)
+	}
+	return false
 }

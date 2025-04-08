@@ -52,7 +52,7 @@ func (i *typeInspector) WithTypes(res *aggregation.Result, params aggregation.Pa
 
 		err = i.extendResWithType(res, prop.Name.String(), schemaProp.DataType)
 		if err != nil {
-			return nil, fmt.Errorf("with types: prop %s: %v", prop.Name, err)
+			return nil, fmt.Errorf("with types: prop %s: %w", prop.Name, err)
 		}
 	}
 
@@ -89,6 +89,10 @@ func (i *typeInspector) extendResWithType(res *aggregation.Result, propName stri
 			prop.Type = aggregation.PropertyTypeReference
 			prop.SchemaType = string(schema.DataTypeCRef)
 			prop.ReferenceAggregation.PointingTo = dataType
+			if res.Groups[groupIndex].Properties == nil {
+				// prevent nil pointer panic
+				res.Groups[groupIndex].Properties = map[string]aggregation.Property{}
+			}
 		}
 
 		res.Groups[groupIndex].Properties[propName] = prop

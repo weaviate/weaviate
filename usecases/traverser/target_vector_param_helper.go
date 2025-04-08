@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -29,6 +30,12 @@ func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, cl
 	if len(targetVectors) == 0 {
 		class := sch.FindClassByName(schema.ClassName(className))
 
+		// If no target vectors provided, check whether legacy vector is configured.
+		// For backwards compatibility, we have to return legacy vector in case no named vectors configured.
+		if modelsext.ClassHasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {
+			return []string{""}, nil
+		}
+
 		if len(class.VectorConfig) > 1 {
 			return []string{}, fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
 		}
@@ -38,9 +45,8 @@ func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, cl
 				return []string{name}, nil
 			}
 		}
-
-		return []string{""}, nil
 	}
+
 	return targetVectors, nil
 }
 

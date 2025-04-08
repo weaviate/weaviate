@@ -113,6 +113,9 @@ func (m *Mapper) NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value
 }
 
 func (m *Mapper) NewNestedValue(v interface{}, dt schema.DataType, parent schema.PropertyInterface, prop search.SelectProperty) (*pb.Value, error) {
+	if v == nil {
+		return m.NewNilValue(), nil
+	}
 	switch dt {
 	case schema.DataTypeObject:
 		if _, ok := v.(map[string]interface{}); !ok {
@@ -249,7 +252,7 @@ func (m *Mapper) newListValueDate(v interface{}) (*pb.Value, error) {
 func (m *Mapper) newListValueNumber(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
 	makeListValue := func(v []float64) *pb.ListValue {
-		return &pb.ListValue{Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: byteops.Float64ToByteVector(v)}}}
+		return &pb.ListValue{Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: byteops.Fp64SliceToBytes(v)}}}
 	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {

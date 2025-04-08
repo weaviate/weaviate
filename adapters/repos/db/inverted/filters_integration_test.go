@@ -36,6 +36,7 @@ const (
 	className = "TestClass"
 )
 
+// TODO amourao, check if this is needed for SegmentInverted as well
 func Test_Filters_String(t *testing.T) {
 	dirName := t.TempDir()
 
@@ -83,7 +84,7 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -268,6 +269,7 @@ func Test_Filters_String(t *testing.T) {
 					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
+				res.Close()
 			})
 
 			t.Run("update", func(t *testing.T) {
@@ -290,6 +292,7 @@ func Test_Filters_String(t *testing.T) {
 					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
+				res.Close()
 			})
 
 			t.Run("restore inverted index, so test suite can be run again",
@@ -339,7 +342,7 @@ func Test_Filters_Int(t *testing.T) {
 		{val: 16, ids: []uint64{16}},
 	}
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(maxDocID), logger)
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(maxDocID))
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
@@ -552,6 +555,7 @@ func Test_Filters_Int(t *testing.T) {
 						additional.Properties{}, className)
 					assert.NoError(t, err)
 					assert.Equal(t, test.expectedListBeforeUpdate, res.Slice())
+					res.Close()
 				})
 
 				t.Run("update", func(t *testing.T) {
@@ -565,6 +569,7 @@ func Test_Filters_Int(t *testing.T) {
 						additional.Properties{}, className)
 					assert.NoError(t, err)
 					assert.Equal(t, test.expectedListAfterUpdate, res.Slice())
+					res.Close()
 				})
 
 				t.Run("restore inverted index, so we can run test suite again", func(t *testing.T) {
@@ -776,6 +781,7 @@ func Test_Filters_Int(t *testing.T) {
 						additional.Properties{}, className)
 					assert.NoError(t, err)
 					assert.Equal(t, test.expectedListBeforeUpdate, res.Slice())
+					res.Close()
 				})
 
 				t.Run("update", func(t *testing.T) {
@@ -788,6 +794,7 @@ func Test_Filters_Int(t *testing.T) {
 						additional.Properties{}, className)
 					assert.NoError(t, err)
 					assert.Equal(t, test.expectedListAfterUpdate, res.Slice())
+					res.Close()
 				})
 
 				t.Run("restore inverted index, so we can run test suite again", func(t *testing.T) {
@@ -997,6 +1004,7 @@ func Test_Filters_Int(t *testing.T) {
 						additional.Properties{}, className)
 					assert.NoError(t, err)
 					assert.Equal(t, test.expectedListBeforeUpdate, res.Slice())
+					res.Close()
 				})
 
 				t.Run("update", func(t *testing.T) {
@@ -1009,6 +1017,7 @@ func Test_Filters_Int(t *testing.T) {
 						additional.Properties{}, className)
 					assert.NoError(t, err)
 					assert.Equal(t, test.expectedListAfterUpdate, res.Slice())
+					res.Close()
 				})
 
 				t.Run("restore inverted index, so we can run test suite again", func(t *testing.T) {
@@ -1055,7 +1064,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -1112,6 +1121,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
+				res.Close()
 			})
 
 			t.Run("update", func(t *testing.T) {
@@ -1133,6 +1143,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
+				res.Close()
 			})
 
 			t.Run("restore inverted index, so we can run test suite again",
@@ -1222,8 +1233,8 @@ func newFakeMaxIDGetter(maxID uint64) func() uint64 {
 }
 
 func notEqualsExpectedResults(maxID uint64, skip uint64) []uint64 {
-	allow := make([]uint64, 0, maxID)
-	for i := uint64(0); i < maxID; i++ {
+	allow := make([]uint64, 0, maxID+1)
+	for i := uint64(0); i <= maxID; i++ {
 		if i != skip {
 			allow = append(allow, i)
 		}

@@ -18,10 +18,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
+	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 var paragraphs = []string{
@@ -43,7 +44,7 @@ func AddClassAndObjects(t *testing.T, className string, datatype string, c *clie
 			{Name: "contents", DataType: []string{datatype}, Tokenization: "word", IndexFilterable: &TRUE, IndexSearchable: &TRUE},
 			{Name: "num", DataType: []string{"int"}},
 		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}},
+		InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 		Vectorizer:          vectorizer,
 	}
 	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
@@ -108,7 +109,7 @@ func TestSearchOnArrays(t *testing.T) {
 						IndexFilterable: &vTrue,
 					},
 				},
-				InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}},
+				InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 				Vectorizer:          "none",
 			}
 			require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
@@ -180,7 +181,7 @@ func TestSearchOnSomeProperties(t *testing.T) {
 						IndexSearchable: &vTrue,
 					},
 				},
-				InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}},
+				InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 				Vectorizer:          "none",
 			}
 			require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))

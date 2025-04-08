@@ -89,3 +89,10 @@ func CheckStrategyRoaringSet(strategy string) error {
 func CheckStrategyRoaringSetRange(strategy string) error {
 	return CheckExpectedStrategy(strategy, StrategyRoaringSetRange)
 }
+
+func DefaultSearchableStrategy(useInvertedSearchable bool) string {
+	if useInvertedSearchable {
+		return StrategyInverted
+	}
+	return StrategyMapCollection
+}

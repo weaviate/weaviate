@@ -70,6 +70,65 @@ func (b *Bucket) Cursor() *CursorReplace {
 	}
 }
 
+// CursorInMemWith returns a cursor which scan over the primary key of entries
+// not yet persisted on disk.
+// Segment creation and compaction will be blocked until the cursor is closed
+func (b *Bucket) CursorInMem() *CursorReplace {
+	b.flushLock.RLock()
+
+	if b.strategy != StrategyReplace {
+		panic("CursorInMemWith() called on strategy other than 'replace'")
+	}
+
+	var innerCursors []innerCursorReplace
+
+	// we have a flush-RLock, so we have the guarantee that the flushing state
+	// will not change for the lifetime of the cursor, thus there can only be two
+	// states: either a flushing memtable currently exists - or it doesn't
+	var flushingMemtableCursor innerCursorReplace
+	var releaseFlushingMemtable func()
+
+	if b.flushing != nil {
+		flushingMemtableCursor, releaseFlushingMemtable = b.flushing.newBlockingCursor()
+		innerCursors = append(innerCursors, flushingMemtableCursor)
+	}
+
+	activeMemtableCursor, releaseActiveMemtable := b.active.newBlockingCursor()
+	innerCursors = append(innerCursors, activeMemtableCursor)
+
+	return &CursorReplace{
+		// cursor are in order from oldest to newest, with the memtable cursor
+		// being at the very top
+		innerCursors: innerCursors,
+		unlock: func() {
+			if b.flushing != nil {
+				releaseFlushingMemtable()
+			}
+			releaseActiveMemtable()
+			b.flushLock.RUnlock()
+		},
+	}
+}
+
+// CursorOnDiskWith returns a cursor which scan over the primary key of entries
+// already persisted on disk.
+// New segments can still be created but compaction will be prevented
+// while any cursor remains active
+func (b *Bucket) CursorOnDisk() *CursorReplace {
+	if b.strategy != StrategyReplace {
+		panic("CursorWith(desiredSecondaryIndexCount) called on strategy other than 'replace'")
+	}
+
+	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithFlushingSupport()
+
+	return &CursorReplace{
+		innerCursors: innerCursors,
+		unlock: func() {
+			unlockSegmentGroup()
+		},
+	}
+}
+
 // CursorWithSecondaryIndex holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
 func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
@@ -77,6 +136,10 @@ func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
 
 	if b.strategy != StrategyReplace {
 		panic("CursorWithSecondaryIndex() called on strategy other than 'replace'")
+	}
+
+	if b.secondaryIndices <= uint16(pos) {
+		panic("CursorWithSecondaryIndex() called on a bucket without enough secondary indexes")
 	}
 
 	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithSecondaryIndex(pos)
@@ -132,21 +195,31 @@ func (c *CursorReplace) seekAll(target []byte) {
 }
 
 func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
-	id, err := c.cursorWithLowestKey()
-	if err != nil {
-		if errors.Is(err, lsmkv.NotFound) {
-			return nil, nil
+	for {
+		id, err := c.cursorWithLowestKey()
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				return nil, nil
+			}
 		}
-	}
 
-	// check if this is a duplicate key before checking for the remaining errors,
-	// as cases such as 'entities.Deleted' can be better handled inside
-	// mergeDuplicatesInCurrentStateAndAdvance where we can be sure to act on
-	// segments in the correct order
-	if ids, ok := c.haveDuplicatesInState(id); ok {
-		return c.mergeDuplicatesInCurrentStateAndAdvance(ids)
-	} else {
-		return c.mergeDuplicatesInCurrentStateAndAdvance([]int{id})
+		ids, _ := c.haveDuplicatesInState(id)
+
+		c.copyStateIntoServeCache(ids[len(ids)-1])
+
+		// with a replace strategy only the highest will be returned, but still all
+		// need to be advanced - or we would just encounter them again in the next
+		// round
+		for _, id := range ids {
+			c.advanceInner(id)
+		}
+
+		if errors.Is(c.serveCache.err, lsmkv.Deleted) {
+			// element was deleted, proceed with next round
+			continue
+		}
+
+		return c.serveCache.key, c.serveCache.value
 	}
 }
 
@@ -167,26 +240,6 @@ func (c *CursorReplace) haveDuplicatesInState(idWithLowestKey int) ([]int, bool)
 	}
 
 	return c.reusableIDList, len(c.reusableIDList) > 1
-}
-
-// if there are no duplicates present it will still work as returning the
-// latest result is the same as returning the only result
-func (c *CursorReplace) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, []byte) {
-	c.copyStateIntoServeCache(ids[len(ids)-1])
-
-	// with a replace strategy only the highest will be returned, but still all
-	// need to be advanced - or we would just encounter them again in the next
-	// round
-	for _, id := range ids {
-		c.advanceInner(id)
-	}
-
-	if errors.Is(c.serveCache.err, lsmkv.Deleted) {
-		// element was deleted, proceed with next round
-		return c.Next()
-	}
-
-	return c.serveCache.key, c.serveCache.value
 }
 
 func (c *CursorReplace) copyStateIntoServeCache(pos int) {

@@ -19,14 +19,14 @@ import (
 )
 
 func (sg *SegmentGroup) newRoaringSetRangeReaders() ([]roaringsetrange.InnerReader, func()) {
-	sg.maintenanceLock.RLock()
+	segments, release := sg.getAndLockSegments()
 
-	readers := make([]roaringsetrange.InnerReader, len(sg.segments))
-	for i, segment := range sg.segments {
+	readers := make([]roaringsetrange.InnerReader, len(segments))
+	for i, segment := range segments {
 		readers[i] = segment.newRoaringSetRangeReader()
 	}
 
-	return readers, sg.maintenanceLock.RUnlock
+	return readers, release
 }
 
 func (s *segment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
@@ -42,7 +42,7 @@ func (s *segment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
 
 	return roaringsetrange.NewSegmentReaderConcurrent(
 		roaringsetrange.NewGaplessSegmentCursor(segmentCursor),
-		concurrency.NUMCPU_2)
+		concurrency.SROAR_MERGE)
 }
 
 func (s *segment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {

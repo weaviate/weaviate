@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -96,7 +98,7 @@ func TestBatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &fakeBatchClientWithRL[[]float32]{} // has state
 
-			v := NewBatchVectorizer(client, 1*time.Second,
+			v := NewBatchVectorizer[[]float32](client, 1*time.Second,
 				Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, ReturnsRateLimit: true, HasTokenLimit: true},
 				logger, "test") // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
@@ -179,7 +181,7 @@ func TestBatchMultiple(t *testing.T) {
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
-	v := NewBatchVectorizer(client, 40*time.Second, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
+	v := NewBatchVectorizer[[]float32](client, 40*time.Second, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
 	res := make(chan int, 3)
 	wg := sync.WaitGroup{}
 	wg.Add(3)
@@ -234,7 +236,7 @@ func TestBatchTimeouts(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(fmt.Sprint("BatchTimeouts", tt.batchTime), func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
+			v := NewBatchVectorizer[[]float32](client, tt.batchTime, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
 
 			texts, tokenCounts := generateTokens(objs)
 
@@ -267,12 +269,37 @@ func TestBatchRequestLimit(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(fmt.Sprint("Test request limit with", tt.batchTime), func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
+			v := NewBatchVectorizer[[]float32](client, tt.batchTime, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
 
 			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
 			require.Len(t, errs, tt.expectedErrors)
 		})
 	}
+}
+
+func TestBatchTokenLimitZero(t *testing.T) {
+	client := &fakeBatchClientWithRL[[]float32]{
+		defaultResetRate: 1,
+		defaultRPM:       500,
+		// token limits are all 0
+		rateLimit: &modulecomponents.RateLimits{RemainingRequests: 100, LimitRequests: 100},
+	}
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	longString := "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab"
+	logger, _ := test.NewNullLogger()
+
+	objs := []*models.Object{
+		{Class: "Car", Properties: map[string]interface{}{"test": "tokens 0"}},
+		{Class: "Car", Properties: map[string]interface{}{"test": "tokens 0" + longString}},
+	}
+	skip := []bool{false, false}
+	texts, tokenCounts := generateTokens(objs)
+
+	v := NewBatchVectorizer(client, time.Second, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
+
+	_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
+	require.Len(t, errs, 0)
+	// finishes without hanging
 }
 
 func generateTokens(objects []*models.Object) ([]string, []int) {
@@ -292,4 +319,42 @@ func generateTokens(objects []*models.Object) ([]string, []int) {
 	}
 
 	return texts, tokenCounts
+}
+
+func TestBatchRequestMissingRLValues(t *testing.T) {
+	client := &fakeBatchClientWithRL[[]float32]{defaultResetRate: 1}
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	logger, _ := test.NewNullLogger()
+
+	v := NewBatchVectorizer[[]float32](client, time.Second, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
+	skip := []bool{false}
+
+	start := time.Now()
+	// normal batch
+	objs := []*models.Object{
+		{Class: "Car", Properties: map[string]interface{}{"test": "text"}},
+	}
+	texts, tokenCounts := generateTokens(objs)
+
+	_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
+	require.Len(t, errs, 0)
+
+	// now batch with missing values, this should not cause any waiting or failures
+	objs = []*models.Object{
+		{Class: "Car", Properties: map[string]interface{}{"test": "missingValues "}}, // first request, set rate down so the next two items can be sent
+	}
+	texts, tokenCounts = generateTokens(objs)
+
+	_, errs = v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
+	require.Len(t, errs, 0)
+
+	// normal batch that is unaffected by the change
+	objs = []*models.Object{
+		{Class: "Car", Properties: map[string]interface{}{"test": "text"}},
+	}
+	texts, tokenCounts = generateTokens(objs)
+	_, errs = v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
+	require.Len(t, errs, 0)
+	// refresh rate is 1s. If the missing values would have any effect the batch algo would wait for the refresh to happen
+	require.Less(t, time.Since(start), time.Millisecond*900)
 }

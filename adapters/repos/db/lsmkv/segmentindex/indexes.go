@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ type Indexes struct {
 	ScratchSpacePath    string
 }
 
-func (s Indexes) WriteTo(w io.Writer) (int64, error) {
+func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 	var currentOffset uint64 = HeaderSize
 	if len(s.Keys) > 0 {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
@@ -72,14 +73,15 @@ func (s Indexes) WriteTo(w io.Writer) (int64, error) {
 		return written, err
 	}
 
-	primaryFD.Seek(0, io.SeekStart)
+	if _, err := primaryFD.Seek(0, io.SeekStart); err != nil {
+		return written, fmt.Errorf("seek to start of primary scratch space: %w", err)
+	}
 
 	// pretend that primary index was already written, then also account for the
 	// additional offset pointers (one for each secondary index)
 	currentOffset = currentOffset + uint64(n) +
 		uint64(s.SecondaryIndexCount)*8
 
-	// secondaryIndicesBytes := bytes.NewBuffer(nil)
 	secondaryFileName := filepath.Join(s.ScratchSpacePath, "secondary")
 	secondaryFD, err := os.Create(secondaryFileName)
 	if err != nil {
@@ -113,7 +115,9 @@ func (s Indexes) WriteTo(w io.Writer) (int64, error) {
 		return written, err
 	}
 
-	secondaryFD.Seek(0, io.SeekStart)
+	if _, err := secondaryFD.Seek(0, io.SeekStart); err != nil {
+		return written, fmt.Errorf("seek to start of secondary scratch space: %w", err)
+	}
 
 	if n, err := io.Copy(w, primaryFD); err != nil {
 		return written, err

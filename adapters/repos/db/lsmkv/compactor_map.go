@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"sort"
 
@@ -43,22 +44,26 @@ type compactorMap struct {
 	// for backward-compatibility with states where the disk state for maps was
 	// not guaranteed to be sorted yet
 	requiresSorting bool
+
+	enableChecksumValidation bool
 }
 
 func newCompactorMapCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, requiresSorting bool, cleanupTombstones bool,
+	enableChecksumValidation bool,
 ) *compactorMap {
 	return &compactorMap{
-		c1:                  c1,
-		c2:                  c2,
-		w:                   w,
-		bufw:                bufio.NewWriterSize(w, 256*1024),
-		currentLevel:        level,
-		cleanupTombstones:   cleanupTombstones,
-		secondaryIndexCount: secondaryIndexCount,
-		scratchSpacePath:    scratchSpacePath,
-		requiresSorting:     requiresSorting,
+		c1:                       c1,
+		c2:                       c2,
+		w:                        w,
+		bufw:                     bufio.NewWriterSize(w, 256*1024),
+		currentLevel:             level,
+		cleanupTombstones:        cleanupTombstones,
+		secondaryIndexCount:      secondaryIndexCount,
+		scratchSpacePath:         scratchSpacePath,
+		requiresSorting:          requiresSorting,
+		enableChecksumValidation: enableChecksumValidation,
 	}
 }
 
@@ -67,12 +72,17 @@ func (c *compactorMap) do() error {
 		return errors.Wrap(err, "init")
 	}
 
-	kis, err := c.writeKeys()
+	segmentFile := segmentindex.NewSegmentFile(
+		segmentindex.WithBufferedWriter(c.bufw),
+		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
+	)
+
+	kis, err := c.writeKeys(segmentFile)
 	if err != nil {
 		return errors.Wrap(err, "write keys")
 	}
 
-	if err := c.writeIndices(kis); err != nil {
+	if err := c.writeIndexes(segmentFile, kis); err != nil {
 		return errors.Wrap(err, "write index")
 	}
 
@@ -86,9 +96,14 @@ func (c *compactorMap) do() error {
 		dataEnd = uint64(kis[len(kis)-1].ValueEnd)
 	}
 
-	if err := c.writeHeader(c.currentLevel, 0, c.secondaryIndexCount,
-		dataEnd); err != nil {
+	version := segmentindex.ChooseHeaderVersion(c.enableChecksumValidation)
+	if err := c.writeHeader(segmentFile, c.currentLevel, version,
+		c.secondaryIndexCount, dataEnd); err != nil {
 		return errors.Wrap(err, "write header")
+	}
+
+	if _, err := segmentFile.WriteChecksum(); err != nil {
+		return fmt.Errorf("write compactorMap segment checksum: %w", err)
 	}
 
 	return nil
@@ -106,7 +121,7 @@ func (c *compactorMap) init() error {
 	return nil
 }
 
-func (c *compactorMap) writeKeys() ([]segmentindex.Key, error) {
+func (c *compactorMap) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
 
@@ -162,7 +177,7 @@ func (c *compactorMap) writeKeys() ([]segmentindex.Key, error) {
 			}
 
 			if values, skip := c.cleanupValues(mergedEncoded); !skip {
-				ki, err := c.writeIndividualNode(offset, key2, values)
+				ki, err := c.writeIndividualNode(f, offset, key2, values)
 				if err != nil {
 					return nil, errors.Wrap(err, "write individual node (equal keys)")
 				}
@@ -179,7 +194,7 @@ func (c *compactorMap) writeKeys() ([]segmentindex.Key, error) {
 		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
 			// key 1 is smaller
 			if values, skip := c.cleanupValues(value1); !skip {
-				ki, err := c.writeIndividualNode(offset, key1, values)
+				ki, err := c.writeIndividualNode(f, offset, key1, values)
 				if err != nil {
 					return nil, errors.Wrap(err, "write individual node (key1 smaller)")
 				}
@@ -191,7 +206,7 @@ func (c *compactorMap) writeKeys() ([]segmentindex.Key, error) {
 		} else {
 			// key 2 is smaller
 			if values, skip := c.cleanupValues(value2); !skip {
-				ki, err := c.writeIndividualNode(offset, key2, values)
+				ki, err := c.writeIndividualNode(f, offset, key2, values)
 				if err != nil {
 					return nil, errors.Wrap(err, "write individual node (key2 smaller)")
 				}
@@ -206,8 +221,8 @@ func (c *compactorMap) writeKeys() ([]segmentindex.Key, error) {
 	return kis, nil
 }
 
-func (c *compactorMap) writeIndividualNode(offset int, key []byte,
-	values []value,
+func (c *compactorMap) writeIndividualNode(f *segmentindex.SegmentFile,
+	offset int, key []byte, values []value,
 ) (segmentindex.Key, error) {
 	// NOTE: There are no guarantees in the cursor logic that any memory is valid
 	// for more than a single iteration. Every time you call next() to advance
@@ -226,25 +241,26 @@ func (c *compactorMap) writeIndividualNode(offset int, key []byte,
 		values:     values,
 		primaryKey: keyCopy,
 		offset:     offset,
-	}.KeyIndexAndWriteTo(c.bufw)
+	}.KeyIndexAndWriteTo(f.BodyWriter())
 }
 
-func (c *compactorMap) writeIndices(keys []segmentindex.Key) error {
-	indices := segmentindex.Indexes{
+func (c *compactorMap) writeIndexes(f *segmentindex.SegmentFile,
+	keys []segmentindex.Key,
+) error {
+	indexes := &segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: c.secondaryIndexCount,
 		ScratchSpacePath:    c.scratchSpacePath,
 	}
-
-	_, err := indices.WriteTo(c.bufw)
+	_, err := f.WriteIndexes(indexes)
 	return err
 }
 
 // writeHeader assumes that everything has been written to the underlying
 // writer and it is now safe to seek to the beginning and override the initial
 // header
-func (c *compactorMap) writeHeader(level, version, secondaryIndices uint16,
-	startOfIndex uint64,
+func (c *compactorMap) writeHeader(f *segmentindex.SegmentFile,
+	level, version, secondaryIndices uint16, startOfIndex uint64,
 ) error {
 	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
 		return errors.Wrap(err, "seek to beginning to write header")
@@ -257,10 +273,23 @@ func (c *compactorMap) writeHeader(level, version, secondaryIndices uint16,
 		Strategy:         segmentindex.StrategyMapCollection,
 		IndexStart:       startOfIndex,
 	}
-
+	// We have to write directly to compactor writer,
+	// since it has seeked back to start. The following
+	// call to f.WriteHeader will not write again.
 	if _, err := h.WriteTo(c.w); err != nil {
 		return err
 	}
+
+	if _, err := f.WriteHeader(h); err != nil {
+		return err
+	}
+
+	// We need to seek back to the end so we can write a checksum
+	if _, err := c.w.Seek(0, io.SeekEnd); err != nil {
+		return fmt.Errorf("seek to end after writing header: %w", err)
+	}
+
+	c.bufw.Reset(c.w)
 
 	return nil
 }

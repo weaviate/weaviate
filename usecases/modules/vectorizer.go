@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -89,74 +91,66 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) (map[int]error, error) {
-	if !p.hasMultipleVectorsConfiguration(class) {
-		// legacy vectorizer classes do not necessarily have a module config - filter them out before getting the moduleconfig
-		shouldVectorizeClass, err := p.shouldVectorizeClass(class, "", logger)
-		if err != nil {
-			return nil, err
-		}
-		if !shouldVectorizeClass {
-			return nil, nil
-		}
-	}
-
 	modConfigs, err := p.getModuleConfigs(class)
 	if err != nil {
 		return nil, err
 	}
 
-	if !p.hasMultipleVectorsConfiguration(class) {
-		modConfig := modConfigs[""]
-		return p.batchUpdateVector(ctx, objects, class, findObjectFn, "", modConfig)
-	} else {
-		if len(modConfigs) == 0 {
-			return nil, fmt.Errorf("no vectorizer configs for class %q", class.Class)
-		}
-		vecErrorsList := make([]map[int]error, len(modConfigs))
-		errorList := make([]error, len(modConfigs))
-		counter := 0
-		eg := enterrors.NewErrorGroupWrapper(logger)
-		eg.SetLimit(_NUMCPU)
-		for targetVector, modConfig := range modConfigs {
-			shouldVectorizeClass, err := p.shouldVectorizeClass(class, targetVector, logger)
-			if err != nil {
-				errorList[counter] = err
-				continue
-			}
-			if shouldVectorizeClass {
-				targetVector := targetVector
-				modConfig := modConfig
-				counter := counter
-
-				fun := func() error {
-					vecErrors, err := p.batchUpdateVector(ctx, objects, class, findObjectFn, targetVector, modConfig)
-					errorList[counter] = err
-					vecErrorsList[counter] = vecErrors
-					return nil // to use error group
-				}
-				eg.Go(fun)
-			}
-
-			counter += 1
-		}
-		if err := eg.Wait(); err != nil {
-			return nil, err
+	if len(modConfigs) == 0 {
+		// short-circuit collections without vector index
+		if class.Vectorizer == config.VectorizerModuleNone {
+			return nil, nil
 		}
 
-		// combine errors from different runs
-		combinedErrors := make(map[int]error, 0)
-		for _, vecErrors := range vecErrorsList {
-			for i, vecError := range vecErrors {
-				if existingErr, ok := combinedErrors[i]; ok {
-					vecError = errors.Join(existingErr, vecError)
-				}
-				combinedErrors[i] = vecError
-			}
-		}
-
-		return combinedErrors, errors.Join(errorList...)
-
+		return nil, fmt.Errorf("no vectorizer configs for class %s", class.Class)
 	}
+
+	var (
+		vecErrorsList = make([]map[int]error, len(modConfigs))
+		errorList     = make([]error, len(modConfigs))
+		counter       = 0
+	)
+
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	eg.SetLimit(_NUMCPU)
+	for targetVector, modConfig := range modConfigs {
+		shouldVectorizeClass, err := p.shouldVectorizeClass(class, targetVector, logger)
+		if err != nil {
+			errorList[counter] = err
+			continue
+		}
+		if shouldVectorizeClass {
+			targetVector := targetVector
+			modConfig := modConfig
+			counter := counter
+
+			fun := func() error {
+				vecErrors, err := p.batchUpdateVector(ctx, objects, class, findObjectFn, targetVector, modConfig)
+				errorList[counter] = err
+				vecErrorsList[counter] = vecErrors
+				return nil // to use error group
+			}
+			eg.Go(fun)
+		}
+
+		counter += 1
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	// combine errors from different runs
+	combinedErrors := make(map[int]error, 0)
+	for _, vecErrors := range vecErrorsList {
+		for i, vecError := range vecErrors {
+			if existingErr, ok := combinedErrors[i]; ok {
+				vecError = errors.Join(existingErr, vecError)
+			}
+			combinedErrors[i] = vecError
+		}
+	}
+
+	return combinedErrors, errors.Join(errorList...)
 }
 
 func (p *Provider) shouldVectorizeClass(class *models.Class, targetVector string, logger logrus.FieldLogger) (bool, error) {
@@ -199,7 +193,10 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				skipRevectorization[i] = true
 				continue
 			}
-			reVectorize, addProps, vector := reVectorize(ctx, cfg, vectorizer, obj, class, nil, targetVector, findObjectFn)
+			reVectorize, addProps, vector, err := reVectorize(ctx, cfg, vectorizer, obj, class, nil, targetVector, findObjectFn)
+			if err != nil {
+				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
+			}
 			if !reVectorize {
 				skipRevectorization[i] = true
 				p.lockGuard(func() {
@@ -235,7 +232,10 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				skipRevectorization[i] = true
 				continue
 			}
-			reVectorize, addProps, multiVector := reVectorizeMulti(ctx, cfg, vectorizer, obj, class, nil, targetVector, findObjectFn)
+			reVectorize, addProps, multiVector, err := reVectorizeMulti(ctx, cfg, vectorizer, obj, class, nil, targetVector, findObjectFn)
+			if err != nil {
+				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
+			}
 			if !reVectorize {
 				skipRevectorization[i] = true
 				p.lockGuard(func() {
@@ -280,53 +280,22 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	if !p.hasMultipleVectorsConfiguration(class) {
-		// legacy vectorizer configuration
-		vectorize, err := p.shouldVectorize(object, class, "", logger)
-		if err != nil {
-			return err
-		}
-		if !vectorize {
-			return nil
-		}
-	}
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	eg.SetLimit(_NUMCPU)
 
 	modConfigs, err := p.getModuleConfigs(class)
 	if err != nil {
 		return err
 	}
 
-	if !p.hasMultipleVectorsConfiguration(class) {
-		// legacy vectorizer configuration
-		for targetVector, modConfig := range modConfigs {
-			return p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig)
-		}
-	}
-	return p.vectorizeMultiple(ctx, object, class, findObjectFn, modConfigs, logger)
-}
-
-func (p *Provider) hasMultipleVectorsConfiguration(class *models.Class) bool {
-	return len(class.VectorConfig) > 0
-}
-
-func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object, class *models.Class,
-	findObjectFn modulecapabilities.FindObjectFn,
-	modConfigs map[string]map[string]interface{}, logger logrus.FieldLogger,
-) error {
-	eg := enterrors.NewErrorGroupWrapper(logger)
-	eg.SetLimit(_NUMCPU)
-
 	for targetVector, modConfig := range modConfigs {
 		targetVector := targetVector // https://golang.org/doc/faq#closures_and_goroutines
 		modConfig := modConfig       // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
-			if err := p.vectorizeOne(ctx, object, class, findObjectFn, targetVector, modConfig, logger); err != nil {
-				return err
-			}
-			return nil
+			return p.vectorizeOne(ctx, object, class, findObjectFn, targetVector, modConfig, logger)
 		}, targetVector)
 	}
-	if err := eg.Wait(); err != nil {
+	if err = eg.Wait(); err != nil {
 		return err
 	}
 	return nil
@@ -354,15 +323,12 @@ func (p *Provider) addVectorToObject(object *models.Object,
 		object.Vector = vector
 		return
 	}
+	if object.Vectors == nil {
+		object.Vectors = models.Vectors{}
+	}
 	if multiVector != nil {
-		if object.MultiVectors == nil {
-			object.MultiVectors = models.MultiVectors{}
-		}
-		object.MultiVectors[cfg.TargetVector()] = multiVector
+		object.Vectors[cfg.TargetVector()] = multiVector
 	} else {
-		if object.Vectors == nil {
-			object.Vectors = models.Vectors{}
-		}
 		object.Vectors[cfg.TargetVector()] = vector
 	}
 }
@@ -407,7 +373,10 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 					}
 				}
 			}
-			needsRevectorization, additionalProperties, vector := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
+			needsRevectorization, additionalProperties, vector, err := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
+			if err != nil {
+				return fmt.Errorf("cannot revectorize class %q: %w", object.Class, err)
+			}
 			if needsRevectorization {
 				var err error
 				vector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, cfg)
@@ -432,7 +401,10 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 					}
 				}
 			}
-			needsRevectorization, additionalProperties, multiVector := reVectorizeMulti(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
+			needsRevectorization, additionalProperties, multiVector, err := reVectorizeMulti(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
+			if err != nil {
+				return fmt.Errorf("cannot revectorize class %q: %w", object.Class, err)
+			}
 			if needsRevectorization {
 				var err error
 				multiVector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, cfg)
@@ -467,7 +439,8 @@ func (p *Provider) shouldVectorizeObject(object *models.Object, cfg moduletools.
 	targetVectorExists := false
 	p.lockGuard(func() {
 		vec, ok := object.Vectors[cfg.TargetVector()]
-		targetVectorExists = ok && len(vec) > 0
+		isVectorEmpty, _ := dto.IsVectorEmpty(vec)
+		targetVectorExists = ok && !isVectorEmpty
 	})
 	return !targetVectorExists
 }
@@ -483,7 +456,11 @@ func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
 	vectorizer := p.getVectorizer(class, targetVector)
 	if vectorizer == config.VectorizerModuleNone {
 		vector := p.getVector(object, targetVector)
-		if hnswConfig.Skip && len(vector) > 0 {
+		isEmpty, err := dto.IsVectorEmpty(vector)
+		if err != nil {
+			return false, fmt.Errorf("should vectorize: is vector empty: %w", err)
+		}
+		if hnswConfig.Skip && !isEmpty {
 			logger.WithField("className", class.Class).
 				Warningf(warningSkipVectorProvided)
 		}
@@ -512,7 +489,7 @@ func (p *Provider) getVectorizer(class *models.Class, targetVector string) strin
 	return class.Vectorizer
 }
 
-func (p *Provider) getVector(object *models.Object, targetVector string) []float32 {
+func (p *Provider) getVector(object *models.Object, targetVector string) models.Vector {
 	p.vectorsLock.Lock()
 	defer p.vectorsLock.Unlock()
 	if targetVector != "" {
@@ -540,25 +517,23 @@ func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string
 
 func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]interface{}, error) {
 	modConfigs := map[string]map[string]interface{}{}
-	if len(class.VectorConfig) > 0 {
-		// get all named vectorizers for classs
-		for name, vectorConfig := range class.VectorConfig {
-			modConfig, ok := vectorConfig.Vectorizer.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("class %v vectorizer %s not present", class.Class, name)
-			}
-			modConfigs[name] = modConfig
+	// get all named vectorizers for classs
+	for name, vectorConfig := range class.VectorConfig {
+		modConfig, ok := vectorConfig.Vectorizer.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("class %v vectorizer %s not present", class.Class, name)
 		}
-		return modConfigs, nil
+		modConfigs[name] = modConfig
 	}
-	modConfig, ok := class.ModuleConfig.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("no moduleconfig for class %v present", class.Class)
+
+	if modelsext.ClassHasLegacyVectorIndex(class) && class.Vectorizer != config.VectorizerModuleNone {
+		if modConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
+			modConfigs[""] = modConfig
+		} else {
+			return nil, fmt.Errorf("no moduleconfig for class %v present", class.Class)
+		}
 	}
-	if modConfig != nil {
-		// get vectorizer
-		modConfigs[""] = modConfig
-	}
+
 	return modConfigs, nil
 }
 

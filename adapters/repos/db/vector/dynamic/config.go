@@ -23,6 +23,7 @@ import (
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	bolt "go.etcd.io/bbolt"
 )
 
 type Config struct {
@@ -38,6 +39,7 @@ type Config struct {
 	DistanceProvider      distancer.Provider
 	MakeCommitLoggerThunk hnsw.MakeCommitLogger
 	TombstoneCallbacks    cyclemanager.CycleCallbackGroup
+	SharedDB              *bolt.DB
 }
 
 func (c Config) Validate() error {

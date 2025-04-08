@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -167,6 +168,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				CleanupIntervalSeconds: 60,
+				UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 			},
 			Properties: []*models.Property{
 				{
@@ -416,7 +418,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						Limit: limit,
 					},
 					ClassName: "TestClass",
-				}, []string{""}, [][]float32{queryVec})
+				}, []string{""}, []models.Vector{queryVec})
 				assert.Nil(t, err)
 				assert.Len(t, res, expected)
 				for i, obj := range res {

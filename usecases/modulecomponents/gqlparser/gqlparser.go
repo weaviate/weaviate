@@ -57,12 +57,34 @@ func GetValueAsInt(f *ast.ObjectField) *int {
 }
 
 func GetValueAsStringArray(f *ast.ObjectField) []string {
-	vals := f.Value.GetValue().([]ast.Value)
-	var stopSequences []string
-	for _, val := range vals {
-		stopSequences = append(stopSequences, val.GetValue().(string))
+	switch vals := f.Value.GetValue().(type) {
+	case string:
+		return []string{vals}
+	case []ast.Value:
+		var stopSequences []string
+		for _, val := range vals {
+			stopSequences = append(stopSequences, val.GetValue().(string))
+		}
+		return stopSequences
+	default:
+		return nil
 	}
-	return stopSequences
+}
+
+func GetValueAsStringPtrArray(f *ast.ObjectField) []*string {
+	switch vals := f.Value.GetValue().(type) {
+	case string:
+		return []*string{&vals}
+	case []ast.Value:
+		var values []*string
+		for _, val := range vals {
+			value := val.GetValue().(string)
+			values = append(values, &value)
+		}
+		return values
+	default:
+		return nil
+	}
 }
 
 func GetValueAsBool(f *ast.ObjectField) *bool {

@@ -56,7 +56,7 @@ func (f Forbidden) Error() string {
 		optionalGroups = fmt.Sprintf(" (of groups %s)", groupsList)
 	}
 
-	return fmt.Sprintf("forbidden: user '%s'%s has insufficient permissions to %s %s",
+	return fmt.Sprintf("authorization, forbidden action: user '%s'%s has insufficient permissions to %s %s",
 		f.principal.Username, optionalGroups, f.verb, f.resources)
 }
 

@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
@@ -30,16 +31,23 @@ const (
 	UPDATE = "U"
 	// DELETE Represents the action to delete a resource.
 	DELETE = "D"
+
+	ROLE_SCOPE_ALL   = "ALL"
+	ROLE_SCOPE_MATCH = "MATCH"
+
+	USER_ASSIGN_AND_REVOKE = "A"
 )
 
 const (
-	UsersDomain   = "users"
-	RolesDomain   = "roles"
-	ClusterDomain = "cluster"
-	NodesDomain   = "nodes"
-	BackupsDomain = "backups"
-	SchemaDomain  = "schema"
-	DataDomain    = "data"
+	UsersDomain       = "users"
+	RolesDomain       = "roles"
+	ClusterDomain     = "cluster"
+	NodesDomain       = "nodes"
+	BackupsDomain     = "backups"
+	SchemaDomain      = "schema"
+	CollectionsDomain = "collections"
+	TenantsDomain     = "tenants"
+	DataDomain        = "data"
 )
 
 var (
@@ -53,16 +61,23 @@ var (
 		Tenant:     All,
 		Object:     All,
 	}
+	AllTenants = &models.PermissionTenants{
+		Collection: All,
+		Tenant:     All,
+	}
 	AllNodes = &models.PermissionNodes{
 		Verbosity:  String(verbosity.OutputVerbose),
 		Collection: All,
 	}
 	AllRoles = &models.PermissionRoles{
-		Role: All,
+		Role:  All,
+		Scope: String(models.PermissionRolesScopeAll),
+	}
+	AllUsers = &models.PermissionUsers{
+		Users: All,
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
-		Tenant:     All,
 	}
 
 	ComponentName = "RBAC"
@@ -70,36 +85,53 @@ var (
 	// Note:  if a new action added, don't forget to add it to availableWeaviateActions
 	// to be added to built in roles
 	// any action has to contain of `{verb}_{domain}` verb: CREATE, READ, UPDATE, DELETE domain: roles, users, cluster, collections, data
-	ManageRoles = "manage_roles"
 	ReadRoles   = "read_roles"
-	ManageUsers = "manage_users"
+	CreateRoles = "create_roles"
+	UpdateRoles = "update_roles"
+	DeleteRoles = "delete_roles"
+
 	ReadCluster = "read_cluster"
 	ReadNodes   = "read_nodes"
 
+	AssignAndRevokeUsers = "assign_and_revoke_users"
+	CreateUsers          = "create_users"
+	ReadUsers            = "read_users"
+	UpdateUsers          = "update_users"
+	DeleteUsers          = "delete_users"
+
 	ManageBackups = "manage_backups"
 
-	ManageCollections = "manage_collections"
 	CreateCollections = "create_collections"
 	ReadCollections   = "read_collections"
 	UpdateCollections = "update_collections"
 	DeleteCollections = "delete_collections"
 
-	ManageData = "manage_data"
 	CreateData = "create_data"
 	ReadData   = "read_data"
 	UpdateData = "update_data"
 	DeleteData = "delete_data"
 
+	CreateTenants = "create_tenants"
+	ReadTenants   = "read_tenants"
+	UpdateTenants = "update_tenants"
+	DeleteTenants = "delete_tenants"
+
 	availableWeaviateActions = []string{
 		// Roles domain
-		ManageRoles,
+		CreateRoles,
 		ReadRoles,
+		UpdateRoles,
+		DeleteRoles,
 
 		// Backups domain
 		ManageBackups,
 
 		// Users domain
-		ManageUsers,
+		AssignAndRevokeUsers,
+		CreateUsers,
+		ReadUsers,
+		UpdateUsers,
+		DeleteUsers,
 
 		// Cluster domain
 		ReadCluster,
@@ -108,25 +140,30 @@ var (
 		ReadNodes,
 
 		// Collections domain
-		ManageCollections,
 		CreateCollections,
 		ReadCollections,
 		UpdateCollections,
 		DeleteCollections,
 
 		// Data domain
-		ManageData,
 		CreateData,
 		ReadData,
 		UpdateData,
 		DeleteData,
+
+		// Tenant domain
+		CreateTenants,
+		ReadTenants,
+		UpdateTenants,
+		DeleteTenants,
 	}
 )
 
 var (
 	Viewer       = "viewer"
 	Admin        = "admin"
-	BuiltInRoles = []string{Viewer, Admin}
+	Root         = "root"
+	BuiltInRoles = []string{Viewer, Admin, Root}
 
 	// viewer : can view everything , roles, users, schema, data
 	// editor : can create/read/update everything , roles, users, schema, data
@@ -134,6 +171,7 @@ var (
 	BuiltInPermissions = map[string][]*models.Permission{
 		Viewer: viewerPermissions(),
 		Admin:  adminPermissions(),
+		Root:   adminPermissions(),
 	}
 )
 
@@ -244,15 +282,15 @@ func CollectionsMetadata(classes ...string) []string {
 	classes = schema.UppercaseClassesNames(classes...)
 
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}
+		return []string{fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
 		if classes[idx] == "" {
-			resources[idx] = fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)
+			resources[idx] = fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)
 		} else {
-			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, classes[idx])
+			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/#", SchemaDomain, classes[idx])
 		}
 	}
 
@@ -285,7 +323,7 @@ func Collections(classes ...string) []string {
 //
 // Parameters:
 //   - class: The class name for the resource. If empty, defaults to "*".
-//   - shards: A variadic list of shard names. If empty, a wildcard is used.
+//   - shards: A variadic list of shard names. If empty, it will replace it with '#' to mark it as collection only check
 //
 // Returns:
 //
@@ -380,6 +418,14 @@ func Backups(classes ...string) []string {
 	return resources
 }
 
+// WildcardPath returns the appropriate wildcard path based on the domain and original resource path.
+// The domain is expected to be the first part of the resource path.
+func WildcardPath(resource string) string {
+	parts := strings.Split(resource, "/")
+	parts[len(parts)-1] = "*"
+	return strings.Join(parts, "/")
+}
+
 func String(s string) *string {
 	return &s
 }
@@ -399,6 +445,8 @@ func viewerPermissions() []*models.Permission {
 			Nodes:       AllNodes,
 			Roles:       AllRoles,
 			Collections: AllCollections,
+			Tenants:     AllTenants,
+			Users:       AllUsers,
 		})
 	}
 
@@ -417,8 +465,18 @@ func adminPermissions() []*models.Permission {
 			Nodes:       AllNodes,
 			Roles:       AllRoles,
 			Collections: AllCollections,
+			Tenants:     AllTenants,
+			Users:       AllUsers,
 		})
 	}
 
 	return perms
+}
+
+func VerbWithScope(verb, scope string) string {
+	if strings.Contains(verb, "_") {
+		return verb
+	}
+
+	return fmt.Sprintf("%s_%s", verb, scope)
 }

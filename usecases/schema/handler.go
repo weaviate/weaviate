@@ -14,23 +14,29 @@ package schema
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound           = errors.New("not found")
+	ErrUnexpectedMultiple = errors.New("unexpected multiple results")
+)
 
 // SchemaManager is responsible for consistent schema operations.
 // It allows reading and writing the schema while directly talking to the leader, no matter which node it is.
@@ -61,9 +67,11 @@ type SchemaManager interface {
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
 	QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error)
+	QueryCollectionsCount() (int, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
+	QueryClassVersions(names ...string) (map[string]uint64, error)
 }
 
 // SchemaReader allows reading the local schema with or without using a schema version.
@@ -78,6 +86,7 @@ type SchemaReader interface {
 	MultiTenancy(class string) models.MultiTenancyConfig
 	ClassInfo(class string) (ci clusterSchema.ClassInfo)
 	ReadOnlyClass(name string) *models.Class
+	ReadOnlyVersionedClass(name string) versioned.Class
 	ReadOnlySchema() models.Schema
 	CopyShardingState(class string) *sharding.State
 	ShardReplicas(class, shard string) ([]string, error)
@@ -120,6 +129,7 @@ type Handler struct {
 
 	logger                  logrus.FieldLogger
 	Authorizer              authorization.Authorizer
+	schemaConfig            *config.SchemaHandlerConfig
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
@@ -128,6 +138,9 @@ type Handler struct {
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	parser                  Parser
+	classGetter             *ClassGetter
+
+	asyncIndexingEnabled bool
 }
 
 // NewHandler creates a new handler
@@ -135,18 +148,21 @@ func NewHandler(
 	schemaReader SchemaReader,
 	schemaManager SchemaManager,
 	validator validator,
-	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, schemaConfig *config.SchemaHandlerConfig,
+	config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
+	parser Parser, classGetter *ClassGetter,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
+		schemaConfig:            schemaConfig,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
-		parser:                  Parser{clusterState: clusterState, configParser: configParser, validator: validator, modules: moduleConfig},
+		parser:                  parser,
 		validator:               validator,
 		logger:                  logger,
 		Authorizer:              authorizer,
@@ -157,6 +173,9 @@ func NewHandler(
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
+		classGetter:             classGetter,
+
+		asyncIndexingEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)
@@ -165,32 +184,35 @@ func NewHandler(
 }
 
 // GetSchema retrieves a locally cached copy of the schema
-func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
-	if err != nil {
-		return schema.Schema{}, err
-	}
-
-	return h.getSchema(), nil
-}
-
-// GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
-		return schema.Schema{}, err
-	}
-
+	var fullSchema schema.Schema
 	if !consistency {
-		return h.getSchema(), nil
+		fullSchema = h.getSchema()
+	} else {
+		consistentSchema, err := h.schemaManager.QuerySchema()
+		if err != nil {
+			return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
+		}
+		fullSchema = schema.Schema{
+			Objects: &consistentSchema,
+		}
 	}
 
-	if consistentSchema, err := h.schemaManager.QuerySchema(); err != nil {
-		return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
-	} else {
-		return schema.Schema{
-			Objects: &consistentSchema,
-		}, nil
-	}
+	filteredClasses := filter.New[*models.Class](h.Authorizer, h.config.Authorization.Rbac).Filter(
+		h.logger,
+		principal,
+		fullSchema.Objects.Classes,
+		authorization.READ,
+		func(class *models.Class) string {
+			return authorization.CollectionsMetadata(class.Class)[0]
+		},
+	)
+
+	return schema.Schema{
+		Objects: &models.Schema{
+			Classes: filteredClasses,
+		},
+	}, nil
 }
 
 // GetSchemaSkipAuth can never be used as a response to a user request as it

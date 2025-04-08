@@ -19,10 +19,11 @@ import (
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
 var errAny = errors.New("any error")
@@ -30,6 +31,7 @@ var errAny = errors.New("any error")
 func TestBootstrapper(t *testing.T) {
 	ctx := context.Background()
 	anything := mock.Anything
+	nodesSlice := []string{"S1", "S2"}
 	nodes := map[string]int{"S1": 1, "S2": 2}
 
 	tests := []struct {
@@ -77,10 +79,23 @@ func TestBootstrapper(t *testing.T) {
 			voter: true,
 			nodes: nodes,
 			doBefore: func(m *MockNodeClient) {
-				err := status.Error(codes.NotFound, "follow the leader")
-				m.On("Join", anything, "S1:1", anything).Return(&cmd.JoinPeerResponse{}, errAny)
-				m.On("Join", anything, "S2:2", anything).Return(&cmd.JoinPeerResponse{Leader: "S3"}, err)
-				m.On("Join", anything, "S3", anything).Return(&cmd.JoinPeerResponse{}, nil)
+				// This test performs a join request to the leader, but the leader is not
+				// available. The bootstrapper should retry the join request until it is
+				// successful.
+				errLeaderElected := status.Error(codes.NotFound, "follow the leader")
+				count := 0
+				m.On("Join", anything, anything, anything).
+					Run(func(args mock.Arguments) {
+						count++
+						switch count {
+						case 1:
+							m.ExpectedCalls[len(m.ExpectedCalls)-1].ReturnArguments = mock.Arguments{&cmd.JoinPeerResponse{}, errAny}
+						case 2:
+							m.ExpectedCalls[len(m.ExpectedCalls)-1].ReturnArguments = mock.Arguments{&cmd.JoinPeerResponse{Leader: "Leader"}, errLeaderElected}
+						case 3:
+							m.ExpectedCalls[len(m.ExpectedCalls)-1].ReturnArguments = mock.Arguments{&cmd.JoinPeerResponse{}, nil}
+						}
+					}).Times(3)
 			},
 			isReady: func() bool { return false },
 			success: true,
@@ -102,7 +117,7 @@ func TestBootstrapper(t *testing.T) {
 			test.doBefore(m)
 
 			// Configure the bootstrapper
-			b := NewBootstrapper(m, "RID", "ADDR", test.voter, fakes.NewMockAddressResolver(func(id string) string { return id }), test.isReady)
+			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady)
 			b.retryPeriod = time.Millisecond
 			b.jitter = time.Millisecond
 			ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)

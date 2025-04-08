@@ -46,9 +46,6 @@ type Object struct {
 	// (Response only) Timestamp of the last object update in milliseconds since epoch UTC.
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 
-	// This field returns vectors associated with the Object.
-	MultiVectors MultiVectors `json:"multiVectors,omitempty"`
-
 	// properties
 	Properties PropertySchema `json:"properties,omitempty"`
 
@@ -74,10 +71,6 @@ func (m *Object) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateID(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateMultiVectors(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -121,25 +114,6 @@ func (m *Object) validateID(formats strfmt.Registry) error {
 
 	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func (m *Object) validateMultiVectors(formats strfmt.Registry) error {
-	if swag.IsZero(m.MultiVectors) { // not required
-		return nil
-	}
-
-	if m.MultiVectors != nil {
-		if err := m.MultiVectors.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("multiVectors")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("multiVectors")
-			}
-			return err
-		}
 	}
 
 	return nil
@@ -189,10 +163,6 @@ func (m *Object) ContextValidate(ctx context.Context, formats strfmt.Registry) e
 		res = append(res, err)
 	}
 
-	if err := m.contextValidateMultiVectors(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.contextValidateVector(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -214,20 +184,6 @@ func (m *Object) contextValidateAdditional(ctx context.Context, formats strfmt.R
 			return ve.ValidateName("additional")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
 			return ce.ValidateName("additional")
-		}
-		return err
-	}
-
-	return nil
-}
-
-func (m *Object) contextValidateMultiVectors(ctx context.Context, formats strfmt.Registry) error {
-
-	if err := m.MultiVectors.ContextValidate(ctx, formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("multiVectors")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("multiVectors")
 		}
 		return err
 	}

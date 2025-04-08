@@ -1,7 +1,6 @@
 import pytest
 import weaviate
 import weaviate.classes as wvc
-from weaviate.collections.classes.tenants import Tenant, TenantActivityStatus
 from weaviate.rbac.models import Permissions
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name, RoleWrapperProtocol, generate_missing_permissions
@@ -9,9 +8,8 @@ from .conftest import _sanitize_role_name, RoleWrapperProtocol, generate_missing
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
 
-@pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_create(
-    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest, mt: bool
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
@@ -19,12 +17,7 @@ def test_rbac_collection_create(
         Permissions.collections(collection=name, read_config=True, create_collection=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
-        col = custom_client.collections.create(
-            name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
-        )
-        if mt:
-            col.tenants.create("tenant1")
-
+        custom_client.collections.create(name=name)
         admin_client.collections.delete(name)
 
     for permission in generate_missing_permissions(required_permissions):
@@ -74,24 +67,17 @@ def test_rbac_collection_create_with_ref(
     admin_client.collections.delete([name_target, name_source])
 
 
-@pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_read(
-    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest, mt: bool
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
-    col_admin = admin_client.collections.create(
-        name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
-    )
-    if mt:
-        col_admin.tenants.create("tenant1")
+    admin_client.collections.create(name=name)
 
     required_permissions = Permissions.collections(collection=name, read_config=True)
     with role_wrapper(admin_client, request, required_permissions):
         col = custom_client.collections.get(name=name)
         assert col.config.get() is not None
-        if mt:
-            assert col.tenants.get() is not None
 
     with role_wrapper(admin_client, request, []):
         col = custom_client.collections.get(name=name)
@@ -99,11 +85,6 @@ def test_rbac_collection_read(
             col.config.get()
         assert e.value.status_code == 403
         assert "forbidden" in e.value.args[0]
-
-        if mt:
-            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as ee:
-                col.tenants.get()
-            assert "forbidden" in ee.value.args[0]
 
     admin_client.collections.delete(name)
 
@@ -120,24 +101,40 @@ def test_rbac_schema_read(
         custom_client.collections.list_all()
 
     with role_wrapper(admin_client, request, []):
-        with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
-            custom_client.collections.list_all()
-        assert e.value.status_code == 403
-        assert "forbidden" in e.value.args[0]
+        collections = custom_client.collections.list_all()
+        assert len(collections) == 0
+
     admin_client.collections.delete(name)
 
+def test_rbac_schema_read_filtered_collections(
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
+):    
+    base_name = _sanitize_role_name(request.node.name)
+    allowed_collection = f"{base_name}_allowed"
+    restricted_collection = f"{base_name}_restricted"
+    
+    for name in [allowed_collection, restricted_collection]:
+        admin_client.collections.delete(name)
+        admin_client.collections.create(name=name)
 
-@pytest.mark.parametrize("mt", [True, False])
+
+    required_permission = Permissions.collections(collection=allowed_collection, read_config=True)
+    with role_wrapper(admin_client, request, required_permission):
+        collections = custom_client.collections.list_all()    
+        collection_names = {name.lower() for name in collections.keys()}
+        assert len(collection_names) == 1
+        assert allowed_collection.lower() in collection_names
+        assert restricted_collection.lower() not in collection_names
+    
+    admin_client.collections.delete(allowed_collection)
+    admin_client.collections.delete(restricted_collection)
+    
 def test_rbac_collection_update(
-    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest, mt: bool
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
-    col_admin = admin_client.collections.create(
-        name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
-    )
-    if mt:
-        col_admin.tenants.create("tenant1")
+    admin_client.collections.create(name=name)
 
     required_permissions = [
         Permissions.collections(collection=name, read_config=True, update_config=True),
@@ -145,14 +142,6 @@ def test_rbac_collection_update(
     with role_wrapper(admin_client, request, required_permissions):
         col_custom = custom_client.collections.get(name)
         col_custom.config.update(description="test")
-        if mt:
-            col_custom.tenants.update(
-                Tenant(name="tenant1", activity_status=TenantActivityStatus.INACTIVE)
-            )
-            # ensure that update worked
-            assert (
-                col_admin.tenants.get()["tenant1"].activity_status == TenantActivityStatus.INACTIVE
-            )
 
     for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
@@ -161,13 +150,6 @@ def test_rbac_collection_update(
                 col_custom.config.update(description="test")
             assert e.value.status_code == 403
             assert "forbidden" in e.value.args[0]
-
-            if mt:
-                with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
-                    col_custom.tenants.update(
-                        Tenant(name="tenant1", activity_status=TenantActivityStatus.INACTIVE)
-                    )
-                assert "forbidden" in e.value.args[0]
 
     admin_client.collections.delete(name)
 
@@ -204,17 +186,11 @@ def test_rbac_collection_update_with_ref(
     admin_client.collections.delete([name_target, name_source])
 
 
-@pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_delete(
-    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest, mt: bool
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
-    col_admin = admin_client.collections.create(
-        name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
-    )
-    if mt:
-        col_admin.tenants.create("tenant1")
 
     required_permissions = [
         Permissions.collections(collection=name, delete_collection=True, read_config=True),
@@ -227,17 +203,7 @@ def test_rbac_collection_delete(
             assert "forbidden" in e.value.args[0]
             assert admin_client.collections.get(name) is not None
 
-            if mt:
-                col_custom = custom_client.collections.get(name)
-                with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
-                    col_custom.tenants.remove("tenant1")
-                assert e.value.status_code == 403
-                assert "forbidden" in e.value.args[0]
-
     with role_wrapper(admin_client, request, required_permissions):
-        if mt:
-            col_custom = custom_client.collections.get(name)
-            col_custom.tenants.remove("tenant1")
         custom_client.collections.delete(name)
         assert not admin_client.collections.exists(name)
 

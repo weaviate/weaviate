@@ -49,6 +49,19 @@ func (m memberlist) LocalName() string {
 	return m.nodes[0]
 }
 
+func (m memberlist) AllHostnames() []string {
+	return m.nodes
+}
+
+func (m memberlist) NodeAddress(name string) string {
+	for _, node := range m.nodes {
+		if node == name {
+			return name
+		}
+	}
+	return ""
+}
+
 func NewMockNodeSelector(node ...string) memberlist {
 	return memberlist{nodes: node}
 }

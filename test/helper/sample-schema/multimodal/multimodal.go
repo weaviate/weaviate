@@ -12,7 +12,6 @@
 package multimodal
 
 import (
-	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -120,28 +119,14 @@ func InsertObjects(t *testing.T, dataFolderPath, className string, withVideo boo
 	}
 }
 
-// Helper methods
-// get image and video blob fns
-func getBlob(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	content, err := io.ReadAll(f)
-	if err != nil {
-		return "", err
-	}
-	return base64.StdEncoding.EncodeToString(content), nil
-}
-
 func GetImageBlob(dataFolderPath string, i int) (string, error) {
 	path := fmt.Sprintf("%s/images/%v.jpg", dataFolderPath, i)
-	return getBlob(path)
+	return helper.GetBase64EncodedData(path)
 }
 
 func GetVideoBlob(dataFolderPath string, i int) (string, error) {
 	path := fmt.Sprintf("%s/videos/%v.mp4", dataFolderPath, i)
-	return getBlob(path)
+	return helper.GetBase64EncodedData(path)
 }
 
 func GetCSV(dataFolderPath string) (*os.File, error) {

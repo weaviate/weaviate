@@ -127,10 +127,70 @@ func TestClient(t *testing.T) {
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
+
+		assert.Equal(t, false, rl.UpdateWithMissingValues)
+		assert.Equal(t, 100, rl.RemainingTokens)
+		assert.Equal(t, 100, rl.RemainingRequests)
+		assert.Equal(t, 100, rl.LimitTokens)
+		assert.Equal(t, 100, rl.LimitRequests)
+	})
+
+	t.Run("when rate limit values are missing", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t, noRlHeader: true})
+		defer server.Close()
+
+		c := New("apiKey", "", "", 0, nullLogger())
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
+			return server.URL, nil
+		}
+
+		expected := &modulecomponents.VectorizationResult[[]float32]{
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
+			Dimensions: 3,
+			Errors:     []error{nil},
+		}
+		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+
+		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
+
+		assert.Equal(t, true, rl.UpdateWithMissingValues)
+		assert.Equal(t, -1, rl.RemainingTokens)
+		assert.Equal(t, -1, rl.RemainingRequests)
+		assert.Equal(t, -1, rl.LimitTokens)
+		assert.Equal(t, -1, rl.LimitRequests)
+	})
+
+	t.Run("when rate limit values are returned but are bad values", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t, noRlHeader: false, RlValues: "0"})
+		defer server.Close()
+
+		c := New("apiKey", "", "", 0, nullLogger())
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
+			return server.URL, nil
+		}
+
+		expected := &modulecomponents.VectorizationResult[[]float32]{
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
+			Dimensions: 3,
+			Errors:     []error{nil},
+		}
+		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+
+		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
+
+		assert.Equal(t, true, rl.UpdateWithMissingValues)
+		assert.Equal(t, 0, rl.RemainingTokens)
+		assert.Equal(t, 0, rl.RemainingRequests)
+		assert.Equal(t, 0, rl.LimitTokens)
+		assert.Equal(t, 0, rl.LimitRequests)
 	})
 
 	t.Run("when the context is expired", func(t *testing.T) {
@@ -315,6 +375,8 @@ type fakeHandler struct {
 	t               *testing.T
 	serverError     error
 	headerRequestID string
+	noRlHeader      bool
+	RlValues        string
 }
 
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -362,6 +424,17 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	outBytes, err := json.Marshal(embedding)
 	require.Nil(f.t, err)
+
+	if !f.noRlHeader {
+		rlValues := f.RlValues
+		if f.RlValues == "" {
+			rlValues = "100"
+		}
+		w.Header().Add("x-ratelimit-limit-requests", rlValues)
+		w.Header().Add("x-ratelimit-limit-tokens", rlValues)
+		w.Header().Add("x-ratelimit-remaining-requests", rlValues)
+		w.Header().Add("x-ratelimit-remaining-tokens", rlValues)
+	}
 
 	w.Write(outBytes)
 }

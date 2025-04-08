@@ -17,29 +17,26 @@ import (
 	"os"
 	"path/filepath"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload
-func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
+func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool) (err error) {
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("pause compaction: %w", err)
 			if err2 := s.resumeMaintenanceCycles(ctx); err2 != nil {
-				err = fmt.Errorf("%w: resume maintenance: %v", err, err2)
+				err = fmt.Errorf("%w: resume maintenance: %w", err, err2)
 			}
 		}
 	}()
 
-	s.mayStopHashBeater()
-
-	s.hashtreeRWMux.Lock()
-	if s.hashtree != nil {
-		s.closeHashTree()
+	if offloading {
+		// TODO: tenant offloading is calling HaltForTransfer but
+		// if Shutdown is called this step is not needed
+		s.mayStopAsyncReplication()
 	}
-	s.hashtreeRWMux.Unlock()
 
 	if err = s.store.PauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
@@ -53,16 +50,21 @@ func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
-	if s.hasTargetVectors() {
-		for targetVector, vectorIndex := range s.vectorIndexes {
-			if err = vectorIndex.SwitchCommitLogs(ctx); err != nil {
-				return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
-			}
+
+	// pause indexing
+	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+		q.Pause()
+		return nil
+	})
+
+	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		if err = index.SwitchCommitLogs(ctx); err != nil {
+			return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
 		}
-	} else {
-		if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
-			return fmt.Errorf("switch commit logs: %w", err)
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -78,23 +80,14 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 		return err
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, vectorIndex := range s.vectorIndexes {
-			files, err := vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
-			if err != nil {
-				return fmt.Errorf("list files of vector %q: %w", targetVector, err)
-			}
-			ret.Files = append(ret.Files, files...)
-		}
-	} else {
-		files, err := s.vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
+	return s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
+		files, err := idx.ListFiles(ctx, s.index.Config.RootPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("list files of vector %q: %w", targetVector, err)
 		}
 		ret.Files = append(ret.Files, files...)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
@@ -108,6 +101,13 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	})
 	g.Go(func() error {
 		return s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Activate()
+	})
+
+	g.Go(func() error {
+		return s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+			q.Resume()
+			return nil
+		})
 	})
 
 	if err := g.Wait(); err != nil {

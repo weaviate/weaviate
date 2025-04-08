@@ -151,7 +151,7 @@ func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 	for _, property := range class.Properties {
 		propertyType, err := schema.GetPropertyDataType(class, property.Name)
 		if err != nil {
-			return nil, fmt.Errorf("%s.%s: %s", class.Class, property.Name, err)
+			return nil, fmt.Errorf("%s.%s: %w", class.Class, property.Name, err)
 		}
 
 		convertedDataType, err := classPropertyField(*propertyType, class, property)

@@ -32,47 +32,57 @@ import (
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistralClients "github.com/weaviate/weaviate/modules/generative-mistral/clients"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
+	nvidiaClients "github.com/weaviate/weaviate/modules/generative-nvidia/clients"
+	nvidiaParams "github.com/weaviate/weaviate/modules/generative-nvidia/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiClients "github.com/weaviate/weaviate/modules/generative-openai/clients"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
+	xaiClients "github.com/weaviate/weaviate/modules/generative-xai/clients"
+	xaiParams "github.com/weaviate/weaviate/modules/generative-xai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 type Replier struct {
-	logger               logrus.FieldLogger
-	providerNameGetter   func() string
-	returnMetadataGetter func() bool
-	uses127Api           bool
+	logger      logrus.FieldLogger
+	queryParams queryParams
+	uses127Api  bool
 }
 
-func NewReplier(logger logrus.FieldLogger, providerNameGetter func() string, returnMetadataGetter func() bool, uses127Api bool) *Replier {
+type queryParams interface {
+	ProviderName() string
+	ReturnMetadataForSingle() bool
+	ReturnMetadataForGrouped() bool
+	Debug() bool
+}
+
+func NewReplier(logger logrus.FieldLogger, queryParams queryParams, uses127Api bool) *Replier {
 	return &Replier{
-		logger:               logger,
-		providerNameGetter:   providerNameGetter,
-		returnMetadataGetter: returnMetadataGetter,
-		uses127Api:           uses127Api,
+		logger:      logger,
+		queryParams: queryParams,
+		uses127Api:  uses127Api,
 	}
 }
 
-func (r *Replier) Extract(_additional map[string]any, params any, metadata *pb.MetadataResult) (*pb.GenerativeResult, string, error) {
+func (r *Replier) Extract(_additional map[string]any, params any, metadata *pb.MetadataResult) (*pb.GenerativeResult, *pb.GenerativeResult, string, error) {
 	if r.uses127Api {
-		return r.extractGenerativeResult(_additional, params)
+		single, grouped, err := r.extractGenerativeResult(_additional, params)
+		return single, grouped, "", err
 	} else {
 		grouped, err := r.extractDeprecated(_additional, params, metadata)
 		if err != nil {
-			return nil, "", err
+			return nil, nil, "", err
 		}
-		return nil, grouped, nil
+		return nil, nil, grouped, nil
 	}
 }
 
-func (r *Replier) extractGenerativeResult(_additional map[string]any, params any) (*pb.GenerativeResult, string, error) {
-	reply, grouped, err := r.extractGenerativeReply(_additional, params)
+func (r *Replier) extractGenerativeResult(_additional map[string]any, params any) (*pb.GenerativeResult, *pb.GenerativeResult, error) {
+	single, grouped, err := r.extractGenerativeReply(_additional, params)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-	return &pb.GenerativeResult{Values: []*pb.GenerativeReply{reply}}, grouped, nil
+	return &pb.GenerativeResult{Values: []*pb.GenerativeReply{single}}, &pb.GenerativeResult{Values: []*pb.GenerativeReply{grouped}}, nil
 }
 
 func (r *Replier) extractDeprecated(_additional map[string]any, params any, metadata *pb.MetadataResult) (string, error) {
@@ -134,7 +144,7 @@ func (r *Replier) extractGenerateResultDeprecated(_additional map[string]any, pa
 
 func (r *Replier) extractGenerativeMetadata(results map[string]any) (*pb.GenerativeMetadata, error) {
 	metadata := &pb.GenerativeMetadata{}
-	providerName := r.providerNameGetter()
+	providerName := r.queryParams.ProviderName()
 	switch providerName {
 	case anthropicParams.Name:
 		params := anthropicClients.GetResponseParams(results)
@@ -276,25 +286,53 @@ func (r *Replier) extractGenerativeMetadata(results map[string]any) (*pb.Generat
 			}
 		}
 		metadata.Kind = &pb.GenerativeMetadata_Friendliai{Friendliai: friendliai}
+	case nvidiaParams.Name:
+		params := nvidiaClients.GetResponseParams(results)
+		if params == nil {
+			return nil, fmt.Errorf("could not get request metadata for provider: %s", providerName)
+		}
+		nvidia := &pb.GenerativeNvidiaMetadata{}
+		if params.Usage != nil {
+			nvidia.Usage = &pb.GenerativeNvidiaMetadata_Usage{
+				PromptTokens:     convertIntPtrToInt64Ptr(params.Usage.PromptTokens),
+				CompletionTokens: convertIntPtrToInt64Ptr(params.Usage.CompletionTokens),
+				TotalTokens:      convertIntPtrToInt64Ptr(params.Usage.TotalTokens),
+			}
+		}
+		metadata.Kind = &pb.GenerativeMetadata_Nvidia{Nvidia: nvidia}
+	case xaiParams.Name:
+		params := xaiClients.GetResponseParams(results)
+		if params == nil {
+			return nil, fmt.Errorf("could not get request metadata for provider: %s", providerName)
+		}
+		xai := &pb.GenerativeXAIMetadata{}
+		if params.Usage != nil {
+			xai.Usage = &pb.GenerativeXAIMetadata_Usage{
+				PromptTokens:     convertIntPtrToInt64Ptr(params.Usage.PromptTokens),
+				CompletionTokens: convertIntPtrToInt64Ptr(params.Usage.CompletionTokens),
+				TotalTokens:      convertIntPtrToInt64Ptr(params.Usage.TotalTokens),
+			}
+		}
+		metadata.Kind = &pb.GenerativeMetadata_Xai{Xai: xai}
 	default:
 		return nil, fmt.Errorf("provider: %s, not supported", providerName)
 	}
 	return metadata, nil
 }
 
-func (r *Replier) extractGenerativeReply(_additional map[string]any, params any) (*pb.GenerativeReply, string, error) {
+func (r *Replier) extractGenerativeReply(_additional map[string]any, params any) (*pb.GenerativeReply, *pb.GenerativeReply, error) {
 	reply := &pb.GenerativeReply{}
-	var grouped string
+	grouped := &pb.GenerativeReply{}
 
 	generateParams, ok := params.(*generate.Params)
 	if !ok {
-		return nil, "", errors.New("could not cast generative search params")
+		return nil, nil, errors.New("could not cast generative search params")
 	}
 
 	if generate, ok := _additional["generate"]; ok {
 		generateResults, ok := generate.(map[string]any)
 		if !ok {
-			return nil, "", errors.New("could not cast generative result additional prop")
+			return nil, nil, errors.New("could not cast generative result additional prop")
 		}
 		if generateResults["singleResult"] != nil {
 			if singleResult, ok := generateResults["singleResult"].(*string); ok && singleResult != nil {
@@ -302,7 +340,7 @@ func (r *Replier) extractGenerativeReply(_additional map[string]any, params any)
 			}
 		} else {
 			if generateParams.Prompt != nil {
-				return nil, "", errors.New("no results for generative search despite a search request. Is a generative module enabled?")
+				return nil, nil, errors.New("no results for generative search despite a search request. Is a generative module enabled?")
 			}
 		}
 		// grouped results are only added to the first object for GQL reasons
@@ -310,26 +348,32 @@ func (r *Replier) extractGenerativeReply(_additional map[string]any, params any)
 		// recording the result if it's present assuming that it is at least somewhere and will be caught
 		if generateResults["groupedResult"] != nil {
 			if groupedResult, ok := generateResults["groupedResult"].(*string); ok && groupedResult != nil {
-				grouped = *groupedResult
+				grouped.Result = *groupedResult
 			}
 		}
 		if generateResults["error"] != nil {
 			if err, ok := generateResults["error"].(error); ok {
-				return nil, "", err
+				return nil, nil, err
 			}
 		}
-		if generateResults["debug"] != nil {
+		if generateResults["debug"] != nil && r.queryParams.Debug() {
 			if debug, ok := generateResults["debug"].(*modulecapabilities.GenerateDebugInformation); ok && debug != nil {
 				prompt := debug.Prompt
 				reply.Debug = &pb.GenerativeDebug{FullPrompt: &prompt}
 			}
 		}
-		if r.returnMetadataGetter() {
+		if r.queryParams.ReturnMetadataForSingle() || r.queryParams.ReturnMetadataForGrouped() {
 			metadata, err := r.extractGenerativeMetadata(generateResults)
 			if err != nil {
-				return nil, "", err
+				return nil, nil, err
 			}
-			reply.Metadata = metadata
+			if r.queryParams.ReturnMetadataForSingle() {
+				reply.Metadata = metadata
+			}
+			g := r.queryParams.ReturnMetadataForGrouped()
+			if generateResults["groupedResult"] != nil && g {
+				grouped.Metadata = metadata
+			}
 		}
 	}
 	return reply, grouped, nil

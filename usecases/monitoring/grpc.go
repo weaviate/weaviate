@@ -14,6 +14,7 @@ package monitoring
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,9 +32,40 @@ type key int
 const (
 	keyMethodName key = 1
 	keyRouteName  key = 2
-
-	gRPCTransportLabel = "gRPC"
 )
+
+// InstrumentGrpc accepts server metrics and returns the few `[]grpc.ServerOption` which you can
+// then wrap it with any `grpc.Server` to get these metrics instrumented automatically.
+//
+// ```
+//
+//	svrMetrics := monitoring.NewGRPCServerMetrics(metrics, prometheus.DefaultRegisterer)
+//	grpcServer := grpc.NewServer(monitoring.InstrumentGrpc(*svrMetrics)...)
+//
+//	grpcServer.Serve(listener)
+//
+// ```
+func InstrumentGrpc(svrMetrics *GRPCServerMetrics) []grpc.ServerOption {
+	grpcOptions := []grpc.ServerOption{
+		grpc.StatsHandler(NewGrpcStatsHandler(
+			svrMetrics.InflightRequests,
+			svrMetrics.RequestBodySize,
+			svrMetrics.ResponseBodySize,
+		)),
+	}
+
+	grpcInterceptUnary := grpc.ChainUnaryInterceptor(
+		UnaryServerInstrument(svrMetrics.RequestDuration),
+	)
+	grpcOptions = append(grpcOptions, grpcInterceptUnary)
+
+	grpcInterceptStream := grpc.ChainStreamInterceptor(
+		StreamServerInstrument(svrMetrics.RequestDuration),
+	)
+	grpcOptions = append(grpcOptions, grpcInterceptStream)
+
+	return grpcOptions
+}
 
 func NewGrpcStatsHandler(inflight *prometheus.GaugeVec, requestSize *prometheus.HistogramVec, responseSize *prometheus.HistogramVec) *GrpcStatsHandler {
 	return &GrpcStatsHandler{
@@ -61,21 +93,23 @@ func (g *GrpcStatsHandler) HandleRPC(ctx context.Context, rpcStats stats.RPCStat
 		return
 	}
 
+	service, method := splitFullMethodName(fullMethodName)
+
 	switch s := rpcStats.(type) {
 	case *stats.Begin:
-		g.inflightRequests.WithLabelValues(gRPCTransportLabel, fullMethodName).Inc()
+		g.inflightRequests.WithLabelValues(service, method).Inc()
 	case *stats.End:
-		g.inflightRequests.WithLabelValues(gRPCTransportLabel, fullMethodName).Dec()
+		g.inflightRequests.WithLabelValues(service, method).Dec()
 	case *stats.InHeader:
 		// Ignore incoming headers.
 	case *stats.InPayload:
-		g.requestSize.WithLabelValues(gRPCTransportLabel, fullMethodName).Observe(float64(s.WireLength))
+		g.requestSize.WithLabelValues(service, method).Observe(float64(s.WireLength))
 	case *stats.InTrailer:
 		// Ignore incoming trailers.
 	case *stats.OutHeader:
 		// Ignore outgoing headers.
 	case *stats.OutPayload:
-		g.responseSize.WithLabelValues(gRPCTransportLabel, fullMethodName).Observe(float64(s.WireLength))
+		g.responseSize.WithLabelValues(service, method).Observe(float64(s.WireLength))
 	case *stats.OutTrailer:
 		// Ignore outgoing trailers. OutTrailer doesn't have valid WireLength (there is a deprecated field, always set to 0).
 	}
@@ -90,7 +124,7 @@ func (g *GrpcStatsHandler) HandleConn(_ context.Context, _ stats.ConnStats) {
 }
 
 func UnaryServerInstrument(hist *prometheus.HistogramVec) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		begin := time.Now()
 		resp, err := handler(ctx, req)
 		observe(hist, info.FullMethod, err, time.Since(begin))
@@ -107,13 +141,16 @@ func StreamServerInstrument(hist *prometheus.HistogramVec) grpc.StreamServerInte
 	}
 }
 
-func observe(hist *prometheus.HistogramVec, method string, err error, duration time.Duration) {
-	// hist has following labels
-	// method - "gRPC" string
-	// route - actual grpc method invoked (e.g: v1/Search)
-	// status_code - grpc status codes
+func observe(hist *prometheus.HistogramVec, fullMethod string, err error, duration time.Duration) {
+	service, method := splitFullMethodName(fullMethod)
+
+	// `hist` has following labels
+	// service - gRPC service name (e.g: weaviate.v1.Weaviate, weaviate.internal.cluster.ClusterService)
+	// method - Method from the gRPC service that got invoked. (e.g: Search, RemovePeer)
+	// status - grpc status (e.g: "OK", "CANCELED", "UNKNOWN", etc)
+
 	labelValues := []string{
-		gRPCTransportLabel,
+		service,
 		method,
 		errorToStatus(err),
 	}
@@ -146,4 +183,14 @@ func errorToGrpcCode(err error) codes.Code {
 		}
 	}
 	return codes.Unknown
+}
+
+// splitFullMethodName converts full gRPC method call into `service` and `method`
+// e.g: "/weaviate.v1.Weaviate/Search" -> "weaviate.v1.Weaviate", "/Search"
+func splitFullMethodName(fullMethod string) (string, string) {
+	fullMethod = strings.TrimPrefix(fullMethod, "/") // remove leading slash
+	if i := strings.Index(fullMethod, "/"); i >= 0 {
+		return fullMethod[:i], fullMethod[i+1:]
+	}
+	return "unknown", "unknown"
 }

@@ -758,7 +758,6 @@ func TestTargetVectorsEqual(t *testing.T) {
 			nextVecs:      map[string][]float32{"vec": vec1},
 			expectedEqual: false,
 		},
-
 		{
 			prevVecs:      map[string][]float32{"vec": nil},
 			nextVecs:      nil,
@@ -819,6 +818,163 @@ func TestTargetVectorsEqual(t *testing.T) {
 	for i, tc := range testCases {
 		t.Run(fmt.Sprintf("#%d", i), func(t *testing.T) {
 			eq := targetVectorsEqual(tc.prevVecs, tc.nextVecs)
+
+			if tc.expectedEqual {
+				assert.True(t, eq)
+			} else {
+				assert.False(t, eq)
+			}
+		})
+	}
+}
+
+func TestTargetMultiVectorsEqual(t *testing.T) {
+	vec1 := [][]float32{{1, 2, 3}}
+	vec2 := [][]float32{{2, 3, 4}}
+	vec3 := [][]float32{{3, 4, 5}}
+	vec4 := [][]float32{{4, 5, 6}}
+	complexVec1 := [][]float32{{1, 2, 3}, {1, 2, 3}}
+	complexVec2 := [][]float32{{2, 3, 4}, {2, 3, 4}}
+	complexVec3 := [][]float32{{3, 4, 5}, {33, 44, 55}, {333, 444, 555}}
+	complexVec4 := [][]float32{{4, 5, 6}, {44, 5, 6}, {444, 5, 6}, {444, 5555, 6}, {7, 8, 9}}
+
+	type testCase struct {
+		prevVecs      map[string][][]float32
+		nextVecs      map[string][][]float32
+		expectedEqual bool
+	}
+
+	testCases := []testCase{
+		{
+			prevVecs:      nil,
+			nextVecs:      nil,
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][][]float32{},
+			nextVecs:      nil,
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      nil,
+			nextVecs:      map[string][][]float32{},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][][]float32{},
+			nextVecs:      map[string][][]float32{},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": vec1},
+			nextVecs:      nil,
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": complexVec4},
+			nextVecs:      nil,
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      nil,
+			nextVecs:      map[string][][]float32{"vec": vec1},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": vec1},
+			nextVecs:      map[string][][]float32{},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": complexVec4},
+			nextVecs:      map[string][][]float32{},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{},
+			nextVecs:      map[string][][]float32{"vec": vec1},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": nil},
+			nextVecs:      nil,
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      nil,
+			nextVecs:      map[string][][]float32{"vec": nil},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": nil},
+			nextVecs:      map[string][][]float32{},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][][]float32{},
+			nextVecs:      map[string][][]float32{"vec": nil},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": vec1},
+			nextVecs:      map[string][][]float32{"vec": nil},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": nil},
+			nextVecs:      map[string][][]float32{"vec": vec1},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			nextVecs:      map[string][][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			nextVecs:      map[string][][]float32{"vec1": vec1, "vec2": vec2, "vec4": vec4},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": vec1},
+			nextVecs:      map[string][][]float32{"vec": vec2},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			nextVecs:      map[string][][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3, "vec4": vec4},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3, "vec4": vec4},
+			nextVecs:      map[string][][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": vec1},
+			nextVecs:      map[string][][]float32{"vec": complexVec4},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": complexVec1},
+			nextVecs:      map[string][][]float32{"vec": complexVec4},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec": complexVec4},
+			nextVecs:      map[string][][]float32{"vec": complexVec4},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3, "vec4": complexVec1, "vec5": complexVec2, "vec6": complexVec3, "vec7": complexVec4},
+			nextVecs:      map[string][][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3, "vec4": complexVec1, "vec5": complexVec2, "vec6": complexVec3, "vec7": complexVec4},
+			expectedEqual: true,
+		},
+	}
+
+	for i, tc := range testCases {
+		t.Run(fmt.Sprintf("#%d", i), func(t *testing.T) {
+			eq := targetMultiVectorsEqual(tc.prevVecs, tc.nextVecs)
 
 			if tc.expectedEqual {
 				assert.True(t, eq)

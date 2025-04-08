@@ -12,6 +12,8 @@
 package adminlist
 
 import (
+	"fmt"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
@@ -64,7 +66,19 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb string, resourc
 		}
 	}
 
-	return errors.NewForbidden(principal, verb, resources...)
+	return fmt.Errorf("adminlist: %w", errors.NewForbidden(principal, verb, resources...))
+}
+
+func (a *Authorizer) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
+	return a.Authorize(principal, verb, resources...)
+}
+
+func (a *Authorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	if err := a.Authorize(principal, verb, resources...); err != nil {
+		return nil, err
+	}
+
+	return resources, nil
 }
 
 func (a *Authorizer) addAdminUserList(users []string) {

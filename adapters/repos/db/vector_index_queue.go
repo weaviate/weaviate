@@ -18,19 +18,21 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 const (
 	vectorIndexQueueInsertOp uint8 = iota + 1
 	vectorIndexQueueDeleteOp
 	vectorIndexQueueMultiInsertOp
+	vectorIndexQueueMultiDeleteOp
 )
 
 type VectorIndexQueue struct {
@@ -40,8 +42,14 @@ type VectorIndexQueue struct {
 	shard        *Shard
 	scheduler    *queue.Scheduler
 	metrics      *VectorIndexQueueMetrics
+
 	// tracks the dimensions of the vectors in the queue
 	dims atomic.Int32
+	// If positive, accumulates vectors in a batch before indexing them.
+	// Otherwise, the batch size is determined by the size of a chunk file
+	// (typically 10MB worth of vectors).
+	// Batch size is not guaranteed to match this value exactly.
+	batchSize int
 
 	vectorIndex VectorIndex
 }
@@ -63,6 +71,10 @@ func NewVectorIndexQueue(
 		WithField("target_vector", targetVector)
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
+	batchSize, _ := strconv.Atoi(os.Getenv("ASYNC_INDEXING_BATCH_SIZE"))
+	if batchSize > 0 {
+		viq.batchSize = batchSize
+	}
 
 	viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector)
 
@@ -147,11 +159,55 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 	return nil
 }
 
+// DequeueBatch dequeues a batch of tasks from the queue.
+// If the queue is configured to accumulate vectors in a batch, it will dequeue
+// tasks until the target batch size is reached.
+// Otherwise, dequeues a single chunk file worth of tasks.
+func (iq *VectorIndexQueue) DequeueBatch() (*queue.Batch, error) {
+	if iq.batchSize <= 0 {
+		return iq.DiskQueue.DequeueBatch()
+	}
+
+	var batches []*queue.Batch
+	var taskCount int
+
+	for {
+		batch, err := iq.DiskQueue.DequeueBatch()
+		if err != nil {
+			return nil, err
+		}
+
+		if batch == nil {
+			break
+		}
+
+		batches = append(batches, batch)
+
+		taskCount += len(batch.Tasks)
+		if taskCount >= iq.batchSize {
+			break
+		}
+	}
+
+	if len(batches) == 0 {
+		return nil, nil
+	}
+
+	return queue.MergeBatches(batches...), nil
+}
+
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 	if !iq.asyncEnabled {
 		return iq.vectorIndex.Delete(ids...)
 	}
 
+	if iq.vectorIndex.Multivector() {
+		return iq.delete(vectorIndexQueueMultiDeleteOp, ids...)
+	}
+	return iq.delete(vectorIndexQueueDeleteOp, ids...)
+}
+
+func (iq *VectorIndexQueue) delete(deleteOperation uint8, ids ...uint64) error {
 	start := time.Now()
 	defer iq.metrics.Delete(start, len(ids))
 
@@ -160,7 +216,7 @@ func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 	for _, id := range ids {
 		buf = buf[:0]
 		// write the operation
-		buf = append(buf, vectorIndexQueueDeleteOp)
+		buf = append(buf, deleteOperation)
 		// write the id
 		buf = binary.BigEndian.AppendUint64(buf, id)
 
@@ -290,8 +346,9 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 		// decode vector
 		multiVec := make([][]float32, alen)
 		for i := 0; i < int(alen); i++ {
-			vec := make([]float32, alen)
 			alenvec := binary.BigEndian.Uint16(data)
+			data = data[2:]
+			vec := make([]float32, int(alenvec))
 			for j := 0; j < int(alenvec); j++ {
 				bits := binary.BigEndian.Uint32(data)
 				vec[j] = math.Float32frombits(bits)
@@ -306,12 +363,21 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 			vector: multiVec,
 			idx:    v.q.vectorIndex,
 		}, nil
+	case vectorIndexQueueMultiDeleteOp:
+		// decode id
+		id := binary.BigEndian.Uint64(data)
+
+		return &Task[[][]float32]{
+			op:  op,
+			id:  uint64(id),
+			idx: v.q.vectorIndex,
+		}, nil
 	}
 
 	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
-type Task[T types.Embedding] struct {
+type Task[T dto.Embedding] struct {
 	op     uint8
 	id     uint64
 	vector T
@@ -334,10 +400,10 @@ func (t *Task[T]) Execute(ctx context.Context) error {
 	switch t.op {
 	case vectorIndexQueueInsertOp:
 		return t.idx.Add(ctx, t.id, any(t.vector).([]float32))
-	case vectorIndexQueueDeleteOp:
-		return t.idx.Delete(t.id)
 	case vectorIndexQueueMultiInsertOp:
 		return t.idx.AddMulti(ctx, t.id, any(t.vector).([][]float32))
+	case vectorIndexQueueDeleteOp, vectorIndexQueueMultiDeleteOp:
+		return t.idx.Delete(t.id)
 	}
 
 	return errors.Errorf("unknown operation: %d", t.Op())
@@ -361,7 +427,7 @@ func (t *Task[T]) NewGroup(op uint8, tasks ...queue.Task) queue.Task {
 	}
 }
 
-type TaskGroup[T types.Embedding] struct {
+type TaskGroup[T dto.Embedding] struct {
 	op      uint8
 	ids     []uint64
 	vectors []T
@@ -384,10 +450,10 @@ func (t *TaskGroup[T]) Execute(ctx context.Context) error {
 	switch t.op {
 	case vectorIndexQueueInsertOp:
 		return t.idx.AddBatch(ctx, t.ids, any(t.vectors).([][]float32))
-	case vectorIndexQueueDeleteOp:
-		return t.idx.Delete(t.ids...)
 	case vectorIndexQueueMultiInsertOp:
 		return t.idx.AddMultiBatch(ctx, t.ids, any(t.vectors).([][][]float32))
+	case vectorIndexQueueDeleteOp, vectorIndexQueueMultiDeleteOp:
+		return t.idx.Delete(t.ids...)
 	}
 
 	return errors.Errorf("unknown operation: %d", t.Op())

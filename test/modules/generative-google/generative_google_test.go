@@ -28,6 +28,8 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 	return func(t *testing.T) {
 		helper.SetupClient(rest)
 		helper.SetupGRPCClient(t, grpc)
+		// Define path to test/helper/sample-schema/planets/data folder
+		dataFolderPath := "../../../test/helper/sample-schema/planets/data"
 		// Data
 		data := planets.Planets
 		// Define class
@@ -51,6 +53,7 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 			frequencyPenalty   *float64
 			presencePenalty    *float64
 			absentModuleConfig bool
+			withImages         bool
 		}{
 			{
 				name:             "chat-bison",
@@ -115,6 +118,11 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 				generativeModel:    "gemini-1.0-pro",
 				absentModuleConfig: true,
 			},
+			{
+				name:            "gemini-1.0-pro-vision",
+				generativeModel: "gemini-1.0-pro-vision",
+				withImages:      true,
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -133,7 +141,11 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					planets.InsertObjects(t, class.Class)
+					if tt.withImages {
+						planets.InsertObjectsWithImages(t, class.Class, dataFolderPath)
+					} else {
+						planets.InsertObjects(t, class.Class)
+					}
 				})
 				t.Run("check objects existence", func(t *testing.T) {
 					for _, company := range data {
@@ -142,7 +154,8 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 							require.NoError(t, err)
 							require.NotNil(t, obj)
 							require.Len(t, obj.Vectors, 1)
-							assert.True(t, len(obj.Vectors["description"]) > 0)
+							require.IsType(t, []float32{}, obj.Vectors["description"])
+							assert.True(t, len(obj.Vectors["description"].([]float32)) > 0)
 						})
 					}
 				})
@@ -160,12 +173,13 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "google:{topP:0.1 topK:40}"
 					if tt.absentModuleConfig {
-						params = fmt.Sprintf("google:{topP:0.1 topK:40 projectId:\"%s\" model:\"%s\"}", gcpProject, tt.generativeModel)
+						params = fmt.Sprintf("google:{topP:0.1 topK:40 projectId:%q model:%q}", gcpProject, tt.generativeModel)
 					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
-				t.Run("create a tweet with params using grpc", func(t *testing.T) {
-					google := &pb.GenerativeGoogle{
+
+				params := func() *pb.GenerativeGoogle {
+					params := &pb.GenerativeGoogle{
 						MaxTokens:        grpchelper.ToPtr(int64(256)),
 						Model:            grpchelper.ToPtr(tt.generativeModel),
 						Temperature:      grpchelper.ToPtr(0.5),
@@ -175,13 +189,67 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 						PresencePenalty:  tt.presencePenalty,
 					}
 					if tt.absentModuleConfig {
-						google.ProjectId = &gcpProject
+						params.ProjectId = &gcpProject
 					}
+					return params
+				}
+
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
 					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
 						ReturnMetadata: true,
-						Kind:           &pb.GenerativeProvider_Google{Google: google},
+						Kind:           &pb.GenerativeProvider_Google{Google: params()},
 					})
 				})
+				if tt.withImages {
+					t.Run("image prompt", func(t *testing.T) {
+						t.Run("graphql", func(t *testing.T) {
+							prompt := "Caption image"
+							params := "google:{imageProperties:\"image\"}"
+							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
+						})
+
+						singlePrompt := "Give a short answer: What's on the image?"
+						groupPrompt := "Give a short answer: What are on the following images?"
+
+						t.Run("grpc server stored images", func(t *testing.T) {
+							params := params()
+							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Google{Google: params},
+							})
+						})
+
+						t.Run("grpc user provided images", func(t *testing.T) {
+							earth, err := planets.GetImageBlob(dataFolderPath, "earth")
+							require.NoError(t, err)
+							mars, err := planets.GetImageBlob(dataFolderPath, "mars")
+							require.NoError(t, err)
+
+							params := params()
+							params.Images = &pb.TextArray{Values: []string{earth, mars}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Google{Google: params},
+							})
+						})
+
+						t.Run("grpc mixed images", func(t *testing.T) {
+							earth, err := planets.GetImageBlob(dataFolderPath, "earth")
+							require.NoError(t, err)
+							mars, err := planets.GetImageBlob(dataFolderPath, "mars")
+							require.NoError(t, err)
+
+							params := params()
+							params.Images = &pb.TextArray{Values: []string{earth, mars}}
+							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Google{Google: params},
+							})
+						})
+					})
+				}
 			})
 		}
 	}

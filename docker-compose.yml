@@ -121,3 +121,14 @@ services:
     volumes:
       - ./backups-azure:/data
     command: "azurite --blobHost 0.0.0.0 --blobPort 10000"
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11435:11434"
+    volumes:
+      - ./_local/ollama:/root/.ollama
+      - ./tools/dev/ollama_startup.sh:/ollama_startup.sh
+    environment:
+      - MODELS_TO_PULL=nomic-embed-text
+      - OLLAMA_HOST=0.0.0.0
+    entrypoint: ["/bin/sh", "/ollama_startup.sh"]

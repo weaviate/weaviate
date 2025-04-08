@@ -64,6 +64,12 @@ func (o *GetRolesForUserReader) ReadResponse(response runtime.ClientResponse, co
 			return nil, err
 		}
 		return nil, result
+	case 422:
+		result := NewGetRolesForUserUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewGetRolesForUserInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -120,11 +126,11 @@ func (o *GetRolesForUserOK) Code() int {
 }
 
 func (o *GetRolesForUserOK) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserOK  %+v", 200, o.Payload)
 }
 
 func (o *GetRolesForUserOK) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserOK  %+v", 200, o.Payload)
 }
 
 func (o *GetRolesForUserOK) GetPayload() models.RolesListResponse {
@@ -186,11 +192,11 @@ func (o *GetRolesForUserBadRequest) Code() int {
 }
 
 func (o *GetRolesForUserBadRequest) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetRolesForUserBadRequest) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetRolesForUserBadRequest) GetPayload() *models.ErrorResponse {
@@ -253,11 +259,11 @@ func (o *GetRolesForUserUnauthorized) Code() int {
 }
 
 func (o *GetRolesForUserUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnauthorized ", 401)
 }
 
 func (o *GetRolesForUserUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnauthorized ", 401)
 }
 
 func (o *GetRolesForUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -310,11 +316,11 @@ func (o *GetRolesForUserForbidden) Code() int {
 }
 
 func (o *GetRolesForUserForbidden) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetRolesForUserForbidden) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetRolesForUserForbidden) GetPayload() *models.ErrorResponse {
@@ -377,14 +383,82 @@ func (o *GetRolesForUserNotFound) Code() int {
 }
 
 func (o *GetRolesForUserNotFound) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserNotFound ", 404)
 }
 
 func (o *GetRolesForUserNotFound) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserNotFound ", 404)
 }
 
 func (o *GetRolesForUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewGetRolesForUserUnprocessableEntity creates a GetRolesForUserUnprocessableEntity with default headers values
+func NewGetRolesForUserUnprocessableEntity() *GetRolesForUserUnprocessableEntity {
+	return &GetRolesForUserUnprocessableEntity{}
+}
+
+/*
+GetRolesForUserUnprocessableEntity describes a response with status code 422, with default header values.
+
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+*/
+type GetRolesForUserUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this get roles for user unprocessable entity response has a 2xx status code
+func (o *GetRolesForUserUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get roles for user unprocessable entity response has a 3xx status code
+func (o *GetRolesForUserUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get roles for user unprocessable entity response has a 4xx status code
+func (o *GetRolesForUserUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this get roles for user unprocessable entity response has a 5xx status code
+func (o *GetRolesForUserUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this get roles for user unprocessable entity response a status code equal to that given
+func (o *GetRolesForUserUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the get roles for user unprocessable entity response
+func (o *GetRolesForUserUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *GetRolesForUserUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *GetRolesForUserUnprocessableEntity) String() string {
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *GetRolesForUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *GetRolesForUserUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
@@ -434,11 +508,11 @@ func (o *GetRolesForUserInternalServerError) Code() int {
 }
 
 func (o *GetRolesForUserInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetRolesForUserInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetRolesForUserInternalServerError) GetPayload() *models.ErrorResponse {

@@ -14,7 +14,6 @@ package test
 import (
 	"context"
 	"testing"
-	"time"
 
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
 
@@ -42,8 +41,7 @@ const (
 )
 
 func Test_BackupJourney(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	runBackupJourney(t, ctx, false, "backups", "", "")
 	t.Run("with override bucket and path", func(t *testing.T) {
@@ -63,6 +61,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
+			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -88,8 +87,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -99,6 +97,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		compose, err := docker.New().
 			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
+			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)

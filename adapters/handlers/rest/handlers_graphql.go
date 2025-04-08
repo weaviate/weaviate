@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -23,13 +24,15 @@ import (
 	"github.com/sirupsen/logrus"
 	tailorincgraphql "github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/gqlerrors"
+
 	libgraphql "github.com/weaviate/weaviate/adapters/handlers/graphql"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -57,14 +60,15 @@ func setupGraphQLHandlers(
 	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
 		// authorization requirements.
-
 		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
 		if err != nil {
 			metricRequestsTotal.logUserError()
-			switch err.(type) {
-			case errors.Forbidden:
+			switch {
+			case errors.As(err, &authzerrors.Forbidden{}):
 				return graphql.NewGraphqlPostForbidden().
-					WithPayload(errPayloadFromSingleErr(err))
+					WithPayload(errPayloadFromSingleErr(
+						fmt.Errorf("due to GraphQL introspection, this role must have the permission to `read_collections` on `*` (all) collections: %w", err),
+					))
 			default:
 				return graphql.NewGraphqlPostUnprocessableEntity().
 					WithPayload(errPayloadFromSingleErr(err))
@@ -112,8 +116,7 @@ func setupGraphQLHandlers(
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
-		ctx := params.HTTPRequest.Context()
-		ctx = context.WithValue(ctx, "principal", principal)
+		ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
 		result := graphQL.Resolve(ctx, query,
 			operationName, variables)
@@ -313,13 +316,15 @@ func (e *graphqlRequestsTotal) getClassName(path []interface{}) string {
 
 func (e *graphqlRequestsTotal) getErrGraphQLUser(gqlError gqlerrors.FormattedError) (bool, *enterrors.ErrGraphQLUser) {
 	if gqlError.OriginalError() != nil {
-		if gqlOriginalErr, ok := gqlError.OriginalError().(*gqlerrors.Error); ok {
+		var gqlOriginalErr *gqlerrors.Error
+		if errors.As(gqlError.OriginalError(), &gqlOriginalErr) {
 			if gqlOriginalErr.OriginalError != nil {
-				switch err := gqlOriginalErr.OriginalError.(type) {
-				case enterrors.ErrGraphQLUser:
-					return e.getError(err)
+				switch {
+				case errors.As(gqlOriginalErr.OriginalError, &enterrors.ErrGraphQLUser{}):
+					return e.getError(gqlOriginalErr.OriginalError)
 				default:
-					if gqlFormatted, ok := gqlOriginalErr.OriginalError.(gqlerrors.FormattedError); ok {
+					var gqlFormatted *gqlerrors.FormattedError
+					if errors.As(gqlOriginalErr.OriginalError, &gqlFormatted) {
 						if gqlFormatted.OriginalError() != nil {
 							return e.getError(gqlFormatted.OriginalError())
 						}
@@ -341,9 +346,10 @@ func (e *graphqlRequestsTotal) isSyntaxRelatedError(gqlError gqlerrors.Formatted
 }
 
 func (e *graphqlRequestsTotal) getError(err error) (bool, *enterrors.ErrGraphQLUser) {
-	switch e := err.(type) {
-	case enterrors.ErrGraphQLUser:
-		return true, &e
+	var errGraphQLUser *enterrors.ErrGraphQLUser
+	switch {
+	case errors.As(err, &errGraphQLUser):
+		return true, errGraphQLUser
 	default:
 		return false, nil
 	}

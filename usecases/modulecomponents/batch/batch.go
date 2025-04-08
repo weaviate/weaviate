@@ -19,7 +19,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 
@@ -27,6 +26,7 @@ import (
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -36,7 +36,7 @@ var _NUMCPU = runtime.GOMAXPROCS(0)
 
 const BatchChannelSize = 100
 
-type BatchJob[T types.Embedding] struct {
+type BatchJob[T dto.Embedding] struct {
 	texts      []string
 	tokens     []int
 	ctx        context.Context
@@ -66,14 +66,14 @@ func (b BatchJob[T]) copy() BatchJob[T] {
 	}
 }
 
-type BatchClient[T types.Embedding] interface {
+type BatchClient[T dto.Embedding] interface {
 	Vectorize(ctx context.Context, input []string,
 		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult[T], *modulecomponents.RateLimits, int, error)
 	GetVectorizerRateLimit(ctx context.Context, config moduletools.ClassConfig) *modulecomponents.RateLimits
 	GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte
 }
 
-func NewBatchVectorizer[T types.Embedding](client BatchClient[T], maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch[T] {
+func NewBatchVectorizer[T dto.Embedding](client BatchClient[T], maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch[T] {
 	batch := Batch[T]{
 		client:            client,
 		objectVectorizer:  objectsvectorizer.New(),
@@ -108,7 +108,7 @@ type endOfBatchJob struct {
 	concurrentBatch   bool
 }
 
-type Batch[T types.Embedding] struct {
+type Batch[T dto.Embedding] struct {
 	client            BatchClient[T]
 	objectVectorizer  *objectsvectorizer.ObjectVectorizer
 	jobQueueCh        chan BatchJob[T]
@@ -202,7 +202,7 @@ func (b *Batch[T]) batchWorker() {
 			stats.WithLabelValues(b.label, "concurrent_batches").Set(float64(b.concurrentBatches.Load()))
 			stats.WithLabelValues(b.label, "repeats_for_scheduling").Set(float64(repeats))
 
-			if rateLimit.CanSendFullBatch(expectedNumRequests, job.tokenSum) {
+			if rateLimit.CanSendFullBatch(expectedNumRequests, job.tokenSum, repeats > 0, b.label) {
 				b.concurrentBatches.Add(1)
 				monitoring.GetMetrics().T2VBatches.WithLabelValues(b.label).Inc()
 				jobCopy := job.copy()
@@ -359,14 +359,19 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 		batchesPerMinute := 61.0 / batchTookInS
 		if batchesPerMinute > float64(rateLimit.LimitRequests) {
 			sleepFor := time.Duration((60.0-batchTookInS*float64(rateLimit.LimitRequests))/float64(rateLimit.LimitRequests)) * time.Second
-			time.Sleep(sleepFor)
+			// limit for how long we sleep to avoid deadlocks. This can happen if we get values from the vectorizer that
+			// should not happen such as the LimitRequests being 0
+			time.Sleep(min(b.maxBatchTime/2, sleepFor))
 
 			// adapt the batches per limit
 			batchesPerMinute = float64(rateLimit.LimitRequests)
 		}
 		if batchesPerMinute*float64(estimatedTokensInCurrentBatch) > float64(rateLimit.LimitTokens) {
 			sleepFor := batchTookInS * (batchesPerMinute*float64(estimatedTokensInCurrentBatch) - float64(rateLimit.LimitTokens)) / float64(rateLimit.LimitTokens)
-			time.Sleep(time.Duration(sleepFor * float64(time.Second)))
+			// limit for how long we sleep to avoid deadlocks. This can happen if we get values from the vectorizer that
+			// should not happen such as the LimitTokens being 0
+			sleepTime := min(b.maxBatchTime/2, time.Duration(sleepFor*float64(time.Second)))
+			time.Sleep(sleepTime)
 		}
 
 		// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the OpenAI

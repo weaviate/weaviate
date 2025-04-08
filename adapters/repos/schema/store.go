@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -48,6 +49,11 @@ const (
 	eTypeShard        byte = 4
 	eTypeMeta         byte = 5
 	eTypeSharingState byte = 15
+)
+
+const (
+	// BoltDBTimeout is the timeout for acquiring file lock when opening BoltDB
+	BoltDBTimeout = 5 * time.Second
 )
 
 // config configuration specific the stored schema
@@ -90,7 +96,7 @@ func NewStore(homeDir string, logger logrus.FieldLogger) *store {
 }
 
 func initBoltDB(filePath string, version int, cfg *config) (*bolt.DB, error) {
-	db, err := bolt.Open(filePath, 0o600, nil)
+	db, err := bolt.Open(filePath, 0o600, &bolt.Options{Timeout: BoltDBTimeout})
 	if err != nil {
 		return nil, fmt.Errorf("open %q: %w", filePath, err)
 	}

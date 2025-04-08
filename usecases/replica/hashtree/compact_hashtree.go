@@ -141,6 +141,10 @@ func (ht *CompactHashTree) Clone() AggregatedHashTree {
 }
 
 func requiredHeight(n uint64) int {
+	if n == 1 {
+		return 0
+	}
+
 	h := 1
 
 	for n = n - 1; n > 0; h++ {

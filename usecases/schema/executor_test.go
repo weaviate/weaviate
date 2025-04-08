@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -125,17 +126,17 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("DeleteTenants", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &api.DeleteTenantsRequest{}
-		migrator.On("DeleteTenants", Anything, "A", req.Tenants).Return(nil)
+		tenants := []*models.Tenant{}
+		migrator.On("DeleteTenants", Anything, "A", tenants).Return(nil)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteTenants("A", req))
+		assert.Nil(t, x.DeleteTenants("A", tenants))
 	})
 	t.Run("DeleteTenantsWithError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &api.DeleteTenantsRequest{}
-		migrator.On("DeleteTenants", Anything, "A", req.Tenants).Return(ErrAny)
+		tenants := []*models.Tenant{}
+		migrator.On("DeleteTenants", Anything, "A", tenants).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteTenants("A", req))
+		assert.Nil(t, x.DeleteTenants("A", tenants))
 	})
 
 	t.Run("UpdateTenants", func(t *testing.T) {

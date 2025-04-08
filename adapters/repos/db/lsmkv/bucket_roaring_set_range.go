@@ -65,5 +65,5 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	return roaringsetrange.NewCombinedReader(readers, func() {
 		releaseSegmentGroup()
 		b.flushLock.RUnlock()
-	}, concurrency.NUMCPU_2, b.logger)
+	}, concurrency.SROAR_MERGE, b.logger)
 }

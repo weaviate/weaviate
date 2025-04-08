@@ -14,18 +14,21 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
+	"google.golang.org/protobuf/proto"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"google.golang.org/protobuf/proto"
 )
 
 func (s *Raft) AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
@@ -102,6 +105,23 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_ADD_PROPERTY,
 		Class:      class,
+		SubCommand: subCommand,
+	}
+	return s.Execute(ctx, command)
+}
+
+func (s *Raft) AddReplicaToShard(ctx context.Context, class, shard, replica string) (uint64, error) {
+	if class == "" || shard == "" || replica == "" {
+		return 0, fmt.Errorf("empty class or shard or replica : %w", schema.ErrBadRequest)
+	}
+	req := cmd.AddReplicaToShardRequest{Class: class, Shard: shard, Replica: replica}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD,
+		Class:      req.Class,
 		SubCommand: subCommand,
 	}
 	return s.Execute(ctx, command)
@@ -218,7 +238,10 @@ func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, erro
 		if s.store.IsLeader() {
 			schemaVersion, err = s.store.Execute(req)
 			// We might fail due to leader not found as we are losing or transferring leadership, retry
-			return err
+			if errors.Is(err, raft.ErrNotLeader) || errors.Is(err, raft.ErrLeadershipLost) {
+				return err
+			}
+			return backoff.Permanent(err)
 		}
 
 		leader := s.store.Leader()

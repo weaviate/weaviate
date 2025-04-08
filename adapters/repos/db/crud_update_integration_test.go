@@ -29,6 +29,7 @@ import (
 	libschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -97,7 +98,7 @@ func TestUpdateJourney(t *testing.T) {
 					Limit: 100,
 				},
 				Properties: search.SelectProperties{{Name: "name"}},
-			}, []string{""}, [][]float32{searchVector})
+			}, []string{""}, []models.Vector{searchVector})
 
 			expectedInAnyOrder := []interface{}{
 				"element-0", "element-1", "element-2", "element-3",
@@ -177,7 +178,7 @@ func TestUpdateJourney(t *testing.T) {
 				Limit: 100,
 			},
 			Properties: search.SelectProperties{{Name: "name"}},
-		}, []string{""}, [][]float32{searchVector})
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",
@@ -240,7 +241,7 @@ func TestUpdateJourney(t *testing.T) {
 				Limit: 100,
 			},
 			Properties: search.SelectProperties{{Name: "name"}},
-		}, []string{""}, [][]float32{searchVector})
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",
@@ -309,6 +310,7 @@ func updateTestClass() *models.Class {
 		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: &models.InvertedIndexConfig{
 			CleanupIntervalSeconds: 3,
+			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		},
 		Properties: []*models.Property{
 			{

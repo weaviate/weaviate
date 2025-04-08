@@ -41,7 +41,7 @@ var (
 	DefaultGoogleTemperature          = 1.0
 	DefaultTokenLimit                 = 1024
 	DefaultTokenLimitGemini1_0        = 2048
-	DefaultTokenLimitGemini1_0_Vision = 4096
+	DefaultTokenLimitGemini1_0_Vision = 2048
 	DefaultTokenLimitGemini1_5        = 8192
 	DefaultGoogleTopP                 = 0.95
 	DefaultGoogleTopK                 = 40

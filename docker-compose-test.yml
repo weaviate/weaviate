@@ -1,4 +1,3 @@
-version: '3.4'
 services:
   weaviate:
     image: weaviate/test-server
@@ -33,6 +32,7 @@ services:
       DISABLE_TELEMETRY: "true"
       DISABLE_RECOVERY_ON_PANIC: "true"
       QUERY_MAXIMUM_RESULTS: 10005
+      EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS: true
 
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in

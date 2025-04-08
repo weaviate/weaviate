@@ -19,30 +19,31 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func (suite *ReplicationTestSuite) TestGraphqlSearch() {
 	t := suite.T()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
-		Start(ctx)
+		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
+		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	defer cancel()
 
 	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()
@@ -87,7 +88,7 @@ func (suite *ReplicationTestSuite) TestGraphqlSearch() {
 	})
 
 	t.Run("get consistent search results with ONE (1/2 nodes up)", func(t *testing.T) {
-		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
+		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, types.ConsistencyLevelOne)
 		checkResultsConsistency(t, resp, true)
 	})
 
@@ -97,25 +98,25 @@ func (suite *ReplicationTestSuite) TestGraphqlSearch() {
 	})
 
 	t.Run("get consistent search results with ALL (2/2 nodes up)", func(t *testing.T) {
-		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.All)
+		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, types.ConsistencyLevelAll)
 		checkResultsConsistency(t, resp, true)
 	})
 
 	t.Run("get consistent search results with QUORUM (2/2 nodes up)", func(t *testing.T) {
-		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.Quorum)
+		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, types.ConsistencyLevelQuorum)
 		checkResultsConsistency(t, resp, true)
 	})
 
 	t.Run("get consistent search results with ONE (2/2 nodes up)", func(t *testing.T) {
-		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
+		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, types.ConsistencyLevelOne)
 		checkResultsConsistency(t, resp, true)
 	})
 
 	t.Run("get consistent search results with ONE (2/2 nodes up)", func(t *testing.T) {
-		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
+		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, types.ConsistencyLevelOne)
 		require.GreaterOrEqual(t, len(resp), 1)
 		vec := resp[0].(map[string]interface{})["_additional"].(map[string]interface{})["vector"].([]interface{})
-		resp = common.GQLGetNearVec(t, compose.ContainerURI(1), paragraphClass.Class, vec, replica.Quorum)
+		resp = common.GQLGetNearVec(t, compose.ContainerURI(1), paragraphClass.Class, vec, types.ConsistencyLevelQuorum)
 		checkResultsConsistency(t, resp, true)
 	})
 }
