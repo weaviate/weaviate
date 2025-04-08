@@ -308,6 +308,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 		return
 	}
 
+	if !rt.shouldStart() {
+		err = fmt.Errorf("reindex task should not start")
+		return
+	}
+
 	props, err := t.getPropsToReindex(shard, rt)
 	if err != nil {
 		err = fmt.Errorf("getting reindexable props: %w", err)
@@ -395,6 +400,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
 		return zerotime, err
+	}
+
+	if !rt.shouldStart() {
+		err = fmt.Errorf("reindex task should not start")
+		return
 	}
 
 	props, err := t.readPropsToReindex(rt)
