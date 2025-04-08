@@ -70,6 +70,11 @@
           "type": ["string", "null"],
           "format": "date-time",
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)"
+        },
+        "apiKeyFirstLetters": {
+          "type": ["string", "null"],
+          "maxLength": 3,
+          "description": "First 3 letters of the associated API-key"
         }
       },
       "required": [

@@ -5516,6 +5516,14 @@ func init() {
           "description": "activity status of the returned user",
           "type": "boolean"
         },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API-key",
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 3
+        },
         "createdAt": {
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
           "type": [
@@ -13050,6 +13058,14 @@ func init() {
         "active": {
           "description": "activity status of the returned user",
           "type": "boolean"
+        },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API-key",
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 3
         },
         "createdAt": {
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",

@@ -112,7 +112,11 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dbUser := range filteredUsers {
-		response, err = h.addToListAllResponse(response, dbUser.Id, string(models.UserTypeOutputDbUser), dbUser.Active, &dbUser.CreatedAt)
+		apiKeyFirstLetter := ""
+		if isRootUser {
+			apiKeyFirstLetter = dbUser.ApiKeyFirstLetters
+		}
+		response, err = h.addToListAllResponse(response, dbUser.Id, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, &dbUser.CreatedAt)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -120,7 +124,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 
 	if isRootUser {
 		for _, staticUser := range h.staticApiKeysConfigs.Users {
-			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true, nil)
+			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", nil)
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 			}
@@ -130,7 +134,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool, createdAt *time.Time) ([]*models.DBUserInfo, error) {
+func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool, apiKeyFirstLetter string, createdAt *time.Time) ([]*models.DBUserInfo, error) {
 	roles, err := h.dbUsers.GetRolesForUser(id, models.UserTypeInputDb)
 	if err != nil {
 		return response, err
@@ -142,10 +146,11 @@ func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id,
 	}
 
 	resp := &models.DBUserInfo{
-		Active:     &active,
-		UserID:     &id,
-		DbUserType: &userType,
-		Roles:      roleNames,
+		Active:             &active,
+		UserID:             &id,
+		DbUserType:         &userType,
+		Roles:              roleNames,
+		APIKeyFirstLetters: apiKeyFirstLetter,
 	}
 	if createdAt != nil {
 		resp.CreatedAt = strfmt.DateTime(*createdAt)
@@ -165,7 +170,8 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	}
 
 	// also check for existing static users if request comes from root
-	isStaticUser := h.isRequestFromRootUser(principal) && h.staticUserExists(params.UserID)
+	isRootUser := h.isRequestFromRootUser(principal)
+	isStaticUser := isRootUser && h.staticUserExists(params.UserID)
 
 	active := true
 	response := &models.DBUserInfo{UserID: &params.UserID, Active: &active}
@@ -181,6 +187,9 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		user := existingDbUsers[params.UserID]
 		response.Active = &user.Active
 		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
+		if isRootUser {
+			response.APIKeyFirstLetters = user.ApiKeyFirstLetters
+		}
 	}
 
 	existedRoles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
