@@ -32,20 +32,26 @@ func TestSuccessList(t *testing.T) {
 	tests := []struct {
 		name     string
 		userId   string
+		isRoot   bool
 		userType models.UserTypeOutput
 	}{
-		{name: "dynamic user", userId: "dynamic", userType: models.UserTypeOutputDbUser},
-		{name: "static user", userId: "static", userType: models.UserTypeOutputDbEnvUser},
+		{name: "dynamic user - non-root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: false},
+		{name: "dynamic user - root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: true},
+		{name: "static user", userId: "static", userType: models.UserTypeOutputDbEnvUser, isRoot: true},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			principal := &models.Principal{Username: "root"}
+			username := "non-root"
+			if test.isRoot {
+				username = "root"
+			}
+			principal := &models.Principal{Username: username}
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.READ, authorization.Users(test.userId)[0]).Return(nil)
 			dynUser := mocks.NewDbUserAndRolesGetter(t)
 			if test.userType == models.UserTypeOutputDbUser {
-				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId}}, nil)
+				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId, ApiKeyFirstLetters: "abc"}}, nil)
 			}
 			dynUser.On("GetRolesForUser", test.userId, models.UserTypeInputDb).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
@@ -65,6 +71,12 @@ func TestSuccessList(t *testing.T) {
 			require.Equal(t, *parsed.Payload.UserID, test.userId)
 			require.Equal(t, parsed.Payload.Roles, []string{"role"})
 			require.Equal(t, *parsed.Payload.DbUserType, string(test.userType))
+
+			if test.isRoot && test.userType == models.UserTypeOutputDbUser {
+				require.Equal(t, parsed.Payload.APIKeyFirstLetters, "abc")
+			} else {
+				require.Equal(t, parsed.Payload.APIKeyFirstLetters, "")
+			}
 		})
 	}
 }
