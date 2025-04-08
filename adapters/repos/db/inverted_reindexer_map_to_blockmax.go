@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
-	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -38,7 +37,7 @@ import (
 )
 
 func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
-	swapBuckets, unswapBuckets, tidyBuckets, rollback bool,
+	swapBuckets, unswapBuckets, tidyBuckets, rollback, conditionalStart bool,
 	processingDuration, pauseDuration time.Duration, concurrency int,
 	cpts []config.CollectionPropsTenants, schemaManager *schema.Manager,
 ) *ShardReindexTask_MapToBlockmax {
@@ -87,6 +86,7 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 		tidyBuckets:                   tidyBuckets,
 		rollback:                      rollback,
 		concurrency:                   concurrency,
+		conditionalStart:              conditionalStart,
 		memtableOptBlockmaxFactor:     4,
 		processingDuration:            processingDuration,
 		pauseDuration:                 pauseDuration,
@@ -124,6 +124,7 @@ type mapToBlockmaxConfig struct {
 	unswapBuckets                 bool
 	tidyBuckets                   bool
 	rollback                      bool
+	conditionalStart              bool
 	concurrency                   int
 	memtableOptBlockmaxFactor     int
 	processingDuration            time.Duration
@@ -161,8 +162,8 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 		return
 	}
 
-	if !rt.shouldStart() {
-		err = fmt.Errorf("reindex task should not start")
+	if t.config.conditionalStart && !rt.hasStartCondition() {
+		err = fmt.Errorf("conditional start is set, but file trigger is not found")
 		return
 	}
 
@@ -308,8 +309,8 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 		return
 	}
 
-	if !rt.shouldStart() {
-		err = fmt.Errorf("reindex task should not start")
+	if t.config.conditionalStart && !rt.hasStartCondition() {
+		err = fmt.Errorf("conditional start is set, but file trigger is not found")
 		return
 	}
 
@@ -402,9 +403,9 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 		return zerotime, err
 	}
 
-	if !rt.shouldStart() {
-		err = fmt.Errorf("reindex task should not start")
-		return
+	if t.config.conditionalStart && !rt.hasStartCondition() {
+		err = fmt.Errorf("conditional start is set, but file trigger is not found")
+		return zerotime, err
 	}
 
 	props, err := t.readPropsToReindex(rt)
@@ -1154,7 +1155,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 // -----------------------------------------------------------------------------
 
 type mapToBlockmaxReindexTracker interface {
-	shouldStart() bool
+	hasStartCondition() bool
 	isStarted() bool
 	markStarted(time.Time) error
 	getStarted() (time.Time, error)
@@ -1228,8 +1229,8 @@ func (t *fileMapToBlockmaxReindexTracker) init() error {
 	return nil
 }
 
-func (t *fileMapToBlockmaxReindexTracker) shouldStart() bool {
-	return !entconfig.Enabled(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_CHECK_START")) || t.fileExists(t.config.filenameStart)
+func (t *fileMapToBlockmaxReindexTracker) hasStartCondition() bool {
+	return t.fileExists(t.config.filenameStart)
 }
 
 func (t *fileMapToBlockmaxReindexTracker) isStarted() bool {
