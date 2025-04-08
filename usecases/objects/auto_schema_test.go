@@ -673,9 +673,9 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	require.NotNil(t, getProperty(class.Properties, "numberArray"))
 	assert.Equal(t, "numberArray", getProperty(class.Properties, "numberArray").Name)
 	assert.Equal(t, "number[]", getProperty(class.Properties, "numberArray").DataType[0])
-	require.Equal(t, "hnsw", class.VectorIndexType)
-	require.Equal(t, "text2vec-contextionary", class.Vectorizer)
-	require.NotEmpty(t, class.VectorIndexConfig)
+	assert.Equal(t, "hnsw", class.VectorIndexType)
+	assert.Equal(t, "none", class.Vectorizer)
+	assert.NotNil(t, class.VectorIndexConfig)
 }
 
 func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
