@@ -15,6 +15,7 @@ import (
 	"math"
 	"math/rand"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -39,10 +40,11 @@ func DefaultMuveraConfig() ent.MuveraConfig {
 }
 
 type MuveraEncoder struct {
-	config    MuveraConfig
-	gaussians [][]float32   // Random Gaussian vectors for SimHash projection
-	S         [][][]float32 // Random projection matrix with ±1 entries
-	Sfinal    [][]float32   // Random projection matrix with ±1 entries
+	config            MuveraConfig
+	gaussians         [][][]float32 // Random Gaussian vectors for SimHash projection
+	S                 [][][]float32 // Random projection matrix with ±1 entries
+	Sfinal            [][]float32   // Random projection matrix with ±1 entries
+	distancerProvider distancer.Provider
 }
 
 func NewMuveraEncoder(config ent.MuveraConfig) *MuveraEncoder {
@@ -54,17 +56,21 @@ func NewMuveraEncoder(config ent.MuveraConfig) *MuveraEncoder {
 			DProjections: config.DProjections,
 			Repetitions:  config.Repetitions,
 		},
+		distancerProvider: distancer.NewDotProductProvider(),
 	}
 
-	encoder.gaussians = make([][]float32, config.Repetitions)
+	encoder.gaussians = make([][][]float32, config.Repetitions)
 	encoder.S = make([][][]float32, config.Repetitions)
 	for rep := 0; rep < config.Repetitions; rep++ {
 		// Initialize random Gaussian vectors
-		encoder.gaussians[rep] = make([]float32, config.KSim*encoder.config.Dimensions)
-		for i := 0; i < config.KSim*encoder.config.Dimensions; i++ {
-			u1 := rand.Float64()
-			u2 := rand.Float64()
-			encoder.gaussians[rep][i] = float32(math.Sqrt(-2.0*math.Log(u1)) * math.Cos(2*math.Pi*u2))
+		encoder.gaussians[rep] = make([][]float32, config.KSim)
+		for i := 0; i < config.KSim; i++ {
+			encoder.gaussians[rep][i] = make([]float32, encoder.config.Dimensions)
+			for j := 0; j < encoder.config.Dimensions; j++ {
+				u1 := rand.Float64()
+				u2 := rand.Float64()
+				encoder.gaussians[rep][i][j] = float32(math.Sqrt(-2.0*math.Log(u1)) * math.Cos(2*math.Pi*u2))
+			}
 		}
 
 		encoder.S[rep] = initProjectionMatrix(config.DProjections, encoder.config.Dimensions)
@@ -91,16 +97,17 @@ func initProjectionMatrix(rows int, cols int) [][]float32 {
 }
 
 // simHash computes the SimHash of a vector using random Gaussian projections
-func (e *MuveraEncoder) simHash(vec []float32, gaussians []float32) uint64 {
+func (e *MuveraEncoder) simHash(vec []float32, gaussians [][]float32) uint64 {
 	var result uint64
+	distancer := e.distancerProvider.New(vec)
+
 	for i := 0; i < e.config.KSim; i++ {
-		// Compute dot product with Gaussian vector
-		var dotProduct float32
-		for j := 0; j < e.config.Dimensions; j++ {
-			dotProduct += vec[j] * gaussians[i*e.config.Dimensions+j]
+		dotProduct, err := distancer.Distance(gaussians[i])
+		if err != nil {
+			return 0.0
 		}
 		// Set bit based on sign of dot product
-		if dotProduct > 0 {
+		if dotProduct < 0 {
 			result |= 1 << uint(i)
 		}
 	}
