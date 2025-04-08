@@ -32,13 +32,14 @@ import (
 	"github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/config"
 	schema "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 	swapBuckets, unswapBuckets, tidyBuckets, rollback bool,
 	processingDuration, pauseDuration time.Duration, concurrency int,
-	schemaManager *schema.Manager,
+	cpts []config.CollectionPropsTenants, schemaManager *schema.Manager,
 ) *ShardReindexTask_MapToBlockmax {
 	name := "MapToBlockmax"
 	keyParser := &uuidKeyParser{}
@@ -53,6 +54,32 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 		return rt, nil
 	}
 
+	selectionEnabled := false
+	var selectedPropsByCollection, selectedShardsByCollection map[string]map[string]struct{}
+	if count := len(cpts); count > 0 {
+		selectionEnabled = true
+		selectedPropsByCollection = make(map[string]map[string]struct{}, count)
+		selectedShardsByCollection = make(map[string]map[string]struct{}, count)
+
+		for _, cpt := range cpts {
+			var props, shards map[string]struct{}
+			if countp := len(cpt.Props); countp > 0 {
+				props = make(map[string]struct{}, countp)
+				for _, prop := range cpt.Props {
+					props[prop] = struct{}{}
+				}
+			}
+			if counts := len(cpt.Tenants); counts > 0 {
+				shards = make(map[string]struct{}, counts)
+				for _, shard := range cpt.Tenants {
+					shards[shard] = struct{}{}
+				}
+			}
+			selectedPropsByCollection[cpt.Collection] = props
+			selectedShardsByCollection[cpt.Collection] = shards
+		}
+	}
+
 	config := mapToBlockmaxConfig{
 		swapBuckets:                   swapBuckets,
 		unswapBuckets:                 unswapBuckets,
@@ -63,6 +90,9 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 		processingDuration:            processingDuration,
 		pauseDuration:                 pauseDuration,
 		checkProcessingEveryNoObjects: 1000,
+		selectionEnabled:              selectionEnabled,
+		selectedPropsByCollection:     selectedPropsByCollection,
+		selectedShardsByCollection:    selectedShardsByCollection,
 	}
 
 	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("task created")
@@ -98,6 +128,9 @@ type mapToBlockmaxConfig struct {
 	processingDuration            time.Duration
 	pauseDuration                 time.Duration
 	checkProcessingEveryNoObjects int
+	selectionEnabled              bool
+	selectedPropsByCollection     map[string]map[string]struct{}
+	selectedShardsByCollection    map[string]map[string]struct{}
 }
 
 func (t *ShardReindexTask_MapToBlockmax) Name() string {
@@ -964,21 +997,48 @@ func (t *ShardReindexTask_MapToBlockmax) mapBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName) + "__blockmax_map"
 }
 
-func (t *ShardReindexTask_MapToBlockmax) findPropsToReindex(shard ShardLike) []string {
+func (t *ShardReindexTask_MapToBlockmax) findPropsToReindex(shard ShardLike) (props []string, save bool) {
 	propNames := []string{}
+	checkPropSelected := func(propName string) bool {
+		return true
+	}
+
+	if t.config.selectionEnabled {
+		collectionName := shard.Index().Config.ClassName.String()
+		selectedProps, isCollectionSelected1 := t.config.selectedPropsByCollection[collectionName]
+		selectedShards, isCollectionSelected2 := t.config.selectedShardsByCollection[collectionName]
+
+		if !(isCollectionSelected1 || isCollectionSelected2) {
+			return propNames, false
+		}
+
+		isShardSelected := true
+		if len(selectedShards) > 0 {
+			_, isShardSelected = selectedShards[shard.Name()]
+		}
+
+		if !isShardSelected {
+			return propNames, false
+		}
+
+		if len(selectedProps) > 0 {
+			checkPropSelected = func(propName string) bool {
+				_, ok := selectedProps[propName]
+				return ok
+			}
+		}
+	}
+
 	for name, bucket := range shard.Store().GetBucketsByName() {
 		if bucket.Strategy() == lsmkv.StrategyMapCollection {
 			propName, indexType := GetPropNameAndIndexTypeFromBucketName(name)
 
-			switch indexType {
-			case IndexTypePropSearchableValue:
+			if indexType == IndexTypePropSearchableValue && checkPropSelected(propName) {
 				propNames = append(propNames, propName)
-			default:
-				// skip remaining types
 			}
 		}
 	}
-	return propNames
+	return propNames, true
 }
 
 func (t *ShardReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLike, rt mapToBlockmaxReindexTracker) ([]string, error) {
@@ -989,9 +1049,11 @@ func (t *ShardReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLike, rt m
 		}
 		return props, nil
 	}
-	props := t.findPropsToReindex(shard)
-	if err := rt.saveProps(props); err != nil {
-		return nil, err
+	props, save := t.findPropsToReindex(shard)
+	if save {
+		if err := rt.saveProps(props); err != nil {
+			return nil, err
+		}
 	}
 	return props, nil
 }
