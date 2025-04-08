@@ -60,3 +60,105 @@ func TestClassHasLegacyVectorIndex(t *testing.T) {
 		})
 	}
 }
+
+func TestClassGetVectorConfig(t *testing.T) {
+	var (
+		customConfig = models.VectorConfig{
+			Vectorizer:      "custom-vectorizer",
+			VectorIndexType: "flat",
+			VectorIndexConfig: map[string]interface{}{
+				"distance": "euclidean",
+			},
+		}
+
+		legacyConfig = models.VectorConfig{
+			Vectorizer:      "legacy-vectorizer",
+			VectorIndexType: "hnsw",
+			VectorIndexConfig: map[string]interface{}{
+				"distance": "cosine",
+			},
+		}
+
+		mixedClass = &models.Class{
+			Vectorizer:      "legacy-vectorizer",
+			VectorIndexType: "hnsw",
+			VectorIndexConfig: map[string]interface{}{
+				"distance": "cosine",
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				"custom": customConfig,
+			},
+		}
+	)
+
+	for _, tt := range []struct {
+		name         string
+		class        *models.Class
+		targetVector string
+
+		expectConfig *models.VectorConfig
+	}{
+		{
+			name:         "named vector not present",
+			class:        mixedClass,
+			targetVector: "non-existent",
+
+			expectConfig: nil,
+		},
+		{
+			name:         "legacy vector via empty string",
+			class:        mixedClass,
+			targetVector: "",
+
+			expectConfig: &legacyConfig,
+		},
+		{
+			name:         "legacy vector via default named target vector",
+			class:        mixedClass,
+			targetVector: DefaultNamedVectorName,
+
+			expectConfig: &legacyConfig,
+		},
+		{
+			name:         "named vector via its name",
+			class:        mixedClass,
+			targetVector: "custom",
+
+			expectConfig: &customConfig,
+		},
+		{
+			name: "legacy vector without named vectors",
+			class: &models.Class{
+				Vectorizer:      "legacy-vectorizer",
+				VectorIndexType: "hnsw",
+				VectorIndexConfig: map[string]interface{}{
+					"distance": "cosine",
+				},
+			},
+			targetVector: "",
+
+			expectConfig: &legacyConfig,
+		},
+		{
+			name: "named vector without legacy vectors",
+			class: &models.Class{
+				VectorConfig: map[string]models.VectorConfig{
+					"custom": customConfig,
+				},
+			},
+			targetVector: "custom",
+
+			expectConfig: &customConfig,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, ok := ClassGetVectorConfig(tt.class, tt.targetVector)
+			if tt.expectConfig == nil {
+				require.False(t, ok)
+			} else {
+				require.True(t, ok)
+				require.Equal(t, *tt.expectConfig, cfg)
+			}
+		})
+	}
+}
