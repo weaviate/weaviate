@@ -50,6 +50,7 @@ func LegacySnapshot(nodeID string, m map[string]types.ClassState) (*raft.Snapsho
 	}
 	return store.Open(sink.ID())
 }
+
 func (s *schema) Restore(r io.Reader, parser Parser) error {
 	snap := Snapshot{}
 	if err := json.NewDecoder(r).Decode(&snap); err != nil {
