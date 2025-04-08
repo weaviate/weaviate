@@ -465,15 +465,18 @@ func TestPickDefaultModelVersion(t *testing.T) {
 
 func TestClassSettings(t *testing.T) {
 	type testCase struct {
-		expectedBaseURL string
-		cfg             moduletools.ClassConfig
+		expectedBaseURL       string
+		expectedDimensions    int64
+		expectedNilDimensions bool
+		cfg                   moduletools.ClassConfig
 	}
 	tests := []testCase{
 		{
 			cfg: fakeClassConfig{
 				classConfig: make(map[string]interface{}),
 			},
-			expectedBaseURL: DefaultBaseURL,
+			expectedBaseURL:    DefaultBaseURL,
+			expectedDimensions: 1536,
 		},
 		{
 			cfg: fakeClassConfig{
@@ -481,12 +484,52 @@ func TestClassSettings(t *testing.T) {
 					"baseURL": "https://proxy.weaviate.dev",
 				},
 			},
-			expectedBaseURL: "https://proxy.weaviate.dev",
+			expectedBaseURL:    "https://proxy.weaviate.dev",
+			expectedDimensions: 1536,
+		},
+		{
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"baseURL":    "https://proxy.weaviate.dev",
+					"dimensions": 768,
+				},
+			},
+			expectedBaseURL:    "https://proxy.weaviate.dev",
+			expectedDimensions: 768,
+		},
+		{
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"baseURL":      "https://proxy.weaviate.dev",
+					"resourceName": "resourceName",
+					"deploymentId": "deploymentId",
+				},
+			},
+			expectedBaseURL:       "https://proxy.weaviate.dev",
+			expectedNilDimensions: true,
+		},
+		{
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"baseURL":      "https://proxy.weaviate.dev",
+					"resourceName": "resourceName",
+					"deploymentId": "deploymentId",
+					"dimensions":   1024,
+				},
+			},
+			expectedBaseURL:       "https://proxy.weaviate.dev",
+			expectedNilDimensions: false,
+			expectedDimensions:    1024,
 		},
 	}
 
 	for _, tt := range tests {
 		ic := NewClassSettings(tt.cfg)
 		assert.Equal(t, tt.expectedBaseURL, ic.BaseURL())
+		if tt.expectedNilDimensions {
+			assert.Nil(t, ic.Dimensions())
+		} else {
+			assert.Equal(t, tt.expectedDimensions, *ic.Dimensions())
+		}
 	}
 }
