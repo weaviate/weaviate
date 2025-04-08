@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -93,7 +94,7 @@ func (l *hnswCommitLogger) createOrLoadSnapshot(load bool) (*DeserializationResu
 	}
 
 	// load the immutable commit log state since the last snapshot
-	state, err = loadCommitLoggerState(l.logger, immutableFiles, state)
+	state, err = loadCommitLoggerState(l.logger, immutableFiles, state, nil)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -244,7 +245,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 	return nil
 }
 
-func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state *DeserializationResult) (*DeserializationResult, error) {
+func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state *DeserializationResult, metrics *Metrics) (*DeserializationResult, error) {
 	var err error
 
 	fileNames, err = NewCorruptedCommitLogFixer().Do(fileNames)
@@ -259,9 +260,12 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 		}
 		defer fd.Close()
 
-		// metered := diskio.NewMeteredReader(fd,
-		// 	l.metrics.TrackStartupReadCommitlogDiskIO)
-		fdBuf := bufio.NewReaderSize(fd, 256*1024)
+		var fdMetered io.Reader
+		if metrics != nil {
+			fdMetered = diskio.NewMeteredReader(fd,
+				metrics.TrackStartupReadCommitlogDiskIO)
+		}
+		fdBuf := bufio.NewReaderSize(fdMetered, 256*1024)
 
 		var valid int
 		state, valid, err = NewDeserializer(logger).Do(fdBuf, state, false)

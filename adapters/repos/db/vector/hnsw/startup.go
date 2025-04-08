@@ -61,9 +61,12 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	var err error
 
 	if !snapshotsDisabled() {
+		// This will opportunistically create a snapshot if it does not exist yet,
+		// as we are loading state from disk. Otherwise, it simply loads
+		// the last snapshot.
 		state, stateTimestamp, err = cl.CreateOrLoadSnapshot()
 		if err != nil {
-			// errors reading the last snapshot are not fatal
+			// errors reading snapshots are not fatal
 			// we can still read the commit log from the beginning
 			h.logger.
 				WithError(err).
@@ -88,7 +91,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		return err
 	}
 
-	state, err = loadCommitLoggerState(h.logger, fileNames, state)
+	state, err = loadCommitLoggerState(h.logger, fileNames, state, h.metrics)
 	if err != nil {
 		return errors.Wrap(err, "load commit logger state")
 	}
