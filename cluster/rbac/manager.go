@@ -26,13 +26,13 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ  authorization.Controller
-	casbin *casbin.SyncedCachedEnforcer
-	logger logrus.FieldLogger
+	authZ   authorization.Controller
+	storage *casbin.SyncedCachedEnforcer
+	logger  logrus.FieldLogger
 }
 
-func NewManager(authZ authorization.Controller, casbin *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *Manager {
-	return &Manager{authZ: authZ, casbin: casbin, logger: logger}
+func NewManager(authZ authorization.Controller, rbacStorage *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *Manager {
+	return &Manager{authZ: authZ, storage: rbacStorage, logger: logger}
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {

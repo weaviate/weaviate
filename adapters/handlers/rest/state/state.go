@@ -53,7 +53,7 @@ type State struct {
 	APIKey                *apikey.Client
 	Authorizer            authorization.Authorizer
 	AuthzController       authorization.Controller
-	Casbin                *casbin.SyncedCachedEnforcer
+	RBACStorage           *casbin.SyncedCachedEnforcer
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration
 	Locks                 locks.ConnectorSchemaLock

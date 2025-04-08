@@ -39,7 +39,7 @@ func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger
 	return &manager{csbin, logger}, nil
 }
 
-func (m *manager) Casbin() *casbin.SyncedCachedEnforcer {
+func (m *manager) Storage() *casbin.SyncedCachedEnforcer {
 	return m.casbin
 }
 

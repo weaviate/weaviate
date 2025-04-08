@@ -23,14 +23,14 @@ type Snapshot struct {
 }
 
 func (s *Manager) SnapShot() (*Snapshot, error) {
-	if s.casbin == nil {
+	if s.storage == nil {
 		return nil, nil
 	}
-	policy, err := s.casbin.GetPolicy()
+	policy, err := s.storage.GetPolicy()
 	if err != nil {
 		return nil, err
 	}
-	groupingPolicy, err := s.casbin.GetGroupingPolicy()
+	groupingPolicy, err := s.storage.GetGroupingPolicy()
 	if err != nil {
 		return nil, err
 	}
@@ -38,23 +38,26 @@ func (s *Manager) SnapShot() (*Snapshot, error) {
 }
 
 func (s *Manager) Restore(r io.Reader) error {
+	if s.storage == nil {
+		return nil
+	}
 	snapshot := Snapshot{}
 	if err := json.NewDecoder(r).Decode(&snapshot); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
-	if s.casbin == nil {
+	if s.storage == nil {
 		return nil
 	}
 	//TODO : migration has to be done here if needed
-	_, err := s.casbin.AddPolicies(snapshot.Policy)
+	_, err := s.storage.AddPolicies(snapshot.Policy)
 	if err != nil {
 		return fmt.Errorf("add policies: %w", err)
 	}
 
 	//TODO : migration has to be done here if needed
-	_, err = s.casbin.AddGroupingPolicies(snapshot.GroupingPolicy)
+	_, err = s.storage.AddGroupingPolicies(snapshot.GroupingPolicy)
 	if err != nil {
 		return fmt.Errorf("add grouping policies: %w", err)
 	}
-	return s.casbin.LoadPolicy()
+	return s.storage.LoadPolicy()
 }

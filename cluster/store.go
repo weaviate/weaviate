@@ -152,7 +152,7 @@ type Config struct {
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
 	AuthzController authorization.Controller
-	Casbin          *casbin.SyncedCachedEnforcer
+	RBACStorage     *casbin.SyncedCachedEnforcer
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -232,7 +232,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
 		schemaManager: schemaManager,
-		authZManager:  rbacRaft.NewManager(cfg.AuthzController, cfg.Casbin, cfg.Logger),
+		authZManager:  rbacRaft.NewManager(cfg.AuthzController, cfg.RBACStorage, cfg.Logger),
 	}
 }
 
