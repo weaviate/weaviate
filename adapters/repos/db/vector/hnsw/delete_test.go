@@ -1882,3 +1882,71 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 		require.Nil(t, vectorIndex.Drop(context.Background()))
 	})
 }
+
+func Test_ResetNodesDuringTombstoneCleanup(t *testing.T) {
+	ctx := context.Background()
+	vectors := vectorsForDeleteTest() // Use your existing test vectors
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	// Initialize the HNSW index
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "concurrent-growth-test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)%len(vectors)], nil // Wrap around to reuse vectors
+		},
+		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), store)
+	require.Nil(t, err)
+	index.logger = logrus.New() // Ensure logging is set up for debugging
+
+	// Step 1: Import initial vectors
+	initialSize := 50
+	offset := 20000
+	for i := 0; i < initialSize; i++ {
+		err := index.Add(ctx, uint64(offset+i), vectors[i%len(vectors)])
+		require.Nil(t, err)
+	}
+
+	// Step 2: Delete some nodes to create tombstones
+	for i := 0; i < initialSize; i += 2 { // Delete even-numbered nodes
+		err := index.Delete(uint64(offset + i))
+		require.Nil(t, err)
+	}
+
+	// Step 3: Run concurrent cleanup and growth
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Goroutine 1: Run tombstone cleanup
+	go func() {
+		defer wg.Done()
+		err := index.CleanUpTombstonedNodes(neverStop)
+		if err != nil {
+			t.Logf("Cleanup error: %v", err)
+		}
+	}()
+
+	// Goroutine 2: Insert new nodes to trigger growth
+	go func() {
+		defer wg.Done()
+		index.Lock()
+		index.shardedNodeLocks.LockAll()
+		index.nodes = make([]*vertex, 10)
+		index.shardedNodeLocks.UnlockAll()
+		index.Unlock()
+		if err != nil {
+			t.Logf("Drop error: %v", err)
+		}
+	}()
+
+	// Wait for both operations to complete
+	wg.Wait()
+}
