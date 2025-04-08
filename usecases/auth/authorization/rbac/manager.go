@@ -237,13 +237,13 @@ func (s *manager) Restore(r io.Reader) error {
 	if err := json.NewDecoder(r).Decode(&snapshot); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
-	//TODO : migration has to be done here if needed
+	// TODO : migration has to be done here if needed
 	_, err := s.casbin.AddPolicies(snapshot.Policy)
 	if err != nil {
 		return fmt.Errorf("add policies: %w", err)
 	}
 
-	//TODO : migration has to be done here if needed
+	// TODO : migration has to be done here if needed
 	_, err = s.casbin.AddGroupingPolicies(snapshot.GroupingPolicy)
 	if err != nil {
 		return fmt.Errorf("add grouping policies: %w", err)

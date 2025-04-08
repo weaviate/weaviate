@@ -13,11 +13,13 @@ package authorization
 
 import "io"
 
+// Snapshot is the RBAC state to be used for RAFT snapshots
 type Snapshot struct {
 	Policy         [][]string `json:"roles_policies"`
 	GroupingPolicy [][]string `json:"grouping_policies"`
 }
 
+// Snapshotter is used to snapshot and restore the RBAC state
 type Snapshotter interface {
 	SnapShot() (*Snapshot, error)
 	Restore(r io.Reader) error

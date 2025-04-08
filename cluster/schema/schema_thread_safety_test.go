@@ -12,7 +12,6 @@
 package schema
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"sync"
@@ -760,38 +759,6 @@ func testConcurrentShardingStateOperations(t *testing.T, s *schema) {
 	}
 
 	wg.Wait()
-}
-
-// Mock implementations for testing
-
-type mockSnapshotSink struct {
-	buffer *bytes.Buffer
-}
-
-func (m *mockSnapshotSink) Write(p []byte) (n int, err error) {
-	return m.buffer.Write(p)
-}
-
-func (m *mockSnapshotSink) Close() error {
-	return nil
-}
-
-func (m *mockSnapshotSink) ID() string {
-	return "test"
-}
-
-func (m *mockSnapshotSink) Cancel() error {
-	return nil
-}
-
-type mockParser struct{}
-
-func (m *mockParser) ParseClass(class *models.Class) error {
-	return nil
-}
-
-func (m *mockParser) ParseClassUpdate(class, update *models.Class) (*models.Class, error) {
-	return class, nil
 }
 
 // Additional mock for shard reader
