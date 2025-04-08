@@ -12,14 +12,49 @@
 package cluster
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/rbac"
+	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
+
+type snapshot struct {
+	NodeID     string `json:"node_id"`
+	SnapshotID string `json:"snapshot_id"`
+	*schema.Snapshot
+	RBAC *rbac.Snapshot `json:"rbac"`
+}
+
+// Persist should dump all necessary state to the WriteCloser 'sink',
+// and call sink.Close() when finished or call sink.Cancel() on error.
+func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
+	defer sink.Close()
+	rbacSnapshot, err := s.authZManager.SnapShot()
+	if err != nil {
+		return fmt.Errorf("rbac snapshot: %w", err)
+	}
+	snap := snapshot{
+		NodeID:     s.cfg.NodeID,
+		SnapshotID: sink.ID(),
+		Snapshot:   s.schemaManager.Snapshot(),
+		RBAC:       rbacSnapshot,
+	}
+	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
+		return fmt.Errorf("encode: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Store) Release() {
+}
 
 // Snapshot returns an FSMSnapshot used to: support log compaction, to
 // restore the FSM to a previous state, or to bring out-of-date followers up
@@ -35,7 +70,7 @@ import (
 // be implemented to allow for concurrent updates while a snapshot is happening.
 func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
 	st.log.Info("persisting snapshot")
-	return st.schemaManager.Snapshot(), nil
+	return st, nil
 }
 
 // Restore is used to restore an FSM from a snapshot. It is not called
@@ -55,6 +90,12 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			return fmt.Errorf("restore schema from snapshot: %w", err)
 		}
 		st.log.Info("successfully restored schema from snapshot")
+
+		if err := st.authZManager.Restore(rc); err != nil {
+			st.log.WithError(err).Error("restoring rbac from snapshot")
+			return fmt.Errorf("restore rbac from snapshot: %w", err)
+		}
+		st.log.Info("successfully restored rbac from snapshot")
 
 		if st.cfg.MetadataOnlyVoters {
 			return nil

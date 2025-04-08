@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	gproto "google.golang.org/protobuf/proto"
@@ -76,8 +75,10 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.schema.shardReader = idx
 }
 
-func (s *SchemaManager) Snapshot() raft.FSMSnapshot {
-	return s.schema
+func (s *SchemaManager) Snapshot() *Snapshot {
+	return &Snapshot{
+		Classes: s.schema.MetaClasses(),
+	}
 }
 
 func (s *SchemaManager) Restore(rc io.ReadCloser, parser Parser) error {

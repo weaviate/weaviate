@@ -39,6 +39,10 @@ func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger
 	return &manager{csbin, logger}, nil
 }
 
+func (m *manager) Casbin() *casbin.SyncedCachedEnforcer {
+	return m.casbin
+}
+
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
 func (m *manager) UpdateRolesPermissions(roles map[string][]authorization.Policy) error {
 	return m.upsertRolesPermissions(roles)
