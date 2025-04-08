@@ -44,6 +44,10 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 	dims := int(atomic.LoadInt32(&h.dims))
 
+	if h.muvera.Load() {
+		return nil
+	}
+
 	// no vectors exist
 	if dims == 0 {
 		vecDimensions := make(map[int]struct{})
@@ -71,7 +75,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if h.multivector.Load() {
+	if h.multivector.Load() && !h.muvera.Load() {
 		return errors.Errorf("AddBatch called on multivector index")
 	}
 	if len(ids) != len(vectors) {
@@ -151,6 +155,14 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	return nil
 }
 
+func MuveraBytesFromFloat32(vec []float32) []byte {
+	slice := make([]byte, len(vec)*4)
+	for i := range vec {
+		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vec[i]))
+	}
+	return slice
+}
+
 func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -163,6 +175,20 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	}
 	if len(docIDs) == 0 {
 		return errors.Errorf("addMultiBatch called with empty lists")
+	}
+
+	if h.muvera.Load() {
+		// Process all vectors
+		processedVectors := make([][]float32, len(vectors))
+		for i, v := range vectors {
+			processedVectors[i] = h.muveraEncoder.EncodeDoc(v)
+			docIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(docIDBytes, docIDs[i])
+			muveraBytes := MuveraBytesFromFloat32(processedVectors[i])
+			h.store.Bucket(h.id+"_muvera_vectors").Put(docIDBytes, muveraBytes)
+		}
+		// Replace original vectors with processed ones
+		return h.AddBatch(ctx, docIDs, processedVectors)
 	}
 
 	var err error
@@ -334,11 +360,11 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.nodes[nodeId] = node
 	h.shardedNodeLocks.Unlock(nodeId)
 
-	if h.compressed.Load() && !h.multivector.Load() {
-		h.compressor.Preload(node.id, vector)
+	if h.compressed.Load() && (!h.multivector.Load() || (h.multivector.Load() && h.muvera.Load())) {
+		h.compressor.Preload(nodeId, vector)
 	} else {
-		if !h.multivector.Load() {
-			h.cache.Preload(node.id, vector)
+		if h.muvera.Load() || !h.multivector.Load() {
+			h.cache.Preload(nodeId, vector)
 		}
 	}
 
@@ -429,10 +455,10 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.nodes[node.id] = node
 	h.shardedNodeLocks.Unlock(node.id)
 
-	if h.compressed.Load() && !h.multivector.Load() {
+	if h.compressed.Load() && (!h.multivector.Load() || (h.multivector.Load() && h.muvera.Load())) {
 		h.compressor.Preload(node.id, nodeVec)
 	} else {
-		if !h.multivector.Load() {
+		if h.muvera.Load() || !h.multivector.Load() {{
 			h.cache.Preload(node.id, nodeVec)
 		}
 	}

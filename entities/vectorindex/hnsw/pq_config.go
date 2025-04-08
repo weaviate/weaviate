@@ -50,11 +50,6 @@ type PQConfig struct {
 	Encoder        PQEncoder `json:"encoder"`
 }
 
-type MultiVectorConfig struct {
-	Enabled    bool   `json:"enabled"`
-	Aggregator string `json:"aggregator"`
-}
-
 func validEncoder(v string) error {
 	switch v {
 	case PQEncoderTypeKMeans:
