@@ -1376,7 +1376,12 @@ func (t *fileMapToBlockmaxReindexTracker) createFile(filename string, content []
 }
 
 func (t *fileMapToBlockmaxReindexTracker) removeFile(filename string) error {
-	return os.Remove(t.filepath(filename))
+	if err := os.Remove(t.filepath(filename)); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (t *fileMapToBlockmaxReindexTracker) encodeTimeNow() string {
