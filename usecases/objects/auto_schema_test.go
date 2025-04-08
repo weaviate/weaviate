@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -617,7 +616,6 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	// given
 	vectorRepo := &fakeVectorRepo{}
-	defaultVectorizer := "text2vec-contextionary"
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	schemaManager := &fakeSchemaManager{}
@@ -631,9 +629,8 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 			DefaultNumber: "number",
 			DefaultDate:   "date",
 		},
-		authorizer:        fakeAuthorizer{},
-		logger:            logger,
-		defaultVectorizer: defaultVectorizer,
+		authorizer: fakeAuthorizer{},
+		logger:     logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
@@ -676,9 +673,9 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	require.NotNil(t, getProperty(class.Properties, "numberArray"))
 	assert.Equal(t, "numberArray", getProperty(class.Properties, "numberArray").Name)
 	assert.Equal(t, "number[]", getProperty(class.Properties, "numberArray").DataType[0])
-	require.Len(t, class.VectorConfig, 1)
-	require.Contains(t, class.VectorConfig, modelsext.DefaultNamedVectorName)
-	require.Contains(t, class.VectorConfig[modelsext.DefaultNamedVectorName].Vectorizer, defaultVectorizer)
+	require.Equal(t, "hnsw", class.VectorIndexType)
+	require.Equal(t, "text2vec-contextionary", class.Vectorizer)
+	require.NotEmpty(t, class.VectorIndexConfig)
 }
 
 func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
