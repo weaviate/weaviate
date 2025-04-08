@@ -170,7 +170,7 @@ type MapToBlockamaxConfig struct {
 	Rollback                  bool                     `json:"rollback" yaml:"rollback"`
 	ProcessingDurationSeconds int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
 	PauseDurationSeconds      int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
-	CollectionsPropsTenants   []CollectionPropsTenants `json:"collections_props_tenants" yaml:"collections_props_tenants"`
+	Selected                  []CollectionPropsTenants `json:"selected" yaml:"selected"`
 }
 
 type CollectionPropsTenants struct {

@@ -38,7 +38,7 @@ import (
 func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 	swapBuckets, unswapBuckets, tidyBuckets, reloadShards, rollback bool,
 	processingDuration, pauseDuration time.Duration, concurrency int,
-	cpts []config.CollectionPropsTenants, schemaManager *schema.Manager,
+	cptSelected []config.CollectionPropsTenants, schemaManager *schema.Manager,
 ) *ShardReindexTask_MapToBlockmax {
 	name := "MapToBlockmax"
 	keyParser := &uuidKeyParser{}
@@ -55,12 +55,12 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 
 	selectionEnabled := false
 	var selectedPropsByCollection, selectedShardsByCollection map[string]map[string]struct{}
-	if count := len(cpts); count > 0 {
+	if count := len(cptSelected); count > 0 {
 		selectionEnabled = true
 		selectedPropsByCollection = make(map[string]map[string]struct{}, count)
 		selectedShardsByCollection = make(map[string]map[string]struct{}, count)
 
-		for _, cpt := range cpts {
+		for _, cpt := range cptSelected {
 			var props, shards map[string]struct{}
 			if countp := len(cpt.Props); countp > 0 {
 				props = make(map[string]struct{}, countp)
@@ -1005,22 +1005,18 @@ func (t *ShardReindexTask_MapToBlockmax) findPropsToReindex(shard ShardLike) (pr
 
 	if t.config.selectionEnabled {
 		collectionName := shard.Index().Config.ClassName.String()
-		selectedProps, isCollectionSelected1 := t.config.selectedPropsByCollection[collectionName]
-		selectedShards, isCollectionSelected2 := t.config.selectedShardsByCollection[collectionName]
-
-		if !(isCollectionSelected1 || isCollectionSelected2) {
+		selectedShards, isCollectionSelected := t.config.selectedShardsByCollection[collectionName]
+		if !isCollectionSelected {
 			return propNames, false
 		}
 
-		isShardSelected := true
 		if len(selectedShards) > 0 {
-			_, isShardSelected = selectedShards[shard.Name()]
+			if _, isShardSelected := selectedShards[shard.Name()]; !isShardSelected {
+				return propNames, false
+			}
 		}
 
-		if !isShardSelected {
-			return propNames, false
-		}
-
+		selectedProps := t.config.selectedPropsByCollection[collectionName]
 		if len(selectedProps) > 0 {
 			checkPropSelected = func(propName string) bool {
 				_, ok := selectedProps[propName]
@@ -1058,7 +1054,7 @@ func (t *ShardReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLike, rt m
 	return props, nil
 }
 
-func (T *ShardReindexTask_MapToBlockmax) readPropsToReindex(rt mapToBlockmaxReindexTracker) ([]string, error) {
+func (t *ShardReindexTask_MapToBlockmax) readPropsToReindex(rt mapToBlockmaxReindexTracker) ([]string, error) {
 	if rt.hasProps() {
 		props, err := rt.getProps()
 		if err != nil {
