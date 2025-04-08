@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -394,6 +395,12 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	if err != nil {
 		err = fmt.Errorf("reading reindexable props: %w", err)
 		return zerotime, err
+	}
+
+	if !rt.shouldStart() {
+		err = fmt.Errorf("reindex task should not start, trying again later")
+		t := time.Now().Add(10 * time.Second)
+		return t, nil
 	}
 
 	if rt.isTidied() {
@@ -1137,6 +1144,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 // -----------------------------------------------------------------------------
 
 type mapToBlockmaxReindexTracker interface {
+	shouldStart() bool
 	isStarted() bool
 	markStarted(time.Time) error
 	getStarted() (time.Time, error)
@@ -1172,6 +1180,7 @@ func newFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser
 		progressCheckpoint: 1,
 		keyParser:          keyParser,
 		config: fileReindexTrackerConfig{
+			filenameStart:      "start.mig",
 			filenameStarted:    "started.mig",
 			filenameProgress:   "progress.mig",
 			filenameReindexed:  "reindexed.mig",
@@ -1191,6 +1200,7 @@ type fileMapToBlockmaxReindexTracker struct {
 }
 
 type fileReindexTrackerConfig struct {
+	filenameStart      string
 	filenameStarted    string
 	filenameProgress   string
 	filenameReindexed  string
@@ -1206,6 +1216,10 @@ func (t *fileMapToBlockmaxReindexTracker) init() error {
 		return err
 	}
 	return nil
+}
+
+func (t *fileMapToBlockmaxReindexTracker) shouldStart() bool {
+	return !config.Enabled(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_CHECK_START")) || t.fileExists(t.config.filenameStart)
 }
 
 func (t *fileMapToBlockmaxReindexTracker) isStarted() bool {
