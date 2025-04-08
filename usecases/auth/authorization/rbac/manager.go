@@ -12,7 +12,9 @@
 package rbac
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
@@ -37,10 +39,6 @@ func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger
 	}
 
 	return &manager{csbin, logger}, nil
-}
-
-func (m *manager) Storage() *casbin.SyncedCachedEnforcer {
-	return m.casbin
 }
 
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
@@ -220,6 +218,37 @@ func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
 		return err
 	}
 	return m.casbin.InvalidateCache()
+}
+
+func (s *manager) SnapShot() (*authorization.Snapshot, error) {
+	policy, err := s.casbin.GetPolicy()
+	if err != nil {
+		return nil, err
+	}
+	groupingPolicy, err := s.casbin.GetGroupingPolicy()
+	if err != nil {
+		return nil, err
+	}
+	return &authorization.Snapshot{Policy: policy, GroupingPolicy: groupingPolicy}, nil
+}
+
+func (s *manager) Restore(r io.Reader) error {
+	snapshot := authorization.Snapshot{}
+	if err := json.NewDecoder(r).Decode(&snapshot); err != nil {
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+	//TODO : migration has to be done here if needed
+	_, err := s.casbin.AddPolicies(snapshot.Policy)
+	if err != nil {
+		return fmt.Errorf("add policies: %w", err)
+	}
+
+	//TODO : migration has to be done here if needed
+	_, err = s.casbin.AddGroupingPolicies(snapshot.GroupingPolicy)
+	if err != nil {
+		return fmt.Errorf("add grouping policies: %w", err)
+	}
+	return s.casbin.LoadPolicy()
 }
 
 // BatchEnforcers is not needed after some digging they just loop over requests,

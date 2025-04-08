@@ -125,7 +125,7 @@ func configureAuthorizer(appState *state.State) error {
 		}
 
 		appState.AuthzController = rbacController
-		appState.RBACStorage = rbacController.Storage()
+		appState.RBACSnapshotter = rbacController
 		appState.Authorizer = rbacController
 	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {
 		appState.Authorizer = adminlist.New(appState.ServerConfig.Config.Authorization.AdminList)

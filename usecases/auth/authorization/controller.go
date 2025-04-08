@@ -11,6 +11,18 @@
 
 package authorization
 
+import "io"
+
+type Snapshot struct {
+	Policy         [][]string `json:"roles_policies"`
+	GroupingPolicy [][]string `json:"grouping_policies"`
+}
+
+type Snapshotter interface {
+	SnapShot() (*Snapshot, error)
+	Restore(r io.Reader) error
+}
+
 type Controller interface {
 	UpdateRolesPermissions(roles map[string][]Policy) error
 	CreateRolesPermissions(roles map[string][]Policy) error
