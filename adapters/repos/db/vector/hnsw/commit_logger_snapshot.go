@@ -124,25 +124,25 @@ func (l *hnswCommitLogger) shouldSnapshot() (string, int64, []string, error) {
 	if name != "" {
 		from, err = snapshotTimestamp(name)
 		if err != nil {
-			return "", 0, nil, errors.Wrapf(err, "get last snapshot time")
+			return name, 0, nil, errors.Wrapf(err, "get last snapshot time")
 		}
 	}
 
 	// check if commit log contains at least 2 new commit files
 	fileNames, err := getCommitFileNames(l.rootPath, l.id, from)
 	if err != nil {
-		return "", from, nil, err
+		return name, from, nil, err
 	}
 
 	if len(fileNames) < 2 {
 		// not enough commit log files
-		return "", from, nil, nil
+		return name, from, nil, nil
 	}
 
 	// get a list of all immutable condensed files
 	immutable, err := l.getImmutableCondensedFiles(fileNames)
 	if err != nil {
-		return "", from, nil, err
+		return name, from, nil, err
 	}
 
 	return name, from, immutable, nil
