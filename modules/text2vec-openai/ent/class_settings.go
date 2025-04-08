@@ -157,6 +157,10 @@ func (cs *classSettings) IsAzure() bool {
 
 func (cs *classSettings) Dimensions() *int64 {
 	defaultValue := PickDefaultDimensions(cs.Model())
+	// Override to fix https://github.com/weaviate/weaviate/commit/ae2c5862052c25c3ad71bfa34a5517614ff65bb0 issue
+	if cs.DeploymentID() == "text-embedding-ada-002" {
+		defaultValue = nil
+	}
 	return cs.BaseClassSettings.GetPropertyAsInt64("dimensions", defaultValue)
 }
 
