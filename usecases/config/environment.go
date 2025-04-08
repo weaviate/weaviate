@@ -360,11 +360,11 @@ func FromEnv(config *Config) error {
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
 			DefaultMapToBlockmaxPauseDurationSeconds)
-		cpts, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
+		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
 		if err != nil {
 			return err
 		}
-		config.ReindexMapToBlockmaxConfig.CollectionsPropsTenants = cpts
+		config.ReindexMapToBlockmaxConfig.Selected = cptSelected
 	}
 
 	if err := config.parseMemtableConfig(); err != nil {
