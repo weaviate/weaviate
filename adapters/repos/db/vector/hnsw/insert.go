@@ -458,7 +458,7 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	if h.compressed.Load() && (!h.multivector.Load() || (h.multivector.Load() && h.muvera.Load())) {
 		h.compressor.Preload(node.id, nodeVec)
 	} else {
-		if h.muvera.Load() || !h.multivector.Load() {{
+		if h.muvera.Load() || !h.multivector.Load() {
 			h.cache.Preload(node.id, nodeVec)
 		}
 	}
