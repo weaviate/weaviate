@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/casbin/casbin/v2"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/prometheus/client_golang/prometheus"
@@ -151,6 +152,7 @@ type Config struct {
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
 	AuthzController authorization.Controller
+	Casbin          *casbin.SyncedCachedEnforcer
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -223,7 +225,6 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 	}
 
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
-
 	return Store{
 		cfg:           cfg,
 		log:           cfg.Logger,
@@ -231,7 +232,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
 		schemaManager: schemaManager,
-		authZManager:  rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
+		authZManager:  rbacRaft.NewManager(cfg.AuthzController, cfg.Casbin, cfg.Logger),
 	}
 }
 

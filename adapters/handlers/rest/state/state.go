@@ -16,7 +16,9 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
@@ -46,12 +48,12 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC            *oidc.Client
-	AnonymousAccess *anonymous.Client
-	APIKey          *apikey.Client
-	Authorizer      authorization.Authorizer
-	AuthzController authorization.Controller
-
+	OIDC                  *oidc.Client
+	AnonymousAccess       *anonymous.Client
+	APIKey                *apikey.Client
+	Authorizer            authorization.Authorizer
+	AuthzController       authorization.Controller
+	Casbin                *casbin.SyncedCachedEnforcer
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration
 	Locks                 locks.ConnectorSchemaLock
