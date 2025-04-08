@@ -29,14 +29,14 @@ import (
 func (h *hnsw) init(cfg Config) error {
 	h.pools = newPools(h.maximumConnectionsLayerZero, h.visitedListPoolMaxSize)
 
-	if err := h.restoreFromDisk(); err != nil {
-		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
-	}
-
 	// init commit logger for future writes
 	cl, err := cfg.MakeCommitLoggerThunk()
 	if err != nil {
 		return errors.Wrap(err, "create commit logger")
+	}
+
+	if err := h.restoreFromDisk(cl); err != nil {
+		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
 
 	h.commitLog = cl
@@ -47,19 +47,12 @@ func (h *hnsw) init(cfg Config) error {
 	// added.
 	h.metrics.SetSize(len(h.nodes))
 
-	if !snapshotsDisabled() {
-		_, err = h.commitLog.CreateSnapshot()
-		if err != nil {
-			return errors.Wrap(err, "create snapshot")
-		}
-	}
-
 	return nil
 }
 
 // if a commit log is already present it will be read into memory, if not we
 // start with an empty model
-func (h *hnsw) restoreFromDisk() error {
+func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	beforeAll := time.Now()
 	defer h.metrics.TrackStartupTotal(beforeAll)
 
@@ -68,7 +61,7 @@ func (h *hnsw) restoreFromDisk() error {
 	var err error
 
 	if !snapshotsDisabled() {
-		state, stateTimestamp, err = readLastSnapshot(h.rootPath, h.id, h.logger)
+		state, stateTimestamp, err = cl.CreateOrLoadSnapshot()
 		if err != nil {
 			// errors reading the last snapshot are not fatal
 			// we can still read the commit log from the beginning
