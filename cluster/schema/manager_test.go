@@ -12,11 +12,8 @@
 package schema
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,8 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
-
-var errAny = errors.New("any error")
 
 func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	var (
@@ -299,11 +294,4 @@ type MockShardReader struct {
 
 func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	return m.lst, m.err
-}
-
-type MockSnapshotSink struct {
-	buf bytes.Buffer
-	io.WriteCloser
-	wErr error
-	rErr error
 }
