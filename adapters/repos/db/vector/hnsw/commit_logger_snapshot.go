@@ -32,6 +32,7 @@ import (
 
 const checkpointChunkSize = 100_000
 
+// feature flag to disable snapshots
 func snapshotsDisabled() bool {
 	return entcfg.Enabled(os.Getenv("DISABLE_SNAPSHOTS"))
 }
@@ -40,10 +41,21 @@ func snapshotTimestamp(path string) (int64, error) {
 	return asTimeStamp(strings.TrimSuffix(filepath.Base(path), ".snapshot"))
 }
 
+// Creates a snapshot of the commit log and returns the deserialized state.
+// The snapshot is created from the last snapshot if any, or from the entire commit
+// log.
+// The snapshot state stops at the last commit log file that satisfies these conditions:
+// - the file is condensed
+// - the file cannot be combined further with the next file
+// - the file is not the last condensed commit log file
+// These conditions ensure immutability of the files used to create the snapshot.
 func (l *hnswCommitLogger) CreateSnapshot() (*DeserializationResult, int64, error) {
 	return l.createOrLoadSnapshot(false)
 }
 
+// CreateOrLoadSnapshot works like CreateSnapshot, but it will always load the
+// last snapshot. It is used at startup to automatically create a snapshot
+// while loading the commit log, to avoid having to load the commit log again.
 func (l *hnswCommitLogger) CreateOrLoadSnapshot() (*DeserializationResult, int64, error) {
 	return l.createOrLoadSnapshot(true)
 }
@@ -54,7 +66,7 @@ func (l *hnswCommitLogger) createOrLoadSnapshot(load bool) (*DeserializationResu
 		return nil, 0, err
 	}
 	if !load && len(immutableFiles) == 0 {
-		// no snapshot needed
+		// no snapshot needed and no need to load the state from disk
 		return nil, from, nil
 	}
 
@@ -76,11 +88,11 @@ func (l *hnswCommitLogger) createOrLoadSnapshot(load bool) (*DeserializationResu
 	}
 
 	if len(immutableFiles) == 0 {
-		// no commit log files to load
+		// no commit log files to load, just return the snapshot state
 		return state, from, nil
 	}
 
-	// load the commit log state since the last snapshot
+	// load the immutable commit log state since the last snapshot
 	state, err = loadCommitLoggerState(l.logger, immutableFiles, state)
 	if err != nil {
 		return nil, 0, err
@@ -114,8 +126,9 @@ func (l *hnswCommitLogger) createOrLoadSnapshot(load bool) (*DeserializationResu
 	return state, ts, nil
 }
 
+// checks if snapshot should be created, and if so, returns the name of the
+// immutable commit log files to be used for the snapshot.
 func (l *hnswCommitLogger) shouldSnapshot() (string, int64, []string, error) {
-	// check time of last snapshot
 	name, err := l.getLastSnapshotName()
 	if err != nil {
 		return "", 0, nil, errors.Wrapf(err, "get last snapshot name")
