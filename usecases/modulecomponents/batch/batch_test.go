@@ -89,7 +89,7 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "next batch, will be aborted due to context deadline"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "has error again"}},
-		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{3: fmt.Errorf("context deadline exceeded or cancelled"), 5: fmt.Errorf("context deadline exceeded or cancelled")}},
+		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{3: fmt.Errorf("context deadline exceeded"), 5: fmt.Errorf("context deadline exceeded")}},
 		{name: "request error", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "ReqError something"}},
 		}, skip: []bool{false}, wantErrors: map[int]error{0: fmt.Errorf("something")}},
