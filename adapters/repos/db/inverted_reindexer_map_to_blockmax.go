@@ -29,8 +29,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/config"
+	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	schema "github.com/weaviate/weaviate/usecases/schema"
@@ -157,6 +158,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
+		return
+	}
+
+	if !rt.shouldStart() {
+		err = fmt.Errorf("reindex task should not start")
 		return
 	}
 
@@ -395,12 +401,6 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	if err != nil {
 		err = fmt.Errorf("reading reindexable props: %w", err)
 		return zerotime, err
-	}
-
-	if !rt.shouldStart() {
-		err = fmt.Errorf("reindex task should not start, trying again later")
-		t := time.Now().Add(10 * time.Second)
-		return t, nil
 	}
 
 	if rt.isTidied() {
@@ -1219,7 +1219,7 @@ func (t *fileMapToBlockmaxReindexTracker) init() error {
 }
 
 func (t *fileMapToBlockmaxReindexTracker) shouldStart() bool {
-	return !config.Enabled(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_CHECK_START")) || t.fileExists(t.config.filenameStart)
+	return !entconfig.Enabled(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_CHECK_START")) || t.fileExists(t.config.filenameStart)
 }
 
 func (t *fileMapToBlockmaxReindexTracker) isStarted() bool {
