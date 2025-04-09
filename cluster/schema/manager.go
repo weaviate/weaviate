@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -75,10 +76,11 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.schema.shardReader = idx
 }
 
-func (s *SchemaManager) Snapshot() *Snapshot {
-	return &Snapshot{
-		Classes: s.schema.MetaClasses(),
-	}
+func (s *SchemaManager) Snapshot() ([]byte, error) {
+	var buf bytes.Buffer
+
+	err := json.NewEncoder(&buf).Encode(s.schema.MetaClasses())
+	return buf.Bytes(), err
 }
 
 func (s *SchemaManager) Restore(rc io.ReadCloser, parser Parser) error {

@@ -112,7 +112,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 
 	// Ensure that the class has been restored and that the tenant is present with the right state
 	schemaReader = srv.SchemaReader()
-	assert.Equal(t, schemaReader.ClassEqual(cls.Class), cls.Class)
+	assert.Equal(t, cls.Class, schemaReader.ClassEqual(cls.Class))
 	assert.Equal(t, "S1", schemaReader.CopyShardingState(cls.Class).Physical["T0"].Status)
 
 	// Ensure there was no supplementary call to the underlying DB as we were just recovering the schema

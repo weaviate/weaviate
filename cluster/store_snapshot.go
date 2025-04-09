@@ -20,14 +20,24 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
+// FSMSnapshot is the snapshot of the cluster FSMs (schema, rbac, etc)
+// it is used to restore the FSM to a previous state,
+// or to bring out-of-date followers up to a recent log index.
 type FSMSnapshot struct {
-	NodeID     string `json:"node_id"`
+	// NodeID is the id of the node that created the snapshot
+	NodeID string `json:"node_id"`
+	// SnapshotID is the id of the snapshot comes from the provided Sink
 	SnapshotID string `json:"snapshot_id"`
-	*schema.Snapshot
+	// LegacySchema is the old schema that was used to create the snapshot
+	// it is used to restore the schema if the snapshot is not compatible with the current schema
+	// note: this is not used anymore, but we keep it for backwards compatibility
+	LegacySchema map[string]any `json:"classes,omitempty"`
+	// Schema is the new schema that will be used to restore the FSM
+	Schema []byte `json:"schema,omitempty"`
+	// RBAC is the rbac that will be used to restore the FSM
 	RBAC []byte `json:"rbac,omitempty"`
 }
 
@@ -41,6 +51,11 @@ type Snapshotter interface {
 // and call sink.Close() when finished or call sink.Cancel() on error.
 func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 	defer sink.Close()
+	schemaSnapshot, err := s.schemaManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("schema snapshot: %w", err)
+	}
+
 	rbacSnapshot, err := s.authZManager.Snapshot()
 	if err != nil {
 		return fmt.Errorf("rbac snapshot: %w", err)
@@ -48,7 +63,7 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 	snap := FSMSnapshot{
 		NodeID:     s.cfg.NodeID,
 		SnapshotID: sink.ID(),
-		Snapshot:   s.schemaManager.Snapshot(),
+		Schema:     schemaSnapshot,
 		RBAC:       rbacSnapshot,
 	}
 	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
