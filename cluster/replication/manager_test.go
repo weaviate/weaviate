@@ -195,8 +195,8 @@ func TestManager_MetricsTracking(t *testing.T) {
 		})
 		require.NoErrorf(t, err, "error while starting a replication operation: %v", err)
 
-		assertGaugeValues(t, reg, metricName, map[string]float64{
-			api.REGISTERED.String(): 1,
+		assertGaugeValues(t, reg, metricName, map[api.ShardReplicationState]float64{
+			api.REGISTERED: 1,
 		})
 
 		// Update replication state to 'HYDRATING'
@@ -212,9 +212,9 @@ func TestManager_MetricsTracking(t *testing.T) {
 		})
 		require.NoErrorf(t, err, "error while updating replication state: %v", err)
 
-		assertGaugeValues(t, reg, metricName, map[string]float64{
-			api.REGISTERED.String(): 0,
-			api.HYDRATING.String():  1,
+		assertGaugeValues(t, reg, metricName, map[api.ShardReplicationState]float64{
+			api.REGISTERED: 0,
+			api.HYDRATING:  1,
 		})
 
 		// Update replication status to 'DEHYDRATING'
@@ -230,10 +230,10 @@ func TestManager_MetricsTracking(t *testing.T) {
 		})
 		require.NoErrorf(t, err, "error while updating replication state: %v", err)
 
-		assertGaugeValues(t, reg, metricName, map[string]float64{
-			api.REGISTERED.String():  0,
-			api.HYDRATING.String():   0,
-			api.DEHYDRATING.String(): 1,
+		assertGaugeValues(t, reg, metricName, map[api.ShardReplicationState]float64{
+			api.REGISTERED:  0,
+			api.HYDRATING:   0,
+			api.DEHYDRATING: 1,
 		})
 	})
 
@@ -281,8 +281,8 @@ func TestManager_MetricsTracking(t *testing.T) {
 		})
 		require.NoErrorf(t, err, "error while starting second replication operation: %v", err)
 
-		assertGaugeValues(t, reg, "weaviate_replication_operation_fsm_ops_by_state", map[string]float64{
-			api.REGISTERED.String(): 2,
+		assertGaugeValues(t, reg, "weaviate_replication_operation_fsm_ops_by_state", map[api.ShardReplicationState]float64{
+			api.REGISTERED: 2,
 		})
 
 		// Update first operation to 'READY'
@@ -299,9 +299,9 @@ func TestManager_MetricsTracking(t *testing.T) {
 		require.NoErrorf(t, err, "error while updating first operation state: %v", err)
 
 		// Verify state after first operation state transition
-		assertGaugeValues(t, reg, "weaviate_replication_operation_fsm_ops_by_state", map[string]float64{
-			api.REGISTERED.String(): 1,
-			api.READY.String():      1,
+		assertGaugeValues(t, reg, "weaviate_replication_operation_fsm_ops_by_state", map[api.ShardReplicationState]float64{
+			api.REGISTERED: 1,
+			api.READY:      1,
 		})
 
 		// Update second operation to 'ABORTED'
@@ -318,15 +318,15 @@ func TestManager_MetricsTracking(t *testing.T) {
 		require.NoErrorf(t, err, "error while updating second operation state: %v", err)
 
 		// Verify state after second operation state transition
-		assertGaugeValues(t, reg, "weaviate_replication_operation_fsm_ops_by_state", map[string]float64{
-			api.REGISTERED.String(): 0,
-			api.READY.String():      1,
-			api.ABORTED.String():    1,
+		assertGaugeValues(t, reg, "weaviate_replication_operation_fsm_ops_by_state", map[api.ShardReplicationState]float64{
+			api.REGISTERED: 0,
+			api.READY:      1,
+			api.ABORTED:    1,
 		})
 	})
 }
 
-func assertGaugeValues(t *testing.T, reg prometheus.Gatherer, metricName string, expectedMetrics map[string]float64) {
+func assertGaugeValues(t *testing.T, reg prometheus.Gatherer, metricName string, expectedMetrics map[api.ShardReplicationState]float64) {
 	t.Helper()
 
 	var expectedOutput strings.Builder
