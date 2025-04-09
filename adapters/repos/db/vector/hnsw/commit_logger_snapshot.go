@@ -72,27 +72,33 @@ func (l *hnswCommitLogger) createOrLoadSnapshot(load bool) (*DeserializationResu
 		return nil, from, nil
 	}
 
-	start := time.Now()
-
-	// only log if we are creating a snapshot
-	if len(immutableFiles) > 0 {
-		l.logger.WithField("action", "hnsw_create_snapshot").
-			Info("creating snapshot")
-	}
-
 	// load the last snapshot
 	var state *DeserializationResult
 	if snapshot != "" {
+		start := time.Now()
+
+		l.logger.WithField("action", "hnsw_load_snapshot").
+			Info("loading snapshot")
+
 		state, _, err = readLastSnapshot(l.rootPath, l.id, l.logger)
 		if err != nil {
 			return nil, 0, errors.Wrapf(err, "read snapshot file %q", snapshot)
 		}
+
+		l.logger.WithField("action", "hnsw_load_snapshot").
+			WithField("duration", time.Since(start).String()).
+			Info("snapshot loaded")
 	}
 
 	if len(immutableFiles) == 0 {
 		// no commit log files to load, just return the snapshot state
 		return state, from, nil
 	}
+
+	start := time.Now()
+
+	l.logger.WithField("action", "hnsw_create_snapshot").
+		Info("creating snapshot")
 
 	// load the immutable commit log state since the last snapshot
 	state, err = loadCommitLoggerState(l.logger, immutableFiles, state, nil)
