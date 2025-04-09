@@ -94,7 +94,6 @@ func (v *openai) GenerateAllResults(ctx context.Context, properties []*modulecap
 }
 
 func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-
 	params := v.getParameters(cfg, options, imageProperties)
 	isAzure := config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID)
 	debugInformation := v.getDebugInformation(debug, prompt)
