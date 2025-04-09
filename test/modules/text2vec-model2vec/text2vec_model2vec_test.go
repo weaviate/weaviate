@@ -14,6 +14,7 @@ package tests
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
@@ -28,10 +29,15 @@ func testText2VecModel2Vec(host string) func(t *testing.T) {
 		data := companies.Companies
 		class := companies.BaseClass(className)
 		tests := []struct {
-			name string
+			name                    string
+			insertNonVocabularWords bool
 		}{
 			{
 				name: "default",
+			},
+			{
+				name:                    "vectorize non-vocabular words",
+				insertNonVocabularWords: true,
 			},
 		}
 		for _, tt := range tests {
@@ -73,6 +79,29 @@ func testText2VecModel2Vec(host string) func(t *testing.T) {
 				t.Run("perform hybrid search", func(t *testing.T) {
 					companies.PerformHybridSearchTest(t, host, class.Class)
 				})
+				if tt.insertNonVocabularWords {
+					t.Run("query with non-vocabular words", func(t *testing.T) {
+						companies.PerformHybridSearchWithTextTest(t, host, class.Class, "no-vocabular text: **77aaee sss fb")
+					})
+					t.Run("insert objects with non-vocabular words", func(t *testing.T) {
+						obj := &models.Object{
+							Class: className,
+							ID:    "00000000-0000-0000-0000-00000000000a",
+							Properties: map[string]interface{}{
+								"name":        "non vocabular words",
+								"description": "words that are not in vocabulary: asdaddasd fjfjjgkk asda222ef (((sssss))) ko%$#$@@@@@@...",
+							},
+						}
+						helper.CreateObject(t, obj)
+						helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
+
+						dbObject, err := helper.GetObject(t, class.Class, obj.ID, "vector")
+						require.NoError(t, err)
+						require.NotNil(t, dbObject)
+						require.Len(t, dbObject.Vectors, 1)
+						assert.True(t, len(dbObject.Vectors["description"].([]float32)) > 0)
+					})
+				}
 			})
 		}
 	}
