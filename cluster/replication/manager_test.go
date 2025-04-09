@@ -165,8 +165,8 @@ func TestManager_Replicate(t *testing.T) {
 }
 
 func TestManager_MetricsTracking(t *testing.T) {
+	const metricName = "weaviate_replication_operation_fsm_ops_by_state"
 	t.Run("one replication operation with two state transitions", func(t *testing.T) {
-		const metricName = "weaviate_replication_operation_fsm_ops_by_state"
 		reg := prometheus.NewPedanticRegistry()
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
@@ -281,7 +281,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		})
 		require.NoErrorf(t, err, "error while starting second replication operation: %v", err)
 
-		assertGaugeValues(t, reg, "weaviate_replication_operation_fsm_ops_by_state", map[api.ShardReplicationState]float64{
+		assertGaugeValues(t, reg, metricName, map[api.ShardReplicationState]float64{
 			api.REGISTERED: 2,
 		})
 
@@ -299,7 +299,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		require.NoErrorf(t, err, "error while updating first operation state: %v", err)
 
 		// Verify state after first operation state transition
-		assertGaugeValues(t, reg, "weaviate_replication_operation_fsm_ops_by_state", map[api.ShardReplicationState]float64{
+		assertGaugeValues(t, reg, metricName, map[api.ShardReplicationState]float64{
 			api.REGISTERED: 1,
 			api.READY:      1,
 		})
@@ -318,7 +318,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		require.NoErrorf(t, err, "error while updating second operation state: %v", err)
 
 		// Verify state after second operation state transition
-		assertGaugeValues(t, reg, "weaviate_replication_operation_fsm_ops_by_state", map[api.ShardReplicationState]float64{
+		assertGaugeValues(t, reg, metricName, map[api.ShardReplicationState]float64{
 			api.REGISTERED: 0,
 			api.READY:      1,
 			api.ABORTED:    1,
