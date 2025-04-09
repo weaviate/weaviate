@@ -24,14 +24,14 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-transformers/vectorizer"
 )
 
-func (m *TransformersModule) ClassConfigDefaults() map[string]interface{} {
+func (m *Model2VecModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"vectorizeClassName": vectorizer.DefaultVectorizeClassName,
 		"poolingStrategy":    vectorizer.DefaultPoolingStrategy,
 	}
 }
 
-func (m *TransformersModule) PropertyConfigDefaults(
+func (m *Model2VecModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
 	return map[string]interface{}{
@@ -40,7 +40,7 @@ func (m *TransformersModule) PropertyConfigDefaults(
 	}
 }
 
-func (m *TransformersModule) ValidateClass(ctx context.Context,
+func (m *Model2VecModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
 	settings := vectorizer.NewClassSettings(cfg)

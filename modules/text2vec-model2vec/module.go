@@ -32,11 +32,11 @@ import (
 
 const Name = "text2vec-model2vec"
 
-func New() *TransformersModule {
-	return &TransformersModule{}
+func New() *Model2VecModule {
+	return &Model2VecModule{}
 }
 
-type TransformersModule struct {
+type Model2VecModule struct {
 	vectorizer                   text2vecbase.TextVectorizer[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
@@ -46,15 +46,15 @@ type TransformersModule struct {
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
 
-func (m *TransformersModule) Name() string {
+func (m *Model2VecModule) Name() string {
 	return Name
 }
 
-func (m *TransformersModule) Type() modulecapabilities.ModuleType {
+func (m *Model2VecModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2Vec
 }
 
-func (m *TransformersModule) Init(ctx context.Context,
+func (m *Model2VecModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
@@ -70,7 +70,7 @@ func (m *TransformersModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *TransformersModule) InitExtension(modules []modulecapabilities.Module) error {
+func (m *Model2VecModule) InitExtension(modules []modulecapabilities.Module) error {
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue
@@ -88,7 +88,7 @@ func (m *TransformersModule) InitExtension(modules []modulecapabilities.Module) 
 	return nil
 }
 
-func (m *TransformersModule) initVectorizer(ctx context.Context, timeout time.Duration,
+func (m *Model2VecModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	waitForStartup := true
@@ -111,24 +111,24 @@ func (m *TransformersModule) initVectorizer(ctx context.Context, timeout time.Du
 	return nil
 }
 
-func (m *TransformersModule) initAdditionalPropertiesProvider() error {
+func (m *Model2VecModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
 	return nil
 }
 
-func (m *TransformersModule) RootHandler() http.Handler {
+func (m *Model2VecModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *TransformersModule) VectorizeObject(ctx context.Context,
+func (m *Model2VecModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
 // VectorizeBatch is _slower_ if many requests are done in parallel. So do all objects sequentially
-func (m *TransformersModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+func (m *Model2VecModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	vecs := make([][]float32, len(objs))
 	addProps := make([]models.AdditionalProperties, len(objs))
 	// error should be the exception so dont preallocate
@@ -149,21 +149,21 @@ func (m *TransformersModule) VectorizeBatch(ctx context.Context, objs []*models.
 	return vecs, addProps, errs
 }
 
-func (m *TransformersModule) MetaInfo() (map[string]interface{}, error) {
+func (m *Model2VecModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }
 
-func (m *TransformersModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (m *Model2VecModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
-func (m *TransformersModule) VectorizeInput(ctx context.Context,
+func (m *Model2VecModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
-func (m *TransformersModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *Model2VecModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
 }
 

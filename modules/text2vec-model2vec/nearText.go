@@ -16,17 +16,17 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
-func (m *TransformersModule) initNearText() error {
+func (m *Model2VecModule) initNearText() error {
 	m.searcher = nearText.NewSearcher(m.vectorizer)
 	m.graphqlProvider = nearText.New(m.nearTextTransformer)
 	return nil
 }
 
-func (m *TransformersModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+func (m *Model2VecModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *TransformersModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
+func (m *Model2VecModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	return m.searcher.VectorSearches()
 }
 
