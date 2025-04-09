@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -755,6 +756,8 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 
 	res.Nodes = make([]*vertex, nodesCount)
 
+	var mu sync.Mutex
+
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(concurrency)
 	for cpPos, cp := range checkpoints {
@@ -794,7 +797,9 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 				node := &vertex{id: currNodeID}
 
 				if b[0] == 1 {
+					mu.Lock()
 					res.Tombstones[node.id] = struct{}{}
+					mu.Unlock()
 				} else if b[0] != 2 {
 					return fmt.Errorf("unsupported node existence state")
 				}
@@ -840,7 +845,9 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 					}
 				}
 
+				mu.Lock()
 				res.Nodes[currNodeID] = node
+				mu.Unlock()
 				currNodeID++
 			}
 
