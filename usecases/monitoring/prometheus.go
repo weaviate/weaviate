@@ -154,7 +154,7 @@ type PrometheusMetrics struct {
 	VectorizerResponseStatus     *prometheus.CounterVec
 	VectorizerRequestTokens      *prometheus.HistogramVec
 	VectorizerError              *prometheus.CounterVec
-	BatchVectorizeError      *prometheus.CounterVec
+	BatchVectorizeError          *prometheus.CounterVec
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
