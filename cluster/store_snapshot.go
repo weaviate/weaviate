@@ -22,14 +22,19 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 type FSMSnapshot struct {
 	NodeID     string `json:"node_id"`
 	SnapshotID string `json:"snapshot_id"`
 	*schema.Snapshot
-	RBAC *authorization.Snapshot `json:"rbac,omitempty"`
+	RBAC []byte `json:"rbac,omitempty"`
+}
+
+// Snapshotter is used to snapshot and restore any (FSM) state
+type Snapshotter interface {
+	Snapshot() ([]byte, error)
+	Restore(r io.Reader) error
 }
 
 // Persist should dump all necessary state to the WriteCloser 'sink',

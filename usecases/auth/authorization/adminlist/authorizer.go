@@ -13,10 +13,8 @@ package adminlist
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
@@ -125,14 +123,6 @@ func (a *Authorizer) addReadOnlyGroupList(groups []string) {
 	for _, group := range groups {
 		a.readOnlyGroups[group] = 1
 	}
-}
-
-func (a *Authorizer) Snapshot() (*authorization.Snapshot, error) {
-	return nil, nil
-}
-
-func (a *Authorizer) Restore(r io.Reader) error {
-	return nil
 }
 
 func newAnonymousPrincipal() *models.Principal {

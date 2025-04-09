@@ -35,10 +35,7 @@ import (
 
 func TestRaftEndpoints(t *testing.T) {
 	ctx := context.Background()
-	m, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "Node-1", utils.MustGetFreeTCPPort())
-	snapshotter.On("Snapshot").Return(nil, nil)
-	snapshotter.On("Restore", mock.Anything).Return(nil)
-
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	m.indexer.On("Open", Anything).Return(nil)
 	m.indexer.On("Close", Anything).Return(nil)
