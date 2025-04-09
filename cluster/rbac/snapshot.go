@@ -18,17 +18,9 @@ import (
 )
 
 func (m *Manager) SnapShot() (*authorization.Snapshot, error) {
-	// this check because RBAC is optional
-	if m.snapshotter == nil {
-		return nil, nil
-	}
 	return m.snapshotter.SnapShot()
 }
 
 func (m *Manager) Restore(r io.Reader) error {
-	// this check because RBAC is optional
-	if m.snapshotter == nil {
-		return nil
-	}
 	return m.snapshotter.Restore(r)
 }

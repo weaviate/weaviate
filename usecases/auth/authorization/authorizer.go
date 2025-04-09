@@ -12,6 +12,8 @@
 package authorization
 
 import (
+	"io"
+
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -44,4 +46,12 @@ func (d *DummyAuthorizer) AuthorizeSilent(principal *models.Principal, verb stri
 
 func (d *DummyAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
 	return resources, nil
+}
+
+func (d *DummyAuthorizer) SnapShot() (*Snapshot, error) {
+	return nil, nil
+}
+
+func (d *DummyAuthorizer) Restore(r io.Reader) error {
+	return nil
 }

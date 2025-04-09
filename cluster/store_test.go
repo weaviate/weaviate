@@ -30,6 +30,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -564,6 +565,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 	indexer := fakes.NewMockSchemaExecutor()
 	parser := fakes.NewMockParser()
 	logger, _ := logrustest.NewNullLogger()
+	snapshotter := mocks.NewSnapshotter(t)
 	ms := MockStore{
 		indexer: indexer,
 		parser:  parser,
@@ -584,11 +586,45 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			NodeToAddressResolver:  fakes.NewMockAddressResolver(nil),
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
+			RBACSnapshotter:        snapshotter,
 		},
 	}
 	s := NewFSM(ms.cfg, prometheus.NewPedanticRegistry())
 	ms.store = &s
 	return ms
+}
+
+func NewMockStoreWithSnapshotterExpectations(t *testing.T, nodeID string, raftPort int) (MockStore, *mocks.Snapshotter) {
+	indexer := fakes.NewMockSchemaExecutor()
+	parser := fakes.NewMockParser()
+	logger, _ := logrustest.NewNullLogger()
+	snapshotter := mocks.NewSnapshotter(t)
+	ms := MockStore{
+		indexer: indexer,
+		parser:  parser,
+		logger:  logger,
+		cfg: Config{
+			WorkDir:                t.TempDir(),
+			NodeID:                 nodeID,
+			Host:                   "localhost",
+			RaftPort:               raftPort,
+			Voter:                  true,
+			BootstrapExpect:        1,
+			HeartbeatTimeout:       1 * time.Second,
+			ElectionTimeout:        1 * time.Second,
+			SnapshotInterval:       2 * time.Second,
+			SnapshotThreshold:      125,
+			DB:                     indexer,
+			Parser:                 parser,
+			NodeToAddressResolver:  fakes.NewMockAddressResolver(nil),
+			Logger:                 logger,
+			ConsistencyWaitTimeout: time.Millisecond * 50,
+			RBACSnapshotter:        snapshotter,
+		},
+	}
+	s := NewFSM(ms.cfg, prometheus.NewPedanticRegistry())
+	ms.store = &s
+	return ms, snapshotter
 }
 
 func (m *MockStore) Store(doBefore func(*MockStore)) *Store {

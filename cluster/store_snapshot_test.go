@@ -22,8 +22,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	"github.com/prometheus/client_golang/prometheus"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -34,15 +32,15 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // TestSchemaSnapshotPersistAndRestore tests snapshot persistence and restoration
 func TestSchemaSnapshotPersistAndRestore(t *testing.T) {
 	// Setup test schema data directly using the Store's Apply method
-	source := createTestStore(t, "source-node")
+	source, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "source-node", utils.MustGetFreeTCPPort())
 	setupTestSchema(t, source)
+	snapshotter.On("SnapShot").Return(nil, nil)
 
 	snapshotSink := &mocks.SnapshotSink{
 		Buffer: bytes.NewBuffer(nil),
@@ -54,7 +52,9 @@ func TestSchemaSnapshotPersistAndRestore(t *testing.T) {
 	err = snapshot.Persist(snapshotSink)
 	assert.NoError(t, err)
 
-	target := createTestStore(t, "target-node")
+	target, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "target-node", utils.MustGetFreeTCPPort())
+	target.store.init()
+	snapshotter.On("Restore", mock.Anything).Return(nil)
 
 	target.parser.On("ParseClass", mock.Anything).Return(nil)
 	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -72,7 +72,8 @@ func TestSchemaSnapshotPersistAndRestore(t *testing.T) {
 
 // TestSchemaSnapshotEmptyStore tests snapshot persistence and restoration with an empty store
 func TestSchemaSnapshotEmptyStore(t *testing.T) {
-	source := createTestStore(t, "empty-source-node")
+	source, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "empty-source-node", utils.MustGetFreeTCPPort())
+	snapshotter.On("SnapShot").Return(nil, nil)
 
 	snapshotSink := &mocks.SnapshotSink{
 		Buffer: bytes.NewBuffer(nil),
@@ -84,7 +85,9 @@ func TestSchemaSnapshotEmptyStore(t *testing.T) {
 	err = snapshot.Persist(snapshotSink)
 	assert.NoError(t, err)
 
-	target := createTestStore(t, "empty-target-node")
+	target, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "empty-target-node", utils.MustGetFreeTCPPort())
+	target.store.init()
+	snapshotter.On("Restore", mock.Anything).Return(nil)
 
 	target.parser.On("ParseClass", mock.Anything).Return(nil)
 	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -101,8 +104,9 @@ func TestSchemaSnapshotEmptyStore(t *testing.T) {
 // TestSchemaSnapshotPersistError tests handling errors during snapshot persistence
 func TestSchemaSnapshotPersistError(t *testing.T) {
 	// Create source store with schema data
-	source := createTestStore(t, "error-source-node")
+	source, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "error-source-node", utils.MustGetFreeTCPPort())
 	setupTestSchema(t, source)
+	snapshotter.On("SnapShot").Return(nil, nil)
 
 	errorSink := &mocks.SnapshotSink{
 		Buffer:     bytes.NewBuffer(nil),
@@ -121,8 +125,9 @@ func TestSchemaSnapshotPersistError(t *testing.T) {
 // TestSchemaSnapshotRestoreError tests handling errors during snapshot restoration
 func TestSchemaSnapshotRestoreError(t *testing.T) {
 	// Create source store with schema data
-	source := createTestStore(t, "restore-error-source-node")
+	source, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "restore-error-source-node", utils.MustGetFreeTCPPort())
 	setupTestSchema(t, source)
+	snapshotter.On("SnapShot").Return(nil, nil)
 
 	snapshotSink := &mocks.SnapshotSink{
 		Buffer: bytes.NewBuffer(nil),
@@ -134,13 +139,13 @@ func TestSchemaSnapshotRestoreError(t *testing.T) {
 	err = snapshot.Persist(snapshotSink)
 	assert.NoError(t, err)
 
-	target := createTestStore(t, "restore-error-target-node")
-
-	target.parser.On("ParseClass", mock.Anything).Return(errors.New("simulated parse error"))
+	target, _ := NewMockStoreWithSnapshotterExpectations(t, "restore-error-target-node", utils.MustGetFreeTCPPort())
+	target.store.init()
 
 	snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
 
 	// Restore from snapshot - should return an error
+	target.parser.On("ParseClass", mock.Anything).Return(errors.New("simulated parse error"))
 	err = target.store.Restore(snapshotReader)
 	assert.Error(t, err, "Expected an error during snapshot restoration")
 	assert.Contains(t, err.Error(), "simulated parse error", "Error should contain the specific parse error")
@@ -148,7 +153,7 @@ func TestSchemaSnapshotRestoreError(t *testing.T) {
 
 // TestSchemaSnapshotCorruptedData tests restoration from corrupted snapshot data
 func TestSchemaSnapshotCorruptedData(t *testing.T) {
-	target := createTestStore(t, "corrupt-target-node")
+	target := NewMockStore(t, "corrupt-target-node", utils.MustGetFreeTCPPort())
 
 	target.parser.On("ParseClass", mock.Anything).Return(nil)
 	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -164,8 +169,8 @@ func TestSchemaSnapshotCorruptedData(t *testing.T) {
 // TestRBACSnapshotPersistAndRestore tests that RBAC policies are correctly persisted and restored
 func TestRBACSnapshotPersistAndRestore(t *testing.T) {
 	// Create source store with RBAC policies
-	source := createTestStore(t, "rbac-source-node")
-
+	source := NewMockStore(t, "rbac-source-node", utils.MustGetFreeTCPPort())
+	source.store.init()
 	mockPolicy := [][]string{
 		{"role1", "resource1", "action1"},
 		{"role1", "resource2", "action2"},
@@ -195,7 +200,8 @@ func TestRBACSnapshotPersistAndRestore(t *testing.T) {
 	err = snapshot.Persist(snapshotSink)
 	assert.NoError(t, err)
 
-	target := createTestStore(t, "rbac-target-node")
+	target := NewMockStore(t, "rbac-target-node", utils.MustGetFreeTCPPort())
+	target.store.init()
 
 	target.parser.On("ParseClass", mock.Anything).Return(nil)
 	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -226,7 +232,7 @@ func TestRBACSnapshotPersistAndRestore(t *testing.T) {
 
 // TestRBACSnapshotPersistError tests handling errors during RBAC snapshot persistence
 func TestRBACSnapshotPersistError(t *testing.T) {
-	source := createTestStore(t, "rbac-persist-error-node")
+	source := NewMockStore(t, "rbac-persist-error-node", utils.MustGetFreeTCPPort())
 
 	mockSourceSnapshotter := &mocks.MockSnapshotter{
 		SnapshotError: errors.New("simulated RBAC snapshot error"),
@@ -251,7 +257,7 @@ func TestRBACSnapshotPersistError(t *testing.T) {
 
 // TestRBACSnapshotRestoreError tests handling errors during RBAC snapshot restoration
 func TestRBACSnapshotRestoreError(t *testing.T) {
-	source := createTestStore(t, "rbac-restore-error-source-node")
+	source := NewMockStore(t, "rbac-restore-error-source-node", utils.MustGetFreeTCPPort())
 	mockPolicy := [][]string{
 		{"role1", "resource1", "action1"},
 		{"role1", "resource2", "action2"},
@@ -280,7 +286,8 @@ func TestRBACSnapshotRestoreError(t *testing.T) {
 	err = snapshot.Persist(snapshotSink)
 	assert.NoError(t, err)
 
-	target := createTestStore(t, "rbac-restore-error-target-node")
+	target := NewMockStore(t, "rbac-restore-error-target-node", utils.MustGetFreeTCPPort())
+	target.store.init()
 
 	target.parser.On("ParseClass", mock.Anything).Return(nil)
 	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -307,7 +314,7 @@ func TestRBACSnapshotRestoreError(t *testing.T) {
 // TestCombinedSchemaRBACSnapshot tests both schema and RBAC snapshot persistence and restoration
 func TestCombinedSchemaRBACSnapshot(t *testing.T) {
 	// Create source store with both schema and RBAC data
-	source := createTestStore(t, "combined-source-node")
+	source := NewMockStore(t, "combined-source-node", utils.MustGetFreeTCPPort())
 	setupTestSchema(t, source)
 
 	mockPolicy := [][]string{
@@ -339,7 +346,8 @@ func TestCombinedSchemaRBACSnapshot(t *testing.T) {
 	err = snapshot.Persist(snapshotSink)
 	assert.NoError(t, err)
 
-	target := createTestStore(t, "combined-target-node")
+	target := NewMockStore(t, "combined-target-node", utils.MustGetFreeTCPPort())
+	target.store.init()
 
 	target.parser.On("ParseClass", mock.Anything).Return(nil)
 	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -379,8 +387,8 @@ func TestCombinedSchemaRBACSnapshot(t *testing.T) {
 
 // TestRBACEmptySnapshot tests snapshot persistence and restoration with empty RBAC policies
 func TestRBACEmptySnapshot(t *testing.T) {
-	source := createTestStore(t, "rbac-empty-source-node")
-
+	source := NewMockStore(t, "rbac-empty-source-node", utils.MustGetFreeTCPPort())
+	source.store.init()
 	mockSourceSnapshotter := &mocks.MockSnapshotter{
 		Snapshot: &authorization.Snapshot{
 			Policy:         [][]string{},
@@ -401,8 +409,10 @@ func TestRBACEmptySnapshot(t *testing.T) {
 	err = snapshot.Persist(snapshotSink)
 	assert.NoError(t, err)
 
-	target := createTestStore(t, "rbac-empty-target-node")
+	target := NewMockStore(t, "rbac-empty-target-node", utils.MustGetFreeTCPPort())
+	target.store.init()
 
+	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	mockTargetSnapshotter := &mocks.MockSnapshotter{}
 
 	targetManager := rbac.NewManager(nil, mockTargetSnapshotter, target.logger)
@@ -428,7 +438,7 @@ func TestRBACEmptySnapshot(t *testing.T) {
 
 // TestSnapshotEncodingDecoding tests that the snapshot encoding and decoding matches
 func TestSnapshotEncodingDecoding(t *testing.T) {
-	source := createTestStore(t, "encoding-test-node")
+	source := NewMockStore(t, "encoding-test-node", utils.MustGetFreeTCPPort())
 	setupTestSchema(t, source)
 
 	mockPolicy := [][]string{
@@ -475,7 +485,8 @@ func TestSnapshotEncodingDecoding(t *testing.T) {
 		"RBAC grouping policy should match expected data")
 
 	// Verify this is actually a valid snapshot by restoring it
-	target := createTestStore(t, "decoding-test-target")
+	target := NewMockStore(t, "decoding-test-target", utils.MustGetFreeTCPPort())
+	target.store.init()
 	target.parser.On("ParseClass", mock.Anything).Return(nil)
 	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
@@ -494,7 +505,7 @@ func TestSnapshotEncodingDecoding(t *testing.T) {
 // TestConcurrentSnapshotOperations tests the thread safety of snapshot operations
 // when performed concurrently
 func TestConcurrentSnapshotOperations(t *testing.T) {
-	source := createTestStore(t, "concurrent-snapshot-node")
+	source := NewMockStore(t, "concurrent-snapshot-node", utils.MustGetFreeTCPPort())
 	setupTestSchema(t, source)
 
 	mockPolicy := [][]string{
@@ -563,7 +574,8 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				// Create a target store for restoration
-				target := createTestStore(t, fmt.Sprintf("concurrent-restore-%d-%d", routineNum, j))
+				target := NewMockStore(t, fmt.Sprintf("concurrent-restore-%d-%d", routineNum, j), utils.MustGetFreeTCPPort())
+				target.store.init()
 
 				// Set up mocks for restoration
 				target.parser.On("ParseClass", mock.Anything).Return(nil)
@@ -655,44 +667,6 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 	if errCount > 0 {
 		t.Fatalf("Found %d errors during concurrent snapshot operations", errCount)
 	}
-}
-
-func createTestStore(t *testing.T, nodeID string) MockStore {
-	indexer := fakes.NewMockSchemaExecutor()
-	parser := fakes.NewMockParser()
-	logger, _ := logrustest.NewNullLogger()
-
-	ms := MockStore{
-		indexer: indexer,
-		parser:  parser,
-		logger:  logger,
-		cfg: Config{
-			WorkDir:                t.TempDir(),
-			NodeID:                 nodeID,
-			Host:                   "localhost",
-			RaftPort:               utils.MustGetFreeTCPPort(),
-			Voter:                  true,
-			BootstrapExpect:        1,
-			HeartbeatTimeout:       1 * time.Second,
-			ElectionTimeout:        1 * time.Second,
-			SnapshotInterval:       2 * time.Second,
-			SnapshotThreshold:      125,
-			DB:                     indexer,
-			Parser:                 parser,
-			NodeToAddressResolver:  fakes.NewMockAddressResolver(nil),
-			Logger:                 logger,
-			ConsistencyWaitTimeout: time.Millisecond * 50,
-			MetadataOnlyVoters:     true,
-		},
-	}
-
-	s := NewFSM(ms.cfg, prometheus.NewPedanticRegistry())
-	ms.store = &s
-
-	err := ms.store.init()
-	require.NoError(t, err)
-
-	return ms
 }
 
 func setupTestSchema(t *testing.T, ms MockStore) {
