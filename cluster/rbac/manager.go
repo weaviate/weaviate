@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/fsm"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -26,12 +27,13 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ  authorization.Controller
-	logger logrus.FieldLogger
+	authZ       authorization.Controller
+	snapshotter fsm.Snapshotter
+	logger      logrus.FieldLogger
 }
 
-func NewManager(authZ authorization.Controller, logger logrus.FieldLogger) *Manager {
-	return &Manager{authZ: authZ, logger: logger}
+func NewManager(authZ authorization.Controller, snapshotter fsm.Snapshotter, logger logrus.FieldLogger) *Manager {
+	return &Manager{authZ: authZ, snapshotter: snapshotter, logger: logger}
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
@@ -231,15 +233,15 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) Snapshot() ([]byte, error) {
-	if m.authZ == nil {
+	if m.snapshotter == nil {
 		return nil, nil
 	}
-	return m.authZ.Snapshot()
+	return m.snapshotter.Snapshot()
 }
 
 func (m *Manager) Restore(r io.Reader) error {
-	if m.authZ == nil {
+	if m.snapshotter == nil {
 		return nil
 	}
-	return m.authZ.Restore(r)
+	return m.snapshotter.Restore(r)
 }

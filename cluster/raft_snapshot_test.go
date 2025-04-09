@@ -94,7 +94,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	m.indexer.AssertExpectations(t)
 
 	// Create a new FSM that will restore from it's state from the disk (using snapshot and logs)
-	s := NewFSM(m.cfg, prometheus.NewPedanticRegistry())
+	s := NewFSM(m.cfg, nil, nil, prometheus.NewPedanticRegistry())
 	m.store = &s
 	// We refresh the mock schema to ensure that we can assert no calls except Open are sent to the database
 	m.indexer = fakes.NewMockSchemaExecutor()
