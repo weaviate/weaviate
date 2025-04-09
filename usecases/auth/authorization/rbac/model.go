@@ -125,11 +125,6 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
-	err = writeVersion(rbacStoragePath, build.Version)
-	if err != nil {
-		return nil, err
-	}
-
 	// remove preexisting root role including assignments
 	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
 	if err != nil {
@@ -139,8 +134,6 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	if err != nil {
 		return nil, err
 	}
-
-	// remove assignments to namespaces to allow for downgrades (added in 1.30+)
 
 	// add pre existing roles
 	for name, verb := range conv.BuiltInPolicies {
