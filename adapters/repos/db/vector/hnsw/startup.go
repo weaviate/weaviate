@@ -55,6 +55,11 @@ func (h *hnsw) init(cfg Config) error {
 func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	beforeAll := time.Now()
 	defer h.metrics.TrackStartupTotal(beforeAll)
+	defer func() {
+		h.logger.WithField("action", "restore_from_disk").
+			WithField("duration", time.Since(beforeAll)).
+			Info("restored data from disk")
+	}()
 
 	var state *DeserializationResult
 	var stateTimestamp int64
