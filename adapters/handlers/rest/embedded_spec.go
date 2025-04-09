@@ -4286,6 +4286,13 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include the last used time of the given user",
+            "name": "includeLastUsedTime",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5539,6 +5546,14 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "lastUsedAt": {
+          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
         },
         "roles": {
           "description": "The role names associated to the user",
@@ -11674,6 +11689,13 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include the last used time of the given user",
+            "name": "includeLastUsedTime",
+            "in": "query"
           }
         ],
         "responses": {
@@ -13082,6 +13104,14 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "lastUsedAt": {
+          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
         },
         "roles": {
           "description": "The role names associated to the user",

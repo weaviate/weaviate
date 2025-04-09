@@ -12,17 +12,21 @@
 package db_users
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
+	"runtime"
 	"slices"
 	"time"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
+	"github.com/weaviate/weaviate/adapters/clients"
 
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
-
-	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -34,9 +38,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
+
+var _NUMCPU = runtime.GOMAXPROCS(0)
 
 type dynUserHandler struct {
 	authorizer           authorization.Authorizer
@@ -46,6 +54,8 @@ type dynUserHandler struct {
 	adminListConfig      adminlist.Config
 	logger               logrus.FieldLogger
 	dbUserEnabled        bool
+	remoteUser           *clients.RemoteUser
+	nodesGetter          schema.SchemaGetter
 }
 
 type DbUserAndRolesGetter interface {
@@ -54,14 +64,11 @@ type DbUserAndRolesGetter interface {
 	RevokeRolesForUser(userName string, roles ...string) error
 }
 
-const (
-	userNameMaxLength = 128
-	userNameRegexCore = `[A-Za-z][-_0-9A-Za-z@.]{0,128}`
-)
+var validateUserNameRegex = regexp.MustCompile(`^` + apikey.UserNameRegexCore + `$`)
 
-var validateUserNameRegex = regexp.MustCompile(`^` + userNameRegexCore + `$`)
-
-func SetupHandlers(api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, authorizer authorization.Authorizer, authNConfig config.Authentication, authZConfig config.Authorization, logger logrus.FieldLogger,
+func SetupHandlers(
+	api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, authorizer authorization.Authorizer, authNConfig config.Authentication,
+	authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter schema.SchemaGetter, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:           authorizer,
@@ -69,8 +76,9 @@ func SetupHandlers(api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, au
 		staticApiKeysConfigs: authNConfig.APIKey,
 		dbUserEnabled:        authNConfig.DBUsers.Enabled,
 		rbacConfig:           authZConfig.Rbac,
-
-		logger: logger,
+		remoteUser:           remoteUser,
+		nodesGetter:          nodesGetter,
+		logger:               logger,
 	}
 
 	api.UsersCreateUserHandler = users.CreateUserHandlerFunc(h.createUser)
@@ -189,6 +197,52 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
 		if isRootUser {
 			response.APIKeyFirstLetters = user.ApiKeyFirstLetters
+		}
+		if params.IncludeLastUsedTime != nil && *params.IncludeLastUsedTime {
+			ctx, cancelFunc := context.WithTimeout(context.Background(), time.Second)
+			defer cancelFunc()
+			userStatuses := make([]*apikey.UserStatusResponse, len(h.nodesGetter.Nodes()))
+			eg, ctx2 := enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
+			eg.SetLimit(_NUMCPU)
+			for i, nodeName := range h.nodesGetter.Nodes() {
+				i, nodeName := i, nodeName
+				eg.Go(func() error {
+					status, err := h.remoteUser.GetUserStatus(ctx2, nodeName, map[string]time.Time{params.UserID: user.LastUsedAt}, true)
+					if err != nil {
+						return fmt.Errorf("node: %v: %w", nodeName, err)
+					}
+
+					userStatuses[i] = status
+
+					return nil
+				}, nodeName)
+			}
+			_ = eg.Wait() // we tolerate errors in some requests
+			lastUsedTime := user.LastUsedAt
+
+			for _, status := range userStatuses {
+				if status != nil && len(status.LastUsedAt) > 0 {
+					if status.LastUsedAt[0].After(lastUsedTime) {
+						lastUsedTime = status.LastUsedAt[0]
+					}
+				}
+			}
+			response.LastUsedAt = strfmt.DateTime(lastUsedTime)
+
+			// update all other nodes with results, we don't need to wait for this
+			eg, ctx2 = enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
+			eg.SetLimit(_NUMCPU)
+			for _, nodeName := range h.nodesGetter.Nodes() {
+				nodeName := nodeName
+				eg.Go(func() error {
+					_, err := h.remoteUser.GetUserStatus(ctx2, nodeName, map[string]time.Time{params.UserID: lastUsedTime}, false)
+					if err != nil {
+						return fmt.Errorf("node: %v: %w", nodeName, err)
+					}
+
+					return nil
+				}, nodeName)
+			}
 		}
 	}
 
@@ -493,8 +547,8 @@ func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool
 
 // validateRoleName validates that this string is a valid role name (format wise)
 func validateUserName(name string) error {
-	if len(name) > userNameMaxLength {
-		return fmt.Errorf("'%s' is not a valid user name. Name should not be longer than %d characters", name, userNameMaxLength)
+	if len(name) > apikey.UserNameMaxLength {
+		return fmt.Errorf("'%s' is not a valid user name. Name should not be longer than %d characters", name, apikey.UserNameMaxLength)
 	}
 	if !validateUserNameRegex.MatchString(name) {
 		return fmt.Errorf("'%s' is not a valid user name", name)

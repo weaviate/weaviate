@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/client/nodes"
+
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/test/docker"
@@ -698,4 +700,89 @@ func TestUserPermissionReturns(t *testing.T) {
 		require.Equal(t, *roleRet.Permissions[0].Users.Users, all)
 		require.Equal(t, *roleRet.Permissions[0].Action, action)
 	}
+}
+
+func TestGetLastUsageMultinode(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	ctx := context.Background()
+	compose, err := docker.New().
+		With3NodeCluster().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
+		Start(ctx)
+
+	require.NoError(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	t.Run("get last usage multinode", func(t *testing.T) {
+		helper.SetupClient(compose.GetWeaviate().URI())
+
+		dynUser := "dyn-user"
+		helper.DeleteUser(t, dynUser, adminKey)
+		defer helper.DeleteUser(t, dynUser, adminKey)
+		apiKey := helper.CreateUser(t, dynUser, adminKey)
+
+		time.Sleep(time.Millisecond * 100) // sometimes takes a little bit until a user has been propagated to all nodes
+		before := time.Now()
+
+		info := helper.GetInfoForOwnUser(t, apiKey)
+		require.Equal(t, *info.Username, dynUser)
+
+		user := helper.GetUserWithLastUsedTime(t, dynUser, adminKey, true)
+		require.Equal(t, *user.UserID, dynUser)
+		require.Less(t, before, user.LastUsedAt)
+		require.Less(t, user.LastUsedAt, time.Now())
+
+		lastLoginTime := user.LastUsedAt
+		// make request to other node and check that login time has been update in first node
+		helper.SetupClient(compose.GetWeaviateNode2().URI())
+
+		require.Equal(t, *helper.GetInfoForOwnUser(t, apiKey).Username, dynUser)
+
+		helper.SetupClient(compose.GetWeaviateNode3().URI())
+
+		user = helper.GetUserWithLastUsedTime(t, dynUser, adminKey, true)
+		require.Equal(t, *user.UserID, dynUser)
+		require.Less(t, lastLoginTime, user.LastUsedAt)
+		require.Less(t, user.LastUsedAt, time.Now())
+	})
+
+	t.Run("last usage with shutdowns", func(t *testing.T) {
+		helper.SetupClient(compose.GetWeaviate().URI())
+
+		dynUser := "dyn-user"
+		helper.DeleteUser(t, dynUser, adminKey)
+		defer helper.DeleteUser(t, dynUser, adminKey)
+		apiKey := helper.CreateUser(t, dynUser, adminKey)
+
+		time.Sleep(time.Millisecond * 100) // sometimes takes a little bit until a user has been propagated to all nodes
+		before := time.Now()
+
+		info := helper.GetInfoForOwnUser(t, apiKey)
+		require.Equal(t, *info.Username, dynUser)
+
+		user := helper.GetUserWithLastUsedTime(t, dynUser, adminKey, true)
+		require.Equal(t, *user.UserID, dynUser)
+		require.Less(t, before, user.LastUsedAt)
+		require.Less(t, user.LastUsedAt, time.Now())
+
+		// shutdown node, its login time should be transferred to other nodes
+		timeout := time.Minute
+		err := compose.StopAt(ctx, 0, &timeout)
+		require.NoError(t, err)
+
+		helper.SetupClient(compose.GetWeaviateNode(2).URI())
+		body, clientErr := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams(), nil)
+		require.NoError(t, clientErr)
+		require.Len(t, body.Payload.Nodes, 2)
+
+		userNode2 := helper.GetUserWithLastUsedTime(t, dynUser, adminKey, true)
+		require.Equal(t, *user.UserID, dynUser)
+		require.Less(t, before, userNode2.LastUsedAt)
+		require.Less(t, userNode2.LastUsedAt, time.Now())
+		require.Equal(t, userNode2.LastUsedAt, user.LastUsedAt)
+	})
 }
