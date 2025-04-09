@@ -50,19 +50,3 @@ func LegacySnapshot(nodeID string, m map[string]types.ClassState) (*raft.Snapsho
 	}
 	return store.Open(sink.ID())
 }
-
-func (s *schema) Restore(r io.Reader, parser Parser) error {
-	snap := Snapshot{}
-	if err := json.NewDecoder(r).Decode(&snap); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %w", err)
-	}
-	for _, cls := range snap.Classes {
-		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
-			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
-		}
-		cls.Sharding.SetLocalName(s.nodeID)
-	}
-
-	s.replaceClasses(snap.Classes)
-	return nil
-}

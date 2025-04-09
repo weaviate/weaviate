@@ -261,6 +261,10 @@ func (m *manager) Restore(r io.Reader) error {
 	if err := json.NewDecoder(r).Decode(&snapshot); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
+
+	// we need to clear the policies before adding the new ones
+	m.casbin.ClearPolicy()
+
 	// TODO : migration has to be done here if needed
 	_, err := m.casbin.AddPolicies(snapshot.Policy)
 	if err != nil {
@@ -272,7 +276,18 @@ func (m *manager) Restore(r io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("add grouping policies: %w", err)
 	}
-	return m.casbin.LoadPolicy()
+
+	// Save the policies to ensure they are persisted
+	if err := m.casbin.SavePolicy(); err != nil {
+		return fmt.Errorf("save policies: %w", err)
+	}
+
+	// Load the policies to ensure they are in memory
+	if err := m.casbin.LoadPolicy(); err != nil {
+		return fmt.Errorf("load policies: %w", err)
+	}
+
+	return nil
 }
 
 // BatchEnforcers is not needed after some digging they just loop over requests,

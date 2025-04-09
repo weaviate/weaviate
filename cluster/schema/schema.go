@@ -12,8 +12,10 @@
 package schema
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
@@ -534,6 +536,22 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	}
 
 	return classesCopy
+}
+
+func (s *schema) Restore(r io.Reader, parser Parser) error {
+	snap := Snapshot{}
+	if err := json.NewDecoder(r).Decode(&snap); err != nil {
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+	for _, cls := range snap.Classes {
+		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
+			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
+		}
+		cls.Sharding.SetLocalName(s.nodeID)
+	}
+
+	s.replaceClasses(snap.Classes)
+	return nil
 }
 
 // makeTenant creates a tenant with the given name and status
