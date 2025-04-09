@@ -127,11 +127,9 @@ func configureAuthorizer(appState *state.State) error {
 		appState.AuthzController = rbacController
 		appState.Authorizer = rbacController
 	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {
-		authroizer := adminlist.New(appState.ServerConfig.Config.Authorization.AdminList)
-		appState.Authorizer = authroizer
+		appState.Authorizer = adminlist.New(appState.ServerConfig.Config.Authorization.AdminList)
 	} else {
-		dummyAuthorizer := &authorization.DummyAuthorizer{}
-		appState.Authorizer = dummyAuthorizer
+		appState.Authorizer = &authorization.DummyAuthorizer{}
 	}
 
 	if appState.ServerConfig.Config.Authorization.Rbac.Enabled && appState.AuthzController == nil {

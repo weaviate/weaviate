@@ -47,11 +47,12 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC                  *oidc.Client
-	AnonymousAccess       *anonymous.Client
-	APIKey                *apikey.Client
-	Authorizer            authorization.Authorizer
-	AuthzController       authorization.Controller
+	OIDC            *oidc.Client
+	AnonymousAccess *anonymous.Client
+	APIKey          *apikey.Client
+	Authorizer      authorization.Authorizer
+	AuthzController authorization.Controller
+
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration
 	Locks                 locks.ConnectorSchemaLock
