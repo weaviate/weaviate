@@ -73,6 +73,8 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 	return nil
 }
 
+// Release is invoked when we are finished with the snapshot.
+// Satisfy the interface for raft.FSMSnapshot
 func (s *Store) Release() {
 }
 
