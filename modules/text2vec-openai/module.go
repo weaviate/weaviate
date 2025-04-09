@@ -134,14 +134,14 @@ func (m *OpenAIModule) RootHandler() http.Handler {
 func (m *OpenAIModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	monitoring.GetMetrics().OpenAIRequestSingleCount.WithLabelValues(m.Name(), "vectorizeObject").Inc()
+	monitoring.GetMetrics().VectorizerRequestSingleCount.WithLabelValues(m.Name(), "vectorizeObject").Inc()
 	icheck := ent.NewClassSettings(cfg)
 	return m.vectorizer.Object(ctx, obj, cfg, icheck)
 }
 
 func (m *OpenAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	monitoring.GetMetrics().OpenAIBatchLength.WithLabelValues(m.Name(), "vectorizeBatch").Observe(float64(len(objs)))
-	monitoring.GetMetrics().OpenAIRequestBatchCount.WithLabelValues(m.Name(), "vectorizeBatch").Inc()
+	monitoring.GetMetrics().VectorizerBatchLength.WithLabelValues(m.Name(), "vectorizeBatch").Observe(float64(len(objs)))
+	monitoring.GetMetrics().VectorizerRequestBatchCount.WithLabelValues(m.Name(), "vectorizeBatch").Inc()
 	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
 	return vecs, nil, errs
 }
@@ -157,8 +157,8 @@ func (m *OpenAIModule) AdditionalProperties() map[string]modulecapabilities.Addi
 func (m *OpenAIModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	monitoring.GetMetrics().OpenAIRequestSingleCount.WithLabelValues(m.Name(), "vectorizeTexts").Inc()
-	monitoring.GetMetrics().OpenAIRequestSize.WithLabelValues(m.Name(), "vectorizeTexts").Observe(float64(len(input)))
+	monitoring.GetMetrics().VectorizerRequestSingleCount.WithLabelValues(m.Name(), "vectorizeTexts").Inc()
+	monitoring.GetMetrics().VectorizerRequestSize.WithLabelValues(m.Name(), "vectorizeTexts").Observe(float64(len(input)))
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 

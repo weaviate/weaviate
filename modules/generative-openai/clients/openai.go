@@ -76,7 +76,7 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 }
 
 func (v *openai) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	monitoring.GetMetrics().OpenAIRequestSingleCount.WithLabelValues("generate", "openai").Inc()
+	monitoring.GetMetrics().VectorizerRequestSingleCount.WithLabelValues("generate", "openai").Inc()
 	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func (v *openai) GenerateSingleResult(ctx context.Context, properties *modulecap
 }
 
 func (v *openai) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	monitoring.GetMetrics().OpenAIRequestBatchCount.WithLabelValues("generate", "openai").Inc()
+	monitoring.GetMetrics().VectorizerRequestBatchCount.WithLabelValues("generate", "openai").Inc()
 	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
@@ -108,10 +108,10 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "generate input")
 	}
 
-	monitoring.GetMetrics().OpenAIRequests.WithLabelValues("generate", "openai").Inc()
+	monitoring.GetMetrics().VectorizerRequests.WithLabelValues("generate", "openai").Inc()
 	startTime := time.Now()
 	defer func() {
-		monitoring.GetMetrics().OpenAIRequestDuration.WithLabelValues("generate", oaiUrl).Observe(time.Since(startTime).Seconds())
+		monitoring.GetMetrics().VectorizerRequestDuration.WithLabelValues("generate", oaiUrl).Observe(time.Since(startTime).Seconds())
 	}()
 
 	body, err := json.Marshal(input)
@@ -119,7 +119,7 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	monitoring.GetMetrics().OpenAIRequestSize.WithLabelValues("generate", oaiUrl).Observe(float64(len(body)))
+	monitoring.GetMetrics().VectorizerRequestSize.WithLabelValues("generate", oaiUrl).Observe(float64(len(body)))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
 		bytes.NewReader(body))
@@ -148,7 +148,7 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "read response body")
 	}
 
-	monitoring.GetMetrics().OpenAIResponseSize.WithLabelValues("generate", oaiUrl).Observe(float64(len(bodyBytes)))
+	monitoring.GetMetrics().VectorizerResponseSize.WithLabelValues("generate", oaiUrl).Observe(float64(len(bodyBytes)))
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
@@ -370,12 +370,12 @@ func (v *openai) getError(statusCode int, requestID string, resBodyError *openAI
 	if resBodyError != nil {
 		errorMsg = fmt.Sprintf("%s error: %v", errorMsg, resBodyError.Message)
 	}
-	monitoring.GetMetrics().OpenAIError.WithLabelValues("generate", "openai", endpoint, fmt.Sprintf("%v", statusCode)).Inc()
+	monitoring.GetMetrics().VectorizerError.WithLabelValues("generate", "openai", endpoint, fmt.Sprintf("%v", statusCode)).Inc()
 	return errors.New(errorMsg)
 }
 
 func (v *openai) determineTokens(maxTokensSetting float64, classSetting int, model string, messages []message) (*int, error) {
-	monitoring.GetMetrics().OpenAIBatchLength.WithLabelValues("generate", "openai").Observe(float64(len(messages)))
+	monitoring.GetMetrics().VectorizerBatchLength.WithLabelValues("generate", "openai").Observe(float64(len(messages)))
 	tokenMessagesCount, err := getTokensCount(model, messages)
 	if err != nil {
 		maxTokens := 0

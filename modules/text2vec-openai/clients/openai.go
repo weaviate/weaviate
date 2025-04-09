@@ -156,7 +156,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	}
 
 	defer func() {
-		monitoring.GetMetrics().OpenAIRequestDuration.WithLabelValues("text2vec", "vectorize").Observe(time.Since(startTime).Seconds())
+		monitoring.GetMetrics().VectorizerRequestDuration.WithLabelValues("text2vec", "vectorize").Observe(time.Since(startTime).Seconds())
 	}()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
@@ -174,9 +174,9 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	}
 	req.Header.Add("Content-Type", "application/json")
 
-	monitoring.GetMetrics().OpenAIRequestSingleCount.WithLabelValues("text2vec", endpoint).Inc()
+	monitoring.GetMetrics().VectorizerRequestSingleCount.WithLabelValues("text2vec", endpoint).Inc()
 
-	monitoring.GetMetrics().OpenAIRequestSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(body)))
+	monitoring.GetMetrics().VectorizerRequestSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(body)))
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
@@ -190,8 +190,8 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		return nil, nil, 0, errors.Wrap(err, "read response body")
 	}
 
-	monitoring.GetMetrics().OpenAIResponseSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(bodyBytes)))
-	monitoring.GetMetrics().OpenAIResponseStatus.WithLabelValues("text2vec", endpoint, strconv.Itoa(res.StatusCode)).Inc()
+	monitoring.GetMetrics().VectorizerResponseSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(bodyBytes)))
+	monitoring.GetMetrics().VectorizerResponseStatus.WithLabelValues("text2vec", endpoint, strconv.Itoa(res.StatusCode)).Inc()
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
