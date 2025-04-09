@@ -57,7 +57,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	defer h.metrics.TrackStartupTotal(beforeAll)
 	defer func() {
 		h.logger.WithField("action", "restore_from_disk").
-			WithField("duration", time.Since(beforeAll)).
+			WithField("duration", time.Since(beforeAll).String()).
 			Info("restored data from disk")
 	}()
 

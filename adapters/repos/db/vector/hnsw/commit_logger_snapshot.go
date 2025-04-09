@@ -122,7 +122,7 @@ func (l *hnswCommitLogger) createOrLoadSnapshot(load bool) (*DeserializationResu
 
 	l.logger.WithField("action", "hnsw_create_snapshot").
 		WithField("path", snapshotFileName).
-		WithField("duration", time.Since(start)).
+		WithField("duration", time.Since(start).String()).
 		Info("snapshot created")
 
 	return state, ts, nil
