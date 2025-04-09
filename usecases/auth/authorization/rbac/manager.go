@@ -220,35 +220,43 @@ func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
 	return m.casbin.InvalidateCache()
 }
 
-func (s *manager) SnapShot() (*authorization.Snapshot, error) {
-	policy, err := s.casbin.GetPolicy()
+func (m *manager) SnapShot() (*authorization.Snapshot, error) {
+	if m.casbin == nil {
+		return nil, nil
+	}
+
+	policy, err := m.casbin.GetPolicy()
 	if err != nil {
 		return nil, err
 	}
-	groupingPolicy, err := s.casbin.GetGroupingPolicy()
+	groupingPolicy, err := m.casbin.GetGroupingPolicy()
 	if err != nil {
 		return nil, err
 	}
 	return &authorization.Snapshot{Policy: policy, GroupingPolicy: groupingPolicy}, nil
 }
 
-func (s *manager) Restore(r io.Reader) error {
+func (m *manager) Restore(r io.Reader) error {
+	if m.casbin == nil {
+		return nil
+	}
+
 	snapshot := authorization.Snapshot{}
 	if err := json.NewDecoder(r).Decode(&snapshot); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 	// TODO : migration has to be done here if needed
-	_, err := s.casbin.AddPolicies(snapshot.Policy)
+	_, err := m.casbin.AddPolicies(snapshot.Policy)
 	if err != nil {
 		return fmt.Errorf("add policies: %w", err)
 	}
 
 	// TODO : migration has to be done here if needed
-	_, err = s.casbin.AddGroupingPolicies(snapshot.GroupingPolicy)
+	_, err = m.casbin.AddGroupingPolicies(snapshot.GroupingPolicy)
 	if err != nil {
 		return fmt.Errorf("add grouping policies: %w", err)
 	}
-	return s.casbin.LoadPolicy()
+	return m.casbin.LoadPolicy()
 }
 
 // BatchEnforcers is not needed after some digging they just loop over requests,
