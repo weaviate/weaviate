@@ -127,7 +127,7 @@ func (a *Authorizer) addReadOnlyGroupList(groups []string) {
 	}
 }
 
-func (a *Authorizer) SnapShot() (*authorization.Snapshot, error) {
+func (a *Authorizer) Snapshot() (*authorization.Snapshot, error) {
 	return nil, nil
 }
 

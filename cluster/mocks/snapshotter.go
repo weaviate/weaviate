@@ -20,19 +20,19 @@ import (
 
 // MockSnapshotter implements the authorization.Snapshotter interface for testing
 type MockSnapshotter struct {
-	Snapshot         *authorization.Snapshot
+	InputSnapshot    *authorization.Snapshot
 	RestoreCalled    bool
 	RestoredSnapshot *authorization.Snapshot
-	SnapshotError    error // Add error for SnapShot method
+	SnapshotError    error // Add error for Snapshot method
 	RestoreError     error // Add error for Restore method
 }
 
-// SnapShot returns a mock snapshot for testing
-func (m *MockSnapshotter) SnapShot() (*authorization.Snapshot, error) {
+// Snapshot returns a mock snapshot for testing
+func (m *MockSnapshotter) Snapshot() (*authorization.Snapshot, error) {
 	if m.SnapshotError != nil {
 		return nil, m.SnapshotError
 	}
-	return m.Snapshot, nil
+	return m.InputSnapshot, nil
 }
 
 // Restore records that it was called and stores the restored data

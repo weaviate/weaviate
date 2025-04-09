@@ -220,7 +220,7 @@ func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
 	return m.casbin.InvalidateCache()
 }
 
-func (m *manager) SnapShot() (*authorization.Snapshot, error) {
+func (m *manager) Snapshot() (*authorization.Snapshot, error) {
 	if m.casbin == nil {
 		return nil, nil
 	}

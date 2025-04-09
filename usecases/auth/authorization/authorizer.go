@@ -48,7 +48,7 @@ func (d *DummyAuthorizer) FilterAuthorizedResources(principal *models.Principal,
 	return resources, nil
 }
 
-func (d *DummyAuthorizer) SnapShot() (*Snapshot, error) {
+func (d *DummyAuthorizer) Snapshot() (*Snapshot, error) {
 	return nil, nil
 }
 

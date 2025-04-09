@@ -44,12 +44,12 @@ func (_m *Snapshotter) Restore(r io.Reader) error {
 	return r0
 }
 
-// SnapShot provides a mock function with no fields
-func (_m *Snapshotter) SnapShot() (*authorization.Snapshot, error) {
+// Snapshot provides a mock function with no fields
+func (_m *Snapshotter) Snapshot() (*authorization.Snapshot, error) {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
-		panic("no return value specified for SnapShot")
+		panic("no return value specified for Snapshot")
 	}
 
 	var r0 *authorization.Snapshot

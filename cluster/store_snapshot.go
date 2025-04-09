@@ -36,7 +36,7 @@ type FSMSnapshot struct {
 // and call sink.Close() when finished or call sink.Cancel() on error.
 func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 	defer sink.Close()
-	rbacSnapshot, err := s.authZManager.SnapShot()
+	rbacSnapshot, err := s.authZManager.Snapshot()
 	if err != nil {
 		return fmt.Errorf("rbac snapshot: %w", err)
 	}
