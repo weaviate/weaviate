@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/sirupsen/logrus"
 
@@ -25,13 +26,12 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ       authorization.Controller
-	snapshotter authorization.Snapshotter
-	logger      logrus.FieldLogger
+	authZ  authorization.Controller
+	logger logrus.FieldLogger
 }
 
-func NewManager(authZ authorization.Controller, snapshotter authorization.Snapshotter, logger logrus.FieldLogger) *Manager {
-	return &Manager{authZ: authZ, snapshotter: snapshotter, logger: logger}
+func NewManager(authZ authorization.Controller, logger logrus.FieldLogger) *Manager {
+	return &Manager{authZ: authZ, logger: logger}
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
@@ -228,4 +228,18 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 	}
 
 	return m.authZ.RevokeRolesForUser(req.User, req.Roles...)
+}
+
+func (m *Manager) Snapshot() ([]byte, error) {
+	if m.authZ == nil {
+		return nil, nil
+	}
+	return m.authZ.Snapshot()
+}
+
+func (m *Manager) Restore(r io.Reader) error {
+	if m.authZ == nil {
+		return nil
+	}
+	return m.authZ.Restore(r)
 }

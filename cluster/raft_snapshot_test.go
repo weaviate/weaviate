@@ -34,9 +34,7 @@ import (
 // without impacting the underlying database if it has integrated changes already
 func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	ctx := context.Background()
-	m, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "Node-1", utils.MustGetFreeTCPPort())
-	snapshotter.On("Snapshot").Return(nil, nil)
-	snapshotter.On("Restore", mock.Anything).Return(nil)
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 

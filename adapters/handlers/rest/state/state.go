@@ -52,7 +52,6 @@ type State struct {
 	APIKey                *apikey.Client
 	Authorizer            authorization.Authorizer
 	AuthzController       authorization.Controller
-	RBACSnapshotter       authorization.Snapshotter
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration
 	Locks                 locks.ConnectorSchemaLock

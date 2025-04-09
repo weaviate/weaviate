@@ -13,9 +13,11 @@ package cluster
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -77,4 +79,12 @@ func (s *Raft) SchemaReader() schema.SchemaReader {
 
 func (s *Raft) WaitUntilDBRestored(ctx context.Context, period time.Duration, close chan struct{}) error {
 	return s.store.WaitToRestoreDB(ctx, period, close)
+}
+
+func (s *Raft) Snapshot() ([]byte, error) {
+	return s.store.authZManager.Snapshot()
+}
+
+func (s *Raft) Restore(r io.Reader) error {
+	return s.store.authZManager.Restore(r)
 }
