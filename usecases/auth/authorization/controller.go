@@ -11,11 +11,7 @@
 
 package authorization
 
-import "io"
-
 type Controller interface {
-	Snapshot() ([]byte, error)
-	Restore(r io.Reader) error
 	UpdateRolesPermissions(roles map[string][]Policy) error
 	CreateRolesPermissions(roles map[string][]Policy) error
 	GetRoles(names ...string) (map[string][]Policy, error)
