@@ -333,8 +333,8 @@ func assertGaugeValues(t *testing.T, reg prometheus.Gatherer, metricName string,
 	_, _ = fmt.Fprintf(&expectedOutput, "\n# HELP %s Current number of replication operations in each state of the FSM lifecycle\n", metricName)
 	_, _ = fmt.Fprintf(&expectedOutput, "# TYPE %s gauge\n", metricName)
 
-	for labelValue, value := range expectedMetrics {
-		_, _ = fmt.Fprintf(&expectedOutput, "%s{state=\"%s\"} %v\n", metricName, labelValue, value)
+	for expectedState, expectedMetricValue := range expectedMetrics {
+		_, _ = fmt.Fprintf(&expectedOutput, "%s{state=\"%s\"} %v\n", metricName, expectedState, expectedMetricValue)
 	}
 
 	err := testutil.GatherAndCompare(reg, strings.NewReader(expectedOutput.String()), metricName)
