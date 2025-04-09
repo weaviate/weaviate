@@ -539,10 +539,21 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 }
 
 func (s *schema) Restore(r io.Reader, parser Parser) error {
-	snap := Snapshot{}
+	snap := snapshot{}
 	if err := json.NewDecoder(r).Decode(&snap); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
+
+	// Handle both Schema (new) and Classes (old) fields
+	if len(snap.Schema) > 0 {
+		// New version - decode from Schema field
+		var classes map[string]*metaClass
+		if err := json.Unmarshal(snap.Schema, &classes); err != nil {
+			return fmt.Errorf("restore snapshot: decode json from Schema field: %w", err)
+		}
+		snap.Classes = classes
+	}
+
 	for _, cls := range snap.Classes {
 		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
 			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted

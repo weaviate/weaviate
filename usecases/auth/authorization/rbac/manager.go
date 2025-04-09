@@ -245,8 +245,7 @@ func (m *manager) Snapshot() ([]byte, error) {
 
 	// Use a buffer to stream the JSON encoding
 	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	if err := encoder.Encode(jsn); err != nil {
+	if err := json.NewEncoder(&buf).Encode(jsn); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
