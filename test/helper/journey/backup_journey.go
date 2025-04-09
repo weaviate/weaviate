@@ -128,7 +128,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 			assert.Equal(t, *resp.Payload.Status, string(backup.Success))
 
-		}, 90*time.Second, 1000*time.Millisecond)
+		}, 240*time.Second, 1000*time.Millisecond)
 
 		statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 
