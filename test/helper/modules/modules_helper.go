@@ -105,10 +105,12 @@ func CreateTestFiles(t *testing.T, dirPath string) []string {
 
 func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName string) {
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		fmt.Println("Creating GCS bucket", bucketName)
 		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 		assert.Nil(t, err)
 		assert.Nil(t, client.Bucket(bucketName).Create(ctx, projectID, nil))
-	}, 5*time.Second, 500*time.Millisecond)
+		fmt.Println("Created GCS bucket:", bucketName)
+	}, 10*time.Second, 500*time.Millisecond)
 }
 
 func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {

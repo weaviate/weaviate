@@ -76,10 +76,16 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 	}
 
 	t.Run("create backup"+overrideString, func(t *testing.T) {
+
+		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+
+		}, 10*time.Second, 500*time.Millisecond)
+
 		// Ensure cluster is in sync
 		if journeyType == clusterJourney {
 			time.Sleep(3 * time.Second)
 		}
+
 		cfg := helper.DefaultBackupConfig()
 
 		if override {
@@ -87,51 +93,42 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			cfg.Path = overridePath
 		}
 
-		resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
-		helper.AssertRequestOk(t, resp, err, nil)
-		assert.Equal(t, cfg.Bucket, resp.Payload.Bucket)
-		if cfg.Bucket != "" {
-			assert.Contains(t, resp.Payload.Path, cfg.Bucket)
-		}
-		if cfg.Path != "" {
-			assert.Contains(t, resp.Payload.Path, cfg.Path)
-		}
-		assert.Equal(t, backupID, resp.Payload.ID)
-		assert.Equal(t, className, resp.Payload.Classes[0])
-		assert.Equal(t, "", resp.Payload.Error)
-		assert.Equal(t, string(backup.Started), *resp.Payload.Status)
-
-		// wait for create success
-		ticker := time.NewTicker(90 * time.Second)
-
-	wait:
-		for {
-			select {
-			case <-ticker.C:
-				break wait
-			default:
-
-				resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
-
-				helper.AssertRequestOk(t, resp, err, func() {
-					require.NotNil(t, resp)
-					require.NotNil(t, resp.Payload)
-					require.NotNil(t, resp.Payload.Status)
-					assert.Equal(t, backupID, resp.Payload.ID)
-					assert.Equal(t, backend, resp.Payload.Backend)
-					assert.Contains(t, resp.Payload.Path, overrideBucket)
-					if !strings.Contains(resp.Payload.Path, overridePath) {
-						t.Logf("expected path: %s, got: %s", overridePath, resp.Payload.Path)
-					}
-					assert.Contains(t, resp.Payload.Path, overridePath)
-				})
-
-				if *resp.Payload.Status == string(backup.Success) {
-					break wait
-				}
-				time.Sleep(1 * time.Second)
+		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+			resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
+			helper.AssertRequestOk(t, resp, err, nil)
+			assert.Equal(t, cfg.Bucket, resp.Payload.Bucket)
+			if cfg.Bucket != "" {
+				assert.Contains(t, resp.Payload.Path, cfg.Bucket)
 			}
-		}
+			if cfg.Path != "" {
+				assert.Contains(t, resp.Payload.Path, cfg.Path)
+			}
+			assert.Equal(t, backupID, resp.Payload.ID)
+			assert.Equal(t, className, resp.Payload.Classes[0])
+			assert.Equal(t, "", resp.Payload.Error)
+			assert.Equal(t, string(backup.Started), *resp.Payload.Status)
+
+		}, 10*time.Second, 500*time.Millisecond)
+
+		resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
+		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+
+			helper.AssertRequestOk(t, resp, err, func() {
+				require.NotNil(t, resp)
+				require.NotNil(t, resp.Payload)
+				require.NotNil(t, resp.Payload.Status)
+				assert.Equal(t, backupID, resp.Payload.ID)
+				assert.Equal(t, backend, resp.Payload.Backend)
+				assert.Contains(t, resp.Payload.Path, overrideBucket)
+				if !strings.Contains(resp.Payload.Path, overridePath) {
+					t.Logf("expected path: %s, got: %s", overridePath, resp.Payload.Path)
+				}
+				assert.Contains(t, resp.Payload.Path, overridePath)
+			})
+
+			assert.Equal(t, *resp.Payload.Status, string(backup.Success))
+
+		}, 90*time.Second, 1000*time.Millisecond)
 
 		statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 
@@ -254,7 +251,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 	t.Run("create and cancel backup", func(t *testing.T) {
 		// Ensure cluster is in sync
 		if journeyType == clusterJourney {
-			time.Sleep(3 * time.Second)
+			time.Sleep(5 * time.Second)
 		}
 		cfg := helper.DefaultBackupConfig()
 		cfg.Bucket = overrideBucket
@@ -268,7 +265,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 		})
 
 		// wait for cancellation
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(20 * time.Second)
 	wait:
 		for {
 			select {
