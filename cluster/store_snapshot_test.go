@@ -40,7 +40,7 @@ func TestSchemaSnapshotPersistAndRestore(t *testing.T) {
 	// Setup test schema data directly using the Store's Apply method
 	source, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "source-node", utils.MustGetFreeTCPPort())
 	setupTestSchema(t, source)
-	snapshotter.On("SnapShot").Return(nil, nil)
+	snapshotter.On("Snapshot").Return(nil, nil)
 
 	snapshotSink := &mocks.SnapshotSink{
 		Buffer: bytes.NewBuffer(nil),
@@ -73,7 +73,7 @@ func TestSchemaSnapshotPersistAndRestore(t *testing.T) {
 // TestSchemaSnapshotEmptyStore tests snapshot persistence and restoration with an empty store
 func TestSchemaSnapshotEmptyStore(t *testing.T) {
 	source, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "empty-source-node", utils.MustGetFreeTCPPort())
-	snapshotter.On("SnapShot").Return(nil, nil)
+	snapshotter.On("Snapshot").Return(nil, nil)
 
 	snapshotSink := &mocks.SnapshotSink{
 		Buffer: bytes.NewBuffer(nil),
@@ -106,7 +106,7 @@ func TestSchemaSnapshotPersistError(t *testing.T) {
 	// Create source store with schema data
 	source, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "error-source-node", utils.MustGetFreeTCPPort())
 	setupTestSchema(t, source)
-	snapshotter.On("SnapShot").Return(nil, nil)
+	snapshotter.On("Snapshot").Return(nil, nil)
 
 	errorSink := &mocks.SnapshotSink{
 		Buffer:     bytes.NewBuffer(nil),
@@ -127,7 +127,7 @@ func TestSchemaSnapshotRestoreError(t *testing.T) {
 	// Create source store with schema data
 	source, snapshotter := NewMockStoreWithSnapshotterExpectations(t, "restore-error-source-node", utils.MustGetFreeTCPPort())
 	setupTestSchema(t, source)
-	snapshotter.On("SnapShot").Return(nil, nil)
+	snapshotter.On("Snapshot").Return(nil, nil)
 
 	snapshotSink := &mocks.SnapshotSink{
 		Buffer: bytes.NewBuffer(nil),
@@ -182,7 +182,7 @@ func TestRBACSnapshotPersistAndRestore(t *testing.T) {
 	}
 
 	mockSourceSnapshotter := &mocks.MockSnapshotter{
-		Snapshot: &authorization.Snapshot{
+		InputSnapshot: &authorization.Snapshot{
 			Policy:         mockPolicy,
 			GroupingPolicy: mockGroupingPolicy,
 		},
@@ -267,7 +267,7 @@ func TestRBACSnapshotRestoreError(t *testing.T) {
 	}
 
 	mockSourceSnapshotter := &mocks.MockSnapshotter{
-		Snapshot: &authorization.Snapshot{
+		InputSnapshot: &authorization.Snapshot{
 			Policy:         mockPolicy,
 			GroupingPolicy: mockGroupingPolicy,
 		},
@@ -327,7 +327,7 @@ func TestCombinedSchemaRBACSnapshot(t *testing.T) {
 	}
 
 	mockSourceSnapshotter := &mocks.MockSnapshotter{
-		Snapshot: &authorization.Snapshot{
+		InputSnapshot: &authorization.Snapshot{
 			Policy:         mockPolicy,
 			GroupingPolicy: mockGroupingPolicy,
 		},
@@ -390,7 +390,7 @@ func TestRBACEmptySnapshot(t *testing.T) {
 	source := NewMockStore(t, "rbac-empty-source-node", utils.MustGetFreeTCPPort())
 	source.store.init()
 	mockSourceSnapshotter := &mocks.MockSnapshotter{
-		Snapshot: &authorization.Snapshot{
+		InputSnapshot: &authorization.Snapshot{
 			Policy:         [][]string{},
 			GroupingPolicy: [][]string{},
 		},
@@ -451,7 +451,7 @@ func TestSnapshotEncodingDecoding(t *testing.T) {
 	}
 
 	mockSourceSnapshotter := &mocks.MockSnapshotter{
-		Snapshot: &authorization.Snapshot{
+		InputSnapshot: &authorization.Snapshot{
 			Policy:         mockPolicy,
 			GroupingPolicy: mockGroupingPolicy,
 		},
@@ -518,7 +518,7 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 	}
 
 	mockSourceSnapshotter := &mocks.MockSnapshotter{
-		Snapshot: &authorization.Snapshot{
+		InputSnapshot: &authorization.Snapshot{
 			Policy:         mockPolicy,
 			GroupingPolicy: mockGroupingPolicy,
 		},

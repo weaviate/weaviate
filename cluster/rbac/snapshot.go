@@ -17,8 +17,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func (m *Manager) SnapShot() (*authorization.Snapshot, error) {
-	return m.snapshotter.SnapShot()
+func (m *Manager) Snapshot() (*authorization.Snapshot, error) {
+	return m.snapshotter.Snapshot()
 }
 
 func (m *Manager) Restore(r io.Reader) error {

@@ -21,7 +21,7 @@ type Snapshot struct {
 
 // Snapshotter is used to snapshot and restore the RBAC state
 type Snapshotter interface {
-	SnapShot() (*Snapshot, error)
+	Snapshot() (*Snapshot, error)
 	Restore(r io.Reader) error
 }
 
