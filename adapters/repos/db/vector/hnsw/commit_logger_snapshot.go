@@ -254,7 +254,9 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 		return nil, errors.Wrap(err, "corrupted commit log fixer")
 	}
 
-	for _, fileName := range fileNames {
+	for i, fileName := range fileNames {
+		beforeIndividual := time.Now()
+
 		fd, err := os.Open(fileName)
 		if err != nil {
 			return nil, errors.Wrapf(err, "open commit log %q for reading", fileName)
@@ -291,6 +293,11 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 				// up in a startup crashloop
 				return nil, errors.Wrapf(err, "deserialize commit log %q", fileName)
 			}
+		}
+
+		if metrics != nil {
+			metrics.StartupProgress(float64(i+1) / float64(len(fileNames)))
+			metrics.TrackStartupIndividual(beforeIndividual)
 		}
 	}
 
