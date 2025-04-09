@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clients
+package transformers
 
 import (
 	"context"
@@ -22,23 +22,24 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/transformers"
 )
 
 func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New(server.URL, server.URL, 0, nullLogger())
-		expected := &transformers.VectorizationResult{
+		c := New(NewURLBuilder(server.URL, server.URL), 0, nullLogger())
+		expected := &VectorizationResult{
 			Text:       "This is my text",
 			Vector:     []float32{0.1, 0.2, 0.3},
 			Dimensions: 3,
 		}
 		res, err := c.VectorizeObject(context.Background(), "This is my text",
-			transformers.VectorizationConfig{
+			VectorizationConfig{
 				PoolingStrategy: "masked_mean",
 			})
 
@@ -49,11 +50,11 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New(server.URL, server.URL, 0, nullLogger())
+		c := New(NewURLBuilder(server.URL, server.URL), 0, nullLogger())
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.VectorizeObject(ctx, "This is my text", transformers.VectorizationConfig{})
+		_, err := c.VectorizeObject(ctx, "This is my text", VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -65,9 +66,9 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New(server.URL, server.URL, 0, nullLogger())
+		c := New(NewURLBuilder(server.URL, server.URL), 0, nullLogger())
 		_, err := c.VectorizeObject(context.Background(), "This is my text",
-			transformers.VectorizationConfig{})
+			VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "nope, not gonna happen")
@@ -111,4 +112,9 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)
+}
+
+func nullLogger() logrus.FieldLogger {
+	l, _ := test.NewNullLogger()
+	return l
 }

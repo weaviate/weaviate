@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/transformers"
@@ -31,7 +33,7 @@ func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New(server.URL, server.URL, 0, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		expected := &transformers.VectorizationResult{
 			Text:       "This is my text",
 			Vector:     []float32{0.1, 0.2, 0.3},
@@ -49,7 +51,7 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New(server.URL, server.URL, 0, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
@@ -65,7 +67,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New(server.URL, server.URL, 0, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		_, err := c.VectorizeObject(context.Background(), "This is my text",
 			transformers.VectorizationConfig{})
 
@@ -111,4 +113,9 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)
+}
+
+func nullLogger() logrus.FieldLogger {
+	l, _ := test.NewNullLogger()
+	return l
 }

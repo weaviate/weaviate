@@ -14,10 +14,12 @@ package vectorizer
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/transformers"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 type Vectorizer struct {
@@ -63,4 +65,24 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 	}
 
 	return res.Vector, nil
+}
+
+func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
+	cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	vectors := make([][]float32, len(inputs))
+	for i := range inputs {
+		res, err := v.client.VectorizeQuery(ctx, inputs[i], v.getVectorizationConfig(cfg))
+		if err != nil {
+			return nil, errors.Wrap(err, "remote client vectorize")
+		}
+		vectors[i] = res.Vector
+	}
+
+	return libvectorizer.CombineVectors(vectors), nil
+}
+
+func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) transformers.VectorizationConfig {
+	settings := NewClassSettings(cfg)
+	return transformers.VectorizationConfig{InferenceURL: settings.InferenceURL()}
 }
