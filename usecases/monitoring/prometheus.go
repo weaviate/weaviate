@@ -143,7 +143,7 @@ type PrometheusMetrics struct {
 	TokenCount                  *prometheus.CounterVec
 	TokenCountPerRequest        *prometheus.HistogramVec
 
-	// OpenAI
+	// Currently targetted at OpenAI, the metrics will have to be added to every vectorizer for complete coverage
 	VectorizerRequests           *prometheus.CounterVec
 	VectorizerRequestDuration    *prometheus.HistogramVec
 	VectorizerBatchLength        *prometheus.HistogramVec
