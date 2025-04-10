@@ -906,6 +906,31 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				backupScheduler.CleanupUnfinishedBackups(ctx)
 			}, appState.Logger)
 	}
+
+	go func() {
+		statemachine.OnStateChange("telemetry", statemachine.StatePreShutdown, func (from, to statemachine.State) error { return telemeter.Stop(context.TODO()) })
+		statemachine.SignalReady("telemetry", statemachine.StatePreShutdown)
+	}()
+
+	go func() {
+		statemachine.OnStateChange("grpcserver", statemachine.StatePreShutdown, func (from, to statemachine.State) error {
+			grpcServer.GracefulStop()
+			return nil
+		})
+		statemachine.SignalReady("grpcserver", statemachine.StatePreShutdown)
+	}()
+
+	go func() {
+		statemachine.OnStateChange("sentry", statemachine.StatePreShutdown, func (from, to statemachine.State) error {
+			if appState.ServerConfig.Config.Sentry.Enabled {
+				sentry.Flush(2 * time.Second)
+			}
+			return nil
+		})
+		statemachine.SignalReady("sentry", statemachine.StatePreShutdown)
+	}()
+
+
 	api.ServerShutdown = func() {
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -918,6 +943,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 					Errorf("failed to stop telemetry: %s", err.Error())
 			}
 		}
+
+
 
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel()
