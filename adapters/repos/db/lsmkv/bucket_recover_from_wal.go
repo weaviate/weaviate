@@ -27,8 +27,6 @@ import (
 
 var logOnceWhenRecoveringFromWAL sync.Once
 
-const pathSeparator = ","
-
 func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 	beforeAll := time.Now()
 	defer b.metrics.TrackStartupBucketRecovery(beforeAll)
@@ -55,10 +53,31 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 			continue
 		}
 
+		path := filepath.Join(b.dir, fileInfo.Name())
+
+		stat, err := os.Stat(path)
+		if err != nil {
+			return errors.Wrap(err, "stat commit log")
+		}
+
+		if stat.Size() == 0 {
+			err := os.Remove(path)
+			if err != nil {
+				return errors.Wrap(err, "remove empty wal file")
+			}
+			continue
+		}
+
 		walFileNames = append(walFileNames, fileInfo.Name())
 	}
 
-	var emptyWALPaths strings.Builder
+	if len(walFileNames) > 0 {
+		logOnceWhenRecoveringFromWAL.Do(func() {
+			b.logger.WithField("action", "lsm_recover_from_active_wal").
+				WithField("path", b.dir).
+				Warning("active write-ahead-log found. Did weaviate crash prior to this?")
+		})
+	}
 
 	// recover from each log
 	for _, fname := range walFileNames {
@@ -73,31 +92,11 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		cl.pause()
 		defer cl.unpause()
 
-		stat, err := cl.file.Stat()
-		if err != nil {
-			return errors.Wrap(err, "stat commit log")
-		}
-
-		if stat.Size() == 0 {
-			emptyWALPaths.WriteString(path)
-			emptyWALPaths.WriteString(pathSeparator)
-			continue
-		}
-
 		mt, err := newMemtable(path, b.strategy, b.secondaryIndices,
 			cl, b.metrics, b.logger, b.enableChecksumValidation)
 		if err != nil {
 			return err
 		}
-
-		logOnceWhenRecoveringFromWAL.Do(func() {
-			b.logger.WithField("action", "lsm_recover_from_active_wal").
-				Warning("active write-ahead-log found. Did weaviate crash prior to this?")
-		})
-
-		b.logger.WithField("action", "lsm_recover_from_active_wal").
-			WithField("path", path).
-			Debug("active write-ahead-log found. Did weaviate crash prior to this or the tenant on/loaded from the cloud? Trying to recover...")
 
 		meteredReader := diskio.NewMeteredReader(bufio.NewReader(cl.file), b.metrics.TrackStartupReadWALDiskIO)
 
@@ -129,12 +128,6 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		b.logger.WithField("action", "lsm_recover_from_active_wal_success").
 			WithField("path", filepath.Join(b.dir, fname)).
 			Info("successfully recovered from write-ahead-log")
-	}
-
-	if emptyWALPaths.Len() > 0 {
-		b.logger.WithField("action", "lsm_recover_from_active_wal").
-			WithField("path", strings.TrimSuffix(emptyWALPaths.String(), pathSeparator)).
-			Warning("empty write-ahead-log found. Did weaviate crash prior to this or the tenant on/loaded from the cloud? Nothing to recover from this file.")
 	}
 
 	return nil
