@@ -40,18 +40,15 @@ func (r *RemoteApiKey) GetUserStatus(ctx context.Context, users UserStatusReques
 		return nil, err
 	}
 
-	userIdsReturned := make([]string, 0, len(userReturns))
-	timesReturned := make([]time.Time, 0, len(userReturns))
+	ret := make(map[string]time.Time, len(userReturns))
 	for _, userReturn := range userReturns {
-		userIdsReturned = append(userIdsReturned, userReturn.Id)
-		timesReturned = append(timesReturned, userReturn.LastUsedAt)
+		ret[userReturn.Id] = userReturn.LastUsedAt
 	}
-	return &UserStatusResponse{UserIds: userIdsReturned, LastUsedAt: timesReturned}, nil
+	return &UserStatusResponse{Users: ret}, nil
 }
 
 type UserStatusResponse struct {
-	UserIds    []string
-	LastUsedAt []time.Time
+	Users map[string]time.Time
 }
 
 type UserStatusRequest struct {

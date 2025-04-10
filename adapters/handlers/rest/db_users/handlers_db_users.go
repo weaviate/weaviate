@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"sync"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -198,51 +199,10 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		if isRootUser {
 			response.APIKeyFirstLetters = user.ApiKeyFirstLetters
 		}
+
 		if params.IncludeLastUsedTime != nil && *params.IncludeLastUsedTime {
-			ctx, cancelFunc := context.WithTimeout(context.Background(), time.Second)
-			defer cancelFunc()
-			userStatuses := make([]*apikey.UserStatusResponse, len(h.nodesGetter.Nodes()))
-			eg, ctx2 := enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
-			eg.SetLimit(_NUMCPU)
-			for i, nodeName := range h.nodesGetter.Nodes() {
-				i, nodeName := i, nodeName
-				eg.Go(func() error {
-					status, err := h.remoteUser.GetUserStatus(ctx2, nodeName, map[string]time.Time{params.UserID: user.LastUsedAt}, true)
-					if err != nil {
-						return fmt.Errorf("node: %v: %w", nodeName, err)
-					}
-
-					userStatuses[i] = status
-
-					return nil
-				}, nodeName)
-			}
-			_ = eg.Wait() // we tolerate errors in some requests
-			lastUsedTime := user.LastUsedAt
-
-			for _, status := range userStatuses {
-				if status != nil && len(status.LastUsedAt) > 0 {
-					if status.LastUsedAt[0].After(lastUsedTime) {
-						lastUsedTime = status.LastUsedAt[0]
-					}
-				}
-			}
-			response.LastUsedAt = strfmt.DateTime(lastUsedTime)
-
-			// update all other nodes with results, we don't need to wait for this
-			eg, ctx2 = enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
-			eg.SetLimit(_NUMCPU)
-			for _, nodeName := range h.nodesGetter.Nodes() {
-				nodeName := nodeName
-				eg.Go(func() error {
-					_, err := h.remoteUser.GetUserStatus(ctx2, nodeName, map[string]time.Time{params.UserID: lastUsedTime}, false)
-					if err != nil {
-						return fmt.Errorf("node: %v: %w", nodeName, err)
-					}
-
-					return nil
-				}, nodeName)
-			}
+			usersWithTime := h.getLastUsed(existingDbUsers)
+			response.LastUsedAt = strfmt.DateTime(usersWithTime[params.UserID])
 		}
 	}
 
@@ -264,6 +224,65 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	response.DbUserType = &userType
 
 	return users.NewGetUserInfoOK().WithPayload(response)
+}
+
+func (h *dynUserHandler) getLastUsed(users map[string]*apikey.User) map[string]time.Time {
+	usersWithTime := make(map[string]time.Time, len(users))
+	for userId, val := range users {
+		usersWithTime[userId] = val.LastUsedAt
+	}
+
+	nodes := h.nodesGetter.Nodes()
+	if len(nodes) == 1 {
+		return usersWithTime
+	}
+
+	ctx, cancelFunc := context.WithTimeout(context.Background(), time.Second)
+	defer cancelFunc()
+
+	// we tolerate errors in requests to other nodes. Last used time is best effort
+	userStatuses := make([]*apikey.UserStatusResponse, len(nodes))
+	wg := &sync.WaitGroup{}
+	for i, nodeName := range nodes {
+		wg.Add(1)
+		i, nodeName := i, nodeName
+		enterrors.GoWrapper(func() {
+			status, err := h.remoteUser.GetUserStatus(ctx, nodeName, usersWithTime, true)
+			if err == nil {
+				userStatuses[i] = status
+			}
+			wg.Done()
+		}, h.logger)
+	}
+	wg.Wait()
+
+	for _, status := range userStatuses {
+		if status != nil {
+			for userId, lastUsedTime := range status.Users {
+				if lastUsedTime.After(usersWithTime[userId]) {
+					usersWithTime[userId] = lastUsedTime
+				}
+			}
+		}
+	}
+
+	// update all other nodes with results so usage does not "jump back", we don't need to wait for this
+	enterrors.GoWrapper(func() {
+		ctx2, cancelFunc2 := context.WithTimeout(context.Background(), time.Second)
+		defer cancelFunc2()
+		wg := &sync.WaitGroup{}
+		for _, nodeName := range nodes {
+			nodeName := nodeName
+			wg.Add(1)
+			enterrors.GoWrapper(func() {
+				_, _ = h.remoteUser.GetUserStatus(ctx2, nodeName, usersWithTime, false)
+				wg.Done()
+			}, h.logger)
+		}
+		wg.Wait() // wait so cancelFunc2 is not executed too early
+	}, h.logger)
+
+	return usersWithTime
 }
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
