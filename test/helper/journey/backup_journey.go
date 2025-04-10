@@ -124,24 +124,24 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		}, 120*time.Second, 1000*time.Millisecond)
 
-		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			fmt.Println("!!!!CHECKING BACKUP STATUS2!!!!")
 			statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 
 			helper.AssertRequestOk(t, statusResp, err, func() {
-				assert.NotNil(t, statusResp)
-				assert.NotNil(t, statusResp.Payload)
-				assert.NotNil(t, statusResp.Payload.Status)
-				assert.Equal(t, backupID, statusResp.Payload.ID)
-				assert.Equal(t, backend, statusResp.Payload.Backend)
-				assert.Contains(t, statusResp.Payload.Path, overrideBucket)
-				assert.Contains(t, statusResp.Payload.Path, overridePath)
+				assert.NotNil(t1, statusResp)
+				assert.NotNil(t1, statusResp.Payload)
+				assert.NotNil(t1, statusResp.Payload.Status)
+				assert.Equal(t1, backupID, statusResp.Payload.ID)
+				assert.Equal(t1, backend, statusResp.Payload.Backend)
+				assert.Contains(t1, statusResp.Payload.Path, overrideBucket)
+				assert.Contains(t1, statusResp.Payload.Path, overridePath)
 			})
 
 			assert.Equal(t, string(backup.Success), *statusResp.Payload.Status,
 				 statusResp.Payload.Error)
 
-		}, 240*time.Second, 1000*time.Millisecond)
+		}, 120*time.Second, 1000*time.Millisecond)
 	})
 
 	t.Run("delete class for restoration"+overrideString, func(t *testing.T) {
