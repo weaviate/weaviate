@@ -84,6 +84,9 @@ func TestCreateUser(t *testing.T) {
 		infoNew := helper.GetInfoForOwnUser(t, newKey)
 		require.Equal(t, userName, *infoNew.Username)
 
+		require.NotEqual(t, newKey, oldKey)
+		require.NotEqual(t, newKey[:10], oldKey[:10])
+
 		helper.DeleteUser(t, userName, adminKey)
 	})
 }

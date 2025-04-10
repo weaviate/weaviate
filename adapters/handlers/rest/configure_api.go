@@ -117,6 +117,7 @@ import (
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
+	modt2vmodel2vec "github.com/weaviate/weaviate/modules/text2vec-model2vec"
 	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
@@ -690,8 +691,7 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 			cfg.ReindexMapToBlockmaxConfig.Rollback,
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds),
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.PauseDurationSeconds),
-			concurrency,
-			appState.SchemaManager,
+			concurrency, cfg.ReindexMapToBlockmaxConfig.CollectionsPropsTenants, appState.SchemaManager,
 		))
 	}
 
@@ -1066,6 +1066,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modcontextionary.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modt2vmodel2vec.Name]; ok {
+		appState.Modules.Register(modt2vmodel2vec.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modt2vmodel2vec.Name).
 			Debug("enabled module")
 	}
 
