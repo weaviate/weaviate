@@ -114,7 +114,7 @@ func buildGraphqlSchema(dbSchema *schema.Schema, logger logrus.FieldLogger,
 	}()
 
 	if err != nil {
-		return graphql.Schema{}, fmt.Errorf("Could not build GraphQL schema, because: %v", err)
+		return graphql.Schema{}, fmt.Errorf("could not build GraphQL schema, because: %v", err)
 	}
 
 	return result, nil

@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
-	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
 // run from setup_test.go
@@ -84,7 +83,7 @@ func creatingObjects(t *testing.T) {
 		})
 
 		// wait for the object to be created
-		testhelper.AssertEventuallyEqual(t, id, func() interface{} {
+		helper.AssertEventuallyEqual(t, id, func() interface{} {
 			params := objects.NewObjectsClassGetParams()
 			params.WithClassName(className).WithID(id)
 			object, err := helper.Client(t).Objects.ObjectsClassGet(params, nil)
@@ -95,7 +94,7 @@ func creatingObjects(t *testing.T) {
 			return object.Payload.ID
 		})
 		// deprecated: is here because of backward compatibility reasons
-		testhelper.AssertEventuallyEqual(t, id, func() interface{} {
+		helper.AssertEventuallyEqual(t, id, func() interface{} {
 			params := objects.NewObjectsGetParams().WithID(id)
 			object, err := helper.Client(t).Objects.ObjectsGet(params, nil)
 			if err != nil {

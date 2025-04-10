@@ -190,7 +190,7 @@ func (ic *classSettings) getBoolProperty(name string, defaultValue bool) *bool {
 }
 
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
-	var wrongVal float64 = -1.0
+	wrongVal := float64(-1.0)
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 

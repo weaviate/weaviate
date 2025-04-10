@@ -655,9 +655,9 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 			if tokenization == "" {
 				return nil
 			}
-			return fmt.Errorf("Tokenization is not allowed for data type '%s'", primitiveDataType)
+			return fmt.Errorf("tokenization is not allowed for data type '%s'", primitiveDataType)
 		}
-		return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
+		return fmt.Errorf("tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
 	}
 
 	if tokenization == "" {
@@ -665,9 +665,9 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 	}
 
 	if propertyDataType.IsNested() {
-		return fmt.Errorf("Tokenization is not allowed for object/object[] data types")
+		return fmt.Errorf("tokenization is not allowed for object/object[] data types")
 	}
-	return fmt.Errorf("Tokenization is not allowed for reference data type")
+	return fmt.Errorf("tokenization is not allowed for reference data type")
 }
 
 func (h *Handler) validatePropertyIndexing(prop *models.Property) error {

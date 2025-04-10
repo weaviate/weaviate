@@ -98,10 +98,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	defer s.metrics.ShardStartup(before)
 
 	_, err = os.Stat(s.path())
-	exists := false
-	if err == nil {
-		exists = true
-	}
+	exists := err == nil
 
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err

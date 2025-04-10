@@ -102,7 +102,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, override
 	if err != nil {
 		switch err.(type) {
 		case ErrNoUsableWords:
-			return nil, nil, fmt.Errorf("The object is invalid, as weaviate could not extract "+
+			return nil, nil, fmt.Errorf("the object is invalid, as weaviate could not extract "+
 				"any contextionary-valid words from it. This is the case when you have "+
 				"set the options 'vectorizeClassName: false' and 'vectorizePropertyName: false' in this class' schema definition "+
 				"and not a single property's value "+

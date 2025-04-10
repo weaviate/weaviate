@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/schema"
 	ucs "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	bolt "go.etcd.io/bbolt"
@@ -462,21 +461,21 @@ func copyFile(dst, src string) error {
 
 func createClassPayload(class *models.Class,
 	shardingState *sharding.State,
-) (pl schema.ClassPayload, err error) {
+) (pl ucs.ClassPayload, err error) {
 	pl.Name = class.Class
 	if pl.Metadata, err = json.Marshal(class); err != nil {
 		return pl, fmt.Errorf("marshal class %q metadata: %w", pl.Name, err)
 	}
 	if shardingState != nil {
 		ss := *shardingState
-		pl.Shards = make([]schema.KeyValuePair, len(ss.Physical))
+		pl.Shards = make([]ucs.KeyValuePair, len(ss.Physical))
 		i := 0
 		for name, shard := range ss.Physical {
 			data, err := json.Marshal(shard)
 			if err != nil {
 				return pl, fmt.Errorf("marshal shard %q metadata: %w", name, err)
 			}
-			pl.Shards[i] = schema.KeyValuePair{Key: name, Value: data}
+			pl.Shards[i] = ucs.KeyValuePair{Key: name, Value: data}
 			i++
 		}
 		ss.Physical = nil

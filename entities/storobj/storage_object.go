@@ -1037,7 +1037,7 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 		if len(targetVectorsOffsets) > 0 {
 			var tvOffsets map[string]uint32
 			if err := msgpack.Unmarshal(targetVectorsOffsets, &tvOffsets); err != nil {
-				return nil, fmt.Errorf("Could not unmarshal target vectors offset: %w", err)
+				return nil, fmt.Errorf("could not unmarshal target vectors offset: %w", err)
 			}
 
 			targetVectors := map[string][]float32{}

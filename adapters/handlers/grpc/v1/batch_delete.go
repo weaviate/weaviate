@@ -73,7 +73,7 @@ func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose boo
 			failed += 1
 		}
 		if verbose {
-			hexInteger, success := new(big.Int).SetString(strings.Replace(obj.UUID.String(), "-", "", -1), 16)
+			hexInteger, success := new(big.Int).SetString(strings.ReplaceAll(obj.UUID.String(), "-", ""), 16)
 			if !success {
 				return nil, fmt.Errorf("failed to parse hex string to integer")
 			}

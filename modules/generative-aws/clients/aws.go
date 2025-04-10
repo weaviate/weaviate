@@ -32,7 +32,6 @@ import (
 	generativeconfig "github.com/weaviate/weaviate/modules/generative-aws/config"
 	awsparams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 	generativecomponents "github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 )
 
@@ -71,11 +70,11 @@ func New(awsAccessKey, awsSecretKey, awsSessionToken string, timeout time.Durati
 }
 
 func (v *awsClient) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := generativecomponents.MakeSinglePrompt(generative.Text(properties), prompt)
+	forPrompt, err := generativecomponents.MakeSinglePrompt(generativecomponents.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt, generative.Blobs([]*modulecapabilities.GenerateProperties{properties}), options, debug)
+	return v.Generate(ctx, cfg, forPrompt, generativecomponents.Blobs([]*modulecapabilities.GenerateProperties{properties}), options, debug)
 }
 
 func (v *awsClient) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
@@ -272,10 +271,10 @@ func (v *awsClient) sendBedrockRequest(
 				"Please double-check the service availability for your region at " +
 				"https://aws.amazon.com/about-aws/global-infrastructure/regional-product-services/")
 		} else if strings.Contains(errMsg, "Could not resolve the foundation model") {
-			return nil, fmt.Errorf("Could not resolve the foundation model from model identifier: \"%v\". "+
+			return nil, fmt.Errorf("could not resolve the foundation model from model identifier: \"%v\". "+
 				"Please verify that the requested model exists and is accessible within the specified region", model)
 		} else {
-			return nil, fmt.Errorf("Couldn't invoke %s model: %w", model, err)
+			return nil, fmt.Errorf("couldn't invoke %s model: %w", model, err)
 		}
 	}
 

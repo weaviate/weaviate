@@ -78,10 +78,10 @@ func compressionFromRCfg(cfg *models.RestoreConfig) ubak.Compression {
 }
 
 func parseCompressionLevel(l string) ubak.CompressionLevel {
-	switch {
-	case l == models.BackupConfigCompressionLevelBestSpeed:
+	switch l {
+	case models.BackupConfigCompressionLevelBestSpeed:
 		return ubak.BestSpeed
-	case l == models.BackupConfigCompressionLevelBestCompression:
+	case models.BackupConfigCompressionLevelBestCompression:
 		return ubak.BestCompression
 	default:
 		return ubak.DefaultCompression

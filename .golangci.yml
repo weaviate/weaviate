@@ -1,144 +1,184 @@
-linters:
-  disable:
-    - errcheck
-  enable:
-    - misspell
-    - bodyclose
-    - gofumpt
-    - exhaustive
-    - govet
-    - unused
-    - nolintlint
-    - forbidigo
-linters-settings:
-  forbidigo:
-    # Forbid the following identifiers (list of regexp).
-    # Default: ["^(fmt\\.Print(|f|ln)|print|println)$"]
-    forbid:
-      # Built-in bootstrapping functions.
-      - ^print(ln)?$
-      # Optional message that gets included in error reports.
-      - p: ^fmt\.Print.*$
-        msg: Do not commit print statements.      
-      # Forbid spew Dump, whether it is called as function or method.
-      # Depends on analyze-types below.
-      - ^spew\.(ConfigState\.)?Dump$
-    # Exclude godoc examples from forbidigo checks.
-    # Default: true
-    exclude-godoc-examples: true
-
-
-  exhaustive:
-    # Presence of "default" case in switch statements satisfies exhaustiveness,
-    # even if all enum members are not listed.
-    default-signifies-exhaustive: true
-issues:
-  exclude-rules:
-    # Exclude some staticcheck messages
-    - linters:
-        - staticcheck
-      text: "S1034"
-    - linters:
-        - staticcheck
-      text: "SA1029:"
-    - linters:
-        - staticcheck
-      text: "SA1015:"
-    - linters:
-        - staticcheck
-      text: "SA5011"
-    - linters:
-        - govet
-      text: "composites"
-    - linters:
-        - staticcheck
-      path: ^adapters/handlers/grpc/v1\/(?:[^\/]+\/)*[^\/]+\.go$
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API implementation
-    - linters:
-        - staticcheck
-      path: ^test/acceptance/grpc\/[^\/]+\.go$
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API implementation
-    - linters:
-        - staticcheck
-      path: adapters/handlers/grpc/v1/prepare_reply.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: adapters/handlers/grpc/v1/parse_search_request.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: adapters/handlers/grpc/v1/batch_parse_request.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: adapters/handlers/grpc/v1/service.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: test/acceptance/grpc/grpc_test_deprecated.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: adapters/handlers/grpc/v1/mapping.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: test/acceptance/grpc/list_value_return_test.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: usecases/auth/authentication/oidc/middleware_test.go
-      text: 'SA1019' # jwt.StandardClaims is deprecated, but for the purpose of this test, this doesn't matter
-    # Exclude 'unused' linter for assembly files
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/dot_inline.go
-      text: "func `dot[357]`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l2[35]`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l22FloatByte`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l23FloatByte`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l24FloatByte`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l25FloatByte`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l210FloatByte`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l212FloatByte`"
-    - linters: # exclude tests
-        - forbidigo
-      path: test/*
-    - linters: # exclude tools
-        - forbidigo
-      path: tools/*
-    - linters: # exclude file
-        - forbidigo
-      path: adapters/repos/db/vector/hnsw/debug.go
-    - linters: # exclude file
-        - forbidigo
-      path: adapters/repos/db/vector/.*/dump.go
-
-
+version: "2"
 run:
-  timeout: 5m
   build-tags:
     - integrationTest
     - integrationTestSlow
+linters:
+  enable:
+    - bodyclose
+    - exhaustive
+    - forbidigo
+    - misspell
+    - nolintlint
+  disable:
+    - errcheck
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+    forbidigo:
+      forbid:
+        - pattern: ^print(ln)?$
+        - pattern: ^fmt\.Print.*$
+          msg: Do not commit print statements.
+        - pattern: ^spew\.(ConfigState\.)?Dump$
+      exclude-godoc-examples: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - staticcheck
+        text: S1034
+      - linters:
+          - staticcheck
+        text: 'SA1029:'
+      - linters:
+          - staticcheck
+        text: 'SA1015:'
+      - linters:
+          - staticcheck
+        text: SA5011
+      - linters:
+          - govet
+        text: composites
+      - linters:
+          - staticcheck
+        path: ^adapters/handlers/grpc/v1\/(?:[^\/]+\/)*[^\/]+\.go$
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: ^test/acceptance/grpc\/[^\/]+\.go$
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/prepare_reply.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/parse_search_request.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/batch_parse_request.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/service.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: test/acceptance/grpc/grpc_test_deprecated.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/mapping.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: test/acceptance/grpc/list_value_return_test.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: usecases/auth/authentication/oidc/middleware_test.go
+        text: SA1019
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/dot_inline.go
+        text: func dot[357]
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l2[35]
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l22FloatByte
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l23FloatByte
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l24FloatByte
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l25FloatByte
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l210FloatByte
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l212FloatByte
+      - linters:
+          - forbidigo
+        path: test/*
+      - linters:
+          - forbidigo
+        path: tools/*
+      - linters:
+          - forbidigo
+        path: adapters/repos/db/vector/hnsw/debug.go
+      - linters:
+          - forbidigo
+        path: adapters/repos/db/vector/.*/dump.go
+      - linters:
+          - staticcheck
+        text: 'QF1003:'
+      - linters:
+          - staticcheck
+        text: 'QF1006:'
+      - linters:
+        - staticcheck
+        text: 'QF1001:' # could apply De Morgan's law
+      - linters:
+        - staticcheck
+        text: 'QF1008:' # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: adapters/handlers/graphql/local/get/class_builder_fields.go
+        text: ST1005
+      - linters:
+        - staticcheck
+        path: entities/lsmkv/errors.go
+        text: ST1012
+      - linters:
+        - staticcheck
+        path: usecases/auth/authentication/anonymous/middleware.go
+        text: QF1012
+      - linters:
+        - staticcheck
+        path: modules/text2vec-transformers/clients/transformers_test.go
+        text: QF1012
+      - linters:
+        - staticcheck
+        path: modules/generative-anthropic/clients/anthropic.go
+        text: ST1005
+      - linters:
+        - staticcheck
+        path: modules/generative-aws/clients/aws.go
+        text: ST1005
+      - linters:
+        - staticcheck
+        path: modules/text2vec-aws/clients/aws.go
+        text: ST1005
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofumpt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

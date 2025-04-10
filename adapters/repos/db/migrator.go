@@ -626,7 +626,7 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
 	}
-	return fmt.Errorf("Invalid index type: %s", old.IndexType())
+	return fmt.Errorf("invalid index type: %s", old.IndexType())
 }
 
 func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,

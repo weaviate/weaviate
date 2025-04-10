@@ -227,7 +227,7 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 	vFalse := false
 	vTrue := true
 
-	var properties []*models.Property = []*models.Property{
+	properties := []*models.Property{
 		{
 			Name:         "color",
 			DataType:     schema.DataTypeText.PropString(),
@@ -315,7 +315,7 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
-	var properties []*models.Property = []*models.Property{
+	properties := []*models.Property{
 		{Name: "color", DataType: []string{"blurp"}},
 	}
 
@@ -329,7 +329,7 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeSc
 func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
-	var properties []*models.Property = []*models.Property{
+	properties := []*models.Property{
 		{Name: "color", DataType: []string{""}},
 	}
 
@@ -350,7 +350,7 @@ func testDropProperty(t *testing.T, handler *Handler, fakeSchemaManager *fakeSch
 
 	fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
 
-	var properties []*models.Property = []*models.Property{
+	properties := []*models.Property{
 		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 	}
 	class := &models.Class{

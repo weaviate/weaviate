@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/protobuf/proto"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -54,7 +53,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	resp, ok := futureResponse.(Response)
 	if !ok {
 		// This should not happen, but it's better to log an error *if* it happens than panic and crash.
-		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen!", futureResponse)
+		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen", futureResponse)
 	}
 	return resp.Version, resp.Error
 }
@@ -73,7 +72,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		return ret
 	}
 	cmd := api.ApplyRequest{}
-	if err := gproto.Unmarshal(l.Data, &cmd); err != nil {
+	if err := proto.Unmarshal(l.Data, &cmd); err != nil {
 		st.log.WithError(err).Error("decode command")
 		panic("error proto un-marshalling log data")
 	}
