@@ -13,6 +13,7 @@ package apikey
 
 import (
 	"github.com/go-openapi/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -23,12 +24,12 @@ type ApiKey struct {
 	Dynamic *DBUser
 }
 
-func New(cfg config.Config) (*ApiKey, error) {
+func New(cfg config.Config, logger logrus.FieldLogger) (*ApiKey, error) {
 	static, err := NewStatic(cfg)
 	if err != nil {
 		return nil, err
 	}
-	dynamic, err := NewDBUser(cfg.Persistence.DataPath)
+	dynamic, err := NewDBUser(cfg.Persistence.DataPath, logger)
 	if err != nil {
 		return nil, err
 	}

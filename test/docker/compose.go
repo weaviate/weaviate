@@ -920,7 +920,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		config2["CLUSTER_DATA_BIND_PORT"] = "7103"
 		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
 		eg.Go(func() (err error) {
-			time.Sleep(time.Second * 3)
+			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node2"))
 			if err != nil {
@@ -937,7 +937,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		config3["CLUSTER_DATA_BIND_PORT"] = "7105"
 		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
 		eg.Go(func() (err error) {
-			time.Sleep(time.Second * 3)
+			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node3"))
 			if err != nil {

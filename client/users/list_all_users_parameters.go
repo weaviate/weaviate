@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewListAllUsersParams creates a new ListAllUsersParams object,
@@ -71,6 +72,13 @@ ListAllUsersParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type ListAllUsersParams struct {
+
+	/* IncludeLastUsedTime.
+
+	   Whether to include the last used time of the users
+	*/
+	IncludeLastUsedTime *bool
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -88,7 +96,18 @@ func (o *ListAllUsersParams) WithDefaults() *ListAllUsersParams {
 //
 // All values with no default are reset to their zero value.
 func (o *ListAllUsersParams) SetDefaults() {
-	// no default values defined for this parameter
+	var (
+		includeLastUsedTimeDefault = bool(false)
+	)
+
+	val := ListAllUsersParams{
+		IncludeLastUsedTime: &includeLastUsedTimeDefault,
+	}
+
+	val.timeout = o.timeout
+	val.Context = o.Context
+	val.HTTPClient = o.HTTPClient
+	*o = val
 }
 
 // WithTimeout adds the timeout to the list all users params
@@ -124,6 +143,17 @@ func (o *ListAllUsersParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithIncludeLastUsedTime adds the includeLastUsedTime to the list all users params
+func (o *ListAllUsersParams) WithIncludeLastUsedTime(includeLastUsedTime *bool) *ListAllUsersParams {
+	o.SetIncludeLastUsedTime(includeLastUsedTime)
+	return o
+}
+
+// SetIncludeLastUsedTime adds the includeLastUsedTime to the list all users params
+func (o *ListAllUsersParams) SetIncludeLastUsedTime(includeLastUsedTime *bool) {
+	o.IncludeLastUsedTime = includeLastUsedTime
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ListAllUsersParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -131,6 +161,23 @@ func (o *ListAllUsersParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 		return err
 	}
 	var res []error
+
+	if o.IncludeLastUsedTime != nil {
+
+		// query param includeLastUsedTime
+		var qrIncludeLastUsedTime bool
+
+		if o.IncludeLastUsedTime != nil {
+			qrIncludeLastUsedTime = *o.IncludeLastUsedTime
+		}
+		qIncludeLastUsedTime := swag.FormatBool(qrIncludeLastUsedTime)
+		if qIncludeLastUsedTime != "" {
+
+			if err := r.SetQueryParam("includeLastUsedTime", qIncludeLastUsedTime); err != nil {
+				return err
+			}
+		}
+	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

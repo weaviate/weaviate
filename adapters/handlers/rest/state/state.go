@@ -48,6 +48,7 @@ type State struct {
 	OIDC            *oidc.Client
 	AnonymousAccess *anonymous.Client
 	APIKey          *apikey.ApiKey
+	APIKeyRemote    *apikey.RemoteApiKey
 	Authorizer      authorization.Authorizer
 	AuthzController authorization.Controller
 

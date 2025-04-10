@@ -6,7 +6,7 @@ CONFIG=${1:-local-development}
 cd "$( dirname "${BASH_SOURCE[0]}" )"/../.. || exit 1
 
 export GO111MODULE=on
-export LOG_LEVEL=${LOG_LEVEL:-"debug"}
+export LOG_LEVEL=${LOG_LEVEL:-"error"}
 export LOG_FORMAT=${LOG_FORMAT:-"text"}
 export PROMETHEUS_MONITORING_ENABLED=${PROMETHEUS_MONITORING_ENABLED:-"true"}
 export PROMETHEUS_MONITORING_PORT=${PROMETHEUS_MONITORING_PORT:-"2112"}
@@ -179,11 +179,12 @@ case $CONFIG in
   local-development)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      AUTHENTICATION_DB_USERS_ENABLED="true" \
+      AUTHENTICATION_APIKEY_ENABLED="true" \
+      AUTHENTICATION_APIKEY_USERS='admin-user' \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key' \
       PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
-      PROMETHEUS_MONITORING_PORT="2112" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
@@ -203,6 +204,10 @@ case $CONFIG in
       GRPC_PORT=50052 \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      AUTHENTICATION_DB_USERS_ENABLED="true" \
+      AUTHENTICATION_APIKEY_ENABLED="true" \
+      AUTHENTICATION_APIKEY_USERS='admin-user' \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key' \
       PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-1" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
       CLUSTER_HOSTNAME="weaviate-1" \
@@ -217,8 +222,6 @@ case $CONFIG in
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -238,6 +241,10 @@ case $CONFIG in
         CLUSTER_GOSSIP_BIND_PORT="7104" \
         CLUSTER_DATA_BIND_PORT="7105" \
         CLUSTER_JOIN="localhost:7100" \
+        AUTHENTICATION_DB_USERS_ENABLED="true" \
+        AUTHENTICATION_APIKEY_ENABLED="true" \
+        AUTHENTICATION_APIKEY_USERS='admin-user' \
+        AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key' \
         PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
         PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 2))" \
         PROMETHEUS_MONITORING_ENABLED=true \
@@ -245,8 +252,6 @@ case $CONFIG in
         RAFT_INTERNAL_RPC_PORT="8305" \
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
         RAFT_BOOTSTRAP_EXPECT=3 \
-        DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-        ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
         go_run ./cmd/weaviate-server \
           --scheme http \
           --host "127.0.0.1" \

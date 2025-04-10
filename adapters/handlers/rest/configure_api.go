@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
@@ -768,7 +770,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger)
 
-	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, appState.Logger)
+	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
+	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -844,6 +847,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown").
+				Errorf("failed to gracefully shutdown")
+		}
+
+		if err := appState.APIKey.Dynamic.Close(); err != nil {
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown db users").
 				Errorf("failed to gracefully shutdown")
 		}
 	}
@@ -922,6 +932,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
+	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	if err = configureAuthorizer(appState); err != nil {
 		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
@@ -1563,10 +1574,42 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
+
+	var client *http.Client
 	if authConfig.BasicAuth.Enabled() {
-		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
+		client = &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
+	} else {
+		client = &http.Client{Transport: t}
 	}
-	return &http.Client{Transport: t}
+
+	// Add custom redirect policy. Otherwise, internal POST requests will be converted to GET and lose their body
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		// Preserve original method and body during redirects
+		if len(via) > 0 {
+			req.Method = via[0].Method
+			// Copy headers that may not be transferred by default
+			for key, values := range via[0].Header {
+				for _, value := range values {
+					req.Header.Add(key, value)
+				}
+			}
+
+			// If the original was a POST with a body, we need to recreate the body
+			if via[0].GetBody != nil {
+				body, err := via[0].GetBody()
+				if err == nil {
+					req.Body = body
+					req.ContentLength = via[0].ContentLength
+				}
+			}
+		}
+
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return client
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {

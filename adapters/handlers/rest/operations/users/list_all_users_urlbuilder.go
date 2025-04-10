@@ -20,11 +20,17 @@ import (
 	"errors"
 	"net/url"
 	golangswaggerpaths "path"
+
+	"github.com/go-openapi/swag"
 )
 
 // ListAllUsersURL generates an URL for the list all users operation
 type ListAllUsersURL struct {
+	IncludeLastUsedTime *bool
+
 	_basePath string
+	// avoid unkeyed usage
+	_ struct{}
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
@@ -53,6 +59,18 @@ func (o *ListAllUsersURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var includeLastUsedTimeQ string
+	if o.IncludeLastUsedTime != nil {
+		includeLastUsedTimeQ = swag.FormatBool(*o.IncludeLastUsedTime)
+	}
+	if includeLastUsedTimeQ != "" {
+		qs.Set("includeLastUsedTime", includeLastUsedTimeQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }
