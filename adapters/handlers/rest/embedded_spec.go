@@ -4241,9 +4241,18 @@ func init() {
         ],
         "summary": "list all db users",
         "operationId": "listAllUsers",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include the last used time of the users",
+            "name": "includeLastUsedTime",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the users",
             "schema": {
               "type": "array",
               "items": {
@@ -11644,9 +11653,18 @@ func init() {
         ],
         "summary": "list all db users",
         "operationId": "listAllUsers",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include the last used time of the users",
+            "name": "includeLastUsedTime",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the users",
             "schema": {
               "type": "array",
               "items": {

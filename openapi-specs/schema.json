@@ -2757,9 +2757,19 @@
         "tags": [
           "users"
         ],
+        "parameters": [
+          {
+            "description": "Whether to include the last used time of the users",
+            "in": "query",
+            "name": "includeLastUsedTime",
+            "required": false,
+            "type": "boolean",
+            "default": false
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the users",
             "schema": {
               "type": "array",
               "items": {
