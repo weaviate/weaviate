@@ -85,6 +85,10 @@ func SetupHandlers(api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, au
 func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
 	isRootUser := h.isRequestFromRootUser(principal)
 
+	if !h.dbUserEnabled {
+		return users.NewListAllUsersOK().WithPayload([]*models.DBUserInfo{})
+	}
+
 	allDbUsers, err := h.dbUsers.GetUsers()
 	if err != nil {
 		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -108,7 +112,11 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dbUser := range filteredUsers {
-		response, err = h.addToListAllResponse(response, dbUser.Id, string(models.UserTypeOutputDbUser), dbUser.Active, &dbUser.CreatedAt)
+		apiKeyFirstLetter := ""
+		if isRootUser {
+			apiKeyFirstLetter = dbUser.ApiKeyFirstLetters
+		}
+		response, err = h.addToListAllResponse(response, dbUser.Id, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, &dbUser.CreatedAt)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -116,7 +124,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 
 	if isRootUser {
 		for _, staticUser := range h.staticApiKeysConfigs.Users {
-			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true, nil)
+			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", nil)
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 			}
@@ -126,7 +134,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool, createdAt *time.Time) ([]*models.DBUserInfo, error) {
+func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool, apiKeyFirstLetter string, createdAt *time.Time) ([]*models.DBUserInfo, error) {
 	roles, err := h.dbUsers.GetRolesForUser(id, models.UserTypeInputDb)
 	if err != nil {
 		return response, err
@@ -138,10 +146,11 @@ func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id,
 	}
 
 	resp := &models.DBUserInfo{
-		Active:     &active,
-		UserID:     &id,
-		DbUserType: &userType,
-		Roles:      roleNames,
+		Active:             &active,
+		UserID:             &id,
+		DbUserType:         &userType,
+		Roles:              roleNames,
+		APIKeyFirstLetters: apiKeyFirstLetter,
 	}
 	if createdAt != nil {
 		resp.CreatedAt = strfmt.DateTime(*createdAt)
@@ -156,8 +165,13 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	if !h.dbUserEnabled {
+		return users.NewGetUserInfoUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
+	}
+
 	// also check for existing static users if request comes from root
-	isStaticUser := h.isRequestFromRootUser(principal) && h.staticUserExists(params.UserID)
+	isRootUser := h.isRequestFromRootUser(principal)
+	isStaticUser := isRootUser && h.staticUserExists(params.UserID)
 
 	active := true
 	response := &models.DBUserInfo{UserID: &params.UserID, Active: &active}
@@ -173,6 +187,9 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		user := existingDbUsers[params.UserID]
 		response.Active = &user.Active
 		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
+		if isRootUser {
+			response.APIKeyFirstLetters = user.ApiKeyFirstLetters
+		}
 	}
 
 	existedRoles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
@@ -227,31 +244,9 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' already exists", params.UserID)))
 	}
 
-	var apiKey, hash, userIdentifier string
-
-	// the user identifier is random, and we need to be sure that there is no reuse. Otherwise, an existing apikey would
-	// become invalid. The chances are minimal, but with a lot of users it can happen (birthday paradox!).
-	// If we happen to have a collision by chance, simply generate a new key
-	count := 0
-	for {
-		apiKey, hash, userIdentifier, err = keys.CreateApiKeyAndHash("")
-		if err != nil {
-			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-		}
-
-		exists, err := h.dbUsers.CheckUserIdentifierExists(userIdentifier)
-		if err != nil {
-			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-		}
-		if !exists {
-			break
-		}
-
-		// make sure we don't deadlock. The chance for one collision is very small, so this should never happen. But better be safe than sorry.
-		if count >= 10 {
-			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("could not create a new user identifier")))
-		}
-		count++
+	apiKey, hash, userIdentifier, err := h.getApiKey()
+	if err != nil {
+		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if err := h.dbUsers.CreateUser(params.UserID, hash, userIdentifier, apiKey[:3], time.Now()); err != nil {
@@ -282,17 +277,45 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 	if len(existingUser) == 0 {
 		return users.NewRotateUserAPIKeyNotFound()
 	}
+	oldUserIdentifier := existingUser[params.UserID].InternalIdentifier
 
-	apiKey, hash, _, err := keys.CreateApiKeyAndHash(existingUser[params.UserID].InternalIdentifier)
+	apiKey, hash, newUserIdentifier, err := h.getApiKey()
 	if err != nil {
-		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("generating key: %w", err)))
+		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.dbUsers.RotateKey(params.UserID, hash); err != nil {
+	if err := h.dbUsers.RotateKey(params.UserID, hash, oldUserIdentifier, newUserIdentifier); err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("rotate key: %w", err)))
 	}
 
 	return users.NewRotateUserAPIKeyOK().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
+}
+
+func (h *dynUserHandler) getApiKey() (string, string, string, error) {
+	// the user identifier is random, and we need to be sure that there is no reuse. Otherwise, an existing apikey would
+	// become invalid. The chances are minimal, but with a lot of users it can happen (birthday paradox!).
+	// If we happen to have a collision by chance, simply generate a new key
+	count := 0
+	for {
+		apiKey, hash, userIdentifier, err := keys.CreateApiKeyAndHash()
+		if err != nil {
+			return "", "", "", err
+		}
+
+		exists, err := h.dbUsers.CheckUserIdentifierExists(userIdentifier)
+		if err != nil {
+			return "", "", "", err
+		}
+		if !exists {
+			return apiKey, hash, userIdentifier, nil
+		}
+
+		// make sure we don't deadlock. The chance for one collision is very small, so this should never happen. But better be safe than sorry.
+		if count >= 10 {
+			return "", "", "", errors.New("could not create a new user identifier")
+		}
+		count++
+	}
 }
 
 func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
@@ -456,6 +479,10 @@ func (h *dynUserHandler) isAdminlistUser(name string) bool {
 }
 
 func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool {
+	if principal == nil {
+		return false
+	}
+
 	for _, groupName := range principal.Groups {
 		if slices.Contains(h.rbacConfig.RootGroups, groupName) {
 			return true

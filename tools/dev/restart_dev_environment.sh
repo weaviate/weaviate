@@ -67,6 +67,9 @@ fi
 if [[ "$*" == *--ollama ]]; then
   ADDITIONAL_SERVICES+=('ollama')
 fi
+if [[ "$*" == *--model2vec* ]]; then
+  ADDITIONAL_SERVICES+=('text2vec-model2vec')
+fi
 
 docker compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
