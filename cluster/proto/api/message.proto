@@ -46,6 +46,7 @@ message ApplyRequest {
     TYPE_ADD_PROPERTY = 5;
 
     TYPE_UPDATE_SHARD_STATUS = 10;
+    TYPE_ADD_REPLICA_TO_SHARD = 11;
 
     TYPE_ADD_TENANT = 16;
     TYPE_UPDATE_TENANT = 17;
@@ -102,7 +103,7 @@ message QueryRequest {
 
     TYPE_GET_USERS = 61;
     TYPE_USER_IDENTIFIER_EXISTS = 62;
-
+    TYPE_GET_REPLICATION_DETAILS = 200;
   }
 
   Type type = 1;

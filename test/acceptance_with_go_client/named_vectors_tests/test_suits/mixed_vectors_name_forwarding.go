@@ -19,9 +19,10 @@ import (
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
-func testMixedVectorsNamedForwarding(endpoint string) func(t *testing.T) {
+func testMixedVectorsDefaultNameForwarding(endpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 
@@ -52,7 +53,7 @@ func testMixedVectorsNamedForwarding(endpoint string) func(t *testing.T) {
 					"text": "Lorem ipsum dolor sit amet",
 				}).
 				WithVectors(map[string]models.Vector{
-					"default": []float32{1, 2, 3},
+					modelsext.DefaultNamedVectorName: []float32{1, 2, 3},
 				}).
 				Do(ctx)
 			require.NoError(t, err)
@@ -63,7 +64,7 @@ func testMixedVectorsNamedForwarding(endpoint string) func(t *testing.T) {
 				WithClassName(class.Class).
 				WithID(UUID1).
 				WithVectors(map[string]models.Vector{
-					"default": []float32{4, 5, 6},
+					modelsext.DefaultNamedVectorName: []float32{4, 5, 6},
 				}).
 				Do(ctx)
 			require.NoError(t, err)
@@ -80,7 +81,7 @@ func testMixedVectorsNamedForwarding(endpoint string) func(t *testing.T) {
 						"text": "Lorem ipsum dolor sit amet",
 					},
 					Vectors: map[string]models.Vector{
-						"default": []float32{1, 2, 3},
+						modelsext.DefaultNamedVectorName: []float32{1, 2, 3},
 					},
 				}).
 				Do(ctx)

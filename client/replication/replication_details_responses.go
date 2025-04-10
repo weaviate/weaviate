@@ -70,12 +70,6 @@ func (o *ReplicationDetailsReader) ReadResponse(response runtime.ClientResponse,
 			return nil, err
 		}
 		return nil, result
-	case 501:
-		result := NewReplicationDetailsNotImplemented()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -454,74 +448,6 @@ func (o *ReplicationDetailsInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *ReplicationDetailsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewReplicationDetailsNotImplemented creates a ReplicationDetailsNotImplemented with default headers values
-func NewReplicationDetailsNotImplemented() *ReplicationDetailsNotImplemented {
-	return &ReplicationDetailsNotImplemented{}
-}
-
-/*
-ReplicationDetailsNotImplemented describes a response with status code 501, with default header values.
-
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
-*/
-type ReplicationDetailsNotImplemented struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this replication details not implemented response has a 2xx status code
-func (o *ReplicationDetailsNotImplemented) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this replication details not implemented response has a 3xx status code
-func (o *ReplicationDetailsNotImplemented) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this replication details not implemented response has a 4xx status code
-func (o *ReplicationDetailsNotImplemented) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this replication details not implemented response has a 5xx status code
-func (o *ReplicationDetailsNotImplemented) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this replication details not implemented response a status code equal to that given
-func (o *ReplicationDetailsNotImplemented) IsCode(code int) bool {
-	return code == 501
-}
-
-// Code gets the status code for the replication details not implemented response
-func (o *ReplicationDetailsNotImplemented) Code() int {
-	return 501
-}
-
-func (o *ReplicationDetailsNotImplemented) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotImplemented  %+v", 501, o.Payload)
-}
-
-func (o *ReplicationDetailsNotImplemented) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotImplemented  %+v", 501, o.Payload)
-}
-
-func (o *ReplicationDetailsNotImplemented) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *ReplicationDetailsNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

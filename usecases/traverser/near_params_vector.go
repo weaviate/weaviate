@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
@@ -265,7 +266,11 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 		return nil, "", errors.New("vector not found")
 	}
 	if targetVector != "" {
-		if len(res.Vectors) == 0 || res.Vectors[targetVector] == nil {
+		if targetVector == modelsext.DefaultNamedVectorName && len(res.Vector) > 0 {
+			return res.Vector, "", nil
+		}
+
+		if res.Vectors[targetVector] == nil {
 			return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
 		}
 		vec, ok := res.Vectors[targetVector].([]float32)

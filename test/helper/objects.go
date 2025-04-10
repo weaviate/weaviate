@@ -19,7 +19,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/meta"
@@ -56,7 +56,7 @@ func CreateClass(t *testing.T, class *models.Class) {
 
 	// if the schema has mixed vectors, we have to create it in two steps as single step creation is forbidden
 	var capturedVectorConfig map[string]models.VectorConfig
-	if schemachecks.HasLegacyVectorIndex(class) && class.VectorConfig != nil {
+	if modelsext.ClassHasLegacyVectorIndex(class) && class.VectorConfig != nil {
 		capturedVectorConfig = class.VectorConfig
 		class.VectorConfig = nil
 	}
@@ -315,6 +315,36 @@ func AddReference(t *testing.T, object *models.Object, ref *models.SingleRef, pr
 		WithClassName(object.Class).WithID(object.ID).WithBody(ref).WithPropertyName(prop)
 	resp, err := Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+}
+
+func AddReferenceReturn(t *testing.T, ref *models.SingleRef, id strfmt.UUID, class, prop, tenant string, auth runtime.ClientAuthInfoWriter) (*objects.ObjectsClassReferencesCreateOK, error) {
+	t.Helper()
+	params := objects.NewObjectsClassReferencesCreateParams().
+		WithClassName(class).WithID(id).WithBody(ref).WithPropertyName(prop)
+	if tenant != "" {
+		params.WithTenant(&tenant)
+	}
+	return Client(t).Objects.ObjectsClassReferencesCreate(params, auth)
+}
+
+func ReplaceReferencesReturn(t *testing.T, refs []*models.SingleRef, id strfmt.UUID, class, prop, tenant string, auth runtime.ClientAuthInfoWriter) (*objects.ObjectsClassReferencesPutOK, error) {
+	t.Helper()
+	params := objects.NewObjectsClassReferencesPutParams().
+		WithClassName(class).WithID(id).WithBody(refs).WithPropertyName(prop)
+	if tenant != "" {
+		params.WithTenant(&tenant)
+	}
+	return Client(t).Objects.ObjectsClassReferencesPut(params, auth)
+}
+
+func DeleteReferenceReturn(t *testing.T, ref *models.SingleRef, id strfmt.UUID, class, prop, tenant string, auth runtime.ClientAuthInfoWriter) (*objects.ObjectsClassReferencesDeleteNoContent, error) {
+	t.Helper()
+	params := objects.NewObjectsClassReferencesDeleteParams().
+		WithClassName(class).WithID(id).WithBody(ref).WithPropertyName(prop)
+	if tenant != "" {
+		params.WithTenant(&tenant)
+	}
+	return Client(t).Objects.ObjectsClassReferencesDelete(params, auth)
 }
 
 func AddReferenceTenant(t *testing.T, object *models.Object, ref *models.SingleRef, prop string, tenant string) {

@@ -20,8 +20,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -513,10 +513,10 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 		}
 	}
 
-	if schemachecks.HasLegacyVectorIndex(initial) {
+	if modelsext.ClassHasLegacyVectorIndex(initial) {
 		for targetVector := range updated.VectorConfig {
-			if targetVector == schema.DefaultNamedVectorName {
-				return fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", schema.DefaultNamedVectorName)
+			if targetVector == modelsext.DefaultNamedVectorName {
+				return fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", modelsext.DefaultNamedVectorName)
 			}
 		}
 	}

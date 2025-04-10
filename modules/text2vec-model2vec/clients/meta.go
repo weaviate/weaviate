@@ -9,8 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package schema
+package clients
 
-// DefaultNamedVectorName is a default vector named used to create a named vector or to allow access
-// to legacy vector through named vector API.
-const DefaultNamedVectorName = "default"
+import (
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/transformers"
+)
+
+func (v *vectorizer) MetaInfo() (map[string]any, error) {
+	endpoint := v.urlBuilder.GetPassageURL("/meta", transformers.VectorizationConfig{})
+	return v.client.MetaInfo(endpoint)
+}

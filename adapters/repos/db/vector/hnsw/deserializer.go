@@ -529,7 +529,7 @@ func (d *Deserializer) ReadKMeansEncoder(r io.Reader, data *compressionhelpers.P
 		}
 		centers = append(centers, center)
 	}
-	kms := compressionhelpers.NewKMeansWithCenters(
+	kms := compressionhelpers.NewKMeansEncoderWithCenters(
 		int(data.Ks),
 		ds,
 		int(i),
