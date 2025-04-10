@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/vectorization"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -298,6 +299,15 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaTenantsUpdateHandler: schema.TenantsUpdateHandlerFunc(func(params schema.TenantsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsUpdate has not yet been implemented")
 		}),
+		VectorizationVectorizationCancelHandler: vectorization.VectorizationCancelHandlerFunc(func(params vectorization.VectorizationCancelParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation vectorization.VectorizationCancel has not yet been implemented")
+		}),
+		VectorizationVectorizationGetStatusHandler: vectorization.VectorizationGetStatusHandlerFunc(func(params vectorization.VectorizationGetStatusParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation vectorization.VectorizationGetStatus has not yet been implemented")
+		}),
+		VectorizationVectorizationStartHandler: vectorization.VectorizationStartHandlerFunc(func(params vectorization.VectorizationStartParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation vectorization.VectorizationStart has not yet been implemented")
+		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
 		}),
@@ -526,6 +536,12 @@ type WeaviateAPI struct {
 	SchemaTenantsGetOneHandler schema.TenantsGetOneHandler
 	// SchemaTenantsUpdateHandler sets the operation handler for the tenants update operation
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
+	// VectorizationVectorizationCancelHandler sets the operation handler for the vectorization cancel operation
+	VectorizationVectorizationCancelHandler vectorization.VectorizationCancelHandler
+	// VectorizationVectorizationGetStatusHandler sets the operation handler for the vectorization get status operation
+	VectorizationVectorizationGetStatusHandler vectorization.VectorizationGetStatusHandler
+	// VectorizationVectorizationStartHandler sets the operation handler for the vectorization start operation
+	VectorizationVectorizationStartHandler vectorization.VectorizationStartHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
 	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
@@ -843,6 +859,15 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaTenantsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsUpdateHandler")
+	}
+	if o.VectorizationVectorizationCancelHandler == nil {
+		unregistered = append(unregistered, "vectorization.VectorizationCancelHandler")
+	}
+	if o.VectorizationVectorizationGetStatusHandler == nil {
+		unregistered = append(unregistered, "vectorization.VectorizationGetStatusHandler")
+	}
+	if o.VectorizationVectorizationStartHandler == nil {
+		unregistered = append(unregistered, "vectorization.VectorizationStartHandler")
 	}
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
@@ -1257,6 +1282,18 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}/tenants"] = schema.NewTenantsUpdate(o.context, o.SchemaTenantsUpdateHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/schema/{collectionName}/vectorize/{targetVector}"] = vectorization.NewVectorizationCancel(o.context, o.VectorizationVectorizationCancelHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/schema/{collectionName}/vectorize/{targetVector}"] = vectorization.NewVectorizationGetStatus(o.context, o.VectorizationVectorizationGetStatusHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/schema/{collectionName}/vectorize/{targetVector}"] = vectorization.NewVectorizationStart(o.context, o.VectorizationVectorizationStartHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

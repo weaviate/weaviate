@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/client/users"
+	"github.com/weaviate/weaviate/client/vectorization"
 	"github.com/weaviate/weaviate/client/well_known"
 )
 
@@ -92,6 +93,7 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Replication = replication.New(transport, formats)
 	cli.Schema = schema.New(transport, formats)
 	cli.Users = users.New(transport, formats)
+	cli.Vectorization = vectorization.New(transport, formats)
 	cli.WellKnown = well_known.New(transport, formats)
 	return cli
 }
@@ -163,6 +165,8 @@ type Weaviate struct {
 
 	Users users.ClientService
 
+	Vectorization vectorization.ClientService
+
 	WellKnown well_known.ClientService
 
 	Transport runtime.ClientTransport
@@ -184,5 +188,6 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Replication.SetTransport(transport)
 	c.Schema.SetTransport(transport)
 	c.Users.SetTransport(transport)
+	c.Vectorization.SetTransport(transport)
 	c.WellKnown.SetTransport(transport)
 }
