@@ -139,9 +139,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/statemachine"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
-	"github.com/weaviate/weaviate/usecases/statemachine"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -883,11 +883,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
+	statemachine.RegisterComponent("grpcserver")
+	statemachine.RegisterForCoordination("grpcserver", statemachine.StateShutdown)
 	grpcServer := createGrpcServer(appState, grpcInstrument...)
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
 
 	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
+	statemachine.RegisterComponent("telemetry")
+	statemachine.RegisterForCoordination("telemetry", statemachine.StateStartup)
+	statemachine.RegisterForCoordination("telemetry", statemachine.StateShutdown)
 	if telemetryEnabled(appState) {
 		enterrors.GoWrapper(func() {
 			if err := telemeter.Start(context.Background()); err != nil {
@@ -895,76 +900,67 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 					WithField("action", "startup").
 					Errorf("telemetry failed to start: %s", err.Error())
 			}
+			defer statemachine.SignalReady("telemetry", statemachine.StateStartup)
 		}, appState.Logger)
 	}
+	statemachine.RegisterComponent("cleanup_backups")
+	statemachine.RegisterForCoordination("cleanup_backups", statemachine.StateStartup)
 	if entcfg.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
 		enterrors.GoWrapper(
 			func() {
 				// cleanup unfinished backups on startup
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
+				defer statemachine.SignalReady("cleanup_backups", statemachine.StateStartup)
 				backupScheduler.CleanupUnfinishedBackups(ctx)
 			}, appState.Logger)
 	}
 
-	go func() {
-		statemachine.OnStateChange("telemetry", statemachine.StatePreShutdown, func (from, to statemachine.State) error { return telemeter.Stop(context.TODO()) })
-		statemachine.SignalReady("telemetry", statemachine.StatePreShutdown)
-	}()
-
-	go func() {
-		statemachine.OnStateChange("grpcserver", statemachine.StatePreShutdown, func (from, to statemachine.State) error {
-			grpcServer.GracefulStop()
-			return nil
-		})
-		statemachine.SignalReady("grpcserver", statemachine.StatePreShutdown)
-	}()
-
-	go func() {
-		statemachine.OnStateChange("sentry", statemachine.StatePreShutdown, func (from, to statemachine.State) error {
-			if appState.ServerConfig.Config.Sentry.Enabled {
-				sentry.Flush(2 * time.Second)
-			}
-			return nil
-		})
-		statemachine.SignalReady("sentry", statemachine.StatePreShutdown)
-	}()
-
-
-	api.ServerShutdown = func() {
+	statemachine.OnStateChange("telemetry", statemachine.StatePreShutdown, func(from, to statemachine.State) error {
+		defer statemachine.SignalReady("telemetry", statemachine.StatePreShutdown)
 		if telemetryEnabled(appState) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			// must be shutdown before the db, to ensure the
-			// termination payload contains the correct
-			// object count
-			if err := telemeter.Stop(ctx); err != nil {
-				appState.Logger.WithField("action", "stop_telemetry").
-					Errorf("failed to stop telemetry: %s", err.Error())
-			}
+			err := telemeter.Stop(context.TODO())
+			return err
 		}
+		return nil
+	})
 
-
-
-		// stop reindexing on server shutdown
-		appState.ReindexCtxCancel()
-
-		// gracefully stop gRPC server
+	statemachine.OnStateChange("grpcserver", statemachine.StatePreShutdown, func(from, to statemachine.State) error {
 		grpcServer.GracefulStop()
+		statemachine.SignalReady("grpcserver", statemachine.StatePreShutdown)
+		return nil
+	})
 
+	statemachine.RegisterComponent("sentry")
+	statemachine.OnStateChange("sentry", statemachine.StatePreShutdown, func(from, to statemachine.State) error {
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
 		}
+		statemachine.SignalReady("sentry", statemachine.StatePreShutdown)
+		return nil
+	})
 
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
+	statemachine.RegisterComponent("reindex")
+	statemachine.OnStateChange("reindex", statemachine.StatePreShutdown, func(from, to statemachine.State) error {
+		// stop reindexing on server shutdown
+		appState.ReindexCtxCancel()
+		statemachine.SignalReady("reindex", statemachine.StatePreShutdown)
+		return nil
+	})
 
-		if err := appState.ClusterService.Close(ctx); err != nil {
-			appState.Logger.
-				WithError(err).
-				WithField("action", "shutdown").
-				Errorf("failed to gracefully shutdown")
-		}
+	statemachine.RegisterComponent("cluster")
+	statemachine.OnStateChange("cluster", statemachine.StatePreShutdown, func(from, to statemachine.State) error {
+		err := appState.ClusterService.Close(ctx)
+		defer statemachine.SignalReady("cluster", statemachine.StatePreShutdown)
+		return err
+	})
+
+	api.ServerShutdown = func() {
+		logrus.WithField("action", "shutdown").Info("starting pre-shutdown")
+		statemachine.ChangeAndWait(statemachine.StatePreShutdown, "instructed by server")
+		logrus.WithField("action", "shutdown").Info("pre-shutdown complete")
+		statemachine.ChangeAndWait(statemachine.StateShutdown, "instructed by server")
+		logrus.WithField("action", "shutdown").Info("shutdown complete")
 	}
 
 	startGrpcServer(grpcServer, appState)
