@@ -90,6 +90,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		}
 
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+			fmt.Println("!!!!CREATING BACKUP!!!!")
 			resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
 			helper.AssertRequestOk(t, resp, err, nil)
 			assert.Equal(t, cfg.Bucket, resp.Payload.Bucket)
@@ -110,9 +111,9 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 
 			helper.AssertRequestOk(t, resp, err, func() {
-				require.NotNil(t, resp)
-				require.NotNil(t, resp.Payload)
-				require.NotNil(t, resp.Payload.Status)
+				assert.NotNil(t, resp)
+				assert.NotNil(t, resp.Payload)
+				assert.NotNil(t, resp.Payload.Status)
 				assert.Equal(t, backupID, resp.Payload.ID)
 				assert.Equal(t, backend, resp.Payload.Backend)
 				assert.Contains(t, resp.Payload.Path, overrideBucket)
@@ -127,19 +128,20 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		}, 120*time.Second, 1000*time.Millisecond)
 
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+			fmt.Println("!!!!CHECKING BACKUP STATUS2!!!!")
 			statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 
 			helper.AssertRequestOk(t, statusResp, err, func() {
-				require.NotNil(t, statusResp)
-				require.NotNil(t, statusResp.Payload)
-				require.NotNil(t, statusResp.Payload.Status)
+				assert.NotNil(t, statusResp)
+				assert.NotNil(t, statusResp.Payload)
+				assert.NotNil(t, statusResp.Payload.Status)
 				assert.Equal(t, backupID, statusResp.Payload.ID)
 				assert.Equal(t, backend, statusResp.Payload.Backend)
 				assert.Contains(t, statusResp.Payload.Path, overrideBucket)
 				assert.Contains(t, statusResp.Payload.Path, overridePath)
 			})
 
-			require.Equal(t, string(backup.Success), *statusResp.Payload.Status,
+			assert.Equal(t, string(backup.Success), *statusResp.Payload.Status,
 				 statusResp.Payload.Error)
 
 		}, 240*time.Second, 1000*time.Millisecond)
