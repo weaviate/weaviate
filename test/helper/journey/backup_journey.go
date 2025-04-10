@@ -75,7 +75,6 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 	}
 
 	t.Run("create backup"+overrideString, func(t *testing.T) {
-
 		// Ensure cluster is in sync
 		if journeyType == clusterJourney {
 			time.Sleep(3 * time.Second)
@@ -89,7 +88,6 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		}
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
-			fmt.Println("!!!!CREATING BACKUP!!!!")
 			resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
 			helper.AssertRequestOk(t, resp, err, nil)
 			assert.Equal(t1, cfg.Bucket, resp.Payload.Bucket)
@@ -103,29 +101,24 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			assert.Equal(t1, className, resp.Payload.Classes[0])
 			assert.Equal(t1, "", resp.Payload.Error)
 			assert.Equal(t1, string(backup.Started), *resp.Payload.Status)
-
 		}, 240*time.Second, 500*time.Millisecond)
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 			assert.Nil(t, err, "expected nil, got: %v", err)
 
-
-				assert.NotNil(t1, resp)
-				assert.NotNil(t1, resp.Payload)
-				assert.NotNil(t1, resp.Payload.Status)
-				assert.Equal(t1, backupID, resp.Payload.ID)
-				assert.Equal(t1, backend, resp.Payload.Backend)
-				assert.Contains(t1, resp.Payload.Path, overrideBucket)
-				assert.Contains(t1, resp.Payload.Path, overridePath)
-
+			assert.NotNil(t1, resp)
+			assert.NotNil(t1, resp.Payload)
+			assert.NotNil(t1, resp.Payload.Status)
+			assert.Equal(t1, backupID, resp.Payload.ID)
+			assert.Equal(t1, backend, resp.Payload.Backend)
+			assert.Contains(t1, resp.Payload.Path, overrideBucket)
+			assert.Contains(t1, resp.Payload.Path, overridePath)
 
 			assert.True(t1, ("STARTED" == *resp.Payload.Status) || ("SUCCESS" == *resp.Payload.Status))
-
 		}, 120*time.Second, 1000*time.Millisecond)
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
-			fmt.Println("!!!!CHECKING BACKUP STATUS2!!!!")
 			statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 
 			helper.AssertRequestOk(t, statusResp, err, func() {
@@ -139,8 +132,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			})
 
 			assert.Equal(t1, string(backup.Success), *statusResp.Payload.Status,
-				 statusResp.Payload.Error)
-
+				statusResp.Payload.Error)
 		}, 120*time.Second, 1000*time.Millisecond)
 	})
 
