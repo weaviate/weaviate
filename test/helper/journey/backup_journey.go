@@ -138,7 +138,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 				assert.Contains(t1, statusResp.Payload.Path, overridePath)
 			})
 
-			assert.Equal(t, string(backup.Success), *statusResp.Payload.Status,
+			assert.Equal(t1, string(backup.Success), *statusResp.Payload.Status,
 				 statusResp.Payload.Error)
 
 		}, 120*time.Second, 1000*time.Millisecond)
