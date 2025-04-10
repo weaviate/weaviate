@@ -184,6 +184,7 @@ func (t *dummyShardReindexTaskV3) OnAfterLsmInit(ctx context.Context, shard *Sha
 	return nil
 }
 
-func (t *dummyShardReindexTaskV3) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike) (rerunAt time.Time, err error) {
-	return time.Time{}, nil
+func (t *dummyShardReindexTaskV3) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
+) (rerunAt time.Time, reloadShard bool, err error) {
+	return time.Time{}, false, nil
 }

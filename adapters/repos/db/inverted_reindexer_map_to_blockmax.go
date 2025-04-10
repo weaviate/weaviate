@@ -36,7 +36,7 @@ import (
 )
 
 func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
-	swapBuckets, unswapBuckets, tidyBuckets, rollback bool,
+	swapBuckets, unswapBuckets, tidyBuckets, reloadShards, rollback bool,
 	processingDuration, pauseDuration time.Duration, concurrency int,
 	cpts []config.CollectionPropsTenants, schemaManager *schema.Manager,
 ) *ShardReindexTask_MapToBlockmax {
@@ -83,6 +83,7 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 		swapBuckets:                   swapBuckets,
 		unswapBuckets:                 unswapBuckets,
 		tidyBuckets:                   tidyBuckets,
+		reloadShards:                  reloadShards,
 		rollback:                      rollback,
 		concurrency:                   concurrency,
 		memtableOptBlockmaxFactor:     4,
@@ -121,6 +122,7 @@ type mapToBlockmaxConfig struct {
 	swapBuckets                   bool
 	unswapBuckets                 bool
 	tidyBuckets                   bool
+	reloadShards                  bool
 	rollback                      bool
 	concurrency                   int
 	memtableOptBlockmaxFactor     int
@@ -367,7 +369,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 }
 
 func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
-) (rerunAt time.Time, err error) {
+) (rerunAt time.Time, reloadShard bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
@@ -388,19 +390,19 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 
 	if t.config.rollback {
 		logger.Debug("rollback. nothing to do")
-		return zerotime, nil
+		return zerotime, false, nil
 	}
 
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	props, err := t.readPropsToReindex(rt)
 	if err != nil {
 		err = fmt.Errorf("reading reindexable props: %w", err)
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	if rt.isTidied() {
@@ -408,32 +410,32 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 		if err != nil {
 			err = fmt.Errorf("updating inverted index config: %w", err)
 		}
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	if len(props) == 0 {
 		logger.Debug("no props read. nothing to do")
-		return zerotime, nil
+		return zerotime, false, nil
 	}
 
 	if rt.isReindexed() {
 		logger.Debug("reindexed. nothing to do")
-		return zerotime, nil
+		return zerotime, false, nil
 	}
 
 	var reindexStarted time.Time
 	if !rt.isStarted() {
 		err = fmt.Errorf("missing reindex started")
-		return zerotime, err
+		return zerotime, false, err
 	} else if reindexStarted, err = rt.getStarted(); err != nil {
 		err = fmt.Errorf("getting reindex started: %w", err)
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	var lastStoredKey indexKey
 	if lastStoredKey, err = rt.getProgress(); err != nil {
 		err = fmt.Errorf("getting reindex progress: %w", err)
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	logger.WithFields(map[string]any{
@@ -443,7 +445,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 
 	if err = ctx.Err(); err != nil {
 		err = fmt.Errorf("context check (1): %w / %w", err, context.Cause(ctx))
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	processedCount := 0
@@ -478,11 +480,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 			finished = true
 		} else if md.err != nil {
 			err = md.err
-			return zerotime, err
+			return zerotime, false, err
 		} else if err = ctx.Err(); err != nil {
 			breakCh <- true
 			err = fmt.Errorf("context check (loop): %w / %w", err, context.Cause(ctx))
-			return zerotime, err
+			return zerotime, false, err
 		} else {
 			if len(md.props) > 0 {
 				for _, invprop := range md.props {
@@ -493,7 +495,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 							if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
 								breakCh <- true
 								err = fmt.Errorf("adding object '%s' prop '%s': %w", md.key.String(), invprop.Name, err)
-								return zerotime, err
+								return zerotime, false, err
 							}
 						}
 					}
@@ -511,18 +513,18 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
 		if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
 			err = fmt.Errorf("marking reindex progress: %w", err)
-			return zerotime, err
+			return zerotime, false, err
 		}
 		lastStoredKey = lastProcessedKey.Clone()
 	}
 	if finished {
 		if err = rt.markReindexed(); err != nil {
 			err = fmt.Errorf("marking reindexed: %w", err)
-			return zerotime, err
+			return zerotime, false, err
 		}
-		return zerotime, nil
+		return zerotime, t.config.reloadShards, nil
 	}
-	return time.Now().Add(t.config.pauseDuration), nil
+	return time.Now().Add(t.config.pauseDuration), false, nil
 }
 
 func (t *ShardReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ctx context.Context,
