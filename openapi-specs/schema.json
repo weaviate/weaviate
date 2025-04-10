@@ -1259,6 +1259,51 @@
         }
       }
     },
+    "CollectionVectorizationRequest": {
+      "description": "Request body for vectorizing target vector of a collection",
+      "properties": {
+        "tenantFilter": {
+          "description": "Optional filter to scope the vectorization to a subset of tenants",
+          "type": "string",
+          "x-nullable": true
+        }
+      }
+    },
+    "VectorizationStatusResponse": {
+      "description": "The status of the vectorization process for a given collection and target vector",
+      "properties": {
+        "tenantFilter": {
+          "description": "Filter to scope the vectorization to a subset of tenants",
+          "type": "string",
+          "x-nullable": true
+        },
+        "status": {
+          "description": "The status of vectorization",
+          "enum": [
+            "STARTED",
+            "FINISHED",
+            "CANCELLED",
+            "FAILED"
+          ]
+        },
+        "createdAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)"
+        },
+        "finishedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "x-nullable": true
+        },
+        "failureReason": {
+          "description": "The reason why vectorization failed",
+          "type": "string",
+          "x-nullable": true
+        }
+      }
+    },
     "BackupCreateStatusResponse": {
       "description": "The definition of a backup create metadata",
       "properties": {
@@ -6769,6 +6814,202 @@
           },
           "422": {
             "description": "Invalid tenant or class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{collectionName}/vectorize/{targetVector}": {
+      "get": {
+        "summary": "Get the status of the vectorization task",
+        "operationId": "vectorization.getStatus",
+        "x-serviceIds": [
+          "weaviate.vectorization.getStatus"
+        ],
+        "tags": [
+          "vectorization"
+        ],
+        "parameters": [
+          {
+            "name": "collectionName",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "targetVector",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The status of the vectorization task",
+            "schema": {
+              "$ref": "#/definitions/VectorizationStatusResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Vectorization task not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Start the vectorization task",
+        "operationId": "vectorization.start",
+        "x-serviceIds": [
+          "weaviate.vectorization.start"
+        ],
+        "tags": [
+          "vectorization"
+        ],
+        "parameters": [
+          {
+            "name": "collectionName",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "targetVector",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/CollectionVectorizationRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The task was successfully started"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Task already exists"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Cancel the vectorization task",
+        "operationId": "vectorization.cancel",
+        "x-serviceIds": [
+          "weaviate.vectorization.cancel"
+        ],
+        "tags": [
+          "vectorization"
+        ],
+        "parameters": [
+          {
+            "name": "collectionName",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "targetVector",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The task was successfully cancelled"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Vectorization task not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
