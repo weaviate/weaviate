@@ -14,7 +14,6 @@ package cluster
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -23,7 +22,6 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/mocks"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -159,138 +157,68 @@ func TestSchemaSnapshotCorruptedData(t *testing.T) {
 func TestConcurrentSnapshotOperations(t *testing.T) {
 	source := NewMockStore(t, "concurrent-snapshot-node", utils.MustGetFreeTCPPort())
 	setupTestSchema(t, source)
-
-	const numGoroutines = 5
-	const iterations = 10
+	source.store.init()
+	const numGoroutines = 10
+	const iterations = 100
 
 	var wg sync.WaitGroup
-	wg.Add(numGoroutines * 3) // For persistence, restoration, and reads
+	wg.Add(numGoroutines * 3)
 
-	persistErrors := make(chan error, numGoroutines*iterations)
-	restoreErrors := make(chan error, numGoroutines*iterations)
-	readErrors := make(chan error, numGoroutines*iterations)
-
-	// Test concurrent Snapshot and Persist operations
+	// Test concurrent Persist operations
 	for i := 0; i < numGoroutines; i++ {
-		go func(routineNum int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				// Create a unique sink for each iteration
 				sink := &mocks.SnapshotSink{
-					Buffer: bytes.NewBuffer(nil),
+					Buffer: &bytes.Buffer{},
 				}
-				// Create and persist snapshot
-				snapshot, err := source.store.Snapshot()
-				if err != nil {
-					persistErrors <- fmt.Errorf("routine %d, iteration %d, snapshot creation: %w", routineNum, j, err)
-					continue
-				}
-				err = snapshot.Persist(sink)
-				if err != nil {
-					persistErrors <- fmt.Errorf("routine %d, iteration %d, snapshot persist: %w", routineNum, j, err)
-				}
-				time.Sleep(time.Millisecond) // Small delay to increase chance of concurrency issues
+				err := source.store.Persist(sink)
+				assert.NoError(t, err)
+				time.Sleep(time.Microsecond)
 			}
-		}(i)
+		}()
 	}
-
-	baseSnapshotSink := &mocks.SnapshotSink{
-		Buffer: bytes.NewBuffer(nil),
-	}
-	baseSnapshot, err := source.store.Snapshot()
-	require.NoError(t, err)
-	err = baseSnapshot.Persist(baseSnapshotSink)
-	require.NoError(t, err)
-	baseSnapshotBytes := baseSnapshotSink.Buffer.Bytes()
-
+	target := NewMockStore(t, "concurrent-snapshot-node", utils.MustGetFreeTCPPort())
+	target.store.init()
+	// Test concurrent Restore operations
 	for i := 0; i < numGoroutines; i++ {
-		go func(routineNum int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				// Create a target store for restoration
-				target := NewMockStore(t, fmt.Sprintf("concurrent-restore-%d-%d", routineNum, j), utils.MustGetFreeTCPPort())
-				target.store.init()
+				sink := &mocks.SnapshotSink{
+					Buffer: &bytes.Buffer{},
+				}
+				err := source.store.Persist(sink)
+				assert.NoError(t, err)
 
-				// Set up mocks for restoration
 				target.parser.On("ParseClass", mock.Anything).Return(nil)
 				target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-				target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-				target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
-				target.indexer.On("AddClass", mock.Anything).Return(nil)
-
-				// Create a new reader for each restoration to avoid position issues
-				snapshotReader := io.NopCloser(bytes.NewReader(baseSnapshotBytes))
-
-				// Restore from snapshot
-				err := target.store.Restore(snapshotReader)
-				if err != nil {
-					restoreErrors <- fmt.Errorf("routine %d, iteration %d, restore: %w", routineNum, j, err)
-					continue
-				}
-
-				// Validate that restoration was successful
-				targetSchema := target.store.SchemaReader()
-				if targetSchema.Len() == 0 {
-					restoreErrors <- fmt.Errorf("routine %d, iteration %d: schema is empty after restore", routineNum, j)
-				}
-
-				time.Sleep(time.Millisecond) // Small delay
+				// Restore from the snapshot
+				err = target.store.Restore(io.NopCloser(bytes.NewBuffer(sink.Buffer.Bytes())))
+				assert.NoError(t, err)
+				time.Sleep(time.Microsecond)
+				verifySchemaRestoration(t, source, target)
+				sourceSchema := source.store.SchemaReader().ReadOnlySchema()
+				targetSchema := target.store.SchemaReader().ReadOnlySchema()
+				assert.Greater(t, len(sourceSchema.Classes), 0)
+				assert.Equal(t, len(sourceSchema.Classes), len(targetSchema.Classes))
 			}
-		}(i)
+		}()
 	}
 
 	// Test concurrent reads while snapshot operations are happening
 	for i := 0; i < numGoroutines; i++ {
-		go func(routineNum int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				// Perform read operations that would normally happen during snapshot operations
 				schema := source.store.SchemaReader().ReadOnlySchema()
-
-				// Check that the schema has expected classes
-				if len(schema.Classes) < 2 { // We expect at least Product and Category
-					readErrors <- fmt.Errorf("routine %d, iteration %d: schema has fewer classes than expected: %d",
-						routineNum, j, len(schema.Classes))
-				}
-
-				// Try to take a snapshot while other operations are ongoing
-				snap, err := source.store.Snapshot()
-				if err != nil {
-					readErrors <- fmt.Errorf("routine %d, iteration %d, snapshot during read: %w", routineNum, j, err)
-				} else {
-					// Just check it's not nil, don't persist it
-					if snap == nil {
-						readErrors <- fmt.Errorf("routine %d, iteration %d: snapshot is nil", routineNum, j)
-					}
-				}
-
-				time.Sleep(time.Millisecond) // Small delay
+				assert.NotNil(t, schema)
+				time.Sleep(time.Microsecond)
 			}
-		}(i)
+		}()
 	}
 
 	wg.Wait()
-	close(persistErrors)
-	close(restoreErrors)
-	close(readErrors)
-
-	errCount := 0
-	for err := range persistErrors {
-		t.Errorf("Persist error: %v", err)
-		errCount++
-	}
-	for err := range restoreErrors {
-		t.Errorf("Restore error: %v", err)
-		errCount++
-	}
-	for err := range readErrors {
-		t.Errorf("Read error: %v", err)
-		errCount++
-	}
-
-	if errCount > 0 {
-		t.Fatalf("Found %d errors during concurrent snapshot operations", errCount)
-	}
 }
 
 func setupTestSchema(t *testing.T, ms MockStore) {

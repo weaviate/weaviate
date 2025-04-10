@@ -15,7 +15,6 @@ package mocks
 
 import (
 	mock "github.com/stretchr/testify/mock"
-
 	authorization "github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 

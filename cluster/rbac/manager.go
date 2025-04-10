@@ -243,5 +243,9 @@ func (m *Manager) Restore(r io.Reader) error {
 	if m.snapshotter == nil {
 		return nil
 	}
-	return m.snapshotter.Restore(r)
+	if err := m.snapshotter.Restore(r); err != nil {
+		return err
+	}
+	m.logger.Info("successfully restored rbac from snapshot")
+	return nil
 }
