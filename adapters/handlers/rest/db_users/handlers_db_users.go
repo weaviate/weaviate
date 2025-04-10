@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"runtime"
 	"slices"
 	"sync"
 	"time"
@@ -44,8 +43,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
-
-var _NUMCPU = runtime.GOMAXPROCS(0)
 
 type dynUserHandler struct {
 	authorizer           authorization.Authorizer
@@ -91,7 +88,7 @@ func SetupHandlers(
 	api.UsersListAllUsersHandler = users.ListAllUsersHandlerFunc(h.listUsers)
 }
 
-func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
+func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
 	isRootUser := h.isRequestFromRootUser(principal)
 
 	if !h.dbUserEnabled {
@@ -119,13 +116,22 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 		},
 	)
 
+	var usersWithTime map[string]time.Time
+	if params.IncludeLastUsedTime != nil && *params.IncludeLastUsedTime {
+		usersWithTime = h.getLastUsed(filteredUsers)
+	}
+
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dbUser := range filteredUsers {
 		apiKeyFirstLetter := ""
 		if isRootUser {
 			apiKeyFirstLetter = dbUser.ApiKeyFirstLetters
 		}
-		response, err = h.addToListAllResponse(response, dbUser.Id, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, &dbUser.CreatedAt)
+		var lastUsedTime time.Time
+		if val, ok := usersWithTime[dbUser.Id]; ok {
+			lastUsedTime = val
+		}
+		response, err = h.addToListAllResponse(response, dbUser.Id, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, &dbUser.CreatedAt, &lastUsedTime)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -133,7 +139,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 
 	if isRootUser {
 		for _, staticUser := range h.staticApiKeysConfigs.Users {
-			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", nil)
+			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", nil, nil)
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 			}
@@ -143,7 +149,7 @@ func (h *dynUserHandler) listUsers(_ users.ListAllUsersParams, principal *models
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool, apiKeyFirstLetter string, createdAt *time.Time) ([]*models.DBUserInfo, error) {
+func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool, apiKeyFirstLetter string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
 	roles, err := h.dbUsers.GetRolesForUser(id, models.UserTypeInputDb)
 	if err != nil {
 		return response, err
@@ -163,6 +169,9 @@ func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id,
 	}
 	if createdAt != nil {
 		resp.CreatedAt = strfmt.DateTime(*createdAt)
+	}
+	if lastusedAt != nil {
+		resp.LastUsedAt = strfmt.DateTime(*lastusedAt)
 	}
 
 	response = append(response, resp)
@@ -201,7 +210,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		}
 
 		if params.IncludeLastUsedTime != nil && *params.IncludeLastUsedTime {
-			usersWithTime := h.getLastUsed(existingDbUsers)
+			usersWithTime := h.getLastUsed([]*apikey.User{user})
 			response.LastUsedAt = strfmt.DateTime(usersWithTime[params.UserID])
 		}
 	}
@@ -226,10 +235,10 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	return users.NewGetUserInfoOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) getLastUsed(users map[string]*apikey.User) map[string]time.Time {
+func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time {
 	usersWithTime := make(map[string]time.Time, len(users))
-	for userId, val := range users {
-		usersWithTime[userId] = val.LastUsedAt
+	for _, user := range users {
+		usersWithTime[user.Id] = user.LastUsedAt
 	}
 
 	nodes := h.nodesGetter.Nodes()

@@ -748,6 +748,15 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		require.Equal(t, *user.UserID, dynUser)
 		require.Less(t, lastLoginTime, user.LastUsedAt)
 		require.Less(t, user.LastUsedAt, time.Now())
+
+		allUsers := helper.ListAllUsersWithIncludeTime(t, adminKey, true)
+		for _, user := range allUsers {
+			if *user.UserID != dynUser {
+				continue
+			}
+			require.Less(t, lastLoginTime, user.LastUsedAt)
+			require.Less(t, user.LastUsedAt, time.Now())
+		}
 	})
 
 	t.Run("last usage with shutdowns", func(t *testing.T) {
@@ -784,5 +793,14 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		require.Less(t, before, userNode2.LastUsedAt)
 		require.Less(t, userNode2.LastUsedAt, time.Now())
 		require.Equal(t, userNode2.LastUsedAt, user.LastUsedAt)
+
+		allUsers := helper.ListAllUsersWithIncludeTime(t, adminKey, true)
+		for _, user := range allUsers {
+			if *user.UserID != dynUser {
+				continue
+			}
+			require.Less(t, user.LastUsedAt, time.Now())
+			require.Equal(t, user.LastUsedAt, userNode2.LastUsedAt)
+		}
 	})
 }
