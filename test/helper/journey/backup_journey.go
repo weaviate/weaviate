@@ -77,10 +77,6 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 	t.Run("create backup"+overrideString, func(t *testing.T) {
 
-		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-
-		}, 10*time.Second, 500*time.Millisecond)
-
 		// Ensure cluster is in sync
 		if journeyType == clusterJourney {
 			time.Sleep(3 * time.Second)
@@ -111,8 +107,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		}, 240*time.Second, 500*time.Millisecond)
 
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-		resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
-
+			resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 
 			helper.AssertRequestOk(t, resp, err, func() {
 				require.NotNil(t, resp)
@@ -127,27 +122,28 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 				assert.Contains(t, resp.Payload.Path, overridePath)
 			})
 
-			assert.True(t, ("STARTED"== *resp.Payload.Status) || ("SUCCESS"== *resp.Payload.Status))
+			assert.True(t, ("STARTED" == *resp.Payload.Status) || ("SUCCESS" == *resp.Payload.Status))
 
 		}, 120*time.Second, 1000*time.Millisecond)
 
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-		statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
+			statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 
-		helper.AssertRequestOk(t, resp, err, func() {
-			require.NotNil(t, statusResp)
-			require.NotNil(t, statusResp.Payload)
-			require.NotNil(t, statusResp.Payload.Status)
-			assert.Equal(t, backupID, resp.Payload.ID)
-			assert.Equal(t, backend, resp.Payload.Backend)
-			assert.Contains(t, resp.Payload.Path, overrideBucket)
-			assert.Contains(t, resp.Payload.Path, overridePath)
-		})
+			helper.AssertRequestOk(t, statusResp, err, func() {
+				require.NotNil(t, statusResp)
+				require.NotNil(t, statusResp.Payload)
+				require.NotNil(t, statusResp.Payload.Status)
+				assert.Equal(t, backupID, statusResp.Payload.ID)
+				assert.Equal(t, backend, statusResp.Payload.Backend)
+				assert.Contains(t, statusResp.Payload.Path, overrideBucket)
+				assert.Contains(t, statusResp.Payload.Path, overridePath)
+			})
 
-		require.Equal(t, *statusResp.Payload.Status,
-			string(backup.Success), statusResp.Payload.Error)
-	
-	}, 120*time.Second, 1000*time.Millisecond)
+			require.Equal(t, string(backup.Success), *statusResp.Payload.Status,
+				 statusResp.Payload.Error)
+
+		}, 240*time.Second, 1000*time.Millisecond)
+	})
 
 	t.Run("delete class for restoration"+overrideString, func(t *testing.T) {
 		helper.DeleteClass(t, className)
@@ -208,29 +204,29 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		})
 
 		require.Equal(t, string(backup.Success), *statusResp.Payload.Status)
-	})
 
-	// Ensure that on restoring the class it is consistent on the followers
-	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-		if tenantNames != nil {
-			for _, name := range tenantNames {
-				moduleshelper.EnsureClassExists(t, className, name)
+		// Ensure that on restoring the class it is consistent on the followers
+		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+			if tenantNames != nil {
+				for _, name := range tenantNames {
+					moduleshelper.EnsureClassExists(t, className, name)
+					if dataIntegrityCheck == checkClassAndDataPresence {
+						count := moduleshelper.GetClassCount(t, className, name)
+						assert.Equal(t, int64(500/len(tenantNames)), count)
+					}
+				}
+			} else {
+				moduleshelper.EnsureClassExists(t, className, singleTenant)
 				if dataIntegrityCheck == checkClassAndDataPresence {
-					count := moduleshelper.GetClassCount(t, className, name)
-					assert.Equal(t, int64(500/len(tenantNames)), count)
+					count := moduleshelper.GetClassCount(t, className, singleTenant)
+					assert.Equal(t, int64(500), count)
+					if pqEnabled {
+						moduleshelper.EnsureCompressedVectorsRestored(t, className)
+					}
 				}
 			}
-		} else {
-			moduleshelper.EnsureClassExists(t, className, singleTenant)
-			if dataIntegrityCheck == checkClassAndDataPresence {
-				count := moduleshelper.GetClassCount(t, className, singleTenant)
-				assert.Equal(t, int64(500), count)
-				if pqEnabled {
-					moduleshelper.EnsureCompressedVectorsRestored(t, className)
-				}
-			}
-		}
-	}, 5*time.Second, 500*time.Microsecond, "class doesn't exists in follower nodes")
+		}, 5*time.Second, 500*time.Microsecond, "class doesn't exists in follower nodes")
+	})
 }
 
 func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupID string, journeyType journeyType, overrideBucket, overridePath string) {
