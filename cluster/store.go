@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/cluster/dynusers"
@@ -204,6 +205,9 @@ type Store struct {
 
 	// replicationManager is responsible for applying/querying the replication FSM used to handle replication operations
 	replicationManager *replication.Manager
+
+	// TODO: add comment
+	distributedTaskManager *distributedtask.Manager
 
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
