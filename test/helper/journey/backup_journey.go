@@ -14,7 +14,6 @@ package journey
 import (
 	"fmt"
 	"math/rand"
-	"strings"
 	"testing"
 	"time"
 
@@ -89,41 +88,39 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			cfg.Path = overridePath
 		}
 
-		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			fmt.Println("!!!!CREATING BACKUP!!!!")
 			resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
 			helper.AssertRequestOk(t, resp, err, nil)
-			assert.Equal(t, cfg.Bucket, resp.Payload.Bucket)
+			assert.Equal(t1, cfg.Bucket, resp.Payload.Bucket)
 			if cfg.Bucket != "" {
 				assert.Contains(t, resp.Payload.Path, cfg.Bucket)
 			}
 			if cfg.Path != "" {
 				assert.Contains(t, resp.Payload.Path, cfg.Path)
 			}
-			assert.Equal(t, backupID, resp.Payload.ID)
-			assert.Equal(t, className, resp.Payload.Classes[0])
-			assert.Equal(t, "", resp.Payload.Error)
-			assert.Equal(t, string(backup.Started), *resp.Payload.Status)
+			assert.Equal(t1, backupID, resp.Payload.ID)
+			assert.Equal(t1, className, resp.Payload.Classes[0])
+			assert.Equal(t1, "", resp.Payload.Error)
+			assert.Equal(t1, string(backup.Started), *resp.Payload.Status)
 
 		}, 240*time.Second, 500*time.Millisecond)
 
-		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
+			assert.Nil(t, err, "expected nil, got: %v", err)
 
-			helper.AssertRequestOk(t, resp, err, func() {
-				assert.NotNil(t, resp)
-				assert.NotNil(t, resp.Payload)
-				assert.NotNil(t, resp.Payload.Status)
-				assert.Equal(t, backupID, resp.Payload.ID)
-				assert.Equal(t, backend, resp.Payload.Backend)
-				assert.Contains(t, resp.Payload.Path, overrideBucket)
-				if !strings.Contains(resp.Payload.Path, overridePath) {
-					t.Logf("expected path: %s, got: %s", overridePath, resp.Payload.Path)
-				}
-				assert.Contains(t, resp.Payload.Path, overridePath)
-			})
 
-			assert.True(t, ("STARTED" == *resp.Payload.Status) || ("SUCCESS" == *resp.Payload.Status))
+				assert.NotNil(t1, resp)
+				assert.NotNil(t1, resp.Payload)
+				assert.NotNil(t1, resp.Payload.Status)
+				assert.Equal(t1, backupID, resp.Payload.ID)
+				assert.Equal(t1, backend, resp.Payload.Backend)
+				assert.Contains(t1, resp.Payload.Path, overrideBucket)
+				assert.Contains(t1, resp.Payload.Path, overridePath)
+
+
+			assert.True(t1, ("STARTED" == *resp.Payload.Status) || ("SUCCESS" == *resp.Payload.Status))
 
 		}, 120*time.Second, 1000*time.Millisecond)
 
