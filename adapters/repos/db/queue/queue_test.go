@@ -13,6 +13,7 @@ package queue
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"io"
 	"os"
@@ -407,5 +408,82 @@ func BenchmarkQueuePush(b *testing.B) {
 		for j := 0; j < 20_000; j++ {
 			d.Push(rec)
 		}
+	}
+}
+
+func TestPartialChunkRecovery(t *testing.T) {
+	tests := []struct {
+		name     string
+		truncate int64
+		records  int
+	}{
+		{"truncate full record", -10, 4},
+		{"truncate mid record", -2, 4},
+		{"truncate record length", -11, 4},
+		{"truncate after header", 13, 0},
+		{"empty file", 0, 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s := makeScheduler(t, 1)
+			s.Start()
+
+			tmpDir := t.TempDir()
+
+			_, e := streamExecutor()
+			q := makeQueueWith(t, s, e, 500, tmpDir)
+
+			// write 5 records
+			for i := 0; i < 5; i++ {
+				err := q.Push(bytes.Repeat([]byte{1}, 10))
+				require.NoError(t, err)
+			}
+
+			// close the queue to ensure all records are flushed
+			err := q.Close()
+			require.NoError(t, err)
+
+			// ensure there is a chunk file
+			entries, err := os.ReadDir(tmpDir)
+			require.NoError(t, err)
+			require.Len(t, entries, 1)
+
+			stat, err := os.Stat(filepath.Join(tmpDir, entries[0].Name()))
+			require.NoError(t, err)
+			size := stat.Size()
+
+			// manually corrupt the file
+			chunkFile := filepath.Join(tmpDir, entries[0].Name())
+			if test.truncate < 0 {
+				// truncate the file from the end
+				err = os.Truncate(chunkFile, int64(size+test.truncate))
+			} else {
+				// truncate the file from the beginning
+				err = os.Truncate(chunkFile, test.truncate)
+			}
+			require.NoError(t, err)
+
+			// open the queue again
+			// this should not return an error
+			q = makeQueueWith(t, s, e, 500, tmpDir)
+			require.NoError(t, err)
+
+			s.RegisterQueue(q)
+			q.Pause()
+
+			// manually promote a partial chunk to a full chunk
+			err = q.w.Promote()
+			require.NoError(t, err)
+
+			batch, err := q.DequeueBatch()
+			require.NoError(t, err)
+			if test.records == 0 {
+				require.Nil(t, batch)
+			} else {
+				require.NotNil(t, batch)
+				require.Len(t, batch.Tasks, test.records)
+			}
+		})
 	}
 }

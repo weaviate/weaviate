@@ -68,6 +68,7 @@ func TestSuccessListAll(t *testing.T) {
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{staticUser}, AllowedKeys: []string{"static"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
+				dbUserEnabled:        true,
 			}
 
 			res := h.listUsers(users.ListAllUsersParams{}, test.principal)
@@ -93,12 +94,30 @@ func TestSuccessListForbidden(t *testing.T) {
 
 	log, _ := test.NewNullLogger()
 	h := dynUserHandler{
-		dbUsers:    dynUser,
-		authorizer: authorizer,
-		logger:     log,
+		dbUsers:       dynUser,
+		authorizer:    authorizer,
+		logger:        log,
+		dbUserEnabled: true,
 	}
 
 	// no authorization for anything => response will be empty
+	res := h.listUsers(users.ListAllUsersParams{}, principal)
+	parsed, ok := res.(*users.ListAllUsersOK)
+	assert.True(t, ok)
+	assert.NotNil(t, parsed)
+	require.Len(t, parsed.Payload, 0)
+}
+
+func TestListNoDynamic(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authzMocks.NewAuthorizer(t)
+
+	h := dynUserHandler{
+		dbUsers:       mocks.NewDbUserAndRolesGetter(t),
+		authorizer:    authorizer,
+		dbUserEnabled: false,
+	}
+
 	res := h.listUsers(users.ListAllUsersParams{}, principal)
 	parsed, ok := res.(*users.ListAllUsersOK)
 	assert.True(t, ok)
