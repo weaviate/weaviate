@@ -53,7 +53,6 @@ func (c *RemoteUser) GetUserStatus(ctx context.Context, nodeName string, users m
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), bytes.NewBuffer(jsonBody))
-	req.Header.Set("TEST", "TEST")
 	if err != nil {
 		return nil, enterrors.NewErrOpenHttpRequest(err)
 	}
