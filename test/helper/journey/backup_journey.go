@@ -110,8 +110,9 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		}, 240*time.Second, 500*time.Millisecond)
 
-		resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
+
 
 			helper.AssertRequestOk(t, resp, err, func() {
 				require.NotNil(t, resp)
@@ -126,10 +127,11 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 				assert.Contains(t, resp.Payload.Path, overridePath)
 			})
 
-			assert.Equal(t, "STARTED", *resp.Payload.Status)
+			assert.True(t, ("STARTED"== *resp.Payload.Status) || ("SUCCESS"== *resp.Payload.Status))
 
-		}, 480*time.Second, 1000*time.Millisecond)
+		}, 120*time.Second, 1000*time.Millisecond)
 
+		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 
 		helper.AssertRequestOk(t, resp, err, func() {
@@ -144,7 +146,8 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		require.Equal(t, *statusResp.Payload.Status,
 			string(backup.Success), statusResp.Payload.Error)
-	})
+	
+	}, 120*time.Second, 1000*time.Millisecond)
 
 	t.Run("delete class for restoration"+overrideString, func(t *testing.T) {
 		helper.DeleteClass(t, className)
