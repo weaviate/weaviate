@@ -96,8 +96,7 @@ func TestSuccessListAll(t *testing.T) {
 func TestSuccessListAllUserMultiNode(t *testing.T) {
 	baseTime := time.Now()
 
-	userId := "user"
-	userId2 := "user2"
+	usersIds := []string{"user1", "user2", "user3", "user4", "user5", "user6"}
 
 	truep := true
 	tests := []struct {
@@ -106,36 +105,56 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 		expectedTime  map[string]time.Time
 		userIds       []string
 	}{
-		{name: "single node, single user", nodeResponses: []map[string]time.Time{{}}, expectedTime: map[string]time.Time{userId: baseTime}, userIds: []string{userId}},
-		{name: "single node, multi user", nodeResponses: []map[string]time.Time{{}}, expectedTime: map[string]time.Time{userId: baseTime, userId2: baseTime}, userIds: []string{userId, userId2}},
+		{name: "single node, single user", nodeResponses: []map[string]time.Time{{}}, expectedTime: map[string]time.Time{usersIds[0]: baseTime}, userIds: usersIds[:1]},
+		{name: "single node, multi user", nodeResponses: []map[string]time.Time{{}}, expectedTime: map[string]time.Time{usersIds[0]: baseTime, usersIds[1]: baseTime}, userIds: usersIds[:2]},
 		{
 			name:          "multi node, latest time local node, single user",
-			userIds:       []string{userId},
-			expectedTime:  map[string]time.Time{userId: baseTime},
-			nodeResponses: []map[string]time.Time{{userId: baseTime.Add(-time.Second)}, {userId: baseTime.Add(-time.Second)}},
+			userIds:       usersIds[:1],
+			expectedTime:  map[string]time.Time{usersIds[0]: baseTime},
+			nodeResponses: []map[string]time.Time{{usersIds[0]: baseTime.Add(-time.Second)}, {usersIds[0]: baseTime.Add(-time.Second)}},
 		},
 		{
 			name:         "multi node, latest time local node, multi user",
-			userIds:      []string{userId, userId2},
-			expectedTime: map[string]time.Time{userId: baseTime, userId2: baseTime},
+			userIds:      usersIds[:2],
+			expectedTime: map[string]time.Time{usersIds[0]: baseTime, usersIds[1]: baseTime},
 			nodeResponses: []map[string]time.Time{
-				{userId: baseTime.Add(-time.Second), userId2: baseTime.Add(-2 * time.Second)},
-				{userId: baseTime.Add(-time.Second), userId2: baseTime.Add(-2 * time.Second)},
+				{usersIds[0]: baseTime.Add(-time.Second), usersIds[1]: baseTime.Add(-2 * time.Second)},
+				{usersIds[0]: baseTime.Add(-time.Second), usersIds[1]: baseTime.Add(-2 * time.Second)},
 			},
 		},
 		{
 			name:          "multi node, latest time other node, single user",
-			userIds:       []string{userId},
-			expectedTime:  map[string]time.Time{userId: baseTime.Add(time.Hour)},
-			nodeResponses: []map[string]time.Time{{userId: baseTime.Add(time.Hour)}, {userId: baseTime.Add(time.Minute)}},
+			userIds:       usersIds[:1],
+			expectedTime:  map[string]time.Time{usersIds[0]: baseTime.Add(time.Hour)},
+			nodeResponses: []map[string]time.Time{{usersIds[0]: baseTime.Add(time.Hour)}, {usersIds[0]: baseTime.Add(time.Minute)}},
 		},
 		{
 			name:         "multi node, latest time other node, multi user",
-			userIds:      []string{userId, userId2},
-			expectedTime: map[string]time.Time{userId: baseTime.Add(time.Hour), userId2: baseTime.Add(2 * time.Hour)},
+			userIds:      usersIds[:2],
+			expectedTime: map[string]time.Time{usersIds[0]: baseTime.Add(time.Hour), usersIds[1]: baseTime.Add(2 * time.Hour)},
 			nodeResponses: []map[string]time.Time{
-				{userId: baseTime.Add(time.Hour), userId2: baseTime.Add(time.Minute)},
-				{userId: baseTime.Add(time.Minute), userId2: baseTime.Add(2 * time.Hour)},
+				{usersIds[0]: baseTime.Add(time.Hour), usersIds[1]: baseTime.Add(time.Minute)},
+				{usersIds[0]: baseTime.Add(time.Minute), usersIds[1]: baseTime.Add(2 * time.Hour)},
+			},
+		},
+		{
+			name:    "six node, six user",
+			userIds: usersIds,
+			expectedTime: map[string]time.Time{
+				usersIds[0]: baseTime.Add(time.Hour),
+				usersIds[1]: baseTime.Add(2 * time.Hour),
+				usersIds[2]: baseTime.Add(3 * time.Hour),
+				usersIds[3]: baseTime.Add(4 * time.Hour),
+				usersIds[4]: baseTime.Add(5 * time.Hour),
+				usersIds[5]: baseTime.Add(6 * time.Hour),
+			},
+			nodeResponses: []map[string]time.Time{
+				{usersIds[0]: baseTime.Add(time.Hour), usersIds[1]: baseTime.Add(time.Minute)},
+				{usersIds[0]: baseTime.Add(time.Minute), usersIds[1]: baseTime.Add(2 * time.Hour)},
+				{usersIds[2]: baseTime.Add(3 * time.Hour), usersIds[3]: baseTime.Add(time.Minute), usersIds[1]: baseTime.Add(time.Minute)},
+				{usersIds[2]: baseTime.Add(-time.Minute), usersIds[3]: baseTime.Add(4 * time.Hour)},
+				{usersIds[4]: baseTime.Add(5 * time.Hour), usersIds[5]: baseTime.Add(time.Minute), usersIds[1]: baseTime.Add(time.Minute)},
+				{usersIds[4]: baseTime.Add(-time.Minute), usersIds[5]: baseTime.Add(6 * time.Hour)},
 			},
 		},
 	}

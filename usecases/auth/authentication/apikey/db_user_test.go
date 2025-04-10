@@ -225,3 +225,46 @@ func TestSuspendAfterDelete(t *testing.T) {
 	require.Error(t, dynUsers.DeactivateUser(userId, false))
 	require.Error(t, dynUsers.ActivateUser(userId))
 }
+
+func TestLastUsedTime(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), log)
+	require.NoError(t, err)
+	userId := "user"
+
+	start := time.Now()
+
+	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
+
+	user, err := dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+	require.Less(t, user[userId].LastUsedAt, start) // no usage yet
+
+	login, _, err := keys.DecodeApiKey(apiKey)
+	require.NoError(t, err)
+	_, err = dynUsers.ValidateAndExtract(login, identifier)
+	require.NoError(t, err)
+
+	user, err = dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+	require.Less(t, start, user[userId].LastUsedAt) // was just used
+	require.Less(t, user[userId].LastUsedAt, time.Now())
+	lastUsedTime := user[userId].LastUsedAt
+
+	// try to update with older timestamp => no effect
+	dynUsers.UpdateLastUsedTimeStamp(map[string]time.Time{userId: start})
+	user, err = dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+
+	require.Equal(t, user[userId].LastUsedAt, lastUsedTime)
+
+	// update with newer timestamp (that another node has seen)
+	updateTime := time.Now()
+	dynUsers.UpdateLastUsedTimeStamp(map[string]time.Time{userId: updateTime})
+	user, err = dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+
+	require.Equal(t, user[userId].LastUsedAt, updateTime)
+}

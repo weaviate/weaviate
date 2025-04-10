@@ -246,14 +246,14 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 		return usersWithTime
 	}
 
+	// we tolerate errors in requests to other nodes and don't want to wait too long. Last used time is a best-effort
+	// operation
 	ctx, cancelFunc := context.WithTimeout(context.Background(), time.Second)
 	defer cancelFunc()
-
-	// we tolerate errors in requests to other nodes. Last used time is best effort
 	userStatuses := make([]*apikey.UserStatusResponse, len(nodes))
 	wg := &sync.WaitGroup{}
+	wg.Add(len(nodes))
 	for i, nodeName := range nodes {
-		wg.Add(1)
 		i, nodeName := i, nodeName
 		enterrors.GoWrapper(func() {
 			status, err := h.remoteUser.GetUserStatus(ctx, nodeName, usersWithTime, true)
@@ -275,15 +275,18 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 		}
 	}
 
-	// update all other nodes with results so usage does not "jump back", we don't need to wait for this
+	// update all other nodes with maximum time so usage does not "jump back" when the node that has the latest time
+	// recorded is down.
+	// This is opportunistic (we dont care about errors) and there is no need to keep the request waiting for this
 	enterrors.GoWrapper(func() {
 		ctx2, cancelFunc2 := context.WithTimeout(context.Background(), time.Second)
 		defer cancelFunc2()
 		wg := &sync.WaitGroup{}
+		wg.Add(len(nodes))
 		for _, nodeName := range nodes {
 			nodeName := nodeName
-			wg.Add(1)
 			enterrors.GoWrapper(func() {
+				// dont care about returns or errors
 				_, _ = h.remoteUser.GetUserStatus(ctx2, nodeName, usersWithTime, false)
 				wg.Done()
 			}, h.logger)
