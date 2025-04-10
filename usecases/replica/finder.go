@@ -373,19 +373,21 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	// the relevant overrides so that we only "push" updates to the specified nodes.
 	localNodeName := f.LocalNodeName()
 	targetNodeOverridesForHost := []string{}
-	for _, override := range targetNodeOverrides {
-		if override.SourceNode == localNodeName && override.CollectionID == f.class && override.ShardID == shardName {
-			targetNodeOverridesForHost = append(targetNodeOverridesForHost, override.TargetNode)
+	if len(targetNodeOverrides) > 0 {
+		for _, override := range targetNodeOverrides {
+			if override.SourceNode == localNodeName && override.CollectionID == f.class && override.ShardID == shardName {
+				targetNodeOverridesForHost = append(targetNodeOverridesForHost, override.TargetNode)
+			}
 		}
+	} else {
+		targetNodeOverridesForHost = routingPlan.Replicas
 	}
 	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas))
 	replicasHostAddrs := make([]string, 0, len(routingPlan.ReplicasHostAddrs))
-	if len(targetNodeOverrides) > 0 {
-		for i, replica := range routingPlan.Replicas {
-			if slices.Contains(targetNodeOverridesForHost, replica) {
-				replicaNodeNames = append(replicaNodeNames, replica)
-				replicasHostAddrs = append(replicasHostAddrs, routingPlan.ReplicasHostAddrs[i])
-			}
+	for i, replica := range routingPlan.Replicas {
+		if slices.Contains(targetNodeOverridesForHost, replica) {
+			replicaNodeNames = append(replicaNodeNames, replica)
+			replicasHostAddrs = append(replicasHostAddrs, routingPlan.ReplicasHostAddrs[i])
 		}
 	}
 	localHostAddr, _ := f.router.NodeHostname(localNodeName)

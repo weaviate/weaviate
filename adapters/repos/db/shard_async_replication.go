@@ -172,12 +172,13 @@ func (s *Shard) getAsyncReplicationConfig(
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE", err)
 	}
-	if targetNodeOverrides != nil {
+	if len(targetNodeOverrides) > 0 {
 		if config.targetNodeOverrides == nil {
 			config.targetNodeOverrides = make([]models.AsyncReplicationConfigTargetNodeOverridesItems0, 0, len(targetNodeOverrides))
 		}
 		for _, override := range targetNodeOverrides {
 			if override != nil {
+				// TODO only append if not already in list
 				config.targetNodeOverrides = append(config.targetNodeOverrides, *override)
 			}
 		}
@@ -570,7 +571,12 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				func() {
 					s.asyncReplicationRWMux.Lock()
 					defer s.asyncReplicationRWMux.Unlock()
-					s.asyncReplicationStatsByTargetNode[stats.targetNodeAddress] = stats
+					if s.asyncReplicationStatsByTargetNode == nil {
+						s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
+					}
+					if stats != nil {
+						s.asyncReplicationStatsByTargetNode[stats.targetNodeAddress] = stats
+					}
 				}()
 				if err != nil {
 					if ctx.Err() != nil {
