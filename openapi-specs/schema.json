@@ -650,6 +650,11 @@
           "type": "boolean",
           "x-omitempty": false
         },
+        "asyncReplicationConfig": {
+          "description": "Config for async replication",
+          "type": "object",
+          "$ref": "#/definitions/AsyncReplicationConfig"
+        },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",
           "type": "string",
@@ -662,6 +667,35 @@
         }
       },
       "type": "object"
+    },
+    "AsyncReplicationConfig": {
+      "description": "Config for async replication",
+      "properties": {
+        "targetNodeOverrides": {
+          "description": "Optionally specify source/target node pairs with an upper time bound for async replication for collections/shards.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sourceNode": {
+                "type": "string"
+              },
+              "targetNode": {
+                "type": "string"
+              },
+              "upperTimeBound": {
+                "type": "integer"
+              },
+              "collectionId": {
+                "type": "string"
+              },
+              "shardId": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
     },
     "BM25Config": {
       "description": "tuning parameters for the BM25 algorithm",

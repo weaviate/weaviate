@@ -145,6 +145,16 @@ func (s *ShardReplicationEngine) startShardReplication(op shardReplicationOp) {
 			}
 
 			// TODO Handle finalizing step for replica movement
+			// add the target node as a best effort write (raft)
+			// get the upper time bound for this movement from the source node (query/poll?)
+			// set the target node override async replication config for this movement (raft)
+			// poll source until async replication "done"
+			// stats = hashBeatInfo() // send network req, is this the info for my shard replica copy (copy id, infer from equal)
+			// if len(stats.objsProp) == 0 && stats.startDiffTime > upperTimeBound {
+			// 	done
+			// }
+			// TODO update replica op status to READY?
+
 			return nil
 		}, backoff.NewConstantBackOff(5*time.Second))
 	})

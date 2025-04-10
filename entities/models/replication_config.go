@@ -34,6 +34,9 @@ type ReplicationConfig struct {
 	// Enable asynchronous replication (default: false).
 	AsyncEnabled bool `json:"asyncEnabled"`
 
+	// Config for async replication
+	AsyncReplicationConfig *AsyncReplicationConfig `json:"asyncReplicationConfig,omitempty"`
+
 	// Conflict resolution strategy for deleted objects.
 	// Enum: [NoAutomatedResolution DeleteOnConflict TimeBasedResolution]
 	DeletionStrategy string `json:"deletionStrategy,omitempty"`
@@ -46,6 +49,10 @@ type ReplicationConfig struct {
 func (m *ReplicationConfig) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateAsyncReplicationConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateDeletionStrategy(formats); err != nil {
 		res = append(res, err)
 	}
@@ -53,6 +60,25 @@ func (m *ReplicationConfig) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ReplicationConfig) validateAsyncReplicationConfig(formats strfmt.Registry) error {
+	if swag.IsZero(m.AsyncReplicationConfig) { // not required
+		return nil
+	}
+
+	if m.AsyncReplicationConfig != nil {
+		if err := m.AsyncReplicationConfig.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("asyncReplicationConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("asyncReplicationConfig")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -101,8 +127,33 @@ func (m *ReplicationConfig) validateDeletionStrategy(formats strfmt.Registry) er
 	return nil
 }
 
-// ContextValidate validates this replication config based on context it is used
+// ContextValidate validate this replication config based on the context it is used
 func (m *ReplicationConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateAsyncReplicationConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *ReplicationConfig) contextValidateAsyncReplicationConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.AsyncReplicationConfig != nil {
+		if err := m.AsyncReplicationConfig.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("asyncReplicationConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("asyncReplicationConfig")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

@@ -158,7 +158,7 @@ type ShardLike interface {
 	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
-	updateAsyncReplicationConfig(ctx context.Context, enabled bool) error
+	updateAsyncReplicationConfig(ctx context.Context, enabled bool, targetNodeOverrides []*models.AsyncReplicationConfigTargetNodeOverridesItems0) error
 
 	Metrics() *Metrics
 
@@ -206,8 +206,9 @@ type Shard struct {
 	hashtreeFullyInitialized   bool
 	asyncReplicationCancelFunc context.CancelFunc
 
-	lastComparedHosts    []string
-	lastComparedHostsMux sync.RWMutex
+	lastComparedHosts                 []string
+	lastComparedHostsMux              sync.RWMutex
+	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
 	//
 
 	status              ShardStatus

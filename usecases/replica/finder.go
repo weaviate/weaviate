@@ -15,12 +15,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -304,12 +306,14 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 }
 
 type ShardDifferenceReader struct {
-	Host        string
-	RangeReader hashtree.AggregatedHashTreeRangeReader
+	TargetNodeName    string
+	TargetNodeAddress string
+	RangeReader       hashtree.AggregatedHashTreeRangeReader
 }
 
 func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
+	targetNodeOverrides []models.AsyncReplicationConfigTargetNodeOverridesItems0,
 ) (diffReader *ShardDifferenceReader, err error) {
 	routingPlan, err := f.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:       f.class,
@@ -320,7 +324,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
 
-	collectDiffWith := func(host string) (*ShardDifferenceReader, error) {
+	collectDiffForTargetNode := func(targetNodeAddress, targetNodeName string) (*ShardDifferenceReader, error) {
 		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
 		defer cancel()
 
@@ -333,12 +337,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		for l := 0; l <= ht.Height(); l++ {
 			_, err := ht.Level(l, diff, digests)
 			if err != nil {
-				return nil, fmt.Errorf("%q: %w", host, err)
+				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 
-			levelDigests, err := f.client.HashTreeLevel(ctx, host, f.class, shardName, l, diff)
+			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, diff)
 			if err != nil {
-				return nil, fmt.Errorf("%q: %w", host, err)
+				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 			if len(levelDigests) == 0 {
 				// no differences were found
@@ -357,20 +361,41 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}
 
 		return &ShardDifferenceReader{
-			Host:        host,
-			RangeReader: ht.NewRangeReader(diff),
+			TargetNodeName:    targetNodeName,
+			TargetNodeAddress: targetNodeAddress,
+			RangeReader:       ht.NewRangeReader(diff),
 		}, nil
 	}
 
 	ec := errorcompounder.New()
 
-	localHostAddr, _ := f.router.NodeHostname(f.nodeName)
-	for _, host := range routingPlan.ReplicasHostAddrs {
-		if host == localHostAddr {
+	// If the caller provided a list of target node overrides, filter the replicas to only include
+	// the relevant overrides so that we only "push" updates to the specified nodes.
+	localNodeName := f.LocalNodeName()
+	targetNodeOverridesForHost := []string{}
+	for _, override := range targetNodeOverrides {
+		if override.SourceNode == localNodeName && override.CollectionID == f.class && override.ShardID == shardName {
+			targetNodeOverridesForHost = append(targetNodeOverridesForHost, override.TargetNode)
+		}
+	}
+	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas))
+	replicasHostAddrs := make([]string, 0, len(routingPlan.ReplicasHostAddrs))
+	if len(targetNodeOverrides) > 0 {
+		for i, replica := range routingPlan.Replicas {
+			if slices.Contains(targetNodeOverridesForHost, replica) {
+				replicaNodeNames = append(replicaNodeNames, replica)
+				replicasHostAddrs = append(replicasHostAddrs, routingPlan.ReplicasHostAddrs[i])
+			}
+		}
+	}
+	localHostAddr, _ := f.router.NodeHostname(localNodeName)
+	for i, targetNodeAddress := range replicasHostAddrs {
+		targetNodeName := replicaNodeNames[i]
+		if targetNodeAddress == localHostAddr {
 			continue
 		}
 
-		diffReader, err := collectDiffWith(host)
+		diffReader, err := collectDiffForTargetNode(targetNodeAddress, targetNodeName)
 		if err != nil {
 			if !errors.Is(err, ErrNoDiffFound) {
 				ec.Add(err)
@@ -400,4 +425,8 @@ func (f *Finder) Overwrite(ctx context.Context,
 	host, index, shard string, xs []*objects.VObject,
 ) ([]types.RepairResponse, error) {
 	return f.client.Overwrite(ctx, host, index, shard, xs)
+}
+
+func (f *Finder) LocalNodeName() string {
+	return f.nodeName
 }
