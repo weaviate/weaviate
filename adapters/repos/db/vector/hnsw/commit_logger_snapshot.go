@@ -565,12 +565,15 @@ func writeStateTo(state *DeserializationResult, w io.Writer) ([]Checkpoint, erro
 			continue
 		}
 
-		if nonNilNodes%checkpointChunkSize == 0 && nonNilNodes > 0 {
-			checkpoints = append(checkpoints, Checkpoint{NodeID: uint64(i), Offset: uint64(offset)})
-		}
-
 		_, hasATombstone := state.Tombstones[n.id]
 		if hasATombstone {
+			// if the node has been deleted but the tombstone has been cleaned
+			// we can skip writing the node
+			_, tombstoneIsCleaned := state.TombstonesDeleted[n.id]
+			if tombstoneIsCleaned {
+				continue
+			}
+
 			if err := writeByte(w, 1); err != nil {
 				return nil, err
 			}
@@ -579,6 +582,11 @@ func writeStateTo(state *DeserializationResult, w io.Writer) ([]Checkpoint, erro
 				return nil, err
 			}
 		}
+
+		if nonNilNodes%checkpointChunkSize == 0 && nonNilNodes > 0 {
+			checkpoints = append(checkpoints, Checkpoint{NodeID: uint64(i), Offset: uint64(offset)})
+		}
+
 		offset += writeByteSize
 
 		if err := writeUint32(w, uint32(n.level)); err != nil {
