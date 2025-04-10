@@ -616,10 +616,14 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		targetNodeOverrides := []*models.AsyncReplicationConfigTargetNodeOverridesItems0{}
+		if cfg.AsyncReplicationConfig != nil {
+			targetNodeOverrides = cfg.AsyncReplicationConfig.TargetNodeOverrides
+		}
 		if err := shard.updateAsyncReplicationConfig(
 			ctx,
 			i.Config.AsyncReplicationEnabled,
-			cfg.AsyncReplicationConfig.TargetNodeOverrides,
+			targetNodeOverrides,
 		); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
