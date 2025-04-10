@@ -295,7 +295,14 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	return update, nil
 }
 
+// validatePropertiesForUpdate Validates each of the updating properties vs existing model properties
 func (p *Parser) validatePropertiesForUpdate(existing []*models.Property, new []*models.Property) error {
+
+	// if update properties is empty skip validation as no properties are being updated
+	if len(new) == 0 {
+		return nil
+	}
+
 	if len(existing) != len(new) {
 		return errPropertiesUpdatedInClassUpdate
 	}
