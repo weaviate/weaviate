@@ -13,9 +13,12 @@ package roaringsetrange
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errors"
@@ -46,13 +49,36 @@ func NewCombinedReader(readers []InnerReader, releaseReaders func(), concurrency
 
 func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filters.Operator,
 ) (*sroar.Bitmap, error) {
+	before := time.Now()
 	count := len(r.readers)
+
+	var subresultsReadSum time.Duration
+	var mergingSum time.Duration
+	lock := new(sync.Mutex)
+
+	defer func() {
+		took := time.Since(before)
+		vals := map[string]any{
+			"readers":                         count,
+			"subresults_read_sum_took":        subresultsReadSum,
+			"subresults_read_sum_took_string": subresultsReadSum.String(),
+			"merging_sum_took":                mergingSum,
+			"merging_sum_took_string":         mergingSum.String(),
+			"took":                            took,
+			"took_string":                     took.String(),
+		}
+
+		helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap_roaringrange", vals)
+	}()
 
 	switch count {
 	case 0:
 		return sroar.NewBitmap(), nil
 	case 1:
+		t := time.Now()
 		layer, err := r.readers[0].Read(ctx, value, operator)
+		subresultsReadSum = time.Since(t)
+
 		if err != nil {
 			return nil, err
 		}
@@ -75,14 +101,22 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		for i := 1; i < count; i++ {
 			i := i
 			eg.Go(func() error {
+				t := time.Now()
 				layer, err := r.readers[i].Read(gctx, value, operator)
+				lock.Lock()
+				subresultsReadSum += time.Since(t)
+				lock.Unlock()
 				responseChans[i-1] <- &readerResponse{layer, err}
 				return err
 			})
 		}
 	}, r.logger)
 
+	t := time.Now()
 	layer, err := r.readers[0].Read(ctx, value, operator)
+	lock.Lock()
+	subresultsReadSum += time.Since(t)
+	lock.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -93,8 +127,10 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 			return nil, response.err
 		}
 
+		t := time.Now()
 		layer.Additions.AndNotConc(response.layer.Deletions, concurrency.SROAR_MERGE)
 		layer.Additions.OrConc(response.layer.Additions, concurrency.SROAR_MERGE)
+		mergingSum += time.Since(t)
 	}
 
 	return layer.Additions, nil
