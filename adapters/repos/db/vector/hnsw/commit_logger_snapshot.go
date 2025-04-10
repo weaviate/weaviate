@@ -80,18 +80,21 @@ func (l *hnswCommitLogger) createOrLoadSnapshot(load bool) (*DeserializationResu
 		l.logger.WithField("action", "hnsw_load_snapshot").
 			Info("loading snapshot")
 
-		state, _, err = readLastSnapshot(l.rootPath, l.id, l.logger)
-		if err != nil {
-			return nil, 0, errors.Wrapf(err, "read snapshot file %q", snapshot)
-		}
+		state = readLastSnapshot(l.rootPath, l.id, l.logger)
 
-		l.logger.WithField("action", "hnsw_load_snapshot").
-			WithField("duration", time.Since(start).String()).
-			Info("snapshot loaded")
+		if state != nil {
+			l.logger.WithField("action", "hnsw_load_snapshot").
+				WithField("duration", time.Since(start).String()).
+				Info("snapshot loaded")
+		}
 	}
 
 	if len(immutableFiles) == 0 {
 		// no commit log files to load, just return the snapshot state
+		if state == nil {
+			return nil, 0, nil
+		}
+
 		return state, from, nil
 	}
 
@@ -401,16 +404,16 @@ func (l *hnswCommitLogger) getImmutableCondensedFiles(fileNames []string) ([]str
 	return immutable, nil
 }
 
-func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) (snap *DeserializationResult, ts int64, err error) {
+func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) *DeserializationResult {
 	dir := commitLogDirectory(rootPath, name)
-	err = os.MkdirAll(dir, os.ModePerm)
-	if err != nil {
-		return nil, 0, errors.Wrap(err, "create commit logger directory")
-	}
 
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, 0, errors.Wrap(err, "browse commit logger directory")
+		logger.WithField("action", "hnsw_read_last_snapshot").
+			WithField("path", dir).
+			WithError(err).
+			Error("read snapshot directory")
+		return nil
 	}
 
 	for i := len(files) - 1; i >= 0; i-- {
@@ -422,17 +425,11 @@ func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) (snap *D
 			// process never completed, this file is thus considered corrupt (too
 			// short) and must be deleted. The commit log is never deleted so it's safe to
 			// delete this without data loss.
-			if err := os.Remove(path); err != nil {
-				return nil, 0, errors.Wrap(err, "remove tmp snapshot file")
-			}
-			// the checkpoints file should also be removed if it exists
+			_ = os.Remove(path)
+			// the corresponding checkpoints file should also be removed if it exists
 			// as it's created right after the temporary snapshot file
 			cpfn := path + ".checkpoints"
-			if err := os.Remove(cpfn); err != nil {
-				if !os.IsNotExist(err) {
-					return nil, 0, errors.Wrapf(err, "remove checkpoints file %q", cpfn)
-				}
-			}
+			_ = os.Remove(cpfn)
 
 			logger.WithField("action", "hnsw_remove_tmp_snapshot").
 				WithField("path", path).
@@ -446,70 +443,41 @@ func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) (snap *D
 			continue
 		}
 
-		if snap == nil {
-			checkpoints, err := readCheckpoints(path)
-			if err != nil {
-				// if for any reason the checkpoints file is not found or corrupted
-				// we need to remove the snapshot file and create a new one from the commit log.
-				if err := os.Remove(path); err != nil {
-					return nil, 0, errors.Wrapf(err, "remove snapshot file %q", path)
-				}
-				cpfn := path + ".checkpoints"
-				if err := os.Remove(cpfn); err != nil {
-					if !os.IsNotExist(err) {
-						return nil, 0, errors.Wrapf(err, "remove checkpoints file %q", cpfn)
-					}
-				}
+		checkpoints, err := readCheckpoints(path)
+		if err != nil {
+			// if for any reason the checkpoints file is not found or corrupted
+			// we need to remove the snapshot file and create a new one from the commit log.
+			_ = os.Remove(path)
+			cpfn := path + ".checkpoints"
+			_ = os.Remove(cpfn)
 
-				logger.WithField("action", "hnsw_remove_corrupt_snapshot").
-					WithField("path", path).
-					WithField("checkpoints", checkpoints).
-					Warn("checkpoints file not found or corrupted, removing snapshot file")
-				return nil, 0, nil
-			}
-
-			snap, err = readStateFrom(path, 8, checkpoints, logger)
-			if err != nil {
-				// if for any reason the snapshot file is not found or corrupted
-				// we need to remove the snapshot file and create a new one from the commit log.
-				if err := os.Remove(path); err != nil {
-					return nil, 0, errors.Wrapf(err, "remove snapshot file %q", path)
-				}
-				cpfn := path + ".checkpoints"
-				if err := os.Remove(cpfn); err != nil {
-					if !os.IsNotExist(err) {
-						return nil, 0, errors.Wrapf(err, "remove checkpoints file %q", cpfn)
-					}
-				}
-
-				logger.WithField("action", "hnsw_remove_corrupt_snapshot").
-					WithField("path", path).
-					WithField("checkpoints", checkpoints).
-					Warn("snapshot file not found or corrupted, removing snapshot file")
-
-				return nil, 0, nil
-			}
-
-			ts, err = snapshotTimestamp(info.Name())
-			if err != nil {
-				return nil, 0, errors.Wrapf(err, "read snapshot timestamp %q", path)
-			}
-
-			continue
+			logger.WithField("action", "hnsw_remove_corrupt_snapshot").
+				WithField("path", path).
+				WithField("checkpoints", checkpoints).
+				Warn("checkpoints file not found or corrupted, removing snapshot file")
+			return nil
 		}
 
-		// remove older snapshots
-		if err := os.Remove(path); err != nil {
-			return nil, 0, errors.Wrapf(err, "remove snapshot file %q", path)
+		snap, err := readStateFrom(path, 8, checkpoints, logger)
+		if err != nil {
+			// if for any reason the snapshot file is not found or corrupted
+			// we need to remove the snapshot file and create a new one from the commit log.
+			_ = os.Remove(path)
+			cpfn := path + ".checkpoints"
+			_ = os.Remove(cpfn)
+
+			logger.WithField("action", "hnsw_remove_corrupt_snapshot").
+				WithField("path", path).
+				WithField("checkpoints", checkpoints).
+				Warn("snapshot file not found or corrupted, removing snapshot file")
+
+			return nil
 		}
 
-		cpfn := path + ".checkpoints"
-		if err := os.Remove(cpfn); err != nil {
-			return nil, 0, errors.Wrapf(err, "remove checkpoints file %q", cpfn)
-		}
+		return snap
 	}
 
-	return snap, ts, nil
+	return nil
 }
 
 // returns checkpoints which can be used as parallelizatio hints
