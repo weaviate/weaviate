@@ -827,7 +827,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	statemachine.RegisterForCoordination("raft", statemachine.StateStartup)
 	statemachine.RegisterComponent("db")
 	statemachine.RegisterForCoordination("db", statemachine.StateStartup)
-	statemachine.Change(statemachine.StateStartup, "Startup")
+
 
 	api.ServeError = openapierrors.ServeError
 
@@ -882,6 +882,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
+
 
 	statemachine.RegisterComponent("grpcserver")
 	statemachine.RegisterForCoordination("grpcserver", statemachine.StateShutdown)
@@ -956,13 +957,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.ServerShutdown = func() {
-		logrus.WithField("action", "shutdown").Info("starting pre-shutdown")
+		fmt.Println("Shutting down server")
+		appState.Logger.WithField("action", "shutdown").Info("starting pre-shutdown")
 		statemachine.ChangeAndWait(statemachine.StatePreShutdown, "instructed by server")
-		logrus.WithField("action", "shutdown").Info("pre-shutdown complete")
+		appState.Logger.WithField("action", "shutdown").Info("pre-shutdown complete")
 		statemachine.ChangeAndWait(statemachine.StateShutdown, "instructed by server")
-		logrus.WithField("action", "shutdown").Info("shutdown complete")
+		appState.Logger.WithField("action", "shutdown").Info("shutdown complete")
+		fmt.Println("Server shut down")
 	}
 
+	statemachine.Change(statemachine.StateStartup, "Startup")
 	startGrpcServer(grpcServer, appState)
 
 	gm := setupGlobalMiddleware(api.Serve(setupMiddlewares))
