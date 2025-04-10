@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
