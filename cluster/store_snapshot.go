@@ -94,7 +94,6 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			st.log.WithError(err).Error("restoring rbac from snapshot")
 			return fmt.Errorf("restore rbac from snapshot: %w", err)
 		}
-		st.log.Info("successfully restored rbac from snapshot")
 
 		if st.cfg.MetadataOnlyVoters {
 			return nil
