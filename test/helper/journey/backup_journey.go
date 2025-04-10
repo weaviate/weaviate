@@ -196,6 +196,8 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		require.Equal(t, string(backup.Success), *statusResp.Payload.Status)
 
+	})
+
 		// Ensure that on restoring the class it is consistent on the followers
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 			if tenantNames != nil {
@@ -217,7 +219,6 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 				}
 			}
 		}, 5*time.Second, 500*time.Microsecond, "class doesn't exists in follower nodes")
-	})
 }
 
 func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupID string, journeyType journeyType, overrideBucket, overridePath string) {
