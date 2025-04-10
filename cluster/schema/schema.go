@@ -406,6 +406,16 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 	return meta.AddProperty(v, props...)
 }
 
+func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	meta := s.classes[class]
+	if meta == nil {
+		return ErrClassNotFound
+	}
+	return meta.AddReplicaToShard(v, shard, replica)
+}
+
 func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {
 	req.Tenants = removeNilTenants(req.Tenants)
 

@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	gql "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/client/objects"
@@ -191,6 +192,33 @@ func updateTenantStatus(t *testing.T, class string, tenants []*models.Tenant, ke
 	params := clschema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
 	_, err := helper.Client(t).Schema.TenantsUpdate(params, helper.CreateAuth(key))
 	return err
+}
+
+func batchReferencesPermissions(from, to, tenant string) []*models.Permission {
+	return []*models.Permission{
+		helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(from).Permission(),
+		helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(from).WithTenant(tenant).Permission(),
+		helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(to).WithTenant(tenant).Permission(),
+	}
+}
+
+func addReferencePermissions(from, to, tenant string) []*models.Permission {
+	return []*models.Permission{
+		helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(from).Permission(),
+		helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(to).Permission(),
+		helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(from).WithTenant(tenant).Permission(),
+		helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(to).WithTenant(tenant).Permission(),
+	}
+}
+
+func deleteReferencePermissions(from, to, tenant string) []*models.Permission {
+	return []*models.Permission{
+		helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(from).Permission(),
+		helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(to).Permission(),
+		helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(from).WithTenant(tenant).Permission(),
+		helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(from).WithTenant(tenant).Permission(),
+		helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(to).WithTenant(tenant).Permission(),
+	}
 }
 
 type logScanner struct {
