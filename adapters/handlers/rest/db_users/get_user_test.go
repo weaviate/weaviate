@@ -183,3 +183,22 @@ func TestGetNoDynamic(t *testing.T) {
 	_, ok := res.(*users.GetUserInfoUnprocessableEntity)
 	assert.True(t, ok)
 }
+
+func TestGetUserWithNoPrincipal(t *testing.T) {
+	var (
+		principal *models.Principal
+		userID    = "static"
+	)
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{userID: {Id: userID, ApiKeyFirstLetters: "abc"}}, nil)
+	dynUser.On("GetRolesForUser", userID, models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
+
+	h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
+
+	res := h.getUser(users.GetUserInfoParams{UserID: "static"}, principal)
+	parsed, ok := res.(*users.GetUserInfoOK)
+	assert.True(t, ok)
+	assert.NotNil(t, parsed)
+}
