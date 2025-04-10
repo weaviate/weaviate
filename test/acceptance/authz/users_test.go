@@ -542,9 +542,11 @@ func TestListAllUsers(t *testing.T) {
 			userNames = append(userNames, fmt.Sprintf("user-%d", i))
 		}
 
+		apiKeys := make([]string, 0, len(userNames))
 		for i, userName := range userNames {
 			helper.DeleteUser(t, userName, adminKey)
-			helper.CreateUser(t, userName, adminKey)
+			apiKey := helper.CreateUser(t, userName, adminKey)
+			apiKeys = append(apiKeys, apiKey)
 			defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
 			if i%2 == 0 {
 				helper.AssignRoleToUser(t, adminKey, "viewer", userName)
@@ -575,6 +577,8 @@ func TestListAllUsers(t *testing.T) {
 			require.Equal(t, number%5 != 0, *user.Active)
 			require.Less(t, strfmt.DateTime(start), user.CreatedAt)
 			require.Less(t, user.CreatedAt, strfmt.DateTime(time.Now()))
+			require.Len(t, user.APIKeyFirstLetters, 3)
+			require.Equal(t, user.APIKeyFirstLetters, apiKeys[number][:3])
 		}
 
 		allUsersViewer := helper.ListAllUsers(t, viewerKey)

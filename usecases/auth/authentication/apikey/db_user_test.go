@@ -54,7 +54,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	require.NoError(t, err)
 	userId := "id"
 
-	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")
+	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
 	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
@@ -85,40 +85,40 @@ func TestUpdateUser(t *testing.T) {
 	require.NoError(t, err)
 	userId := "id"
 
-	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")
+	apiKey, hash, oldIdentifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, oldIdentifier, "", time.Now()))
 
 	// login works
 	randomKeyOld, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
-	principal, err := dynUsers.ValidateAndExtract(randomKeyOld, identifier)
+	principal, err := dynUsers.ValidateAndExtract(randomKeyOld, oldIdentifier)
 	require.NoError(t, err)
 	require.NotNil(t, principal)
 
 	// update key and check that original key does not work, but new one does
-	apiKeyNew, hashNew, identifier, err := keys.CreateApiKeyAndHash(identifier)
+	apiKeyNew, hashNew, newIdentifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers.RotateKey(userId, hashNew))
+	require.NoError(t, dynUsers.RotateKey(userId, hashNew, oldIdentifier, newIdentifier))
 
 	randomKeyNew, _, err := keys.DecodeApiKey(apiKeyNew)
 	require.NoError(t, err)
 
-	principal, err = dynUsers.ValidateAndExtract(randomKeyOld, identifier)
+	principal, err = dynUsers.ValidateAndExtract(randomKeyOld, oldIdentifier)
 	require.Error(t, err)
 	require.Nil(t, principal)
 
 	// first login with new key is slow again, second is fast
 	startSlow := time.Now()
-	principal, err = dynUsers.ValidateAndExtract(randomKeyNew, identifier)
+	principal, err = dynUsers.ValidateAndExtract(randomKeyNew, newIdentifier)
 	require.NoError(t, err)
 	require.NotNil(t, principal)
 	tookSlow := time.Since(startSlow)
 
 	startFast := time.Now()
-	_, err = dynUsers.ValidateAndExtract(randomKeyNew, identifier)
+	_, err = dynUsers.ValidateAndExtract(randomKeyNew, newIdentifier)
 	require.NoError(t, err)
 	tookFast := time.Since(startFast)
 	require.Less(t, tookFast, tookSlow)
@@ -131,14 +131,14 @@ func TestSnapShotAndRestore(t *testing.T) {
 	userId1 := "id-1"
 	userId2 := "id-2"
 
-	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash("")
+	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
 	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", time.Now()))
 	login1, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
-	apiKey2, hash2, identifier2, err := keys.CreateApiKeyAndHash("")
+	apiKey2, hash2, identifier2, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", time.Now()))
 	login2, _, err := keys.DecodeApiKey(apiKey2)
@@ -191,9 +191,9 @@ func TestSnapShotAndRestore(t *testing.T) {
 	_, err = dynUsers2.ValidateAndExtract(login2, identifier2)
 	require.Error(t, err)
 
-	apiKey3, hash3, identifier3, err := keys.CreateApiKeyAndHash("")
+	apiKey3, hash3, identifier3, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers2.RotateKey(userId2, hash3))
+	require.NoError(t, dynUsers2.RotateKey(userId2, hash3, identifier2, identifier3))
 
 	login3, _, err := keys.DecodeApiKey(apiKey3)
 	require.NoError(t, err)
@@ -206,7 +206,7 @@ func TestSuspendAfterDelete(t *testing.T) {
 	require.NoError(t, err)
 	userId := "id"
 
-	_, hash, identifier, err := keys.CreateApiKeyAndHash("")
+	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
 	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))

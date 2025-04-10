@@ -928,3 +928,193 @@ func TestEnabledForHost(t *testing.T) {
 		})
 	}
 }
+
+func TestParseCollectionPropsTenants(t *testing.T) {
+	type testCase struct {
+		env            string
+		expected       []CollectionPropsTenants
+		expectedErrMsg string
+	}
+
+	p := newCollectionPropsTenantsParser()
+
+	testCases := []testCase{
+		{
+			env:      "",
+			expected: []CollectionPropsTenants{},
+		},
+
+		// collections
+		{
+			env: "Collection1",
+			expected: []CollectionPropsTenants{
+				{Collection: "Collection1"},
+			},
+		},
+		{
+			env: "Collection1; Collection2; ;",
+			expected: []CollectionPropsTenants{
+				{Collection: "Collection1"},
+				{Collection: "Collection2"},
+			},
+		},
+		{
+			env: "Collection1:; Collection2::; ;",
+			expected: []CollectionPropsTenants{
+				{Collection: "Collection1"},
+				{Collection: "Collection2"},
+			},
+		},
+
+		// collections + props
+		{
+			env: "Collection1:prop1,prop2",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1", "prop2"},
+				},
+			},
+		},
+		{
+			env: "Collection1:prop1, prop2;Collection2:prop3: ;",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1", "prop2"},
+				},
+				{
+					Collection: "Collection2",
+					Props:      []string{"prop3"},
+				},
+			},
+		},
+
+		// collections + tenants
+		{
+			env: "Collection1::tenant1,tenant2",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Tenants:    []string{"tenant1", "tenant2"},
+				},
+			},
+		},
+		{
+			env: "Collection1::tenant1, tenant2;Collection2::tenant3",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Tenants:    []string{"tenant1", "tenant2"},
+				},
+				{
+					Collection: "Collection2",
+					Tenants:    []string{"tenant3"},
+				},
+			},
+		},
+
+		// collections + props + tenants
+		{
+			env: "Collection1:prop1:tenant1,tenant2",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1"},
+					Tenants:    []string{"tenant1", "tenant2"},
+				},
+			},
+		},
+		{
+			env: "Collection1:prop1 :tenant1, tenant2;Collection2:prop2,prop3 :tenant3 ; ",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1"},
+					Tenants:    []string{"tenant1", "tenant2"},
+				},
+				{
+					Collection: "Collection2",
+					Props:      []string{"prop2", "prop3"},
+					Tenants:    []string{"tenant3"},
+				},
+			},
+		},
+
+		// unique / merged
+		{
+			env: "Collection1:prop1,prop2:tenant1,tenant2;Collection2:propX;Collection1:prop2,prop3;Collection3::tenantY;Collection1:prop4:tenant2,tenant3",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1", "prop2", "prop3", "prop4"},
+					Tenants:    []string{"tenant1", "tenant2", "tenant3"},
+				},
+				{
+					Collection: "Collection2",
+					Props:      []string{"propX"},
+				},
+				{
+					Collection: "Collection3",
+					Tenants:    []string{"tenantY"},
+				},
+			},
+		},
+
+		// errors
+		{
+			env:            "lowerCaseCollectionName",
+			expectedErrMsg: "invalid collection name",
+		},
+		{
+			env:            "InvalidChars#",
+			expectedErrMsg: "invalid collection name",
+		},
+		{
+			env:            "Collection1:InvalidChars#",
+			expectedErrMsg: "invalid property name",
+		},
+		{
+			env:            "Collection1::InvalidChars#",
+			expectedErrMsg: "invalid tenant/shard name",
+		},
+		{
+			env:            ":prop",
+			expectedErrMsg: "missing collection name",
+		},
+		{
+			env:            "::tenant",
+			expectedErrMsg: "missing collection name",
+		},
+		{
+			env:            ":prop:tenant",
+			expectedErrMsg: "missing collection name",
+		},
+		{
+			env:            "Collection1:::",
+			expectedErrMsg: "too many parts",
+		},
+		{
+			env:            "Collection1:prop:tenant:",
+			expectedErrMsg: "too many parts",
+		},
+		{
+			env:            "Collection1:prop:tenant:something",
+			expectedErrMsg: "too many parts",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.env, func(t *testing.T) {
+			cpts, err := p.parse(tc.env)
+
+			if tc.expectedErrMsg != "" {
+				assert.ErrorContains(t, err, tc.expectedErrMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			assert.ElementsMatch(t, tc.expected, cpts)
+		})
+	}
+}

@@ -35,6 +35,10 @@ type DBUserInfo struct {
 	// Required: true
 	Active *bool `json:"active"`
 
+	// First 3 letters of the associated API-key
+	// Max Length: 3
+	APIKeyFirstLetters string `json:"apiKeyFirstLetters,omitempty"`
+
 	// Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
 	// Format: date-time
 	CreatedAt strfmt.DateTime `json:"createdAt,omitempty"`
@@ -58,6 +62,10 @@ func (m *DBUserInfo) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateActive(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateAPIKeyFirstLetters(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -86,6 +94,18 @@ func (m *DBUserInfo) Validate(formats strfmt.Registry) error {
 func (m *DBUserInfo) validateActive(formats strfmt.Registry) error {
 
 	if err := validate.Required("active", "body", m.Active); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *DBUserInfo) validateAPIKeyFirstLetters(formats strfmt.Registry) error {
+	if swag.IsZero(m.APIKeyFirstLetters) { // not required
+		return nil
+	}
+
+	if err := validate.MaxLength("apiKeyFirstLetters", "body", m.APIKeyFirstLetters, 3); err != nil {
 		return err
 	}
 
