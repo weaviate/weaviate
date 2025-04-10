@@ -820,14 +820,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}).Infof("configured versions")
 
 	statemachine.SetLogger(appState.Logger)
-	statemachine.SetMonitorMode(true)
-	statemachine.RegisterComponent("api")
-	statemachine.RegisterForCoordination("api", statemachine.StateStartup)
-	statemachine.RegisterComponent("raft")
-	statemachine.RegisterForCoordination("raft", statemachine.StateStartup)
-	statemachine.RegisterComponent("db")
-	statemachine.RegisterForCoordination("db", statemachine.StateStartup)
-
+	statemachine.SetMonitorMode(false)
 
 	api.ServeError = openapierrors.ServeError
 
@@ -883,9 +876,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-
 	statemachine.RegisterComponent("grpcserver")
-	statemachine.RegisterForCoordination("grpcserver", statemachine.StateShutdown)
+	statemachine.RegisterForCoordination("grpcserver", statemachine.StatePreShutdown)
 	grpcServer := createGrpcServer(appState, grpcInstrument...)
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
@@ -893,26 +885,32 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
 	statemachine.RegisterComponent("telemetry")
 	statemachine.RegisterForCoordination("telemetry", statemachine.StateStartup)
-	statemachine.RegisterForCoordination("telemetry", statemachine.StateShutdown)
-	if telemetryEnabled(appState) {
-		enterrors.GoWrapper(func() {
-			if err := telemeter.Start(context.Background()); err != nil {
-				appState.Logger.
-					WithField("action", "startup").
-					Errorf("telemetry failed to start: %s", err.Error())
-			}
-			defer statemachine.SignalReady("telemetry", statemachine.StateStartup)
-		}, appState.Logger)
-	}
-	statemachine.RegisterComponent("cleanup_backups")
-	statemachine.RegisterForCoordination("cleanup_backups", statemachine.StateStartup)
+	statemachine.RegisterForCoordination("telemetry", statemachine.StatePreShutdown)
+	statemachine.OnStateChange("telemetry", statemachine.StateStartup, func(from, to statemachine.State) error {
+		statemachine.SignalReady("telemetry", statemachine.StateStartup)
+		if telemetryEnabled(appState) {
+
+			enterrors.GoWrapper(func() {
+				if err := telemeter.Start(context.Background()); err != nil {
+					appState.Logger.
+						WithField("action", "startup").
+						Errorf("telemetry failed to start: %s", err.Error())
+				}
+
+			}, appState.Logger)
+		}
+		return nil
+	})
+
+	//statemachine.RegisterComponent("cleanup_backups")
+	//statemachine.RegisterForCoordination("cleanup_backups", statemachine.StateStartup)
 	if entcfg.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
 		enterrors.GoWrapper(
 			func() {
 				// cleanup unfinished backups on startup
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
-				defer statemachine.SignalReady("cleanup_backups", statemachine.StateStartup)
+				// FIXME? always timesout defer statemachine.SignalReady("cleanup_backups", statemachine.StateStartup)
 				backupScheduler.CleanupUnfinishedBackups(ctx)
 			}, appState.Logger)
 	}
@@ -957,21 +955,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.ServerShutdown = func() {
-		fmt.Println("Shutting down server")
 		appState.Logger.WithField("action", "shutdown").Info("starting pre-shutdown")
 		statemachine.ChangeAndWait(statemachine.StatePreShutdown, "instructed by server")
 		appState.Logger.WithField("action", "shutdown").Info("pre-shutdown complete")
+		appState.Logger.WithField("action", "shutdown").Info("starting shutdown")
 		statemachine.ChangeAndWait(statemachine.StateShutdown, "instructed by server")
 		appState.Logger.WithField("action", "shutdown").Info("shutdown complete")
-		fmt.Println("Server shut down")
 	}
 
-	statemachine.Change(statemachine.StateStartup, "Startup")
 	startGrpcServer(grpcServer, appState)
 
 	gm := setupGlobalMiddleware(api.Serve(setupMiddlewares))
-	statemachine.SignalReady("api", statemachine.StateStartup)
-	statemachine.WaitForState("api", statemachine.StateStartup, 1*time.Minute)
+
+	statemachine.ChangeAndWait(statemachine.StateStartup, "Startup")
+	statemachine.ChangeAndWait(statemachine.StateRunning, "Startup")
 	return gm
 }
 
