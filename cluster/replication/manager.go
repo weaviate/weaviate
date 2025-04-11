@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
@@ -29,8 +31,8 @@ type Manager struct {
 	schemaReader   schema.SchemaReader
 }
 
-func NewManager(logger *logrus.Logger, schemaReader schema.SchemaReader, replicaCopier types.ReplicaCopier) *Manager {
-	replicationFSM := newShardReplicationFSM()
+func NewManager(logger *logrus.Logger, schemaReader schema.SchemaReader, replicaCopier types.ReplicaCopier, reg prometheus.Registerer) *Manager {
+	replicationFSM := newShardReplicationFSM(reg)
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,

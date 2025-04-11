@@ -228,7 +228,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		schemaManager:      schemaManager,
 		authZManager:       rbacRaft.NewManager(cfg.AuthzController, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
-		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader(), cfg.ReplicaCopier),
+		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader(), cfg.ReplicaCopier, reg),
 	}
 }
 

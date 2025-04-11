@@ -46,6 +46,9 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 	s.opsByTargetFQDN[targetFQDN] = op
 	s.opsById[op.id] = op
 	s.opsStatus[op] = shardReplicationOpStatus{state: api.REGISTERED}
+
+	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].state.String()).Inc()
+
 	return nil
 }
 
@@ -57,7 +60,9 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	if !ok {
 		return ErrReplicationOpNotFound
 	}
+	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].state.String()).Dec()
 	s.opsStatus[op] = shardReplicationOpStatus{state: c.State}
+	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].state.String()).Inc()
 
 	return nil
 }
@@ -103,6 +108,8 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 	if ok {
 		s.opsByShard[op.sourceShard.shardId] = opsReplace
 	}
+
+	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].state.String()).Dec()
 
 	delete(s.opsByTargetFQDN, op.targetShard)
 	delete(s.opsById, op.id)

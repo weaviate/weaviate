@@ -14,6 +14,9 @@ package replication
 import (
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -45,10 +48,12 @@ type ShardReplicationFSM struct {
 	opsById map[uint64]shardReplicationOp
 	// opsStatus stores op -> opStatus
 	opsStatus map[shardReplicationOp]shardReplicationOpStatus
+
+	opsByStateGauge *prometheus.GaugeVec
 }
 
-func newShardReplicationFSM() *ShardReplicationFSM {
-	return &ShardReplicationFSM{
+func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
+	fsm := &ShardReplicationFSM{
 		opsByNode:       make(map[string][]shardReplicationOp),
 		opsByCollection: make(map[string][]shardReplicationOp),
 		opsByShard:      make(map[string][]shardReplicationOp),
@@ -56,6 +61,14 @@ func newShardReplicationFSM() *ShardReplicationFSM {
 		opsById:         make(map[uint64]shardReplicationOp),
 		opsStatus:       make(map[shardReplicationOp]shardReplicationOpStatus),
 	}
+
+	fsm.opsByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "weaviate",
+		Name:      "replication_operation_fsm_ops_by_state",
+		Help:      "Current number of replication operations in each state of the FSM lifecycle",
+	}, []string{"state"})
+
+	return fsm
 }
 
 func (s *ShardReplicationFSM) GetOpsForNode(node string) []shardReplicationOp {
