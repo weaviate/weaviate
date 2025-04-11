@@ -327,6 +327,13 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 		return nil
 	}
 
+	if !rt.isStarted() {
+		if err = rt.markStarted(time.Now()); err != nil {
+			err = fmt.Errorf("marking reindex started: %w", err)
+			return
+		}
+	}
+
 	if rt.isSwapped() {
 		if !rt.isTidied() {
 			logger.Debug("swapped, not tidied. starting map buckets")
@@ -434,14 +441,12 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 		return zerotime, nil
 	}
 
-	reindexStarted := time.Now()
-	if rt.isStarted() {
-		if reindexStarted, err = rt.getStarted(); err != nil {
-			err = fmt.Errorf("getting reindex started: %w", err)
-			return zerotime, err
-		}
-	} else if err = rt.markStarted(reindexStarted); err != nil {
-		err = fmt.Errorf("marking reindex started: %w", err)
+	var reindexStarted time.Time
+	if !rt.isStarted() {
+		err = fmt.Errorf("missing reindex started")
+		return zerotime, err
+	} else if reindexStarted, err = rt.getStarted(); err != nil {
+		err = fmt.Errorf("getting reindex started: %w", err)
 		return zerotime, err
 	}
 

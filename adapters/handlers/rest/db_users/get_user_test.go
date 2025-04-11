@@ -32,20 +32,26 @@ func TestSuccessList(t *testing.T) {
 	tests := []struct {
 		name     string
 		userId   string
+		isRoot   bool
 		userType models.UserTypeOutput
 	}{
-		{name: "dynamic user", userId: "dynamic", userType: models.UserTypeOutputDbUser},
-		{name: "static user", userId: "static", userType: models.UserTypeOutputDbEnvUser},
+		{name: "dynamic user - non-root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: false},
+		{name: "dynamic user - root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: true},
+		{name: "static user", userId: "static", userType: models.UserTypeOutputDbEnvUser, isRoot: true},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			principal := &models.Principal{Username: "root"}
+			username := "non-root"
+			if test.isRoot {
+				username = "root"
+			}
+			principal := &models.Principal{Username: username}
 			authorizer := authzMocks.NewAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.READ, authorization.Users(test.userId)[0]).Return(nil)
 			dynUser := mocks.NewDbUserAndRolesGetter(t)
 			if test.userType == models.UserTypeOutputDbUser {
-				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId}}, nil)
+				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId, ApiKeyFirstLetters: "abc"}}, nil)
 			}
 			dynUser.On("GetRolesForUser", test.userId, models.UserTypeInputDb).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
@@ -65,6 +71,12 @@ func TestSuccessList(t *testing.T) {
 			require.Equal(t, *parsed.Payload.UserID, test.userId)
 			require.Equal(t, parsed.Payload.Roles, []string{"role"})
 			require.Equal(t, *parsed.Payload.DbUserType, string(test.userType))
+
+			if test.isRoot && test.userType == models.UserTypeOutputDbUser {
+				require.Equal(t, parsed.Payload.APIKeyFirstLetters, "abc")
+			} else {
+				require.Equal(t, parsed.Payload.APIKeyFirstLetters, "")
+			}
 		})
 	}
 }
@@ -170,4 +182,23 @@ func TestGetNoDynamic(t *testing.T) {
 	res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)
 	_, ok := res.(*users.GetUserInfoUnprocessableEntity)
 	assert.True(t, ok)
+}
+
+func TestGetUserWithNoPrincipal(t *testing.T) {
+	var (
+		principal *models.Principal
+		userID    = "static"
+	)
+	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer.On("Authorize", principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
+	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{userID: {Id: userID, ApiKeyFirstLetters: "abc"}}, nil)
+	dynUser.On("GetRolesForUser", userID, models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
+
+	h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
+
+	res := h.getUser(users.GetUserInfoParams{UserID: "static"}, principal)
+	parsed, ok := res.(*users.GetUserInfoOK)
+	assert.True(t, ok)
+	assert.NotNil(t, parsed)
 }

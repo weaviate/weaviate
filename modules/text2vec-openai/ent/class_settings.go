@@ -157,6 +157,9 @@ func (cs *classSettings) IsAzure() bool {
 
 func (cs *classSettings) Dimensions() *int64 {
 	defaultValue := PickDefaultDimensions(cs.Model())
+	if cs.IsAzure() {
+		defaultValue = nil
+	}
 	return cs.BaseClassSettings.GetPropertyAsInt64("dimensions", defaultValue)
 }
 
