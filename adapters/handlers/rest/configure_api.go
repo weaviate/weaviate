@@ -682,6 +682,7 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 			cfg.ReindexMapToBlockmaxConfig.UnswapBuckets,
 			cfg.ReindexMapToBlockmaxConfig.TidyBuckets,
 			cfg.ReindexMapToBlockmaxConfig.Rollback,
+			cfg.ReindexMapToBlockmaxConfig.ConditionalStart,
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds),
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.PauseDurationSeconds),
 			concurrency, cfg.ReindexMapToBlockmaxConfig.CollectionsPropsTenants, appState.SchemaManager,

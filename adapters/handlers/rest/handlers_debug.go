@@ -76,6 +76,135 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
+	http.HandleFunc("/debug/index/rebuild/inverted/start", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		forceRestartString := r.URL.Query().Get("force")
+		rootPath := appState.DB.GetConfig().RootPath
+
+		if colName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+
+		forceRestart := config.Enabled(forceRestartString)
+
+		className := schema.ClassName(colName)
+		classNameString := strings.ToLower(className.String())
+		idx := appState.DB.GetIndex(className)
+
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found or not ready")
+			http.Error(w, "collection not found or not ready", http.StatusNotFound)
+			return
+		}
+		// shard map: shardName -> shardPath
+		paths := make(map[string]string)
+		shards := make(map[string]db.ShardLike)
+
+		// shards will not be force loaded, as we are only getting the name
+		err := idx.ForEachShard(
+			func(shardName string, shard db.ShardLike) error {
+				shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
+				paths[shardName] = shardPath
+				shards[shardName] = shard
+				return nil
+			},
+		)
+		if err != nil {
+			logger.WithField("collection", colName).Error("failed to get shard names")
+			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
+			return
+		}
+
+		migratingShards := make([]string, 0, len(paths))
+
+		output := make(map[string]map[string]string, len(paths))
+		for i, path := range paths {
+			output[i] = map[string]string{
+				"shard":  i,
+				"status": "unknown",
+			}
+			if path == "" {
+				output[i]["status"] = "shard_not_loaded"
+				output[i]["message"] = "shard not loaded"
+				continue
+			}
+
+			// check if the shard directory exists
+			_, err := os.Stat(path)
+			if err != nil {
+				output[i]["status"] = "shard_not_loaded"
+				output[i]["message"] = "shard directory does not exist"
+				continue
+			}
+
+			// check if a .migrations/searchable_map_to_blockmax exists
+			_, err = os.Stat(path + ".migrations/searchable_map_to_blockmax")
+			if err != nil {
+				output[i]["status"] = "not_started"
+				output[i]["message"] = "no searchable_map_to_blockmax folder found"
+				continue
+			}
+
+			path += ".migrations/searchable_map_to_blockmax/"
+			// check if started.mig exists
+			_, err = os.Stat(path + "started.mig")
+			if err == nil && !forceRestart {
+				output[i]["status"] = "started"
+				output[i]["message"] = "reindexing started"
+				continue
+			}
+
+			// migration is not started yet, create start file as start.mig
+			// check if start.mig exists
+			_, err = os.Stat(path + "start.mig")
+			if err == nil && !forceRestart {
+				output[i]["status"] = "started"
+				output[i]["message"] = "reindexing started"
+				continue
+			}
+			// create start.mig file
+			startedFile, err := os.Create(path + "start.mig")
+			if err != nil && !forceRestart {
+				output[i]["status"] = "error"
+				output[i]["message"] = "failed to create start.mig"
+				continue
+			}
+			startedFile.Close()
+
+			shard := shards[i]
+
+			migratingShards = append(migratingShards, shard.Name())
+
+		}
+		for _, shard := range migratingShards {
+			err := idx.IncomingReinitShard(
+				context.Background(),
+				shard,
+			)
+			if err != nil {
+				logger.WithField("shard", shard).Error("failed to reinit shard")
+				http.Error(w, "failed to reinit shard", http.StatusInternalServerError)
+				return
+			}
+			logger.WithField("shard", shard).Info("reinit shard started")
+			output[shard]["status"] = "reinit"
+			output[shard]["message"] = "reinit shard started"
+		}
+
+		response := map[string]interface{}{
+			"shards": output,
+		}
+		jsonBytes, err := json.Marshal(response)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(jsonBytes)
+	}))
+
 	http.HandleFunc("/debug/index/rebuild/inverted/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
 		rootPath := appState.DB.GetConfig().RootPath
