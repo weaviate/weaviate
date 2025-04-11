@@ -150,7 +150,7 @@ func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *f
 			asFloat := float64(asInt)
 			return &asFloat
 		}
-		var wrongVal float64 = -1.0
+		wrongVal := float64(-1.0)
 		return &wrongVal
 	}
 

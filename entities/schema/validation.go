@@ -56,7 +56,7 @@ const (
 // ValidateClassName validates that this string is a valid class name (format wise)
 func ValidateClassName(name string) (ClassName, error) {
 	if len(name) > classNameMaxLength {
-		return "", fmt.Errorf("'%s' is not a valid class name. Name should not be longer than %d characters.",
+		return "", fmt.Errorf("'%s' is not a valid class name. Name should not be longer than %d characters",
 			name, classNameMaxLength)
 	}
 	if !validateClassNameRegex.MatchString(name) {
@@ -118,13 +118,13 @@ func ValidateTenantNameIncludesRegex(name string) error {
 // ValidatePropertyName validates that this string is a valid property name
 func ValidatePropertyName(name string) (PropertyName, error) {
 	if len(name) > propertyNameMaxLength {
-		return "", fmt.Errorf("'%s' is not a valid property name. Name should not be longer than %d characters.",
+		return "", fmt.Errorf("'%s' is not a valid property name. Name should not be longer than %d characters",
 			name, propertyNameMaxLength)
 	}
 	if !validatePropertyNameRegex.MatchString(name) {
 		return "", fmt.Errorf("'%s' is not a valid property name. "+
 			"Property names in Weaviate are restricted to valid GraphQL names, "+
-			"which must be “/%s/”.", name, PropertyNameRegex)
+			"which must be “/%s/”", name, PropertyNameRegex)
 	}
 	return PropertyName(name), nil
 }
@@ -134,7 +134,7 @@ func ValidateNestedPropertyName(name, prefix string) error {
 	if !validateNestedPropertyNameRegex.MatchString(name) {
 		return fmt.Errorf("'%s' is not a valid nested property name of '%s'. "+
 			"NestedProperty names in Weaviate are restricted to valid GraphQL names, "+
-			"which must be “/%s/”.", name, prefix, NestedPropertyNameRegex)
+			"which must be “/%s/”", name, prefix, NestedPropertyNameRegex)
 	}
 	return nil
 }

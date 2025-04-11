@@ -33,7 +33,7 @@ var validatorsNestedProperty = []validatorNestedProperty{
 
 func validateNestedProperties(properties []*models.NestedProperty, propNamePrefix string) error {
 	if len(properties) == 0 {
-		return fmt.Errorf("Property '%s': At least one nested property is required for data type object/object[]",
+		return fmt.Errorf("property '%s': At least one nested property is required for data type object/object[]",
 			propNamePrefix)
 	}
 
@@ -72,9 +72,9 @@ func validateNestedPropertyDataType(property *models.NestedProperty,
 		// DataTypeString and DataTypeStringArray as deprecated since 1.19 are not allowed
 		switch primitiveDataType {
 		case schema.DataTypeString, schema.DataTypeStringArray:
-			return fmt.Errorf("Property '%s': data type '%s' is deprecated and not allowed as nested property", propName, primitiveDataType)
+			return fmt.Errorf("property '%s': data type '%s' is deprecated and not allowed as nested property", propName, primitiveDataType)
 		case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
-			return fmt.Errorf("Property '%s': data type '%s' not allowed as nested property", propName, primitiveDataType)
+			return fmt.Errorf("property '%s': data type '%s' not allowed as nested property", propName, primitiveDataType)
 		default:
 			// do nothing
 		}
@@ -83,7 +83,7 @@ func validateNestedPropertyDataType(property *models.NestedProperty,
 	if isNested {
 		return nil
 	}
-	return fmt.Errorf("Property '%s': reference data type not allowed", propName)
+	return fmt.Errorf("property '%s': reference data type not allowed", propName)
 }
 
 // Tokenization allowed only for text/text[] data types
@@ -101,13 +101,13 @@ func validateNestedPropertyTokenization(property *models.NestedProperty,
 				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase:
 				return nil
 			}
-			return fmt.Errorf("Property '%s': Tokenization '%s' is not allowed for data type '%s'",
+			return fmt.Errorf("property '%s': Tokenization '%s' is not allowed for data type '%s'",
 				propName, property.Tokenization, primitiveDataType)
 		default:
 			if property.Tokenization == "" {
 				return nil
 			}
-			return fmt.Errorf("Property '%s': Tokenization is not allowed for data type '%s'",
+			return fmt.Errorf("property '%s': Tokenization is not allowed for data type '%s'",
 				propName, primitiveDataType)
 		}
 	}
@@ -115,9 +115,9 @@ func validateNestedPropertyTokenization(property *models.NestedProperty,
 		return nil
 	}
 	if isNested {
-		return fmt.Errorf("Property '%s': Tokenization is not allowed for object/object[] data types", propName)
+		return fmt.Errorf("property '%s': Tokenization is not allowed for object/object[] data types", propName)
 	}
-	return fmt.Errorf("Property '%s': Tokenization is not allowed for reference data type", propName)
+	return fmt.Errorf("property '%s': Tokenization is not allowed for reference data type", propName)
 }
 
 // indexFilterable allowed for primitive & ref data types
@@ -129,12 +129,12 @@ func validateNestedPropertyIndexFilterable(property *models.NestedProperty,
 
 	// at this point indexSearchable should be set (either by user or by defaults)
 	if property.IndexFilterable == nil {
-		return fmt.Errorf("Property '%s': `indexFilterable` not set", propName)
+		return fmt.Errorf("property '%s': `indexFilterable` not set", propName)
 	}
 
 	if isPrimitive && primitiveDataType == schema.DataTypeBlob {
 		if *property.IndexFilterable {
-			return fmt.Errorf("Property: '%s': indexFilterable is not allowed for blob data type",
+			return fmt.Errorf("property: '%s': indexFilterable is not allowed for blob data type",
 				propName)
 		}
 	}
@@ -151,7 +151,7 @@ func validateNestedPropertyIndexSearchable(property *models.NestedProperty,
 
 	// at this point indexSearchable should be set (either by user or by defaults)
 	if property.IndexSearchable == nil {
-		return fmt.Errorf("Property '%s': `indexSearchable` not set", propName)
+		return fmt.Errorf("property '%s': `indexSearchable` not set", propName)
 	}
 
 	if isPrimitive {
@@ -163,7 +163,7 @@ func validateNestedPropertyIndexSearchable(property *models.NestedProperty,
 		}
 	}
 	if *property.IndexSearchable {
-		return fmt.Errorf("Property '%s': `indexSearchable` is not allowed for other than text/text[] data types",
+		return fmt.Errorf("property '%s': `indexSearchable` is not allowed for other than text/text[] data types",
 			propName)
 	}
 
@@ -179,7 +179,7 @@ func validateNestedPropertyIndexRangeFilters(property *models.NestedProperty,
 
 	// at this point indexRangeFilters should be set (either by user or by defaults)
 	if property.IndexRangeFilters == nil {
-		return fmt.Errorf("Property '%s': `indexRangeFilters` not set", propName)
+		return fmt.Errorf("property '%s': `indexRangeFilters` not set", propName)
 	}
 
 	if isPrimitive {
@@ -191,7 +191,7 @@ func validateNestedPropertyIndexRangeFilters(property *models.NestedProperty,
 		}
 	}
 	if *property.IndexRangeFilters {
-		return fmt.Errorf("Property '%s': `indexRangeFilters` is not allowed for other than number/int/date data types",
+		return fmt.Errorf("property '%s': `indexRangeFilters` is not allowed for other than number/int/date data types",
 			propName)
 	}
 

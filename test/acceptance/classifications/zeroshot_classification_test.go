@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
-	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
 func zeroshotClassification(t *testing.T) {
@@ -40,7 +39,7 @@ func zeroshotClassification(t *testing.T) {
 		id = res.Payload.ID
 
 		// wait for classification to be completed
-		testhelper.AssertEventuallyEqualWithFrequencyAndTimeout(t, "completed",
+		helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, "completed",
 			func() interface{} {
 				res, err := helper.Client(t).Classifications.ClassificationsGet(
 					classifications.NewClassificationsGetParams().WithID(id.String()), nil)
@@ -52,13 +51,13 @@ func zeroshotClassification(t *testing.T) {
 
 	t.Run("assure changes present", func(t *testing.T) {
 		// wait for latest changes to be indexed / wait for consistency
-		testhelper.AssertEventuallyEqual(t, true, func() interface{} {
+		helper.AssertEventuallyEqual(t, true, func() interface{} {
 			res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSteak), nil)
 			require.Nil(t, err)
 			return res.Payload.Properties.(map[string]interface{})["ofFoodType"] != nil
 		})
-		testhelper.AssertEventuallyEqual(t, true, func() interface{} {
+		helper.AssertEventuallyEqual(t, true, func() interface{} {
 			res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedIceCreams), nil)
 			require.Nil(t, err)
@@ -68,13 +67,13 @@ func zeroshotClassification(t *testing.T) {
 
 	t.Run("assure proper classification present", func(t *testing.T) {
 		// wait for latest changes to be indexed / wait for consistency
-		testhelper.AssertEventuallyEqual(t, true, func() interface{} {
+		helper.AssertEventuallyEqual(t, true, func() interface{} {
 			res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSteak), nil)
 			require.Nil(t, err)
 			return checkOfFoodTypeRef(res.Payload.Properties, foodTypeMeat)
 		})
-		testhelper.AssertEventuallyEqual(t, true, func() interface{} {
+		helper.AssertEventuallyEqual(t, true, func() interface{} {
 			res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedIceCreams), nil)
 			require.Nil(t, err)

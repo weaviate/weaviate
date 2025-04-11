@@ -177,7 +177,7 @@ func setupGraphQLHandlers(
 		if graphQL == nil {
 			metricRequestsTotal.logUserError()
 			errRes := errPayloadFromSingleErr(fmt.Errorf("no graphql provider present, " +
-				"this is most likely because no schema is present. Import a schema first!"))
+				"this is most likely because no schema is present. Import a schema first"))
 			return graphql.NewGraphqlBatchUnprocessableEntity().WithPayload(errRes)
 		}
 

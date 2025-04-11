@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
-	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
 var (
@@ -398,7 +397,7 @@ func assertGetObjectEventually(t *testing.T, uuid strfmt.UUID) *models.Object {
 		return err == nil
 	}
 
-	testhelper.AssertEventuallyEqual(t, true, checkThunk)
+	helper.AssertEventuallyEqual(t, true, checkThunk)
 
 	var object *models.Object
 

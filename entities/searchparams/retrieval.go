@@ -74,7 +74,7 @@ func GetPropertyByName(c *models.Class, propName string) (*models.Property, erro
 			return prop, nil
 		}
 	}
-	return nil, fmt.Errorf("Property %v not found %v", propName, c.Class)
+	return nil, fmt.Errorf("property %v not found %v", propName, c.Class)
 }
 
 func (k *KeywordRanking) ChooseSearchableProperties(class *models.Class) {

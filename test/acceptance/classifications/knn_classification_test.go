@@ -25,14 +25,13 @@ import (
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
-	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
 func knnClassification(t *testing.T) {
 	var id strfmt.UUID
 
 	t.Run("ensure class shard for classification is ready", func(t *testing.T) {
-		testhelper.AssertEventuallyEqualWithFrequencyAndTimeout(t, "READY",
+		helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, "READY",
 			func() interface{} {
 				shardStatus, err := helper.Client(t).Schema.SchemaObjectsShardsGet(schema.NewSchemaObjectsShardsGetParams().WithClassName("Recipe"), nil)
 				require.Nil(t, err)
@@ -56,7 +55,7 @@ func knnClassification(t *testing.T) {
 		id = res.Payload.ID
 
 		// wait for classification to be completed
-		testhelper.AssertEventuallyEqualWithFrequencyAndTimeout(t, "completed",
+		helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, "completed",
 			func() interface{} {
 				res, err := helper.Client(t).Classifications.ClassificationsGet(
 					classifications.NewClassificationsGetParams().WithID(id.String()), nil)
@@ -68,13 +67,13 @@ func knnClassification(t *testing.T) {
 
 	t.Run("assure changes present", func(t *testing.T) {
 		// wait for latest changes to be indexed / wait for consistency
-		testhelper.AssertEventuallyEqual(t, true, func() interface{} {
+		helper.AssertEventuallyEqual(t, true, func() interface{} {
 			res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSavory), nil)
 			require.Nil(t, err)
 			return res.Payload.Properties.(map[string]interface{})["ofType"] != nil
 		})
-		testhelper.AssertEventuallyEqual(t, true, func() interface{} {
+		helper.AssertEventuallyEqual(t, true, func() interface{} {
 			res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSweet), nil)
 			require.Nil(t, err)

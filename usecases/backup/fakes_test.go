@@ -122,13 +122,16 @@ func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key, overrideBuc
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID, key, bytes)
-	if key == BackupFile {
+	switch key {
+	case BackupFile:
 		json.Unmarshal(bytes, &fb.meta)
-	} else if key == GlobalBackupFile || key == GlobalRestoreFile {
+	case GlobalBackupFile, GlobalRestoreFile:
 		json.Unmarshal(bytes, &fb.glMeta)
 		if fb.glMeta.Status == backup.Success || fb.glMeta.Status == backup.Failed {
 			close(fb.doneChan)
 		}
+	default:
+		// do nothing
 	}
 	return args.Error(0)
 }

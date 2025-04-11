@@ -207,7 +207,7 @@ func TestGetPropertyDataType(t *testing.T) {
 		{
 			propName:         "invalidProp",
 			expectedDataType: nil,
-			expectedErr:      fmt.Errorf("given value-DataType does not exist."),
+			expectedErr:      fmt.Errorf("given value-DataType does not exist"),
 		},
 	}
 

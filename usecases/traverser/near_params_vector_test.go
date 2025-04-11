@@ -556,7 +556,8 @@ func (f *fakeNearParamsSearcher) Object(ctx context.Context, className string, i
 	props search.SelectProperties, additional additional.Properties,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
-	if className == "LegacyClass" {
+	switch className {
+	case "LegacyClass":
 		vec := []float32{0.0, 0.0, 0.0}
 		if !f.returnVec {
 			vec = nil
@@ -565,20 +566,20 @@ func (f *fakeNearParamsSearcher) Object(ctx context.Context, className string, i
 		return &search.Result{
 			Vector: vec,
 		}, nil
-	} else if className == "SingleNamedVector" {
+	case "SingleNamedVector":
 		return &search.Result{
 			Vectors: models.Vectors{
 				"Vector": []float32{2.0, 2.0, 2.0},
 			},
 		}, nil
-	} else if className == "MultiNamedVector" {
+	case "MultiNamedVector":
 		return &search.Result{
 			Vectors: models.Vectors{
 				"A": []float32{3.0, 3.0, 3.0},
 				"B": []float32{4.0, 4.0, 4.0},
 			},
 		}, nil
-	} else {
+	default:
 		return &search.Result{
 			Vector: []float32{1.0, 1.0, 1.0},
 		}, nil

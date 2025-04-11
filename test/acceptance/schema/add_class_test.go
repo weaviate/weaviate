@@ -87,7 +87,7 @@ func TestInvalidPropertyName(t *testing.T) {
 			var parsed *clschema.SchemaObjectsCreateUnprocessableEntity
 			require.True(t, errors.As(err, &parsed), "error should be unprocessable entity")
 			assert.Equal(t, "'some-property' is not a valid property name. Property names in Weaviate "+
-				"are restricted to valid GraphQL names, which must be “/[_A-Za-z][_0-9A-Za-z]{0,230}/”.",
+				"are restricted to valid GraphQL names, which must be “/[_A-Za-z][_0-9A-Za-z]{0,230}/”",
 				parsed.Payload.Error[0].Message)
 		})
 	})

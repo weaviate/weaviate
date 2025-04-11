@@ -171,7 +171,7 @@ func (h *classPropertyValuesHelper) GetNumber(in interface{}) (float32, error) {
 		}
 		return float32(num), err
 	default:
-		return 0.0, fmt.Errorf("Unrecognized type: %T", in)
+		return 0.0, fmt.Errorf("unrecognized type: %T", in)
 	}
 }
 

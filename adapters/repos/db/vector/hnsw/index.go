@@ -239,10 +239,7 @@ func New(cfg Config, uc ent.UserConfig,
 		cfg.Logger = logger
 	}
 
-	normalizeOnRead := false
-	if cfg.DistanceProvider.Type() == "cosine-dot" {
-		normalizeOnRead = true
-	}
+	normalizeOnRead := cfg.DistanceProvider.Type() == "cosine-dot"
 
 	var vectorCache cache.Cache[float32]
 

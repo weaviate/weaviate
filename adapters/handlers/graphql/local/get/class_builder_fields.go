@@ -12,6 +12,7 @@
 package get
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -834,7 +835,7 @@ func extractInlineFragment(class string, fragment *ast.InlineFragment,
 	}
 
 	if className == "Beacon" {
-		return result, fmt.Errorf("retrieving cross-refs by beacon is not supported yet - coming soon!")
+		return result, errors.New("retrieving cross-refs by beacon is not supported yet - coming soon!")
 	}
 
 	subProperties, additionalProperties, _, err := extractProperties(class, fragment.SelectionSet, fragments, modulesProvider)

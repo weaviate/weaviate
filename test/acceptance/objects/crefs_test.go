@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
-	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
 const (
@@ -169,7 +168,7 @@ func TestRefsWithoutToClass(t *testing.T) {
 		obj := assertGetObjectWithClass(t, refFromId, refFromClassName)
 		return obj.Properties
 	}
-	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+	helper.AssertEventuallyEqual(t, map[string]interface{}{
 		"ref": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf(beaconStart+"%s/%s", refToClassName, refToId.String()),
@@ -193,7 +192,7 @@ func TestRefsWithoutToClass(t *testing.T) {
 		obj := assertGetObjectWithClass(t, refFromId, refFromClassName)
 		return obj.Properties
 	}
-	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+	helper.AssertEventuallyEqual(t, map[string]interface{}{
 		"ref": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf(beaconStart+"%s/%s", refToClassName, refToId.String()),
@@ -219,7 +218,7 @@ func TestRefsWithoutToClass(t *testing.T) {
 		obj := assertGetObjectWithClass(t, refFromId, refFromClassName)
 		return obj.Properties
 	}
-	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+	helper.AssertEventuallyEqual(t, map[string]interface{}{
 		"ref": []interface{}{},
 	}, objWithoutRef)
 }
@@ -275,7 +274,7 @@ func TestRefsMultiTarget(t *testing.T) {
 			obj := assertGetObjectWithClass(t, refFromId, refFromClassName)
 			return obj.Properties
 		}
-		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+		helper.AssertEventuallyEqual(t, map[string]interface{}{
 			"ref": []interface{}{
 				map[string]interface{}{
 					"beacon": fmt.Sprintf(beaconStart+"%s%s", tt.classRef, tt.id),
@@ -360,7 +359,7 @@ func TestBatchRefsMultiTarget(t *testing.T) {
 			obj := assertGetObjectWithClass(t, uuidsFrom[i], refFromClassName)
 			return obj.Properties
 		}
-		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+		helper.AssertEventuallyEqual(t, map[string]interface{}{
 			"ref": []interface{}{
 				map[string]interface{}{
 					"beacon": fmt.Sprintf(beaconStart+"%s", uuidsTo[i].String()),
@@ -377,7 +376,7 @@ func TestBatchRefsMultiTarget(t *testing.T) {
 			obj := assertGetObjectWithClass(t, uuidsFrom[j], refFromClassName)
 			return obj.Properties
 		}
-		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+		helper.AssertEventuallyEqual(t, map[string]interface{}{
 			"ref": []interface{}{
 				map[string]interface{}{
 					"beacon": fmt.Sprintf(beaconStart+"%s/%s", refToClassName, uuidsTo[j].String()),
@@ -394,7 +393,7 @@ func TestBatchRefsMultiTarget(t *testing.T) {
 			obj := assertGetObjectWithClass(t, uuidsFrom[j], refFromClassName)
 			return obj.Properties
 		}
-		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+		helper.AssertEventuallyEqual(t, map[string]interface{}{
 			"ref": []interface{}{
 				map[string]interface{}{
 					"beacon": fmt.Sprintf(beaconStart+"%s/%s", refFromClassName, uuidsTo[j].String()),
@@ -584,7 +583,7 @@ func TestBatchRefsWithoutToClass(t *testing.T) {
 			obj := assertGetObjectWithClass(t, uuidsFrom[i], refFromClassName)
 			return obj.Properties
 		}
-		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+		helper.AssertEventuallyEqual(t, map[string]interface{}{
 			"ref": []interface{}{
 				map[string]interface{}{
 					"beacon": fmt.Sprintf(beaconStart+"%s/%s", refToClassName, uuidsTo[i].String()),
@@ -658,7 +657,7 @@ func TestObjectBatchToClassDetection(t *testing.T) {
 			obj := assertGetObjectWithClass(t, fromBatch[i].ID, refFromClassName)
 			return obj.Properties
 		}
-		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+		helper.AssertEventuallyEqual(t, map[string]interface{}{
 			"ref": []interface{}{
 				map[string]interface{}{
 					"beacon": fmt.Sprintf(beaconStart+"%s/%s", refToClassName, uuidsTo[i].String()),
@@ -823,7 +822,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		return cityAfterFirstPatch.Properties
 	}
 
-	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+	helper.AssertEventuallyEqual(t, map[string]interface{}{
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
@@ -866,7 +865,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		},
 	}
 
-	testhelper.AssertEventuallyEqual(t, expectedRefs, actualThunk)
+	helper.AssertEventuallyEqual(t, expectedRefs, actualThunk)
 }
 
 // This test suite is meant to prevent a regression on
@@ -951,7 +950,7 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		return city.Properties
 	}
 	t.Log("7. verify first cross ref was added")
-	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+	helper.AssertEventuallyEqual(t, map[string]interface{}{
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
@@ -988,5 +987,5 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		},
 	}
 
-	testhelper.AssertEventuallyEqual(t, expectedRefs, actualThunk)
+	helper.AssertEventuallyEqual(t, expectedRefs, actualThunk)
 }

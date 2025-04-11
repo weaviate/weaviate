@@ -73,7 +73,7 @@ func byteVectorMulti(mat [][]float32) []byte {
 }
 
 func idByte(id string) []byte {
-	hexInteger, _ := new(big.Int).SetString(strings.Replace(id, "-", "", -1), 16)
+	hexInteger, _ := new(big.Int).SetString(strings.ReplaceAll(id, "-", ""), 16)
 	return hexInteger.Bytes()
 }
 

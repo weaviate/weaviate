@@ -88,12 +88,12 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 }
 
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
-	var wrongVal float64 = -1.0
+	wrongVal := float64(-1.0)
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
 func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
-	var wrongVal int = -1
+	wrongVal := -1
 	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 

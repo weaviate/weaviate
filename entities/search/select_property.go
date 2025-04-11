@@ -100,7 +100,7 @@ func (sp SelectProperties) HasProps() bool {
 func (sp SelectProperties) ShouldResolve(path []string) (bool, error) {
 	if len(path)%2 != 0 || len(path) == 0 {
 		return false, fmt.Errorf("used incorrectly: path must have even number of segments in the form of " +
-			"refProp, className, refProp, className, etc.")
+			"refProp, className, refProp, className, etc")
 	}
 
 	// the above gives us the guarantee that path contains at least two elements

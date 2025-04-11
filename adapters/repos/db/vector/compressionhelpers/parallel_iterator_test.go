@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -159,7 +158,7 @@ func testIterator[T uint64 | byte](t *testing.T, cpi *parallelIterator[T], test 
 
 func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
 	ctx := context.Background()
-	logger, _ := test.NewNullLogger()
+	logger, _ := logrustest.NewNullLogger()
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		lsmkv.WithPread(true), lsmkv.WithSegmentsChecksumValidationEnabled(false))

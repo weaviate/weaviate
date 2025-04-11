@@ -290,7 +290,7 @@ func Test_AddClass(t *testing.T) {
 					propName:       propName(dataType, tokenization),
 					dataType:       dataType.PropString(),
 					tokenization:   tokenization,
-					expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+					expectedErrMsg: fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 				})
 			}
 
@@ -317,7 +317,7 @@ func Test_AddClass(t *testing.T) {
 							propName:       propName(dataType, tokenization),
 							dataType:       dataType.PropString(),
 							tokenization:   tokenization,
-							expectedErrMsg: fmt.Sprintf("Tokenization is not allowed for data type '%s'", dataType),
+							expectedErrMsg: fmt.Sprintf("tokenization is not allowed for data type '%s'", dataType),
 						})
 					}
 				}
@@ -345,7 +345,7 @@ func Test_AddClass(t *testing.T) {
 						propName:       fmt.Sprintf("RefProp_%d_%s", i, tokenization),
 						dataType:       dataType,
 						tokenization:   tokenization,
-						expectedErrMsg: "Tokenization is not allowed for reference data type",
+						expectedErrMsg: "tokenization is not allowed for reference data type",
 						callReadOnly:   true,
 					})
 				}
@@ -379,7 +379,7 @@ func Test_AddClass(t *testing.T) {
 							propName:       propName(dataType, tokenization),
 							dataType:       dataType.PropString(),
 							tokenization:   tokenization,
-							expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+							expectedErrMsg: fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 						})
 					}
 				}

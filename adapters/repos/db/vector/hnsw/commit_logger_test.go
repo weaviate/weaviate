@@ -14,7 +14,6 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	_ "fmt"
 	"os"
 	"testing"
 	"time"

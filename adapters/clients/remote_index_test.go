@@ -52,11 +52,12 @@ func TestRemoteIndexIncreaseRF(t *testing.T) {
 	})
 	n := 0
 	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
-		if n == 0 {
+		switch n {
+		case 0:
 			w.WriteHeader(http.StatusInternalServerError)
-		} else if n == 1 {
+		case 1:
 			w.WriteHeader(http.StatusTooManyRequests)
-		} else {
+		default:
 			w.WriteHeader(http.StatusNoContent)
 		}
 		n++
@@ -83,11 +84,12 @@ func TestRemoteIndexReInitShardIn(t *testing.T) {
 	})
 	n := 0
 	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
-		if n == 0 {
+		switch n {
+		case 0:
 			w.WriteHeader(http.StatusInternalServerError)
-		} else if n == 1 {
+		case 1:
 			w.WriteHeader(http.StatusTooManyRequests)
-		} else {
+		default:
 			w.WriteHeader(http.StatusNoContent)
 		}
 		n++
@@ -114,11 +116,12 @@ func TestRemoteIndexCreateShard(t *testing.T) {
 	})
 	n := 0
 	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
-		if n == 0 {
+		switch n {
+		case 0:
 			w.WriteHeader(http.StatusInternalServerError)
-		} else if n == 1 {
+		case 1:
 			w.WriteHeader(http.StatusTooManyRequests)
-		} else {
+		default:
 			w.WriteHeader(http.StatusCreated)
 		}
 		n++
@@ -145,10 +148,13 @@ func TestRemoteIndexUpdateShardStatus(t *testing.T) {
 	})
 	n := 0
 	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
-		if n == 0 {
+		switch n {
+		case 0:
 			w.WriteHeader(http.StatusInternalServerError)
-		} else if n == 1 {
+		case 1:
 			w.WriteHeader(http.StatusTooManyRequests)
+		default:
+			// do nothing
 		}
 		n++
 	}
@@ -176,15 +182,16 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	})
 	n := 0
 	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
-		if n == 0 {
+		switch n {
+		case 0:
 			w.WriteHeader(http.StatusInternalServerError)
-		} else if n == 1 {
+		case 1:
 			w.WriteHeader(http.StatusTooManyRequests)
-		} else if n == 2 {
+		case 2:
 			w.Header().Set("content-type", "any")
-		} else if n == 3 {
+		case 3:
 			clusterapi.IndicesPayloads.GetShardStatusResults.SetContentTypeHeader(w)
-		} else {
+		default:
 			clusterapi.IndicesPayloads.GetShardStatusResults.SetContentTypeHeader(w)
 			bytes, _ := clusterapi.IndicesPayloads.GetShardStatusResults.Marshal(Status)
 			w.Write(bytes)
@@ -232,11 +239,12 @@ func TestRemoteIndexPutFile(t *testing.T) {
 	})
 	n := 0
 	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
-		if n == 0 {
+		switch n {
+		case 0:
 			w.WriteHeader(http.StatusInternalServerError)
-		} else if n == 1 {
+		case 1:
 			w.WriteHeader(http.StatusTooManyRequests)
-		} else {
+		default:
 			w.WriteHeader(http.StatusNoContent)
 		}
 		n++

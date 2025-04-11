@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/extensions"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
-	localvectorizer "github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	text2vecprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
 	text2vecneartext "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
@@ -54,7 +53,7 @@ type ContextionaryModule struct {
 	storageProvider              moduletools.StorageProvider
 	extensions                   *extensions.RESTHandlers
 	concepts                     *concepts.RESTHandlers
-	vectorizer                   *localvectorizer.Vectorizer
+	vectorizer                   *vectorizer.Vectorizer
 	configValidator              configValidator
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
@@ -66,7 +65,7 @@ type ContextionaryModule struct {
 }
 
 type remoteClient interface {
-	localvectorizer.RemoteClient
+	vectorizer.RemoteClient
 	extensions.Proxy
 	vectorizer.InspectorClient
 	text2vecsempath.Remote
@@ -78,7 +77,7 @@ type remoteClient interface {
 
 type configValidator interface {
 	Do(ctx context.Context, class *models.Class, cfg moduletools.ClassConfig,
-		indexChecker localvectorizer.IndexChecker) error
+		indexChecker vectorizer.IndexChecker) error
 }
 
 func (m *ContextionaryModule) Name() string {
@@ -166,15 +165,15 @@ func (m *ContextionaryModule) initExtensions() error {
 }
 
 func (m *ContextionaryModule) initConcepts() error {
-	uc := localvectorizer.NewInspector(m.remote)
+	uc := vectorizer.NewInspector(m.remote)
 	m.concepts = concepts.NewRESTHandlers(uc)
 
 	return nil
 }
 
 func (m *ContextionaryModule) initVectorizer() error {
-	m.vectorizer = localvectorizer.New(m.remote)
-	m.configValidator = localvectorizer.NewConfigValidator(m.remote, m.logger)
+	m.vectorizer = vectorizer.New(m.remote)
+	m.configValidator = vectorizer.NewConfigValidator(m.remote, m.logger)
 
 	m.searcher = text2vecneartext.NewSearcher(m.vectorizer)
 
