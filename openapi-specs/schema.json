@@ -905,7 +905,7 @@
           "type": "object"
         },
         "description": {
-          "description": "Description of the collection for metadata purposes.",          
+          "description": "Description of the collection for metadata purposes.",
           "type": "string"
         },
         "properties": {
@@ -1037,7 +1037,7 @@
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"            
+            "kagome_ja"
           ]
         },
         "nestedProperties": {
