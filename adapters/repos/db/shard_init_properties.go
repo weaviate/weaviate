@@ -224,7 +224,7 @@ func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		name,
 		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
