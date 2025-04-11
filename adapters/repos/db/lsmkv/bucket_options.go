@@ -185,3 +185,10 @@ func WithForceCompaction(opt bool) BucketOption {
 		return nil
 	}
 }
+
+func WithKeepSegmentsInMemory(keep bool) BucketOption {
+	return func(b *Bucket) error {
+		b.keepSegmentsInMemory = keep
+		return nil
+	}
+}
