@@ -76,8 +76,7 @@ func TestRemoveTmpScratchOrHiddenFiles(t *testing.T) {
 func TestCondenseLoop(t *testing.T) {
 	scratchDir := t.TempDir()
 	commitLogDir := createCondensorTestData(t, scratchDir)
-	shutdown := createTestCommitLoggerWithOptions(t, scratchDir, "main", WithCondensor(&fakeCondensor{}))
-	defer shutdown()
+	createTestCommitLoggerWithOptions(t, scratchDir, "main", WithCondensor(&fakeCondensor{}))
 
 	assert.EventuallyWithT(t, func(t *assert.CollectT) {
 		files, err := os.ReadDir(commitLogDir)
@@ -99,9 +98,8 @@ func TestCondenseLoop(t *testing.T) {
 func TestCondenseLoop_WithAllocChecker(t *testing.T) {
 	scratchDir := t.TempDir()
 	commitLogDir := createCondensorTestData(t, scratchDir)
-	shutdown := createTestCommitLoggerWithOptions(t, scratchDir, "main",
+	createTestCommitLoggerWithOptions(t, scratchDir, "main",
 		WithCondensor(&fakeCondensor{}), WithAllocChecker(&fakeAllocChecker{}))
-	defer shutdown()
 
 	assert.EventuallyWithT(t, func(t *assert.CollectT) {
 		files, err := os.ReadDir(commitLogDir)
@@ -123,9 +121,8 @@ func TestCondenseLoop_WithAllocChecker(t *testing.T) {
 func TestCondenseLoop_WithAllocChecker_OOM(t *testing.T) {
 	scratchDir := t.TempDir()
 	commitLogDir := createCondensorTestData(t, scratchDir)
-	shutdown := createTestCommitLoggerWithOptions(t, scratchDir, "main",
+	createTestCommitLoggerWithOptions(t, scratchDir, "main",
 		WithCondensor(&fakeCondensor{}), WithAllocChecker(&fakeAllocChecker{shouldErr: true}))
-	defer shutdown()
 
 	assert.Never(t, func() bool {
 		files, err := os.ReadDir(commitLogDir)
@@ -165,7 +162,7 @@ func createCondensorTestData(t *testing.T, scratchDir string) string {
 	return commitLogDir
 }
 
-func createTestCommitLoggerWithOptions(t *testing.T, scratchDir string, name string, options ...CommitlogOption) func() {
+func createTestCommitLoggerWithOptions(t *testing.T, scratchDir string, name string, options ...CommitlogOption) *hnswCommitLogger {
 	logger, _ := test.NewNullLogger()
 	cbg := cyclemanager.NewCallbackGroup("test", logger, 10)
 	ticker := cyclemanager.NewLinearTicker(50*time.Millisecond, 60*time.Millisecond, 1)
@@ -174,10 +171,12 @@ func createTestCommitLoggerWithOptions(t *testing.T, scratchDir string, name str
 	require.Nil(t, err)
 	cm.Start()
 
-	return func() {
+	t.Cleanup(func() {
 		cl.Shutdown(context.Background())
 		cm.Stop(context.Background())
-	}
+	})
+
+	return cl
 }
 
 type fakeAllocChecker struct {
