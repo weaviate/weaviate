@@ -23,6 +23,8 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
+
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"gopkg.in/yaml.v2"
 )
 
 // ServerVersion is deprecated. Use `build.Version`. It's there for backward compatiblility.
@@ -377,14 +378,17 @@ func (r ResourceUsage) Validate() error {
 }
 
 type Raft struct {
-	Port                   int
-	InternalRPCPort        int
-	RPCMessageMaxSize      int
-	Join                   []string
-	SnapshotThreshold      uint64
+	Port              int
+	InternalRPCPort   int
+	RPCMessageMaxSize int
+	Join              []string
+
+	SnapshotInterval  time.Duration
+	SnapshotThreshold uint64
+	TrailingLogs      uint64
+
 	HeartbeatTimeout       time.Duration
 	ElectionTimeout        time.Duration
-	SnapshotInterval       time.Duration
 	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration
