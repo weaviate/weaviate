@@ -13,7 +13,7 @@ package lsmkv
 
 import (
 	"context"
-	"os"
+	"io/fs"
 	"path"
 	"path/filepath"
 
@@ -40,27 +40,25 @@ func (b *Bucket) FlushMemtable() error {
 // in a stable state if the memtable is empty, and if compactions are paused. If one
 // of those conditions is not given, it errors
 func (b *Bucket) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	bucketRoot := b.disk.dir
+	var (
+		bucketRoot = b.disk.dir
+		files      []string
+	)
 
-	entries, err := os.ReadDir(bucketRoot)
+	err := filepath.WalkDir(bucketRoot, func(currPath string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			return nil
+		}
+		// ignore .wal files because they are not immutable
+		if filepath.Ext(currPath) == ".wal" {
+			return nil
+		}
+		files = append(files, path.Join(basePath, path.Base(currPath)))
+		return nil
+	})
 	if err != nil {
 		return nil, errors.Errorf("failed to list files for bucket: %s", err)
 	}
 
-	var files []string
-	for _, entry := range entries {
-		// Skip directories as they are used as scratch spaces (e.g. for compaction or flushing).
-		// All stable files are in the root of the bucket.
-		if entry.IsDir() {
-			continue
-		}
-
-		// ignore .wal files because they are not immutable
-		if filepath.Ext(entry.Name()) == ".wal" {
-			continue
-		}
-
-		files = append(files, path.Join(basePath, entry.Name()))
-	}
 	return files, nil
 }
