@@ -55,8 +55,7 @@ var (
 	stateCoordination    = make(map[State]*coordination) // Coordination info for each state
 	transitionInProgress atomic.Bool
 	initialized          atomic.Bool
-	log                  = logrus.New()
-	monitorMode          atomic.Bool                  // Flag for monitor mode
+	log                  = logrus.New()                // Flag for monitor mode
 	stateWaiters         = make(map[State]*sync.Cond) // For waiting on a specific state
 	stateWaitersMu       sync.Mutex                   // Mutex for stateWaiters
 )
@@ -94,30 +93,11 @@ func init() {
 		stateWaiters[state] = sync.NewCond(&stateWaitersMu)
 	}
 
-	// By default, not in monitor mode
-	monitorMode.Store(false)
+
 
 	initialized.Store(true)
 }
 
-// SetMonitorMode enables or disables monitor mode
-// In monitor mode, state transitions still happen but coordination is not enforced
-// Returns the previous monitor mode value
-func SetMonitorMode(enabled bool) bool {
-	prev := monitorMode.Swap(enabled)
-
-	log.WithFields(logrus.Fields{
-		"enabled": enabled,
-		"was":     prev,
-	}).Info("Monitor mode changed")
-
-	return prev
-}
-
-// IsMonitorMode returns true if the state machine is in monitor mode
-func IsMonitorMode() bool {
-	return monitorMode.Load()
-}
 
 // RegisterComponent registers a new component with the state machine
 func RegisterComponent(name string) error {
@@ -495,13 +475,13 @@ func Change(to State, reason string) (chan struct{}, error) {
 
 	// Determine which components need to be waited for (if not in monitor mode)
 	componentsToCoordinate := []string{}
-	if !IsMonitorMode() {
+
 		for name, comp := range components {
 			if comp.coordinatedStates[to] {
 				componentsToCoordinate = append(componentsToCoordinate, name)
 			}
 		}
-	}
+
 
 	log.WithField("components", componentsToCoordinate).Info("Components to coordinate with")
 
@@ -617,16 +597,6 @@ func Change(to State, reason string) (chan struct{}, error) {
 			"state": to,
 		}).Info("All callbacks completed")
 
-		// In monitor mode, we skip waiting for coordination
-		if IsMonitorMode() {
-			log.WithFields(logrus.Fields{
-				"state": to,
-			}).Info("Monitor mode: skipping coordination wait")
-			transitionInProgress.Store(false)
-			close(done)
-			return
-		}
-
 		// Wait for coordination to complete with timeout
 		if len(componentsToCoordinate) > 0 {
 			coordDone := make(chan struct{})
@@ -734,7 +704,6 @@ func Status() map[string]interface{} {
 
 	status := make(map[string]interface{})
 	status["current_state"] = CurrentState()
-	status["monitor_mode"] = IsMonitorMode()
 	status["transition_in_progress"] = transitionInProgress.Load()
 	status["components_count"] = len(components)
 

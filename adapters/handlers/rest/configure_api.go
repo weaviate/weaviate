@@ -820,7 +820,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}).Infof("configured versions")
 
 	statemachine.SetLogger(appState.Logger)
-	statemachine.SetMonitorMode(false)
 
 	api.ServeError = openapierrors.ServeError
 
