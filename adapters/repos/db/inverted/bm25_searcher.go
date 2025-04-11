@@ -99,6 +99,13 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	var scores []float32
 	var err error
 
+	// log size of the filterDocIds if not nil
+	if filterDocIds != nil {
+		b.logger.WithField("filter_doc_ids_size", filterDocIds.Size()).WithField("query", keywordRanking.Query).Warn("BM25F search with filter doc ids")
+	} else {
+		b.logger.WithField("query", keywordRanking.Query).Warn("BM25F search without filter doc ids")
+	}
+
 	// TODO: amourao - move this to the global config
 	if os.Getenv("USE_BLOCKMAX_WAND") == "false" {
 		objs, scores, err = b.wand(ctx, filterDocIds, class, keywordRanking, limit, additional)
