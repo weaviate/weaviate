@@ -1,8 +1,10 @@
 package distributedtask
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -62,29 +64,80 @@ type Task struct {
 
 	// FinishedNodes is a map of nodeIDs that successfully finished the task.
 	FinishedNodes map[string]struct{} `json:"finishedNodes"`
+
+	handle TaskHandle
+}
+
+func (t *Task) Clone() *Task {
+	clone := *t
+	clone.FinishedNodes = maps.Clone(t.FinishedNodes)
+	return &clone
+}
+
+type TaskHandle interface {
+	Launch()
+	Cancel()
+}
+
+type Provider interface {
+	RegisterTaskNodeCompletionRecorder(recorder TaskNodeCompletionRecorder)
+
+	// PrepareTask is meant for the provider to parse the payload and do any validation
+	// seems necessary, however, the task should not do anything yet as it might not be started.
+	PrepareTask(taskID string, taskVersion uint64, payload []byte) (TaskHandle, error)
+
+	//RunningTasksIDs() []string // TODO: background rechecking
 }
 
 type Manager struct {
-	taskScheduler TaskScheduler
+	mu        sync.Mutex
+	tasks     map[string]map[string]*Task // taskID -> taskType -> Task
+	providers map[string]Provider
 
-	mu    sync.Mutex
-	tasks map[string]map[string]*Task // taskID -> taskType -> Task
+	taskCompletionRecorder TaskNodeCompletionRecorder
 }
 
-type TaskScheduler interface {
+type TaskNodeCompletionRecorder interface {
+	RecordDistributedTaskNodeCompletion(ctx context.Context, taskType, taskID string, version uint64) error
 }
 
-func NewManager(taskScheduler TaskScheduler) *Manager {
+func NewManager(taskCompletionRecorder TaskNodeCompletionRecorder) *Manager {
 	return &Manager{
-		taskScheduler: taskScheduler,
-		tasks:         make(map[string]map[string]*Task),
+		tasks:     make(map[string]map[string]*Task),
+		providers: make(map[string]Provider),
+
+		taskCompletionRecorder: taskCompletionRecorder,
 	}
 }
 
+func (m *Manager) RegisterProvider(name string, provider Provider) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.providers[name]; ok {
+		return fmt.Errorf("provider %s already exists", name)
+	}
+	provider.RegisterTaskNodeCompletionRecorder(m.taskCompletionRecorder) // TODO: alternative idea is to change the TaskHandle to return completion notification channel
+
+	m.providers[name] = provider
+	return nil
+}
+
+// TODO: mention that this seqNum should be monotonically increasing
 func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	var r api.AddDistributedTaskRequest
-	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil { // TODO: refactor into a generic method
 		return errors.Wrap(err, "unmarshal add task request")
+	}
+
+	provider, err := m.getProvider(r.Type)
+	if err != nil {
+		return err
+	}
+
+	taskHandle, err := provider.PrepareTask(r.Id, seqNum, r.Payload)
+	if err != nil {
+		return errors.Wrap(err, "prepare task")
 	}
 
 	m.mu.Lock()
@@ -94,20 +147,25 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		if task.Status != TaskStatusStarted {
 			return fmt.Errorf("task %s/%s is already running with version %d", r.Type, r.Id, task.Version) // TODO: unify error messages
 		}
+
+		// TODO: cancel the previous one?
 	}
 
-	task = &Task{
+	// TODO: check if a task with given version already exists
+
+	m.setTaskWithLock(&Task{
 		Type:          r.Type,
 		ID:            r.Id,
 		Version:       seqNum,
-		Payload:       r.Payload,
+		Payload:       r.Payload, // TODO: do we need this here?
 		Status:        TaskStatusStarted,
 		StartedAt:     time.UnixMilli(r.SubmittedAtUnixMillis),
 		FinishedNodes: make(map[string]struct{}),
-	}
-	m.setTaskWithLock(task)
 
-	// TODO: notify the task manager to start the task
+		handle: taskHandle,
+	})
+
+	taskHandle.Launch()
 
 	return nil
 }
@@ -238,4 +296,14 @@ func (m *Manager) setTaskWithLock(task *Task) {
 	}
 
 	m.tasks[task.Type][task.ID] = task
+}
+
+func (m *Manager) getProvider(name string) (Provider, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if provider, ok := m.providers[name]; ok {
+		return provider, nil
+	}
+	return nil, fmt.Errorf("provider %s not found", name)
 }

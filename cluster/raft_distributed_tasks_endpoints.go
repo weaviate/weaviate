@@ -18,7 +18,6 @@ func (s *Raft) AddDistributedTask(ctx context.Context, taskType, taskID string, 
 	req := cmd.AddDistributedTaskRequest{
 		Type:                  taskType,
 		Id:                    taskID,
-		Version:               time.Now().Unix(), // TODO: consider fake clock
 		Payload:               payloadBytes,
 		SubmittedAtUnixMillis: time.Now().UnixMilli(),
 	}
@@ -36,7 +35,7 @@ func (s *Raft) AddDistributedTask(ctx context.Context, taskType, taskID string, 
 	return nil
 }
 
-func (s *Raft) RecordDistributedTaskNodeCompletion(ctx context.Context, taskType, taskID string, version int64) error {
+func (s *Raft) RecordDistributedTaskNodeCompletion(ctx context.Context, taskType, taskID string, version uint64) error {
 	req := cmd.RecordDistributedTaskNodeCompletionRequest{
 		Type:                 taskType,
 		Id:                   taskID,
@@ -59,15 +58,15 @@ func (s *Raft) RecordDistributedTaskNodeCompletion(ctx context.Context, taskType
 	return nil
 }
 
-func (s *Raft) RecordNodeDistributedTaskCompletion(ctx context.Context, taskType, taskID string, version int64) error {
+func (s *Raft) RecordNodeDistributedTaskCompletion(ctx context.Context, taskType, taskID string, version uint64) error {
 	return s.recordNodeDistributedTaskCompletion(ctx, taskType, taskID, version, nil)
 }
 
-func (s *Raft) RecordNodeDistributedTaskFailure(ctx context.Context, taskType, taskID string, version int64, failureReason string) error {
+func (s *Raft) RecordNodeDistributedTaskFailure(ctx context.Context, taskType, taskID string, version uint64, failureReason string) error {
 	return s.recordNodeDistributedTaskCompletion(ctx, taskType, taskID, version, &failureReason)
 }
 
-func (s *Raft) recordNodeDistributedTaskCompletion(ctx context.Context, taskType, taskID string, version int64, failureReason *string) error {
+func (s *Raft) recordNodeDistributedTaskCompletion(ctx context.Context, taskType, taskID string, version uint64, failureReason *string) error {
 	req := cmd.RecordDistributedTaskNodeCompletionRequest{
 		Type:                 taskType,
 		Id:                   taskID,
@@ -90,7 +89,7 @@ func (s *Raft) recordNodeDistributedTaskCompletion(ctx context.Context, taskType
 	return nil
 }
 
-func (s *Raft) CancelDistributedTask(ctx context.Context, taskType, taskID string, taskVersion int64) error {
+func (s *Raft) CancelDistributedTask(ctx context.Context, taskType, taskID string, taskVersion uint64) error {
 	req := cmd.CancelDistributedTaskRequest{
 		Type:                  taskType,
 		Id:                    taskID,
@@ -111,7 +110,7 @@ func (s *Raft) CancelDistributedTask(ctx context.Context, taskType, taskID strin
 	return nil
 }
 
-func (s *Raft) CleanUpDistributedTask(ctx context.Context, taskType, taskID string, taskVersion int64) error {
+func (s *Raft) CleanUpDistributedTask(ctx context.Context, taskType, taskID string, taskVersion uint64) error {
 	req := cmd.CleanUpDistributedTaskRequest{
 		Type:    taskType,
 		Id:      taskID,

@@ -600,7 +600,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	metaStoreFailedErr := fmt.Errorf("meta store failed")
 	storeReadyCtx, storeReadyCancel := context.WithCancelCause(context.Background())
 	enterrors.GoWrapper(func() {
-		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
+		if err := appState.ClusterService.Open(context.Background(), executor); err != nil { // TODO: restoring here
 			appState.Logger.
 				WithField("action", "startup").
 				WithError(err).
