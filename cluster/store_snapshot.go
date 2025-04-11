@@ -84,13 +84,32 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			}
 		}()
 
-		if err := st.schemaManager.Restore(rc, st.cfg.Parser); err != nil {
-			st.log.WithError(err).Error("restoring schema from snapshot")
-			return fmt.Errorf("restore schema from snapshot: %w", err)
+		snap := fsm.Snapshot{}
+		if err := json.NewDecoder(rc).Decode(&snap); err != nil {
+			return fmt.Errorf("restore snapshot: decode json: %w", err)
 		}
+
+		if snap.Schema != nil {
+			if err := st.schemaManager.Restore(snap.Schema, st.cfg.Parser); err != nil {
+				st.log.WithError(err).Error("restoring schema from snapshot")
+				return fmt.Errorf("restore schema from snapshot: %w", err)
+			}
+		} else {
+			// old snapshot format
+			jsonBytes, err := json.Marshal(snap)
+			if err != nil {
+				return fmt.Errorf("restore snapshot: marshal json: %w", err)
+			}
+
+			if err := st.schemaManager.RestoreLegacy(jsonBytes, st.cfg.Parser); err != nil {
+				st.log.WithError(err).Error("restoring schema from snapshot")
+				return fmt.Errorf("restore schema from snapshot: %w", err)
+			}
+		}
+
 		st.log.Info("successfully restored schema from snapshot")
 
-		if err := st.authZManager.Restore(rc); err != nil {
+		if err := st.authZManager.Restore(snap.RBAC); err != nil {
 			st.log.WithError(err).Error("restoring rbac from snapshot")
 			return fmt.Errorf("restore rbac from snapshot: %w", err)
 		}

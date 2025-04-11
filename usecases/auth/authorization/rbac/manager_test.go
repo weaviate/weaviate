@@ -12,7 +12,6 @@
 package rbac
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -98,7 +97,7 @@ func TestSnapshotAndRestore(t *testing.T) {
 			require.NoError(t, err)
 
 			// Restore from snapshot
-			err = m2.Restore(bytes.NewReader(snapshotData))
+			err = m2.Restore(snapshotData)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -180,7 +179,7 @@ func TestRestoreNilCasbin(t *testing.T) {
 		logger: logger,
 	}
 
-	err := m.Restore(bytes.NewReader([]byte("{}")))
+	err := m.Restore([]byte("{}"))
 	require.NoError(t, err)
 }
 
@@ -190,11 +189,11 @@ func TestRestoreInvalidData(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test with invalid JSON
-	err = m.Restore(bytes.NewReader([]byte("invalid json")))
+	err = m.Restore([]byte("invalid json"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode json")
 
 	// Test with empty data
-	err = m.Restore(bytes.NewReader([]byte("{}")))
+	err = m.Restore([]byte("{}"))
 	require.NoError(t, err)
 }
