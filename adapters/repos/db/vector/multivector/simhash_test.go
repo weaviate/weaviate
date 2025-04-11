@@ -13,6 +13,8 @@ package multivector
 
 import (
 	"testing"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 func TestSimHashTest(t *testing.T) {
@@ -36,16 +38,22 @@ func TestSimHashTest(t *testing.T) {
 		hash2 := encoder.simHash(vec2, encoder.gaussians[i])
 
 		// Calculate Hamming distance between hashes
-		hammingDist := hammingDistance(hash1, hash2)
-		if hammingDist > config.KSim/2 {
-			t.Errorf("Similar vectors produced very different hashes. Hamming distance: %d", hammingDist)
+		hammingDist, err := distancer.HammingBitwise([]uint64{hash1}, []uint64{hash2})
+		if err != nil {
+			t.Errorf("Error calculating Hamming distance: %v", err)
+		}
+		if hammingDist > float32(config.KSim)/2 {
+			t.Errorf("Similar vectors produced very different hashes. Hamming distance: %f", hammingDist)
 		}
 
 		// Test case 2: Orthogonal vectors should produce different hashes
 		hash3 := encoder.simHash(vec3, encoder.gaussians[i])
-		hammingDist = hammingDistance(hash1, hash3)
-		if hammingDist < config.KSim/2 {
-			t.Errorf("Orthogonal vectors produced similar hashes. Hamming distance: %d", hammingDist)
+		hammingDist, err = distancer.HammingBitwise([]uint64{hash1}, []uint64{hash3})
+		if err != nil {
+			t.Errorf("Error calculating Hamming distance: %v", err)
+		}
+		if hammingDist < float32(config.KSim)/2 {
+			t.Errorf("Orthogonal vectors produced similar hashes. Hamming distance: %f", hammingDist)
 		}
 
 		// Test case 3: Zero vector should produce consistent hash
@@ -57,7 +65,10 @@ func TestSimHashTest(t *testing.T) {
 		// Test case 4: Same vector should produce same hash
 		hash1Rep1 := encoder.simHash(vec1, encoder.gaussians[i])
 		hash1Rep2 := encoder.simHash(vec1, encoder.gaussians[i])
-		hammingDist = hammingDistance(hash1Rep1, hash1Rep2)
+		hammingDist, err = distancer.HammingBitwise([]uint64{hash1Rep1}, []uint64{hash1Rep2})
+		if err != nil {
+			t.Errorf("Error calculating Hamming distance: %v", err)
+		}
 		if hammingDist > 0 {
 			t.Error("Same vector produced different hashes")
 		}
