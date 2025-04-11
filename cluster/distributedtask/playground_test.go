@@ -1,4 +1,4 @@
-package rest
+package distributedtask
 
 import (
 	"encoding/json"
@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -78,7 +77,7 @@ type testTaskProvider struct {
 	cancelledCh chan *testTask
 }
 
-func (p *testTaskProvider) RegisterTaskNodeCompletionRecorder(recorder distributedtask.TaskNodeCompletionRecorder) {
+func (p *testTaskProvider) RegisterTaskNodeCompletionRecorder(recorder TaskNodeCompletionRecorder) {
 	//TODO implement me
 	panic("implement me")
 }
@@ -91,13 +90,13 @@ func newTestTaskProvider() *testTaskProvider {
 	}
 }
 
-func (p *testTaskProvider) PrepareTask(taskID string, taskVersion uint64, payload []byte) (distributedtask.TaskHandle, error) {
+func (p *testTaskProvider) PrepareTask(taskID string, taskVersion uint64, payload []byte) (TaskHandle, error) {
 	return newTestTask(taskID, taskVersion, string(payload), p), nil
 }
 
 func TestLaunchTaskAndFinish(t *testing.T) {
 	var (
-		manager  = distributedtask.NewManager(nil)
+		manager  = NewManager(nil)
 		provider = newTestTaskProvider()
 	)
 
