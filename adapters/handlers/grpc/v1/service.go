@@ -88,6 +88,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	parser := NewAggregateParser(
 		s.classGetterWithAuthzFunc(principal),
@@ -123,6 +124,7 @@ func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*p
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	retTenants, err := s.tenantsGet(ctx, principal, req)
 	if err != nil {
@@ -155,6 +157,8 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	ctx = restCtx.AddPrincipalToContext(ctx, principal)
+
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
 	tenant := ""
@@ -204,6 +208,8 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	ctx = restCtx.AddPrincipalToContext(ctx, principal)
+
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	// we need to save the class two times:
@@ -294,6 +300,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	parser := NewParser(
 		req.Uses_127Api,
