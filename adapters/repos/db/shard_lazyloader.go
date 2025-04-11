@@ -272,11 +272,19 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) updateAsyncReplicationConfig(ctx context.Context, enabled bool, targetNodeOverrides []*models.AsyncReplicationConfigTargetNodeOverridesItems0) error {
+func (l *LazyLoadShard) updateAsyncReplicationConfig(ctx context.Context, enabled bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.updateAsyncReplicationConfig(ctx, enabled, targetNodeOverrides)
+	return l.shard.updateAsyncReplicationConfig(ctx, enabled)
+}
+
+func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	l.shard.addTargetNodeOverride(ctx, targetNodeOverride)
+	return nil
 }
 
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {

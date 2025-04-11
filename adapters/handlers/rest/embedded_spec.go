@@ -4776,35 +4776,6 @@ func init() {
         "type": "object"
       }
     },
-    "AsyncReplicationConfig": {
-      "description": "Config for async replication",
-      "properties": {
-        "targetNodeOverrides": {
-          "description": "Optionally specify source/target node pairs with an upper time bound for async replication for collections/shards.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "collectionId": {
-                "type": "string"
-              },
-              "shardId": {
-                "type": "string"
-              },
-              "sourceNode": {
-                "type": "string"
-              },
-              "targetNode": {
-                "type": "string"
-              },
-              "upperTimeBound": {
-                "type": "integer"
-              }
-            }
-          }
-        }
-      }
-    },
     "BM25Config": {
       "description": "tuning parameters for the BM25 algorithm",
       "type": "object",
@@ -6744,11 +6715,6 @@ func init() {
           "description": "Enable asynchronous replication (default: false).",
           "type": "boolean",
           "x-omitempty": false
-        },
-        "asyncReplicationConfig": {
-          "description": "Config for async replication",
-          "type": "object",
-          "$ref": "#/definitions/AsyncReplicationConfig"
         },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",
@@ -12424,38 +12390,6 @@ func init() {
         "type": "object"
       }
     },
-    "AsyncReplicationConfig": {
-      "description": "Config for async replication",
-      "properties": {
-        "targetNodeOverrides": {
-          "description": "Optionally specify source/target node pairs with an upper time bound for async replication for collections/shards.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/AsyncReplicationConfigTargetNodeOverridesItems0"
-          }
-        }
-      }
-    },
-    "AsyncReplicationConfigTargetNodeOverridesItems0": {
-      "type": "object",
-      "properties": {
-        "collectionId": {
-          "type": "string"
-        },
-        "shardId": {
-          "type": "string"
-        },
-        "sourceNode": {
-          "type": "string"
-        },
-        "targetNode": {
-          "type": "string"
-        },
-        "upperTimeBound": {
-          "type": "integer"
-        }
-      }
-    },
     "BM25Config": {
       "description": "tuning parameters for the BM25 algorithm",
       "type": "object",
@@ -14698,11 +14632,6 @@ func init() {
           "description": "Enable asynchronous replication (default: false).",
           "type": "boolean",
           "x-omitempty": false
-        },
-        "asyncReplicationConfig": {
-          "description": "Config for async replication",
-          "type": "object",
-          "$ref": "#/definitions/AsyncReplicationConfig"
         },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",

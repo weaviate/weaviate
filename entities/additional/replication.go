@@ -27,3 +27,11 @@ type ReplicationProperties struct {
 	// fulfill the request
 	NodeName string
 }
+
+type AsyncReplicationTargetNodeOverride struct {
+	CollectionID   string
+	ShardID        string
+	SourceNode     string
+	TargetNode     string
+	UpperTimeBound int64
+}

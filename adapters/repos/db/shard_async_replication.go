@@ -31,6 +31,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/interval"
@@ -91,12 +92,10 @@ type asyncReplicationConfig struct {
 	propagationDelay            time.Duration
 	propagationConcurrency      int
 	propagationBatchSize        int
-	targetNodeOverrides         []models.AsyncReplicationConfigTargetNodeOverridesItems0
+	targetNodeOverrides         []additional.AsyncReplicationTargetNodeOverride
 }
 
-func (s *Shard) getAsyncReplicationConfig(
-	targetNodeOverrides []*models.AsyncReplicationConfigTargetNodeOverridesItems0,
-) (config asyncReplicationConfig, err error) {
+func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
 	config.hashtreeHeight, err = optParseInt(
 		os.Getenv("ASYNC_REPLICATION_HASHTREE_HEIGHT"), defaultHashtreeHeight, minHashtreeHeight, maxHashtreeHeight)
 	if err != nil {
@@ -172,17 +171,6 @@ func (s *Shard) getAsyncReplicationConfig(
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE", err)
 	}
-	if len(targetNodeOverrides) > 0 {
-		if config.targetNodeOverrides == nil {
-			config.targetNodeOverrides = make([]models.AsyncReplicationConfigTargetNodeOverridesItems0, 0, len(targetNodeOverrides))
-		}
-		for _, override := range targetNodeOverrides {
-			if override != nil {
-				// TODO only append if not already in list
-				config.targetNodeOverrides = append(config.targetNodeOverrides, *override)
-			}
-		}
-	}
 
 	return
 }
@@ -211,7 +199,7 @@ func optParseDuration(s string, defaultDuration time.Duration) (time.Duration, e
 	return time.ParseDuration(s)
 }
 
-func (s *Shard) initAsyncReplication(targetNodeOverrides []*models.AsyncReplicationConfigTargetNodeOverridesItems0) error {
+func (s *Shard) initAsyncReplication() error {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	if bucket.GetSecondaryIndices() < 2 {
@@ -226,7 +214,7 @@ func (s *Shard) initAsyncReplication(targetNodeOverrides []*models.AsyncReplicat
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	s.asyncReplicationCancelFunc = cancelFunc
 
-	config, err := s.getAsyncReplicationConfig(targetNodeOverrides)
+	config, err := s.getAsyncReplicationConfig()
 	if err != nil {
 		return err
 	}
@@ -450,7 +438,6 @@ func (s *Shard) mayStopAsyncReplication() {
 func (s *Shard) updateAsyncReplicationConfig(
 	_ context.Context,
 	enabled bool,
-	targetNodeOverrides []*models.AsyncReplicationConfigTargetNodeOverridesItems0,
 ) error {
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
@@ -460,7 +447,7 @@ func (s *Shard) updateAsyncReplicationConfig(
 			return nil
 		}
 
-		return s.initAsyncReplication(targetNodeOverrides)
+		return s.initAsyncReplication()
 	}
 
 	if s.hashtree == nil {
@@ -473,6 +460,13 @@ func (s *Shard) updateAsyncReplicationConfig(
 	s.hashtreeFullyInitialized = false
 
 	return nil
+}
+
+func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) {
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+
+	s.asyncReplicationConfig.targetNodeOverrides = append(s.asyncReplicationConfig.targetNodeOverrides, targetNodeOverride)
 }
 
 func (s *Shard) dumpHashTree() error {
@@ -575,7 +569,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 						s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
 					}
 					if stats != nil {
-						s.asyncReplicationStatsByTargetNode[stats.targetNodeAddress] = stats
+						s.asyncReplicationStatsByTargetNode[stats.targetNodeName] = stats
 					}
 				}()
 				if err != nil {
@@ -629,7 +623,8 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 						WithField("action", "async_replication").
 						WithField("class_name", s.class.Class).
 						WithField("shard_name", s.name).
-						WithField("target_node", stats.targetNodeAddress).
+						WithField("target_node_name", stats.targetNodeName).
+						WithField("target_node_address", stats.targetNodeAddress).
 						WithField("diff_calculation_took", stats.diffCalculationTook.String()).
 						WithField("local_objects", stats.localObjects).
 						WithField("remote_objects", stats.remoteObjects).
@@ -703,6 +698,7 @@ func (s *Shard) allAliveHostnames() []string {
 }
 
 type hashBeatHostStats struct {
+	targetNodeName      string
 	targetNodeAddress   string
 	diffStartTime       time.Time
 	diffCalculationTook time.Duration
@@ -806,6 +802,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 	}
 
 	return &hashBeatHostStats{
+		targetNodeName:      shardDiffReader.TargetNodeName,
 		targetNodeAddress:   shardDiffReader.TargetNodeAddress,
 		diffStartTime:       diffCalculationStart,
 		diffCalculationTook: diffCalculationTook,

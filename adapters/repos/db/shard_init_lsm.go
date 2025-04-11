@@ -96,10 +96,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
 
-		// always pass empty target node overrides when creating a new shard to start since
-		// the overrides are created by shard replica movements after shard creation
-		// TODO how does this work if node is restarted and shard are recreated/reloaded?
-		err = s.initAsyncReplication([]*models.AsyncReplicationConfigTargetNodeOverridesItems0{})
+		err = s.initAsyncReplication()
 		if err != nil {
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}

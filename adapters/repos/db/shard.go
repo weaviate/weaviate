@@ -158,7 +158,9 @@ type ShardLike interface {
 	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
-	updateAsyncReplicationConfig(ctx context.Context, enabled bool, targetNodeOverrides []*models.AsyncReplicationConfigTargetNodeOverridesItems0) error
+	updateAsyncReplicationConfig(ctx context.Context, enabled bool) error
+	// addTargetNodeOverride adds a target node override to the shard.
+	addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 
 	Metrics() *Metrics
 

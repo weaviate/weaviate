@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -313,7 +312,7 @@ type ShardDifferenceReader struct {
 
 func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
-	targetNodeOverrides []models.AsyncReplicationConfigTargetNodeOverridesItems0,
+	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
 	routingPlan, err := f.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:       f.class,
@@ -372,20 +371,18 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	// If the caller provided a list of target node overrides, filter the replicas to only include
 	// the relevant overrides so that we only "push" updates to the specified nodes.
 	localNodeName := f.LocalNodeName()
-	targetNodeOverridesForHost := []string{}
+	targetNodesToUse := slices.Clone(routingPlan.Replicas)
 	if len(targetNodeOverrides) > 0 {
 		for _, override := range targetNodeOverrides {
 			if override.SourceNode == localNodeName && override.CollectionID == f.class && override.ShardID == shardName {
-				targetNodeOverridesForHost = append(targetNodeOverridesForHost, override.TargetNode)
+				targetNodesToUse = append(targetNodesToUse, override.TargetNode)
 			}
 		}
-	} else {
-		targetNodeOverridesForHost = routingPlan.Replicas
 	}
 	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas))
 	replicasHostAddrs := make([]string, 0, len(routingPlan.ReplicasHostAddrs))
 	for i, replica := range routingPlan.Replicas {
-		if slices.Contains(targetNodeOverridesForHost, replica) {
+		if slices.Contains(targetNodesToUse, replica) {
 			replicaNodeNames = append(replicaNodeNames, replica)
 			replicasHostAddrs = append(replicasHostAddrs, routingPlan.ReplicasHostAddrs[i])
 		}

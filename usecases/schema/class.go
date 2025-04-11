@@ -92,10 +92,6 @@ func (h *Handler) GetCachedClassNoAuth(ctxWithClassCache context.Context, names 
 	}, names...)
 }
 
-func classHasAsyncReplicationConfigSet(class *models.Class) bool {
-	return class.ReplicationConfig != nil && class.ReplicationConfig.AsyncReplicationConfig != nil
-}
-
 // AddClass to the schema
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
@@ -121,9 +117,6 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, false); err != nil {
 		return nil, 0, err
-	}
-	if classHasAsyncReplicationConfigSet(cls) {
-		return nil, 0, fmt.Errorf("async replication config cannot be set when adding a class, this is only used by internal cluster operations")
 	}
 	// migrate only after validation in completed
 	h.migrateClassSettings(cls)
@@ -239,10 +232,6 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
 	if err != nil || updated == nil {
 		return err
-	}
-
-	if classHasAsyncReplicationConfigSet(updated) {
-		return fmt.Errorf("async replication config cannot be set when updating a class, this is only used by internal cluster operations")
 	}
 
 	return UpdateClassInternal(h, ctx, className, updated)
