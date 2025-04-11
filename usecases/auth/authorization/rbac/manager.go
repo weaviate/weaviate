@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 
@@ -31,12 +30,6 @@ import (
 type manager struct {
 	casbin *casbin.SyncedCachedEnforcer
 	logger logrus.FieldLogger
-}
-
-// Snapshot is the RBAC state to be used for RAFT snapshots
-type snapshot struct {
-	Policy         [][]string `json:"roles_policies"`
-	GroupingPolicy [][]string `json:"grouping_policies"`
 }
 
 func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger) (*manager, error) {
@@ -227,6 +220,12 @@ func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
 	return m.casbin.InvalidateCache()
 }
 
+// Snapshot is the RBAC state to be used for RAFT snapshots
+type snapshot struct {
+	Policy         [][]string `json:"roles_policies"`
+	GroupingPolicy [][]string `json:"grouping_policies"`
+}
+
 func (m *manager) Snapshot() ([]byte, error) {
 	if m.casbin == nil {
 		return nil, nil
@@ -241,23 +240,21 @@ func (m *manager) Snapshot() ([]byte, error) {
 		return nil, err
 	}
 
-	jsn := snapshot{Policy: policy, GroupingPolicy: groupingPolicy}
-
 	// Use a buffer to stream the JSON encoding
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(jsn); err != nil {
+	if err := json.NewEncoder(&buf).Encode(snapshot{Policy: policy, GroupingPolicy: groupingPolicy}); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
-func (m *manager) Restore(r io.Reader) error {
+func (m *manager) Restore(b []byte) error {
 	if m.casbin == nil {
 		return nil
 	}
 
 	snapshot := snapshot{}
-	if err := json.NewDecoder(r).Decode(&snapshot); err != nil {
+	if err := json.Unmarshal(b, &snapshot); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 

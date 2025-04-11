@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 
 	"github.com/sirupsen/logrus"
 
@@ -239,11 +238,11 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	return m.snapshotter.Snapshot()
 }
 
-func (m *Manager) Restore(r io.Reader) error {
+func (m *Manager) Restore(b []byte) error {
 	if m.snapshotter == nil {
 		return nil
 	}
-	if err := m.snapshotter.Restore(r); err != nil {
+	if err := m.snapshotter.Restore(b); err != nil {
 		return err
 	}
 	m.logger.Info("successfully restored rbac from snapshot")

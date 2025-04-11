@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -83,8 +82,12 @@ func (s *SchemaManager) Snapshot() ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-func (s *SchemaManager) Restore(rc io.ReadCloser, parser Parser) error {
-	return s.schema.Restore(rc, parser)
+func (s *SchemaManager) Restore(data []byte, parser Parser) error {
+	return s.schema.Restore(data, parser)
+}
+
+func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
+	return s.schema.RestoreLegacy(data, parser)
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {

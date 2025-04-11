@@ -11,8 +11,6 @@
 
 package fsm
 
-import "io"
-
 // Snapshot is the snapshot of the cluster FSMs (schema, rbac, etc)
 // it is used to restore the Snapshot to a previous state,
 // or to bring out-of-date followers up to a recent log index.
@@ -34,5 +32,5 @@ type Snapshot struct {
 // Snapshotter is used to snapshot and restore any (FSM) state
 type Snapshotter interface {
 	Snapshot() ([]byte, error)
-	Restore(r io.Reader) error
+	Restore([]byte) error
 }

@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 
@@ -538,30 +537,31 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return classesCopy
 }
 
-func (s *schema) Restore(r io.Reader, parser Parser) error {
-	snap := snapshot{}
-	if err := json.NewDecoder(r).Decode(&snap); err != nil {
+func (s *schema) Restore(data []byte, parser Parser) error {
+	var classes map[string]*metaClass
+	if err := json.Unmarshal(data, &classes); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 
-	// Handle both Schema (new) and Classes (old) fields
-	if len(snap.Schema) > 0 {
-		// New version - decode from Schema field
-		var classes map[string]*metaClass
-		if err := json.Unmarshal(snap.Schema, &classes); err != nil {
-			return fmt.Errorf("restore snapshot: decode json from Schema field: %w", err)
-		}
-		snap.Classes = classes
-	}
+	return s.restore(classes, parser)
+}
 
-	for _, cls := range snap.Classes {
+func (s *schema) RestoreLegacy(data []byte, parser Parser) error {
+	snap := snapshot{}
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+	return s.restore(snap.Classes, parser)
+}
+
+func (s *schema) restore(classes map[string]*metaClass, parser Parser) error {
+	for _, cls := range classes {
 		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
 			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
 		}
 		cls.Sharding.SetLocalName(s.nodeID)
 	}
-
-	s.replaceClasses(snap.Classes)
+	s.replaceClasses(classes)
 	return nil
 }
 

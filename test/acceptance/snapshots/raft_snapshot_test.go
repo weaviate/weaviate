@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"strings"
 	"testing"
 	"time"
 
@@ -191,12 +190,7 @@ func getPolicyChecksum(t *testing.T, container testcontainers.Container) string 
 		return ""
 	}
 
-	// Extract the checksum from the output
-	parts := strings.Fields(string(output))
-	if len(parts) < 1 {
-		return ""
-	}
-	return parts[0]
+	return string(output)
 }
 
 func Bool(b bool) *bool {
