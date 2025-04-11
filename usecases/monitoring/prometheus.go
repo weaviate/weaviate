@@ -144,6 +144,19 @@ type PrometheusMetrics struct {
 	TokenizerInitializeDuration *prometheus.HistogramVec
 	TokenCount                  *prometheus.CounterVec
 	TokenCountPerRequest        *prometheus.HistogramVec
+
+	// Currently targeted at OpenAI, the metrics will have to be added to every vectorizer for complete coverage
+	VectorizerRequests           *prometheus.CounterVec
+	VectorizerRequestDuration    *prometheus.HistogramVec
+	VectorizerBatchLength        *prometheus.HistogramVec
+	VectorizerRequestSingleCount *prometheus.CounterVec
+	VectorizerRequestBatchCount  *prometheus.CounterVec
+	VectorizerRequestSize        *prometheus.HistogramVec
+	VectorizerResponseSize       *prometheus.HistogramVec
+	VectorizerResponseStatus     *prometheus.CounterVec
+	VectorizerRequestTokens      *prometheus.HistogramVec
+	VectorizerError              *prometheus.CounterVec
+	BatchVectorizeError          *prometheus.CounterVec
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
@@ -743,6 +756,55 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help:    "Number of tokens processed per request",
 			Buckets: []float64{1, 10, 50, 100, 500, 1000, 10000, 100000, 1000000},
 		}, []string{"tokenizer"}),
+		VectorizerRequests: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_vectorizer_requests_total",
+			Help: "Number of OpenAI requests",
+		}, []string{"op", "api"}),
+		VectorizerRequestDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "weaviate_vectorizer_request_duration_seconds",
+			Help:    "Duration of an individual request to OpenAI",
+			Buckets: LatencyBuckets,
+		}, []string{"op", "api"}),
+		VectorizerBatchLength: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "weaviate_vectorizer_requests_per_batch",
+			Help:    "Number of items in a batch",
+			Buckets: []float64{1, 2, 5, 10, 100, 1000},
+		}, []string{"op", "api"}),
+		VectorizerRequestSize: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "weaviate_vectorizer_request_size_bytes",
+			Help:    "Size (in bytes) of the request sent to OpenAI",
+			Buckets: sizeBuckets,
+		}, []string{"op", "api"}),
+		VectorizerResponseSize: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "weaviate_vectorizer_response_size_bytes",
+			Help:    "Size (in bytes) of the response received from OpenAI",
+			Buckets: sizeBuckets,
+		}, []string{"op", "api"}),
+		VectorizerRequestTokens: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "weaviate_vectorizer_request_tokens",
+			Help:    "Number of tokens in the request sent to OpenAI",
+			Buckets: []float64{1, 10, 50, 100, 500, 1000, 5000, 10000, 100000, 1000000},
+		}, []string{"op", "class"}),
+		VectorizerRequestSingleCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_vectorizer_request_single_count",
+			Help: "Number of single-item OpenAI requests",
+		}, []string{"op", "api"}),
+		VectorizerRequestBatchCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_vectorizer_request_batch_count",
+			Help: "Number of batched OpenAI requests",
+		}, []string{"op", "api"}),
+		VectorizerError: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_vectorizer_error_total",
+			Help: "Number of OpenAI errors",
+		}, []string{"op", "module", "endpoint", "status_code"}),
+		VectorizerResponseStatus: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_vectorizer_response_status_total",
+			Help: "Number of OpenAI response statuses",
+		}, []string{"op", "endpoint", "status"}),
+		BatchVectorizeError: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_batch_vectorize_error_total",
+			Help: "Number of batch vectorization errors",
+		}, []string{"operation", "class_name"}),
 	}
 }
 
