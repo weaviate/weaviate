@@ -17,13 +17,15 @@ import (
 	"io"
 
 	"github.com/hashicorp/raft"
+
 	"github.com/weaviate/weaviate/cluster/types"
 )
 
+// snapshot is the old format, we keep it for backwards compatibility
 type snapshot struct {
 	NodeID     string                `json:"node_id"`
 	SnapshotID string                `json:"snapshot_id"`
-	Classes    map[string]*metaClass `json:"classes"`
+	Classes    map[string]*metaClass `json:"classes,omitempty"`
 }
 
 // LegacySnapshot returns a ready-to-use in-memory Raft snapshot based on the provided legacy schema
