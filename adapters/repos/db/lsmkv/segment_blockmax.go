@@ -163,7 +163,7 @@ func generateSingleFilter(tombstones *sroar.Bitmap, filterDocIds helpers.AllowLi
 
 	var filterSroar *sroar.Bitmap
 	// if we don't have an allow list filter, tombstones are the only needed filter
-	if filterDocIds != nil && filterDocIds.Len() > 0 {
+	if filterDocIds != nil {
 		// the ok check should always succeed, but we keep it for safety
 		bm, ok := filterDocIds.(*helpers.BitmapAllowList)
 		// if we have a (allow list) filter and a (block list) tombstones filter, we can combine them into a single allowlist filter filter
