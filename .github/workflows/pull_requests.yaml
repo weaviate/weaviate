@@ -94,6 +94,9 @@ jobs:
           project_key: ${{ env.PROJECT_KEY }}
           # diff scans against the entire git history, so should only scan changes in this PR
           fetch-depth: 0
+          path:
+            # scanning the entire repository
+            "."
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
