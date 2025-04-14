@@ -884,7 +884,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
 	statemachine.RegisterComponent("telemetry")
 	statemachine.RegisterForCoordination("telemetry", statemachine.StateStartup)
-	statemachine.RegisterForCoordination("telemetry", statemachine.StatePreShutdown)
 	statemachine.OnStateChange("telemetry", statemachine.StateStartup, func(from, to statemachine.State) error {
 		statemachine.SignalReady("telemetry", statemachine.StateStartup)
 		if telemetryEnabled(appState) {
@@ -914,6 +913,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 
+	statemachine.RegisterForCoordination("telemetry", statemachine.StatePreShutdown)
 	statemachine.OnStateChange("telemetry", statemachine.StatePreShutdown, func(from, to statemachine.State) error {
 		defer statemachine.SignalReady("telemetry", statemachine.StatePreShutdown)
 		if telemetryEnabled(appState) {
@@ -923,6 +923,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return nil
 	})
 
+	statemachine.RegisterForCoordination("grpcserver", statemachine.StatePreShutdown)
 	statemachine.OnStateChange("grpcserver", statemachine.StatePreShutdown, func(from, to statemachine.State) error {
 		grpcServer.GracefulStop()
 		statemachine.SignalReady("grpcserver", statemachine.StatePreShutdown)
@@ -930,6 +931,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	statemachine.RegisterComponent("sentry")
+	statemachine.RegisterForCoordination("sentry", statemachine.StatePreShutdown)
 	statemachine.OnStateChange("sentry", statemachine.StatePreShutdown, func(from, to statemachine.State) error {
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
@@ -939,6 +941,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	statemachine.RegisterComponent("reindex")
+	statemachine.RegisterForCoordination("reindex", statemachine.StatePreShutdown)
 	statemachine.OnStateChange("reindex", statemachine.StatePreShutdown, func(from, to statemachine.State) error {
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel()
@@ -947,6 +950,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	statemachine.RegisterComponent("cluster")
+	statemachine.RegisterForCoordination("cluster", statemachine.StatePreShutdown)
 	statemachine.OnStateChange("cluster", statemachine.StatePreShutdown, func(from, to statemachine.State) error {
 		err := appState.ClusterService.Close(ctx)
 		defer statemachine.SignalReady("cluster", statemachine.StatePreShutdown)
