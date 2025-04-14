@@ -52,6 +52,12 @@ func (b *BM25Searcher) wandBlock(
 		}
 	}()
 
+	// if the filter is empty, we can skip the search
+	// as no documents will match it
+	if filterDocIds != nil && filterDocIds.Len() == 0 {
+		return []*storobj.Object{}, []float32{}, nil
+	}
+
 	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
 	if err != nil {
 		return nil, nil, err
