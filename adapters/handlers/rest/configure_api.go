@@ -117,6 +117,7 @@ import (
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	moddatabricks "github.com/weaviate/weaviate/modules/text2vec-databricks"
+	moddummy "github.com/weaviate/weaviate/modules/text2vec-dummy"
 	modtext2vecgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
@@ -1403,6 +1404,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", moddatabricks.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[moddummy.Name]; ok {
+		appState.Modules.Register(moddummy.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", moddummy.Name).
 			Debug("enabled module")
 	}
 
