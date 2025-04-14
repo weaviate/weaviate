@@ -61,17 +61,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		}
 
 		if stat.Size() == 0 {
-			logOnceWhenRecoveringFromWAL.Do(func() {
-				b.logger.WithField("action", "lsm_recover_from_active_wal").
-					WithField("path", b.dir).
-					Warning("empty write-ahead-log found. Did weaviate crash prior to this? Nothing to recover from this file.")
-			})
-
 			err := os.Remove(path)
 			if err != nil {
 				return errors.Wrap(err, "remove empty wal file")
 			}
-
 			continue
 		}
 
