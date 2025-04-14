@@ -511,7 +511,6 @@ func writeStateTo(state *DeserializationResult, w io.Writer) ([]Checkpoint, erro
 	offset += writeByteSize
 
 	if state.Compressed {
-
 		if state.CompressionPQData != nil { // PQ
 			// first byte is the compression type
 			if err := writeByte(w, byte(SnapshotCompressionTypePQ)); err != nil {
