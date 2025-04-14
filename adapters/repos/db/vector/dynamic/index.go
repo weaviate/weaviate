@@ -26,7 +26,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
-	bolt "go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -160,7 +159,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		db:                    cfg.SharedDB,
 	}
 
-	err := cfg.SharedDB.Update(func(tx *bolt.Tx) error {
+	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(dynamicBucket)
 		return err
 	})
@@ -170,7 +169,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 	upgraded := false
 
-	err = cfg.SharedDB.View(func(tx *bolt.Tx) error {
+	err = cfg.SharedDB.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
 
 		v := b.Get(index.dbKey())
@@ -528,7 +527,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return errors.Wrap(err, "upgrade")
 	}
 
-	err = dynamic.db.Update(func(tx *bolt.Tx) error {
+	err = dynamic.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
 		return b.Put(dynamic.dbKey(), []byte{1})
 	})
