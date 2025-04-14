@@ -225,10 +225,10 @@ func randShardName() string {
 func randStringBytes(n int) string {
 	b := make([]byte, n)
 	for i := range b {
-		switch {
-		case i == 0:
+		switch i {
+		case 0:
 			b[i] = randChar(uppercase)
-		case i == n/2:
+		case n / 2:
 			b[i] = []byte("_")[0]
 		default:
 			b[i] = randChar(chars)

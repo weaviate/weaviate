@@ -65,7 +65,7 @@ func (wf *WeaviateTextFormatter) Format(e *logrus.Entry) ([]byte, error) {
 	return wf.TextFormatter.Format(e)
 }
 
-var logLevelNotRecognized = errors.New("log level not recognized")
+var errlogLevelNotRecognized = errors.New("log level not recognized")
 
 // logLevelFromString converts a string to a logrus log level, returns a logLevelNotRecognized
 // error if the string is not recognized. level is case insensitive.
@@ -86,6 +86,6 @@ func logLevelFromString(level string) (logrus.Level, error) {
 	case "trace":
 		return logrus.TraceLevel, nil
 	default:
-		return 0, logLevelNotRecognized
+		return 0, errlogLevelNotRecognized
 	}
 }
