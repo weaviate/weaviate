@@ -185,6 +185,12 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 
 	tombstones, filterSroar := generateSingleFilter(tombstones, filterDocIds)
 
+	// if filter is empty after checking for tombstones,
+	// we can skip it and return nil for the segment
+	if filterSroar != nil && filterSroar.IsEmpty() {
+		return nil
+	}
+
 	codecs := s.invertedHeader.DataFields
 	decoders := make([]varenc.VarEncEncoder[uint64], len(codecs))
 
@@ -233,6 +239,12 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 	}
 
 	tombstones, filterSroar := generateSingleFilter(tombstones, filterDocIds)
+
+	// if filter is empty after checking for tombstones,
+	// we can skip it and return nil for the segment
+	if filterSroar != nil && filterSroar.IsEmpty() {
+		return nil
+	}
 
 	output := &SegmentBlockMax{
 		blockEntries:      blockEntries,
