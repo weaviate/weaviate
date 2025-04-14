@@ -72,12 +72,9 @@ func (d *DbUsers) incomingUserStatus() http.Handler {
 			return
 		}
 
-		userStatusBytes, err := json.Marshal(userStatus)
-		if err != nil {
+		if err := json.NewEncoder(w).Encode(userStatus); err != nil {
 			http.Error(w, "/user marshal response: "+err.Error(),
 				http.StatusInternalServerError)
 		}
-
-		w.Write(userStatusBytes)
 	})
 }
