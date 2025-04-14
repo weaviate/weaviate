@@ -778,7 +778,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		VectorizerResponseSize: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "weaviate_vectorizer_response_size_bytes",
 			Help:    "Size (in bytes) of the response received from OpenAI",
-			Buckets: []float64{256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608},,
+			Buckets: []float64{256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608},
 		}, []string{"op", "api"}),
 		VectorizerRequestTokens: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "weaviate_vectorizer_request_tokens",
