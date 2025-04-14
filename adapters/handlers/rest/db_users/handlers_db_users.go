@@ -266,11 +266,12 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 	wg.Wait()
 
 	for _, status := range userStatuses {
-		if status != nil {
-			for userId, lastUsedTime := range status.Users {
-				if lastUsedTime.After(usersWithTime[userId]) {
-					usersWithTime[userId] = lastUsedTime
-				}
+		if status == nil {
+			continue
+		}
+		for userId, lastUsedTime := range status.Users {
+			if lastUsedTime.After(usersWithTime[userId]) {
+				usersWithTime[userId] = lastUsedTime
 			}
 		}
 	}
