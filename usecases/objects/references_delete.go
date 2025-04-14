@@ -113,11 +113,11 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 	}
 
-	if inputErr := input.validateSchema(class); inputErr != nil {
+	if err := input.validateSchema(class); err != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}
 		}
-		if errors.As(inputErr, &ErrMultiTenancy{}) {
+		if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"bad inputs", StatusUnprocessableEntity, err}
 		}
 		return &Error{"bad inputs", StatusBadRequest, err}
