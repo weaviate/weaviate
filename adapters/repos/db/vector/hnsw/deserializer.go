@@ -573,7 +573,6 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, err
 		UseBitsEncoding:     useBitsEncoding != 0,
 	}
 	var encoderReader func(io.Reader, *compressionhelpers.PQData, uint16) (compressionhelpers.PQEncoder, error)
-	// var encoderReader func(io.Reader, *DeserializationResult, uint16) (compressionhelpers.PQEncoder, error)
 	var totalRead int
 	switch encoder {
 	case compressionhelpers.UseTileEncoder:

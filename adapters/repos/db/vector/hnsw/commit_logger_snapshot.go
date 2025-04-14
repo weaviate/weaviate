@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -33,6 +34,11 @@ import (
 )
 
 const checkpointChunkSize = 100_000
+
+const (
+	SnapshotCompressionTypePQ = iota + 1
+	SnapshotCompressionTypeSQ
+)
 
 // feature flag to disable snapshots
 func snapshotsDisabled() bool {
@@ -505,42 +511,70 @@ func writeStateTo(state *DeserializationResult, w io.Writer) ([]Checkpoint, erro
 	offset += writeByteSize
 
 	if state.Compressed {
-		if err := writeUint16(w, state.CompressionPQData.Ks); err != nil {
-			return nil, err
-		}
-		offset += writeUint16Size
 
-		if err := writeUint16(w, state.CompressionPQData.M); err != nil {
-			return nil, err
-		}
-		offset += writeUint16Size
-
-		if err := writeUint16(w, state.CompressionPQData.Dimensions); err != nil {
-			return nil, err
-		}
-		offset += writeUint16Size
-
-		if err := writeByte(w, byte(state.CompressionPQData.EncoderType)); err != nil {
-			return nil, err
-		}
-		offset += writeByteSize
-
-		if err := writeByte(w, state.CompressionPQData.EncoderDistribution); err != nil {
-			return nil, err
-		}
-		offset += writeByteSize
-
-		if err := writeBool(w, state.CompressionPQData.UseBitsEncoding); err != nil {
-			return nil, err
-		}
-		offset += writeByteSize
-
-		for _, encoder := range state.CompressionPQData.Encoders {
-			if n, err := w.Write(encoder.ExposeDataForRestore()); err != nil {
+		if state.CompressionPQData != nil { // PQ
+			// first byte is the compression type
+			if err := writeByte(w, byte(SnapshotCompressionTypePQ)); err != nil {
 				return nil, err
-			} else {
-				offset += n
 			}
+
+			if err := writeUint16(w, state.CompressionPQData.Dimensions); err != nil {
+				return nil, err
+			}
+			offset += writeUint16Size
+
+			if err := writeUint16(w, state.CompressionPQData.Ks); err != nil {
+				return nil, err
+			}
+			offset += writeUint16Size
+
+			if err := writeUint16(w, state.CompressionPQData.M); err != nil {
+				return nil, err
+			}
+			offset += writeUint16Size
+
+			if err := writeByte(w, byte(state.CompressionPQData.EncoderType)); err != nil {
+				return nil, err
+			}
+			offset += writeByteSize
+
+			if err := writeByte(w, state.CompressionPQData.EncoderDistribution); err != nil {
+				return nil, err
+			}
+			offset += writeByteSize
+
+			if err := writeBool(w, state.CompressionPQData.UseBitsEncoding); err != nil {
+				return nil, err
+			}
+			offset += writeByteSize
+
+			for _, encoder := range state.CompressionPQData.Encoders {
+				if n, err := w.Write(encoder.ExposeDataForRestore()); err != nil {
+					return nil, err
+				} else {
+					offset += n
+				}
+			}
+		} else if state.CompressionSQData != nil { // SQ
+			// first byte is the compression type
+			if err := writeByte(w, byte(SnapshotCompressionTypeSQ)); err != nil {
+				return nil, err
+			}
+
+			if err := writeUint16(w, state.CompressionSQData.Dimensions); err != nil {
+				return nil, err
+			}
+			offset += writeUint16Size
+
+			if err := writeUint32(w, math.Float32bits(state.CompressionSQData.A)); err != nil {
+				return nil, err
+			}
+			offset += writeUint32Size
+
+			if err := writeUint32(w, math.Float32bits(state.CompressionSQData.B)); err != nil {
+				return nil, err
+			}
+			offset += writeUint32Size
 		}
 	}
 
@@ -672,72 +706,106 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 	}
 	res.Compressed = b[0] == 1
 
-	// PQ data
+	// Compressed data
 	if res.Compressed {
-		_, err = io.ReadFull(r, b[:2]) // PQData.Ks
+		_, err = io.ReadFull(r, b[:1]) // compression type
 		if err != nil {
-			return nil, errors.Wrapf(err, "read PQData.Ks")
-		}
-		ks := binary.LittleEndian.Uint16(b[:2])
-
-		_, err = io.ReadFull(r, b[:2]) // PQData.M
-		if err != nil {
-			return nil, errors.Wrapf(err, "read PQData.M")
-		}
-		m := binary.LittleEndian.Uint16(b[:2])
-
-		_, err = io.ReadFull(r, b[:2]) // PQData.Dimensions
-		if err != nil {
-			return nil, errors.Wrapf(err, "read PQData.Dimensions")
-		}
-		dims := binary.LittleEndian.Uint16(b[:2])
-
-		_, err = io.ReadFull(r, b[:1]) // PQData.EncoderType
-		if err != nil {
-			return nil, errors.Wrapf(err, "read PQData.EncoderType")
-		}
-		encoderType := compressionhelpers.Encoder(b[0])
-
-		_, err = io.ReadFull(r, b[:1]) // PQData.EncoderDistribution
-		if err != nil {
-			return nil, errors.Wrapf(err, "read PQData.EncoderDistribution")
-		}
-		dist := b[0]
-
-		_, err = io.ReadFull(r, b[:1]) // PQData.UseBitsEncoding
-		if err != nil {
-			return nil, errors.Wrapf(err, "read PQData.UseBitsEncoding")
-		}
-		useBitsEncoding := b[0] == 1
-
-		encoder := compressionhelpers.Encoder(encoderType)
-
-		res.CompressionPQData = &compressionhelpers.PQData{
-			Dimensions:          dims,
-			EncoderType:         encoder,
-			Ks:                  ks,
-			M:                   m,
-			EncoderDistribution: dist,
-			UseBitsEncoding:     useBitsEncoding,
+			return nil, errors.Wrapf(err, "read compressed")
 		}
 
-		var encoderReader func(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error)
-
-		switch encoder {
-		case compressionhelpers.UseTileEncoder:
-			encoderReader = ReadTileEncoder
-		case compressionhelpers.UseKMeansEncoder:
-			encoderReader = ReadKMeansEncoder
-		default:
-			return nil, errors.New("unsuported encoder type")
-		}
-
-		for i := uint16(0); i < m; i++ {
-			encoder, err := encoderReader(r, res.CompressionPQData, i)
+		switch b[0] {
+		case SnapshotCompressionTypePQ:
+			_, err = io.ReadFull(r, b[:2]) // PQData.Dimensions
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "read PQData.Dimensions")
 			}
-			res.CompressionPQData.Encoders = append(res.CompressionPQData.Encoders, encoder)
+			dims := binary.LittleEndian.Uint16(b[:2])
+
+			_, err = io.ReadFull(r, b[:2]) // PQData.Ks
+			if err != nil {
+				return nil, errors.Wrapf(err, "read PQData.Ks")
+			}
+			ks := binary.LittleEndian.Uint16(b[:2])
+
+			_, err = io.ReadFull(r, b[:2]) // PQData.M
+			if err != nil {
+				return nil, errors.Wrapf(err, "read PQData.M")
+			}
+			m := binary.LittleEndian.Uint16(b[:2])
+
+			_, err = io.ReadFull(r, b[:1]) // PQData.EncoderType
+			if err != nil {
+				return nil, errors.Wrapf(err, "read PQData.EncoderType")
+			}
+			encoderType := compressionhelpers.Encoder(b[0])
+
+			_, err = io.ReadFull(r, b[:1]) // PQData.EncoderDistribution
+			if err != nil {
+				return nil, errors.Wrapf(err, "read PQData.EncoderDistribution")
+			}
+			dist := b[0]
+
+			_, err = io.ReadFull(r, b[:1]) // PQData.UseBitsEncoding
+			if err != nil {
+				return nil, errors.Wrapf(err, "read PQData.UseBitsEncoding")
+			}
+			useBitsEncoding := b[0] == 1
+
+			encoder := compressionhelpers.Encoder(encoderType)
+
+			res.CompressionPQData = &compressionhelpers.PQData{
+				Dimensions:          dims,
+				EncoderType:         encoder,
+				Ks:                  ks,
+				M:                   m,
+				EncoderDistribution: dist,
+				UseBitsEncoding:     useBitsEncoding,
+			}
+
+			var encoderReader func(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error)
+
+			switch encoder {
+			case compressionhelpers.UseTileEncoder:
+				encoderReader = ReadTileEncoder
+			case compressionhelpers.UseKMeansEncoder:
+				encoderReader = ReadKMeansEncoder
+			default:
+				return nil, errors.New("unsuported encoder type")
+			}
+
+			for i := uint16(0); i < m; i++ {
+				encoder, err := encoderReader(r, res.CompressionPQData, i)
+				if err != nil {
+					return nil, err
+				}
+				res.CompressionPQData.Encoders = append(res.CompressionPQData.Encoders, encoder)
+			}
+		case SnapshotCompressionTypeSQ:
+			_, err = io.ReadFull(r, b[:2]) // SQData.Dimensions
+			if err != nil {
+				return nil, errors.Wrapf(err, "read SQData.Dimensions")
+			}
+
+			dims := binary.LittleEndian.Uint16(b[:2])
+			_, err = io.ReadFull(r, b[:4]) // SQData.A
+			if err != nil {
+				return nil, errors.Wrapf(err, "read SQData.A")
+			}
+			a := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+
+			_, err = io.ReadFull(r, b[:4]) // SQData.B
+			if err != nil {
+				return nil, errors.Wrapf(err, "read SQData.B")
+			}
+			b := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+
+			res.CompressionSQData = &compressionhelpers.SQData{
+				Dimensions: dims,
+				A:          a,
+				B:          b,
+			}
+		default:
+			return nil, fmt.Errorf("unsupported compression type %d", b[0])
 		}
 	}
 
