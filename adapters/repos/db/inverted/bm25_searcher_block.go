@@ -18,6 +18,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"sort"
+	"strconv"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -50,6 +51,12 @@ func (b *BM25Searcher) wandBlock(
 			}
 		}
 	}()
+
+	// if the filter is empty, we can skip the search
+	// as no documents will match it
+	if filterDocIds != nil && filterDocIds.IsEmpty() {
+		return []*storobj.Object{}, []float32{}, nil
+	}
 
 	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
 	if err != nil {
@@ -148,10 +155,22 @@ func (b *BM25Searcher) wandBlock(
 		}
 		internalLimit = limit
 
-	} else if len(allResults) > 1 { // we only need to increase the limit if there are multiple properties
+	} else if len(allResults) > 1 {
+		// we only need to increase the limit if there are multiple properties
 		// TODO: the limit is increased by 10 to make sure candidates that are on the edge of the limit are not missed for multi-property search
 		// the proper fix is to either make sure that the limit is always high enough, or force a rerank of the top results from all properties
-		internalLimit = limit + 10
+		defaultLimit := int(math.Max(float64(limit)*1.1, float64(limit+10)))
+		// allow overriding the defaultLimit with an env var
+		internalLimitString := os.Getenv("BLOCKMAX_WAND_PER_SEGMENT_LIMIT")
+		if internalLimitString != "" {
+			// if the env var is set, use it as the limit
+			internalLimit, _ = strconv.Atoi(internalLimitString)
+		}
+
+		if internalLimit < defaultLimit {
+			// if the limit is smaller than the defaultLimit, use the defaultLimit
+			internalLimit = defaultLimit
+		}
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
