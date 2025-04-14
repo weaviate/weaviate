@@ -1543,7 +1543,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		}
 		objs := resultObjects
 		scores := resultScores
-		var results []resultSortable = make([]resultSortable, len(objs))
+		results := make([]resultSortable, len(objs))
 		for i := range objs {
 			results[i] = resultSortable{
 				object: objs[i],
@@ -1559,10 +1559,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			return results[i].score > results[j].score
 		})
 
-		var finalObjs []*storobj.Object = make([]*storobj.Object, len(results))
-		var finalScores []float32 = make([]float32, len(results))
+		finalObjs := make([]*storobj.Object, len(results))
+		finalScores := make([]float32, len(results))
 		for i, result := range results {
-
 			finalObjs[i] = result.object
 			finalScores[i] = result.score
 		}
