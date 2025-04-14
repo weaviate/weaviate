@@ -57,15 +57,8 @@ func (d *DbUsers) incomingUserStatus() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "Error reading request body", http.StatusBadRequest)
-			return
-		}
-		defer r.Body.Close()
-
 		var body apikey.UserStatusRequest
-		if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "Error parsing JSON body", http.StatusBadRequest)
 			return
 		}
