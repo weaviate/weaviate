@@ -13,6 +13,10 @@ package text2vecbase
 
 import (
 	"context"
+	"time"
+
+	"github.com/weaviate/tiktoken-go"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -28,6 +32,7 @@ func New(client BatchClient, batchVectorizer *batch.Batch, tokenizerFunc batch.T
 		objectVectorizer: objectsvectorizer.New(),
 		batchVectorizer:  batchVectorizer,
 		tokenizerFunc:    tokenizerFunc,
+		encoderCache:     map[string]*tiktoken.Tiktoken{},
 	}
 
 	return vec
@@ -55,7 +60,8 @@ func (v *BatchVectorizer) object(ctx context.Context, object *models.Object, cfg
 
 func (v *BatchVectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
 ) ([][]float32, map[int]error) {
-	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, cfg, v.objectVectorizer)
+	beforeTokenization := time.Now()
+	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, cfg, v.objectVectorizer, v.encoderCache)
 	if err != nil {
 		errs := make(map[int]error)
 		for j := range texts {
@@ -63,6 +69,9 @@ func (v *BatchVectorizer) ObjectBatch(ctx context.Context, objects []*models.Obj
 		}
 		return nil, errs
 	}
+
+	monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(v.batchVectorizer.Label, "tokenization").
+		Observe(time.Since(beforeTokenization).Seconds())
 
 	if skipAll {
 		return make([][]float32, len(objects)), make(map[int]error)
