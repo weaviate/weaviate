@@ -256,7 +256,7 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 	for i, nodeName := range nodes {
 		i, nodeName := i, nodeName
 		enterrors.GoWrapper(func() {
-			status, err := h.remoteUser.GetUserStatus(ctx, nodeName, usersWithTime, true)
+			status, err := h.remoteUser.GetAndUpdateLastUsedTime(ctx, nodeName, usersWithTime, true)
 			if err == nil {
 				userStatuses[i] = status
 			}
@@ -288,7 +288,7 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 			nodeName := nodeName
 			enterrors.GoWrapper(func() {
 				// dont care about returns or errors
-				_, _ = h.remoteUser.GetUserStatus(ctx2, nodeName, usersWithTime, false)
+				_, _ = h.remoteUser.GetAndUpdateLastUsedTime(ctx2, nodeName, usersWithTime, false)
 				wg.Done()
 			}, h.logger)
 		}
