@@ -13,8 +13,13 @@ package grpchelper
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/stretchr/testify/require"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -46,6 +51,31 @@ func AssertSearchWithTimeout(t *testing.T, req *pb.SearchRequest, timeout time.D
 		t.Errorf("SearchWithTimeout failed: %v", err)
 	}
 	return resp
+}
+
+func BatchGRPCWithTenantAuth(t *testing.T, objects []*models.Object, key string) (*pb.BatchObjectsReply, error) {
+	var objectsGRPC []*pb.BatchObject
+
+	for _, obj := range objects {
+		props := &structpb.Struct{Fields: map[string]*structpb.Value{}}
+		for name, val := range obj.Properties.(map[string]interface{}) {
+			valTyped := val.(*structpb.Value)
+			props.Fields[name] = valTyped
+		}
+
+		objectsGRPC = append(objectsGRPC, &pb.BatchObject{
+			Tenant:     obj.Tenant,
+			Collection: obj.Class,
+			Uuid:       obj.ID.String(),
+			Properties: &pb.BatchObject_Properties{NonRefProperties: props},
+			// Vector is missing
+		},
+		)
+	}
+	req := &pb.BatchObjectsRequest{Objects: objectsGRPC}
+	ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", key))
+
+	return helper.ClientGRPC(t).BatchObjects(ctx, req)
 }
 
 func ToPtr[T any](val T) *T {
