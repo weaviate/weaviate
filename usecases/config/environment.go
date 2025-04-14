@@ -348,8 +348,14 @@ func FromEnv(config *Config) error {
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS", clusterCfg.Hostname) {
 			config.ReindexMapToBlockmaxConfig.TidyBuckets = true
 		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_RELOAD_SHARDS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.ReloadShards = true
+		}
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", clusterCfg.Hostname) {
 			config.ReindexMapToBlockmaxConfig.Rollback = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_CONDITIONAL_START", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.ConditionalStart = true
 		}
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PROCESSING_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds = val },
@@ -357,11 +363,11 @@ func FromEnv(config *Config) error {
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
 			DefaultMapToBlockmaxPauseDurationSeconds)
-		cpts, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
+		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
 		if err != nil {
 			return err
 		}
-		config.ReindexMapToBlockmaxConfig.CollectionsPropsTenants = cpts
+		config.ReindexMapToBlockmaxConfig.Selected = cptSelected
 	}
 
 	if err := config.parseMemtableConfig(); err != nil {
@@ -709,6 +715,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		"RAFT_SNAPSHOT_THRESHOLD",
 		func(val int) { cfg.SnapshotThreshold = uint64(val) },
 		8192, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_TRAILING_LOGS",
+		func(val int) { cfg.TrailingLogs = uint64(val) },
+		10240, // raft default
 	); err != nil {
 		return cfg, err
 	}
