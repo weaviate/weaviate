@@ -14,6 +14,8 @@ package text2vecbase
 import (
 	"context"
 
+	"github.com/weaviate/tiktoken-go"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -45,6 +47,7 @@ type BatchVectorizer struct {
 	objectVectorizer *objectsvectorizer.ObjectVectorizer
 	batchVectorizer  *batch.Batch
 	tokenizerFunc    batch.TokenizerFuncType
+	encoderCache     map[string]*tiktoken.Tiktoken
 }
 
 type BatchClient interface {

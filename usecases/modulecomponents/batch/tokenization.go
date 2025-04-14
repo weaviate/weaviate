@@ -24,10 +24,10 @@ import (
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
-type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error)
+type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache map[string]*tiktoken.Tiktoken) ([]string, []int, bool, error)
 
 func ReturnBatchTokenizer(multiplier float32, moduleName string, lowerCaseInput bool) TokenizerFuncType {
-	return func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
+	return func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache map[string]*tiktoken.Tiktoken) ([]string, []int, bool, error) {
 		texts := make([]string, len(objects))
 		tokenCounts := make([]int, len(objects))
 		var tke *tiktoken.Tiktoken
@@ -35,9 +35,15 @@ func ReturnBatchTokenizer(multiplier float32, moduleName string, lowerCaseInput 
 		modelString := modelToModelString(icheck.Model(), moduleName)
 		if multiplier > 0 {
 			var err error
-			tke, err = tiktoken.EncodingForModel(modelString)
-			if err != nil {
-				tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
+			// creating the tokenizer is quite expensive => cache for each module
+			if tke2, ok := encoderCache[modelString]; ok {
+				tke = tke2
+			} else {
+				tke, err = tiktoken.EncodingForModel(modelString)
+				if err != nil {
+					tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
+				}
+				encoderCache[modelString] = tke
 			}
 		}
 
