@@ -183,7 +183,6 @@ case $CONFIG in
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
-      PROMETHEUS_MONITORING_PORT="2112" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \

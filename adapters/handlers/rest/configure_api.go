@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
@@ -771,7 +773,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger)
 
-	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, appState.Logger)
+	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
+	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -847,6 +850,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown").
+				Errorf("failed to gracefully shutdown")
+		}
+
+		if err := appState.APIKey.Dynamic.Close(); err != nil {
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown db users").
 				Errorf("failed to gracefully shutdown")
 		}
 	}
@@ -925,6 +935,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
+	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	if err = configureAuthorizer(appState); err != nil {
 		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
@@ -1566,6 +1577,7 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
+
 	if authConfig.BasicAuth.Enabled() {
 		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
 	}
