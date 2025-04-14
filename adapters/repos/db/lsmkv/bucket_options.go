@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -189,6 +190,13 @@ func WithForceCompaction(opt bool) BucketOption {
 func WithKeepSegmentsInMemory(keep bool) BucketOption {
 	return func(b *Bucket) error {
 		b.keepSegmentsInMemory = keep
+		return nil
+	}
+}
+
+func WithBitmapBufPool(bufPool roaringset.BitmapBufPool) BucketOption {
+	return func(b *Bucket) error {
+		b.bitmapBufPool = bufPool
 		return nil
 	}
 }

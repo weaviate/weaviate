@@ -84,7 +84,7 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
+	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(200))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -342,7 +342,7 @@ func Test_Filters_Int(t *testing.T) {
 		{val: 16, ids: []uint64{16}},
 	}
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(maxDocID))
+	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
@@ -1064,7 +1064,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
+	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(200))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",

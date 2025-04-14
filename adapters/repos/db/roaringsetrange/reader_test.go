@@ -250,8 +250,10 @@ func TestReader(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run("read", func(t *testing.T) {
-			bm, err := reader.Read(context.Background(), tc.value, tc.operator)
+			bm, release, err := reader.Read(context.Background(), tc.value, tc.operator)
 			assert.NoError(t, err)
+			defer release()
+
 			assert.NotNil(t, bm)
 			assert.ElementsMatch(t, bm.ToArray(), tc.expected)
 		})

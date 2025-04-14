@@ -122,14 +122,14 @@ func (s *Searcher) docBitmapInvertedRoaringSetRange(ctx context.Context, b *lsmk
 	reader := b.ReaderRoaringSetRange()
 	defer reader.Close()
 
-	docIds, err := reader.Read(ctx, binary.BigEndian.Uint64(pv.value), pv.operator)
+	docIds, release, err := reader.Read(ctx, binary.BigEndian.Uint64(pv.value), pv.operator)
 	if err != nil {
 		return newDocBitmap(), fmt.Errorf("readerRoaringSetRange: %w", err)
 	}
 
 	out := newUninitializedDocBitmap()
 	out.docIDs = docIds
-	out.release = noopRelease
+	out.release = release
 	return out, nil
 }
 

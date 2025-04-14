@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -146,6 +147,10 @@ type Bucket struct {
 	// keep segments in memory for more performant search
 	// (currently used by roaringsetrange inverted indexes)
 	keepSegmentsInMemory bool
+
+	// pool of buffers for bitmaps merges
+	// (currently used by roaringsetrange inverted indexes)
+	bitmapBufPool roaringset.BitmapBufPool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }

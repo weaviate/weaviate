@@ -379,6 +379,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 	case StrategyRoaringSetRange:
 		if cfg.keepSegmentsInMemory {
+			t := time.Now()
 			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory()
 			for _, seg := range sg.segments {
 				cursor := seg.newRoaringSetRangeCursor()
@@ -386,6 +387,11 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 					return nil, fmt.Errorf("build segment-in-memory of strategy '%s': %w", sg.strategy, err)
 				}
 			}
+			logger.WithFields(logrus.Fields{
+				"took":    time.Since(t).String(),
+				"bucket":  filepath.Base(cfg.dir),
+				"size_mb": fmt.Sprintf("%.3f", float64(sg.roaringSetRangeSegmentInMemory.Size())/1024/1024),
+			}).Debug("rangeable segment-in-memory built")
 		}
 	}
 
