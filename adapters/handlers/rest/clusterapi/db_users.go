@@ -14,7 +14,6 @@ package clusterapi
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"

@@ -197,7 +197,7 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 				remoteUser:  remote,
 			}
 
-			res := h.listUsers(users.ListAllUsersParams{IncludeLastUsedTime: &truep}, principal)
+			res := h.listUsers(users.ListAllUsersParams{IncludeLastUsedTime: &trueptr}, principal)
 			parsed, ok := res.(*users.ListAllUsersOK)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
