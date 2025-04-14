@@ -516,6 +516,7 @@ func writeStateTo(state *DeserializationResult, w io.Writer) ([]Checkpoint, erro
 			if err := writeByte(w, byte(SnapshotCompressionTypePQ)); err != nil {
 				return nil, err
 			}
+			offset += writeByteSize
 
 			if err := writeUint16(w, state.CompressionPQData.Dimensions); err != nil {
 				return nil, err
@@ -559,6 +560,7 @@ func writeStateTo(state *DeserializationResult, w io.Writer) ([]Checkpoint, erro
 			if err := writeByte(w, byte(SnapshotCompressionTypeSQ)); err != nil {
 				return nil, err
 			}
+			offset += writeByteSize
 
 			if err := writeUint16(w, state.CompressionSQData.Dimensions); err != nil {
 				return nil, err
@@ -784,8 +786,8 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 			if err != nil {
 				return nil, errors.Wrapf(err, "read SQData.Dimensions")
 			}
-
 			dims := binary.LittleEndian.Uint16(b[:2])
+
 			_, err = io.ReadFull(r, b[:4]) // SQData.A
 			if err != nil {
 				return nil, errors.Wrapf(err, "read SQData.A")
