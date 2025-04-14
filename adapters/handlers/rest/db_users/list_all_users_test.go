@@ -98,7 +98,7 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 
 	usersIds := []string{"user1", "user2", "user3", "user4", "user5", "user6"}
 
-	truep := true
+	trueptr := true
 	tests := []struct {
 		name          string
 		nodeResponses []map[string]time.Time
