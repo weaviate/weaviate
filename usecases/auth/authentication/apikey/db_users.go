@@ -135,7 +135,7 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 					if err != nil {
 						logger.WithField("action", "db_users_write_to_file").
 							WithField("error", err).
-							Warn("Db users file not written")
+							Warn("db users file not written")
 					}
 				}()
 			}
