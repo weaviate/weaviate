@@ -1575,41 +1575,10 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-	var client *http.Client
 	if authConfig.BasicAuth.Enabled() {
-		client = &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
-	} else {
-		client = &http.Client{Transport: t}
+		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
 	}
-
-	// Add custom redirect policy. Otherwise, internal POST requests will be converted to GET and lose their body
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		// Preserve original method and body during redirects
-		if len(via) > 0 {
-			req.Method = via[0].Method
-			// Copy headers that may not be transferred by default
-			for key, values := range via[0].Header {
-				for _, value := range values {
-					req.Header.Add(key, value)
-				}
-			}
-
-			// If the original was a POST with a body, we need to recreate the body
-			if via[0].GetBody != nil {
-				body, err := via[0].GetBody()
-				if err == nil {
-					req.Body = body
-					req.ContentLength = via[0].ContentLength
-				}
-			}
-		}
-
-		if len(via) >= 10 {
-			return errors.New("stopped after 10 redirects")
-		}
-		return nil
-	}
-	return client
+	return &http.Client{Transport: t}
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
