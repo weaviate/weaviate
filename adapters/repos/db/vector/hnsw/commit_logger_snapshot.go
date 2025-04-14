@@ -439,7 +439,7 @@ func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) *Deseria
 
 			logger.WithField("action", "hnsw_remove_tmp_snapshot").
 				WithField("path", path).
-				Warn("remove tmp snapshot file")
+				Warn("removed tmp snapshot file")
 
 			continue
 		}
@@ -459,8 +459,8 @@ func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) *Deseria
 
 			logger.WithField("action", "hnsw_remove_corrupt_snapshot").
 				WithField("path", path).
-				WithField("checkpoints", checkpoints).
-				Warn("checkpoints file not found or corrupted, removing snapshot file")
+				WithError(err).
+				Error("checkpoints file not found or corrupted, removing snapshot file")
 			return nil
 		}
 
@@ -474,8 +474,8 @@ func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) *Deseria
 
 			logger.WithField("action", "hnsw_remove_corrupt_snapshot").
 				WithField("path", path).
-				WithField("checkpoints", checkpoints).
-				Warn("snapshot file not found or corrupted, removing snapshot file")
+				WithError(err).
+				Error("snapshot file not found or corrupted, removing snapshot file")
 
 			return nil
 		}
