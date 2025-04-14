@@ -48,6 +48,10 @@ type DBUserInfo struct {
 	// Enum: [db_user db_env_user]
 	DbUserType *string `json:"dbUserType"`
 
+	// Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+	// Format: date-time
+	LastUsedAt strfmt.DateTime `json:"lastUsedAt,omitempty"`
+
 	// The role names associated to the user
 	// Required: true
 	Roles []string `json:"roles"`
@@ -74,6 +78,10 @@ func (m *DBUserInfo) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateDbUserType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateLastUsedAt(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -161,6 +169,18 @@ func (m *DBUserInfo) validateDbUserType(formats strfmt.Registry) error {
 
 	// value enum
 	if err := m.validateDbUserTypeEnum("dbUserType", "body", *m.DbUserType); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *DBUserInfo) validateLastUsedAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.LastUsedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("lastUsedAt", "body", "date-time", m.LastUsedAt.String(), formats); err != nil {
 		return err
 	}
 

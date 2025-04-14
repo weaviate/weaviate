@@ -22,19 +22,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/config"
-
-	"github.com/weaviate/weaviate/cluster/dynusers"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-
-	"github.com/prometheus/client_golang/prometheus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
@@ -42,6 +34,11 @@ import (
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -103,6 +100,12 @@ type Config struct {
 	// here is the initial setting used. This can be tuned during operation using
 	// ReloadConfig.
 	SnapshotInterval time.Duration
+
+	// TrailingLogs controls how many logs we leave after a snapshot. This is used
+	// so that we can quickly replay logs on a follower instead of being forced to
+	// send an entire snapshot. The value passed here is the initial setting used.
+	// This can be tuned during operation using ReloadConfig.
+	TrailingLogs uint64
 
 	// Cluster bootstrap related settings
 
@@ -628,6 +631,9 @@ func (st *Store) raftConfig() *raft.Config {
 	}
 	if st.cfg.SnapshotThreshold > 0 {
 		cfg.SnapshotThreshold = st.cfg.SnapshotThreshold
+	}
+	if st.cfg.TrailingLogs > 0 {
+		cfg.TrailingLogs = st.cfg.TrailingLogs
 	}
 
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
