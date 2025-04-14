@@ -37,7 +37,7 @@ func (d *DbUsers) userHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch path {
-		case "/cluster/users/db/":
+		case "/cluster/users/db/lastUsedTime":
 			if r.Method != http.MethodPost {
 				msg := fmt.Sprintf("/user api path %q with method %v not found", path, r.Method)
 				http.Error(w, msg, http.StatusMethodNotAllowed)

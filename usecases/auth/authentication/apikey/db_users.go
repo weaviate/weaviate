@@ -80,7 +80,7 @@ type memoryOnlyData struct {
 	WeakKeyStorageById map[string][sha256.Size]byte
 }
 
-func NewDBUser(path string, logger logrus.FieldLogger) (*DBUser, error) {
+func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, error) {
 	fullpath := fmt.Sprintf("%s/raft/db_users/", path)
 	err := createStorage(fullpath + FileName)
 	if err != nil {
@@ -124,16 +124,23 @@ func NewDBUser(path string, logger logrus.FieldLogger) (*DBUser, error) {
 	// This information is not terribly important (besides WCD UX), so it does not matter much if we very rarely loose
 	// some information here. This info will also be written on shutdown so the only loss of information occurs with
 	// OOM or similar.
-	enterrors.GoWrapper(func() {
-		ticker := time.NewTicker(1 * time.Minute)
-		for range ticker.C {
-			func() {
-				dbUsers.lock.RLock()
-				defer dbUsers.lock.RUnlock()
-				_ = dbUsers.storeToFile()
-			}()
-		}
-	}, logger)
+	if enabled {
+		enterrors.GoWrapper(func() {
+			ticker := time.NewTicker(1 * time.Minute)
+			for range ticker.C {
+				func() {
+					dbUsers.lock.RLock()
+					defer dbUsers.lock.RUnlock()
+					err := dbUsers.storeToFile()
+					if err != nil {
+						logger.WithField("action", "db_users_write_to_file").
+							WithField("error", err).
+							Warn("Db users file not written")
+					}
+				}()
+			}
+		}, logger)
+	}
 
 	return dbUsers, nil
 }

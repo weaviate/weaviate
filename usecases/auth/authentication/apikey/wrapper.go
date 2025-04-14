@@ -29,7 +29,7 @@ func New(cfg config.Config, logger logrus.FieldLogger) (*ApiKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	dynamic, err := NewDBUser(cfg.Persistence.DataPath, logger)
+	dynamic, err := NewDBUser(cfg.Persistence.DataPath, cfg.Authentication.DBUsers.Enabled, logger)
 	if err != nil {
 		return nil, err
 	}

@@ -28,7 +28,7 @@ import (
 var log, _ = test.NewNullLogger()
 
 func TestDynUserConcurrency(t *testing.T) {
-	dynUsers, err := NewDBUser(t.TempDir(), log)
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
 
 	numUsers := 10
@@ -54,7 +54,7 @@ func TestDynUserConcurrency(t *testing.T) {
 }
 
 func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
-	dynUsers, err := NewDBUser(t.TempDir(), log)
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
 	userId := "id"
 
@@ -85,7 +85,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 }
 
 func TestUpdateUser(t *testing.T) {
-	dynUsers, err := NewDBUser(t.TempDir(), log)
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
 	userId := "id"
 
@@ -129,7 +129,7 @@ func TestUpdateUser(t *testing.T) {
 }
 
 func TestSnapShotAndRestore(t *testing.T) {
-	dynUsers, err := NewDBUser(t.TempDir(), log)
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
 
 	userId1 := "id-1"
@@ -176,7 +176,7 @@ func TestSnapShotAndRestore(t *testing.T) {
 	snapshotRestore := DBUserSnapshot{}
 	require.NoError(t, json.Unmarshal(marshal, &snapshotRestore))
 
-	dynUsers2, err := NewDBUser(t.TempDir(), log)
+	dynUsers2, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
 	require.NoError(t, dynUsers2.Restore(snapshotRestore))
 
@@ -206,7 +206,7 @@ func TestSnapShotAndRestore(t *testing.T) {
 }
 
 func TestSuspendAfterDelete(t *testing.T) {
-	dynUsers, err := NewDBUser(t.TempDir(), log)
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
 	userId := "id"
 
@@ -227,7 +227,7 @@ func TestSuspendAfterDelete(t *testing.T) {
 }
 
 func TestLastUsedTime(t *testing.T) {
-	dynUsers, err := NewDBUser(t.TempDir(), log)
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
 	userId := "user"
 

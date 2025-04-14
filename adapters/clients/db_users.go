@@ -39,7 +39,7 @@ func NewRemoteUser(httpClient *http.Client, nodeResolver nodeResolver) *RemoteUs
 }
 
 func (c *RemoteUser) GetUserStatus(ctx context.Context, nodeName string, users map[string]time.Time, returnStatus bool) (*apikey.UserStatusResponse, error) {
-	p := "/cluster/users/db"
+	p := "/cluster/users/db/lastUsedTime"
 	method := http.MethodPost
 	hostName, found := c.nodeResolver.NodeHostname(nodeName)
 	if !found {
