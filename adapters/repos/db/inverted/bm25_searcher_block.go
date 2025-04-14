@@ -54,7 +54,7 @@ func (b *BM25Searcher) wandBlock(
 
 	// if the filter is empty, we can skip the search
 	// as no documents will match it
-	if filterDocIds != nil && filterDocIds.Len() == 0 {
+	if filterDocIds != nil && filterDocIds.IsEmpty() {
 		return []*storobj.Object{}, []float32{}, nil
 	}
 
