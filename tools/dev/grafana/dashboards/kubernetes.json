@@ -24,7 +24,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
-  "id": null,
+  "id": 25,
   "links": [],
   "panels": [
     {
@@ -56,7 +56,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -91,7 +92,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -125,7 +126,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           },
@@ -157,7 +159,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -191,7 +193,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           },
@@ -223,7 +226,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -231,7 +234,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(requests_total{}[1m]))",
+          "expr": "sum(rate(requests_total{}[$__rate_interval]))",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -257,7 +260,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           },
@@ -289,7 +293,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -297,7 +301,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(object_count{}[5m]))",
+          "expr": "sum(rate(object_count{}[$__rate_interval]))",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -323,7 +327,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           },
@@ -338,6 +343,7 @@
         "y": 1
       },
       "id": 62,
+      "interval": "5m",
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -355,7 +361,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -363,7 +369,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum by(le) (rate(queries_durations_ms_bucket{}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by(le) (rate(queries_durations_ms_bucket{}[$__interval])))",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -407,7 +413,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           }
@@ -425,7 +432,8 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "green"
+                      "color": "green",
+                      "value": null
                     },
                     {
                       "color": "dark-red",
@@ -470,7 +478,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -518,7 +526,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -553,7 +562,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -562,7 +571,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(container_oom_events_total{pod=~\"weaviate.*\"})",
+          "expr": "sum(rate(container_oom_events_total{pod=~\"weaviate.*\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -587,7 +596,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -622,7 +632,7 @@
         "textMode": "name",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -657,7 +667,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "#EAB839",
@@ -697,7 +708,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -730,7 +741,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "#EAB839",
@@ -770,7 +782,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -778,7 +790,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "avg(sum(rate(container_cpu_usage_seconds_total{container=\"weaviate\"}[5m])) by (pod) / (sum by (pod) (kube_pod_container_resource_limits{resource=\"cpu\", container=\"weaviate\"}) ) * 100) ",
+          "expr": "avg(sum(rate(container_cpu_usage_seconds_total{container=\"weaviate\"}[$__rate_interval])) by (pod) / (sum by (pod) (kube_pod_container_resource_limits{resource=\"cpu\", container=\"weaviate\"}) ) * 100) ",
           "legendFormat": "{{pod}}-{{instance}}",
           "range": true,
           "refId": "A"
@@ -803,7 +815,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "#EAB839",
@@ -843,7 +856,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -908,7 +921,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1015,7 +1029,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -1023,7 +1037,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(increase(kube_pod_container_status_restarts_total{}[10m])) by (namespace)",
+          "expr": "sum(increase(kube_pod_container_status_restarts_total{}[$__rate_interval])) by (namespace)",
           "legendFormat": "Restarts - {{namespace}}",
           "range": true,
           "refId": "A"
@@ -1045,7 +1059,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(increase(kube_pod_container_status_terminated_reason{}[10m])) by (namespace, reason)",
+          "expr": "sum(kube_pod_container_status_terminated_reason{}) by (namespace, reason)",
           "legendFormat": "{{reason}} - {{namespace}}",
           "range": true,
           "refId": "E"
@@ -1056,7 +1070,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(increase(kube_pod_container_status_terminated_reason{reason=\"Completed\"}[10m])) by (namespace)",
+          "expr": "sum(kube_pod_container_status_terminated_reason{reason=\"Completed\"}) by (namespace)",
           "legendFormat": "Completed - {{namespace}}",
           "range": true,
           "refId": "D"
@@ -1113,7 +1127,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1144,7 +1159,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -1152,7 +1167,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(container_cpu_usage_seconds_total{container=\"weaviate\"}[5m])",
+          "expr": "rate(container_cpu_usage_seconds_total{container=\"weaviate\"}[$__rate_interval])",
           "legendFormat": "{{pod}}-{{instance}}",
           "range": true,
           "refId": "A"
@@ -1224,7 +1239,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1257,7 +1273,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -1282,18 +1298,6 @@
           "legendFormat": "Max Heap {{pod}}",
           "range": true,
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "",
-          "hide": false,
-          "legendFormat": "__auto",
-          "range": true,
-          "refId": "C"
         }
       ],
       "title": "Weaviate Heap usage",
@@ -1360,7 +1364,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1392,7 +1397,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -1470,7 +1475,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1502,7 +1508,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -1510,7 +1516,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(container_fs_writes_bytes_total{container=\"weaviate\"}[2m])) by (pod, instance, device)",
+          "expr": "sum(rate(container_fs_writes_bytes_total{container=\"weaviate\"}[$__rate_interval])) by (pod, instance, device)",
           "legendFormat": "Write {{pod}}/{{instance}}/{{device}}",
           "range": true,
           "refId": "Writes"
@@ -1521,7 +1527,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(container_fs_reads_bytes_total{container=\"weaviate\"}[2m])) by (pod, instance, device)",
+          "expr": "sum(rate(container_fs_reads_bytes_total{container=\"weaviate\"}[$__rate_interval])) by (pod, instance, device)",
           "hide": false,
           "legendFormat": "Read {{pod}}/{{instance}}/{{device}}",
           "range": true,
@@ -1580,7 +1586,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1590,32 +1597,7 @@
           },
           "unit": "bytes"
         },
-        "overrides": [
-          {
-            "__systemRef": "hideSeriesFrom",
-            "matcher": {
-              "id": "byNames",
-              "options": {
-                "mode": "exclude",
-                "names": [
-                  "GoMemLimit node-1"
-                ],
-                "prefix": "All except:",
-                "readOnly": true
-              }
-            },
-            "properties": [
-              {
-                "id": "custom.hideFrom",
-                "value": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": true
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 7,
@@ -1637,7 +1619,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -1748,7 +1730,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1779,7 +1762,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -1787,7 +1770,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(queries_durations_ms_count{}[5m]))",
+          "expr": "sum(rate(queries_durations_ms_count{}[$__rate_interval]))",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -1845,7 +1828,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           },
@@ -1873,7 +1857,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -1918,7 +1902,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           },
@@ -1950,7 +1935,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -2015,7 +2000,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2047,15 +2033,15 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "editorMode": "builder",
-          "expr": "sum by(sum, status) (rate(requests_total{}[1m]))",
+          "editorMode": "code",
+          "expr": "sum by(sum, status) (rate(requests_total{}[$__rate_interval]))",
           "legendFormat": "{{status}} ",
           "range": true,
           "refId": "A"
@@ -2113,7 +2099,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2145,7 +2132,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -2210,7 +2197,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2241,7 +2229,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -2308,7 +2296,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2340,7 +2329,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -2348,7 +2337,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(object_count{}[5m])",
+          "expr": "rate(object_count{}[$__rate_interval])",
           "legendFormat": "{{class_name}}/{{instance}}",
           "range": true,
           "refId": "A"
@@ -2405,7 +2394,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2436,7 +2426,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -2449,18 +2439,6 @@
           "legendFormat": "{{pod}}",
           "range": true,
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "",
-          "hide": false,
-          "instant": false,
-          "range": true,
-          "refId": "A"
         }
       ],
       "title": "vector_index_tombstone_cleaned_rate",
@@ -2514,7 +2492,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2545,7 +2524,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -2554,7 +2533,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "rate(queries_durations_ms_count{}[$__interval])",
+          "expr": "rate(queries_durations_ms_count{}[$__rate_interval])",
           "legendFormat": "{{class_name}}",
           "range": true,
           "refId": "A"
@@ -2611,7 +2590,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2642,7 +2622,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -2650,7 +2630,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(vector_index_tombstones{}[$__rate_interval])",
+          "expr": "vector_index_tombstones{}",
           "hide": false,
           "legendFormat": "{{pod}} - CURRENT",
           "range": true,
@@ -2709,7 +2689,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2741,7 +2722,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -2854,7 +2835,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2886,7 +2868,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -2951,7 +2933,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2983,7 +2966,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -3096,7 +3079,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -3127,7 +3111,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "11.6.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
@@ -3158,8 +3142,9 @@
       "type": "timeseries"
     }
   ],
+  "preload": false,
   "refresh": "1m",
-  "schemaVersion": 41,
+  "schemaVersion": 40,
   "tags": [
     "weaviate"
   ],
@@ -3174,6 +3159,6 @@
   "timezone": "utc",
   "title": "Weaviate Kubernetes Workload",
   "uid": "c4a9765e-6982-4154-b796-714b77ee6fda",
-  "version": 6,
+  "version": 11,
   "weekStart": ""
 }
