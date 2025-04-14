@@ -51,6 +51,14 @@ func TestGetRolesSuccess(t *testing.T) {
 				"testRole": {}, "root": {},
 			},
 		},
+		{
+			name:            "success without principal",
+			principal:       nil,
+			authorizedRoles: []string{"testRole"},
+			expectedRoles: map[string][]authorization.Policy{
+				"testRole": {},
+			},
+		},
 	}
 
 	for _, tt := range tests {
