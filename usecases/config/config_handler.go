@@ -168,6 +168,7 @@ type MapToBlockamaxConfig struct {
 	TidyBuckets               bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
 	ReloadShards              bool                     `json:"reload_shards" yaml:"reload_shards"`
 	Rollback                  bool                     `json:"rollback" yaml:"rollback"`
+	ConditionalStart          bool                     `json:"conditional_start" yaml:"conditional_start"`
 	ProcessingDurationSeconds int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
 	PauseDurationSeconds      int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
 	Selected                  []CollectionPropsTenants `json:"selected" yaml:"selected"`

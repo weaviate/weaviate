@@ -36,7 +36,7 @@ import (
 )
 
 func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
-	swapBuckets, unswapBuckets, tidyBuckets, reloadShards, rollback bool,
+	swapBuckets, unswapBuckets, tidyBuckets, reloadShards, rollback, conditionalStart bool,
 	processingDuration, pauseDuration time.Duration, concurrency int,
 	cptSelected []config.CollectionPropsTenants, schemaManager *schema.Manager,
 ) *ShardReindexTask_MapToBlockmax {
@@ -86,6 +86,7 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 		reloadShards:                  reloadShards,
 		rollback:                      rollback,
 		concurrency:                   concurrency,
+		conditionalStart:              conditionalStart,
 		memtableOptBlockmaxFactor:     4,
 		processingDuration:            processingDuration,
 		pauseDuration:                 pauseDuration,
@@ -124,6 +125,7 @@ type mapToBlockmaxConfig struct {
 	tidyBuckets                   bool
 	reloadShards                  bool
 	rollback                      bool
+	conditionalStart              bool
 	concurrency                   int
 	memtableOptBlockmaxFactor     int
 	processingDuration            time.Duration
@@ -167,6 +169,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 		return
 	}
 
+	if t.config.conditionalStart && !rt.hasStartCondition() {
+		err = fmt.Errorf("conditional start is set, but file trigger is not found")
+		return
+	}
+
 	props, err := t.readPropsToReindex(rt)
 	if err != nil {
 		err = fmt.Errorf("reading reindexable props: %w", err)
@@ -180,9 +187,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 			err = fmt.Errorf("rollback: searchable map buckets are deleted, can not restore")
 			return
 		}
-		if err = t.unswapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
-			err = fmt.Errorf("rollback: unswapping buckets: %w", err)
-			return
+		if rt.isSwapped() {
+			if err = t.unswapIngestAndMapBuckets(ctx, logger, shard, rt, props); err != nil {
+				err = fmt.Errorf("rollback: unswapping buckets: %w", err)
+				return
+			}
 		}
 		if err = t.removeReindexBucketsDirs(ctx, logger, shard, props); err != nil {
 			err = fmt.Errorf("rollback: removing reindex buckets: %w", err)
@@ -314,6 +323,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 		return
 	}
 
+	if t.config.conditionalStart && !rt.hasStartCondition() {
+		err = fmt.Errorf("conditional start is set, but file trigger is not found")
+		return
+	}
+
 	isStarted := rt.isStarted()
 	if !isStarted && !isShardSelected {
 		logger.Debug("different collection/shard selected. nothing to do")
@@ -419,6 +433,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
+		return zerotime, false, err
+	}
+
+	if t.config.conditionalStart && !rt.hasStartCondition() {
+		err = fmt.Errorf("conditional start is set, but file trigger is not found")
 		return zerotime, false, err
 	}
 
@@ -1170,6 +1189,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 // -----------------------------------------------------------------------------
 
 type mapToBlockmaxReindexTracker interface {
+	hasStartCondition() bool
 	isStarted() bool
 	markStarted(time.Time) error
 	getStarted() (time.Time, error)
@@ -1205,6 +1225,7 @@ func newFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser
 		progressCheckpoint: 1,
 		keyParser:          keyParser,
 		config: fileReindexTrackerConfig{
+			filenameStart:      "start.mig",
 			filenameStarted:    "started.mig",
 			filenameProgress:   "progress.mig",
 			filenameReindexed:  "reindexed.mig",
@@ -1224,6 +1245,7 @@ type fileMapToBlockmaxReindexTracker struct {
 }
 
 type fileReindexTrackerConfig struct {
+	filenameStart      string
 	filenameStarted    string
 	filenameProgress   string
 	filenameReindexed  string
@@ -1239,6 +1261,10 @@ func (t *fileMapToBlockmaxReindexTracker) init() error {
 		return err
 	}
 	return nil
+}
+
+func (t *fileMapToBlockmaxReindexTracker) hasStartCondition() bool {
+	return t.fileExists(t.config.filenameStart)
 }
 
 func (t *fileMapToBlockmaxReindexTracker) isStarted() bool {

@@ -354,6 +354,9 @@ func FromEnv(config *Config) error {
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", clusterCfg.Hostname) {
 			config.ReindexMapToBlockmaxConfig.Rollback = true
 		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_CONDITIONAL_START", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.ConditionalStart = true
+		}
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PROCESSING_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds = val },
 			DefaultMapToBlockmaxProcessingDurationSeconds)
