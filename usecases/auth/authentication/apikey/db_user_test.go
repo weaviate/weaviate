@@ -254,7 +254,7 @@ func TestLastUsedTime(t *testing.T) {
 	lastUsedTime := user[userId].LastUsedAt
 
 	// try to update with older timestamp => no effect
-	dynUsers.UpdateLastUsedTimeStamp(map[string]time.Time{userId: start})
+	dynUsers.UpdateLastUsedTimestamp(map[string]time.Time{userId: start})
 	user, err = dynUsers.GetUsers(userId)
 	require.NoError(t, err)
 
@@ -262,7 +262,7 @@ func TestLastUsedTime(t *testing.T) {
 
 	// update with newer timestamp (that another node has seen)
 	updateTime := time.Now()
-	dynUsers.UpdateLastUsedTimeStamp(map[string]time.Time{userId: updateTime})
+	dynUsers.UpdateLastUsedTimestamp(map[string]time.Time{userId: updateTime})
 	user, err = dynUsers.GetUsers(userId)
 	require.NoError(t, err)
 

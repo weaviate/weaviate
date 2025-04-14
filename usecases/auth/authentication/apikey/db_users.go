@@ -243,7 +243,7 @@ func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) 
 	return ok, nil
 }
 
-func (c *DBUser) UpdateLastUsedTimeStamp(users map[string]time.Time) {
+func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 

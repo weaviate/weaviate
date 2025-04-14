@@ -25,7 +25,7 @@ func NewRemoteApiKey(apikey *ApiKey) *RemoteApiKey {
 }
 
 func (r *RemoteApiKey) GetUserStatus(ctx context.Context, users UserStatusRequest) (*UserStatusResponse, error) {
-	r.apikey.UpdateLastUsedTimeStamp(users.Users)
+	r.apikey.UpdateLastUsedTimestamp(users.Users)
 
 	if !users.ReturnStatus {
 		return nil, nil
