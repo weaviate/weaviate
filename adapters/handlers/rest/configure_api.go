@@ -139,7 +139,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/schema"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -160,7 +159,7 @@ type vectorRepo interface {
 	traverser.VectorSearcher
 	classification.VectorRepo
 	scaler.BackUpper
-	SetSchemaGetter(schemaUC.SchemaGetter)
+	SetSchemaGetter(schema.SchemaGetter)
 	SetRouter(*router.Router)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
@@ -537,7 +536,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger,
 	)
 
-	schemaManager, err := schemaUC.NewManager(migrator,
+	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
 		schemaRepo,
@@ -976,7 +975,7 @@ func logger() *logrus.Logger {
 	}
 	logLevelStr := os.Getenv("LOG_LEVEL")
 	level, err := logLevelFromString(logLevelStr)
-	if errors.Is(err, logLevelNotRecognized) {
+	if errors.Is(err, errlogLevelNotRecognized) {
 		logger.WithField("log_level_env", logLevelStr).Warn("log level not recognized, defaulting to info")
 		level = logrus.InfoLevel
 	}
