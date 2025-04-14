@@ -30,16 +30,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	schema "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
-	swapBuckets, unswapBuckets, tidyBuckets, rollback, conditionalStart bool,
+	swapBuckets, unswapBuckets, tidyBuckets, reloadShards, rollback, conditionalStart bool,
 	processingDuration, pauseDuration time.Duration, concurrency int,
-	cpts []config.CollectionPropsTenants, schemaManager *schema.Manager,
+	cptSelected []config.CollectionPropsTenants, schemaManager *schema.Manager,
 ) *ShardReindexTask_MapToBlockmax {
 	name := "MapToBlockmax"
 	keyParser := &uuidKeyParser{}
@@ -56,12 +55,12 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 
 	selectionEnabled := false
 	var selectedPropsByCollection, selectedShardsByCollection map[string]map[string]struct{}
-	if count := len(cpts); count > 0 {
+	if count := len(cptSelected); count > 0 {
 		selectionEnabled = true
 		selectedPropsByCollection = make(map[string]map[string]struct{}, count)
 		selectedShardsByCollection = make(map[string]map[string]struct{}, count)
 
-		for _, cpt := range cpts {
+		for _, cpt := range cptSelected {
 			var props, shards map[string]struct{}
 			if countp := len(cpt.Props); countp > 0 {
 				props = make(map[string]struct{}, countp)
@@ -84,6 +83,7 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 		swapBuckets:                   swapBuckets,
 		unswapBuckets:                 unswapBuckets,
 		tidyBuckets:                   tidyBuckets,
+		reloadShards:                  reloadShards,
 		rollback:                      rollback,
 		concurrency:                   concurrency,
 		conditionalStart:              conditionalStart,
@@ -123,6 +123,7 @@ type mapToBlockmaxConfig struct {
 	swapBuckets                   bool
 	unswapBuckets                 bool
 	tidyBuckets                   bool
+	reloadShards                  bool
 	rollback                      bool
 	conditionalStart              bool
 	concurrency                   int
@@ -141,9 +142,10 @@ func (t *ShardReindexTask_MapToBlockmax) Name() string {
 
 func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, shard *Shard) (err error) {
 	collectionName := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
-		"shard":      shard.Name(),
+		"shard":      shardName,
 		"method":     "OnBeforeLsmInit",
 	})
 	logger.Info("starting")
@@ -155,6 +157,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 			logger.Info("finished")
 		}
 	}(time.Now())
+
+	if !t.isShardSelected(collectionName, shardName) {
+		logger.Debug("different collection/shard selected. nothing to do")
+		return nil
+	}
 
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
@@ -285,9 +292,10 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 
 func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, shard *Shard) (err error) {
 	collectionName := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
-		"shard":      shard.Name(),
+		"shard":      shardName,
 		"method":     "OnAfterLsmInit",
 	})
 	logger.Info("starting")
@@ -300,7 +308,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 		}
 	}(time.Now())
 
-	if t.config.rollback {
+	// skip shard only if not started or rollback requested
+	// otherwise double writes have to be enabled if migration was already started
+	isShardSelected := t.isShardSelected(collectionName, shardName)
+
+	if t.config.rollback && isShardSelected {
 		logger.Debug("rollback. nothing to do")
 		return nil
 	}
@@ -316,6 +328,12 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 		return
 	}
 
+	isStarted := rt.isStarted()
+	if !isStarted && !isShardSelected {
+		logger.Debug("different collection/shard selected. nothing to do")
+		return nil
+	}
+
 	props, err := t.getPropsToReindex(shard, rt)
 	if err != nil {
 		err = fmt.Errorf("getting reindexable props: %w", err)
@@ -327,7 +345,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 		return nil
 	}
 
-	if !rt.isStarted() {
+	if !isStarted {
 		if err = rt.markStarted(time.Now()); err != nil {
 			err = fmt.Errorf("marking reindex started: %w", err)
 			return
@@ -382,11 +400,12 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 }
 
 func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
-) (rerunAt time.Time, err error) {
+) (rerunAt time.Time, reloadShard bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
-		"shard":      shard.Name(),
+		"shard":      shardName,
 		"method":     "OnAfterLsmInitAsync",
 	})
 	logger.Info("starting")
@@ -401,26 +420,31 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 
 	zerotime := time.Time{}
 
+	if !t.isShardSelected(collectionName, shardName) {
+		logger.Debug("different collection/shard selected. nothing to do")
+		return zerotime, false, nil
+	}
+
 	if t.config.rollback {
 		logger.Debug("rollback. nothing to do")
-		return zerotime, nil
+		return zerotime, false, nil
 	}
 
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	if t.config.conditionalStart && !rt.hasStartCondition() {
 		err = fmt.Errorf("conditional start is set, but file trigger is not found")
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	props, err := t.readPropsToReindex(rt)
 	if err != nil {
 		err = fmt.Errorf("reading reindexable props: %w", err)
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	if rt.isTidied() {
@@ -428,32 +452,32 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 		if err != nil {
 			err = fmt.Errorf("updating inverted index config: %w", err)
 		}
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	if len(props) == 0 {
 		logger.Debug("no props read. nothing to do")
-		return zerotime, nil
+		return zerotime, false, nil
 	}
 
 	if rt.isReindexed() {
 		logger.Debug("reindexed. nothing to do")
-		return zerotime, nil
+		return zerotime, false, nil
 	}
 
 	var reindexStarted time.Time
 	if !rt.isStarted() {
 		err = fmt.Errorf("missing reindex started")
-		return zerotime, err
+		return zerotime, false, err
 	} else if reindexStarted, err = rt.getStarted(); err != nil {
 		err = fmt.Errorf("getting reindex started: %w", err)
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	var lastStoredKey indexKey
 	if lastStoredKey, err = rt.getProgress(); err != nil {
 		err = fmt.Errorf("getting reindex progress: %w", err)
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	logger.WithFields(map[string]any{
@@ -463,7 +487,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 
 	if err = ctx.Err(); err != nil {
 		err = fmt.Errorf("context check (1): %w / %w", err, context.Cause(ctx))
-		return zerotime, err
+		return zerotime, false, err
 	}
 
 	processedCount := 0
@@ -498,11 +522,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 			finished = true
 		} else if md.err != nil {
 			err = md.err
-			return zerotime, err
+			return zerotime, false, err
 		} else if err = ctx.Err(); err != nil {
 			breakCh <- true
 			err = fmt.Errorf("context check (loop): %w / %w", err, context.Cause(ctx))
-			return zerotime, err
+			return zerotime, false, err
 		} else {
 			if len(md.props) > 0 {
 				for _, invprop := range md.props {
@@ -513,7 +537,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 							if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
 								breakCh <- true
 								err = fmt.Errorf("adding object '%s' prop '%s': %w", md.key.String(), invprop.Name, err)
-								return zerotime, err
+								return zerotime, false, err
 							}
 						}
 					}
@@ -531,18 +555,18 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
 		if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
 			err = fmt.Errorf("marking reindex progress: %w", err)
-			return zerotime, err
+			return zerotime, false, err
 		}
 		lastStoredKey = lastProcessedKey.Clone()
 	}
 	if finished {
 		if err = rt.markReindexed(); err != nil {
 			err = fmt.Errorf("marking reindexed: %w", err)
-			return zerotime, err
+			return zerotime, false, err
 		}
-		return zerotime, nil
+		return zerotime, t.config.reloadShards, nil
 	}
-	return time.Now().Add(t.config.pauseDuration), nil
+	return time.Now().Add(t.config.pauseDuration), false, nil
 }
 
 func (t *ShardReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ctx context.Context,
@@ -1016,30 +1040,17 @@ func (t *ShardReindexTask_MapToBlockmax) mapBucketName(propName string) string {
 }
 
 func (t *ShardReindexTask_MapToBlockmax) findPropsToReindex(shard ShardLike) (props []string, save bool) {
+	collectionName := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
 	propNames := []string{}
-	checkPropSelected := func(propName string) bool {
-		return true
+
+	if !t.isShardSelected(collectionName, shardName) {
+		return propNames, false
 	}
 
+	checkPropSelected := func(propName string) bool { return true }
 	if t.config.selectionEnabled {
-		collectionName := shard.Index().Config.ClassName.String()
-		selectedProps, isCollectionSelected1 := t.config.selectedPropsByCollection[collectionName]
-		selectedShards, isCollectionSelected2 := t.config.selectedShardsByCollection[collectionName]
-
-		if !(isCollectionSelected1 || isCollectionSelected2) {
-			return propNames, false
-		}
-
-		isShardSelected := true
-		if len(selectedShards) > 0 {
-			_, isShardSelected = selectedShards[shard.Name()]
-		}
-
-		if !isShardSelected {
-			return propNames, false
-		}
-
-		if len(selectedProps) > 0 {
+		if selectedProps := t.config.selectedPropsByCollection[collectionName]; len(selectedProps) > 0 {
 			checkPropSelected = func(propName string) bool {
 				_, ok := selectedProps[propName]
 				return ok
@@ -1076,7 +1087,7 @@ func (t *ShardReindexTask_MapToBlockmax) getPropsToReindex(shard ShardLike, rt m
 	return props, nil
 }
 
-func (T *ShardReindexTask_MapToBlockmax) readPropsToReindex(rt mapToBlockmaxReindexTracker) ([]string, error) {
+func (t *ShardReindexTask_MapToBlockmax) readPropsToReindex(rt mapToBlockmaxReindexTracker) ([]string, error) {
 	if rt.hasProps() {
 		props, err := rt.getProps()
 		if err != nil {
@@ -1085,6 +1096,22 @@ func (T *ShardReindexTask_MapToBlockmax) readPropsToReindex(rt mapToBlockmaxRein
 		return props, nil
 	}
 	return []string{}, nil
+}
+
+func (t *ShardReindexTask_MapToBlockmax) isShardSelected(collectionName, shardName string) bool {
+	if t.config.selectionEnabled {
+		selectedShards, isCollectionSelected := t.config.selectedShardsByCollection[collectionName]
+		if !isCollectionSelected {
+			return false
+		}
+
+		if len(selectedShards) > 0 {
+			if _, isShardSelected := selectedShards[shardName]; !isShardSelected {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // -----------------------------------------------------------------------------
@@ -1401,7 +1428,12 @@ func (t *fileMapToBlockmaxReindexTracker) createFile(filename string, content []
 }
 
 func (t *fileMapToBlockmaxReindexTracker) removeFile(filename string) error {
-	return os.Remove(t.filepath(filename))
+	if err := os.Remove(t.filepath(filename)); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (t *fileMapToBlockmaxReindexTracker) encodeTimeNow() string {
