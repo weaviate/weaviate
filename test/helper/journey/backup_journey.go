@@ -195,30 +195,29 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		})
 
 		require.Equal(t, string(backup.Success), *statusResp.Payload.Status)
-
 	})
 
-		// Ensure that on restoring the class it is consistent on the followers
-		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-			if tenantNames != nil {
-				for _, name := range tenantNames {
-					moduleshelper.EnsureClassExists(t, className, name)
-					if dataIntegrityCheck == checkClassAndDataPresence {
-						count := moduleshelper.GetClassCount(t, className, name)
-						assert.Equal(t, int64(500/len(tenantNames)), count)
-					}
-				}
-			} else {
-				moduleshelper.EnsureClassExists(t, className, singleTenant)
+	// Ensure that on restoring the class it is consistent on the followers
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		if tenantNames != nil {
+			for _, name := range tenantNames {
+				moduleshelper.EnsureClassExists(t, className, name)
 				if dataIntegrityCheck == checkClassAndDataPresence {
-					count := moduleshelper.GetClassCount(t, className, singleTenant)
-					assert.Equal(t, int64(500), count)
-					if pqEnabled {
-						moduleshelper.EnsureCompressedVectorsRestored(t, className)
-					}
+					count := moduleshelper.GetClassCount(t, className, name)
+					assert.Equal(t, int64(500/len(tenantNames)), count)
 				}
 			}
-		}, 5*time.Second, 500*time.Microsecond, "class doesn't exists in follower nodes")
+		} else {
+			moduleshelper.EnsureClassExists(t, className, singleTenant)
+			if dataIntegrityCheck == checkClassAndDataPresence {
+				count := moduleshelper.GetClassCount(t, className, singleTenant)
+				assert.Equal(t, int64(500), count)
+				if pqEnabled {
+					moduleshelper.EnsureCompressedVectorsRestored(t, className)
+				}
+			}
+		}
+	}, 5*time.Second, 500*time.Microsecond, "class doesn't exists in follower nodes")
 }
 
 func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupID string, journeyType journeyType, overrideBucket, overridePath string) {
