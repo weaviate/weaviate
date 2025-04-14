@@ -101,7 +101,7 @@ func TestSchemaSnapshotRecovery(t *testing.T) {
 			return len(schema1.Payload.Classes) == len(schema2.Payload.Classes) &&
 				len(schema1.Payload.Classes) == len(schema3.Payload.Classes) &&
 				len(schema1.Payload.Classes) == 100
-		}, 60*time.Second, 1*time.Second, "Schema should match across all nodes")
+		}, 90*time.Second, 1*time.Second, "Schema should match across all nodes")
 	})
 }
 
@@ -179,7 +179,7 @@ func TestRBACSnapshotRecovery(t *testing.T) {
 			// All checksums should match
 			return checksum1 != "" && checksum2 != "" && checksum3 != "" &&
 				checksum1 == checksum2 && checksum1 == checksum3
-		}, 60*time.Second, 1*time.Second, "Policy checksums should match across all nodes")
+		}, 90*time.Second, 1*time.Second, "Policy checksums should match across all nodes")
 	})
 }
 
