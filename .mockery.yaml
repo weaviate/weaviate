@@ -5,6 +5,12 @@ outpkg: "{{.PackageName}}"
 filename: "{{.InterfaceName}}.go"
 recursive: true
 packages:
+  github.com/weaviate/weaviate/cluster/replication:
+    interfaces:
+      OpProducer:
+      OpConsumer:
+      TimeProvider:
+      Timer:
   github.com/weaviate/weaviate/cluster/replication/types:
     interfaces:
       ReplicationFSMReader:

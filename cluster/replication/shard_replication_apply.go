@@ -35,8 +35,8 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 		return ErrShardAlreadyReplicating
 	}
 
-	op := shardReplicationOp{
-		id:          id,
+	op := ShardReplicationOp{
+		ID:          id,
 		sourceShard: srcFQDN,
 		targetShard: targetFQDN,
 	}
@@ -44,7 +44,7 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 	s.opsByShard[c.SourceShard] = append(s.opsByShard[c.SourceShard], op)
 	s.opsByCollection[c.SourceCollection] = append(s.opsByCollection[c.SourceCollection], op)
 	s.opsByTargetFQDN[targetFQDN] = op
-	s.opsById[op.id] = op
+	s.opsById[op.ID] = op
 	s.opsStatus[op] = shardReplicationOpStatus{state: api.REGISTERED}
 	return nil
 }
@@ -79,9 +79,9 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 
 	ops, ok := s.opsByNode[op.sourceShard.nodeId]
 	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op in ops by node, this should not happen"))
+		err = multierror.Append(err, fmt.Errorf("could not find op in ops by nodeId, this should not happen"))
 	}
-	opsReplace, ok := findAndDeleteOp(op.id, ops)
+	opsReplace, ok := findAndDeleteOp(op.ID, ops)
 	if ok {
 		s.opsByNode[op.sourceShard.nodeId] = opsReplace
 	}
@@ -90,7 +90,7 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 	if !ok {
 		err = multierror.Append(err, fmt.Errorf("could not find op in ops by collection, this should not happen"))
 	}
-	opsReplace, ok = findAndDeleteOp(op.id, ops)
+	opsReplace, ok = findAndDeleteOp(op.ID, ops)
 	if ok {
 		s.opsByCollection[op.sourceShard.collectionId] = opsReplace
 	}
@@ -99,25 +99,25 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 	if !ok {
 		err = multierror.Append(err, fmt.Errorf("could not find op in ops by shard, this should not happen"))
 	}
-	opsReplace, ok = findAndDeleteOp(op.id, ops)
+	opsReplace, ok = findAndDeleteOp(op.ID, ops)
 	if ok {
 		s.opsByShard[op.sourceShard.shardId] = opsReplace
 	}
 
 	delete(s.opsByTargetFQDN, op.targetShard)
-	delete(s.opsById, op.id)
+	delete(s.opsById, op.ID)
 	delete(s.opsStatus, op)
 
 	return err
 }
 
-func findAndDeleteOp(id uint64, ops []shardReplicationOp) ([]shardReplicationOp, bool) {
+func findAndDeleteOp(id uint64, ops []ShardReplicationOp) ([]ShardReplicationOp, bool) {
 	indexToDelete := 0
 	ok := false
 	// Iterate by hand as the slices should be kept small enough & we can't use the `slices` package binary search as we have a custom type
 	// in the slice and the Comparable constraint only works on primitive type
 	for i, op := range ops {
-		if op.id == id {
+		if op.ID == id {
 			ok = true
 			indexToDelete = i
 		}

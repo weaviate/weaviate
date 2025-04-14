@@ -86,7 +86,7 @@ func TestManager_Replicate(t *testing.T) {
 			expectedError: replication.ErrShardNotFound,
 		},
 		{
-			name: "source node not found",
+			name: "source nodeId not found",
 			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
 				return s.AddClass(
 					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
@@ -105,7 +105,7 @@ func TestManager_Replicate(t *testing.T) {
 			expectedError: replication.ErrNodeNotFound,
 		},
 		{
-			name: "target node already has shard",
+			name: "target nodeId already has shard",
 			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
 				return s.AddClass(
 					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
@@ -131,7 +131,7 @@ func TestManager_Replicate(t *testing.T) {
 			// Setup
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaManager := schema.NewSchemaManager("test-nodeId", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
 			// TODO mock copier
 			manager := replication.NewManager(logrus.New(), schemaReader, nil)
