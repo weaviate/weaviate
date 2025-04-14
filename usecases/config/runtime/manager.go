@@ -30,51 +30,66 @@ import (
 )
 
 var (
-	ErrEmptyConfig         = errors.New("empty runtime config")
-	ErrFailedToOpenConfig  = errors.New("failed to open runtime config")
-	ErrFailedToReadConfig  = errors.New("failed to read runtime config ")
-	ErrFailedToParseConfig = errors.New("failed to parse runtime config ")
+	ErrEmptyConfig             = errors.New("empty runtime config")
+	ErrFailedToOpenConfig      = errors.New("failed to open runtime config")
+	ErrFailedToReadConfig      = errors.New("failed to read runtime config ")
+	ErrFailedToParseConfig     = errors.New("failed to parse runtime config ")
+	ErrUnregisteredConfigFound = errors.New("unregistered config found")
 )
 
-// Parser takes care of unmarshaling a config struct
+// ConfigValue is anything whose value can be `settable` by the config manager.
+type ConfigValue interface {
+	Set(t any)
+}
+
+// ConfigValues represent dynamic config values that config manager manage.
+type ConfigValues map[string]ConfigValue
+
+// Parser takes care of unmarshaling a ConfigValues
 // from given raw bytes(e.g: YAML, JSON, etc).
-type Parser[T any] func([]byte) (*T, error)
+type Parser func([]byte) (ConfigValues, error)
 
 // ConfigManager takes care of periodically loading the config from
 // given filepath for every interval period.
-type ConfigManager[T any] struct {
+type ConfigManager struct {
 	// path is file path of config to load and unmarshal from
 	path string
 	// interval is how often config manager trigger loading the config file.
 	interval time.Duration
 	// parse takes care of unmarshaling the config struct from a file
-	parse Parser[T]
+	parse Parser
 
 	// currentConfig is last successfully loaded config.
 	// ConfigManager keep using this config if there are any
 	// failures to load new configs.
-	currentConfig *T
+	currentConfig ConfigValues
 	currentHash   string
 	mu            sync.RWMutex // protects currentConfig
 
 	log             logrus.FieldLogger
 	lastLoadSuccess prometheus.Gauge
 	configHash      *prometheus.GaugeVec
+
+	// registered is the registered config values. This is used when marshal/unmarshal from
+	// config file. Anything conflicts with registered values is invalid config file.
+	// TODO(kavi): Should allow post-register api?
+	registered ConfigValues
 }
 
-func NewConfigManager[T any](
+func NewConfigManager(
 	filepath string,
-	parser Parser[T],
+	parser Parser,
+	registered ConfigValues,
 	interval time.Duration,
 	log logrus.FieldLogger,
 	r prometheus.Registerer,
-) (*ConfigManager[T], error) {
+) (*ConfigManager, error) {
 	// catch empty filepath early
 	if len(strings.TrimSpace(filepath)) == 0 {
 		return nil, errors.New("filepath to load runtimeconfig is empty")
 	}
 
-	cm := &ConfigManager[T]{
+	cm := &ConfigManager{
 		path:     filepath,
 		parse:    parser,
 		interval: interval,
@@ -87,6 +102,8 @@ func NewConfigManager[T any](
 			Name: "weaviate_runtime_config_hash",
 			Help: "Hash value of the currently active runtime configuration",
 		}, []string{"sha256"}), // sha256 is type of checksum and hard-coded for now
+		registered:    registered,
+		currentConfig: registered, // `loadConfig` would update to latest.
 	}
 
 	// try to load it once to fail early if configs are invalid
@@ -100,26 +117,26 @@ func NewConfigManager[T any](
 // Run is a blocking call that starts the configmanager actor. Consumer probably want to
 // call it in different groutine. It also respects the passed in `ctx`.
 // Meaning, cancelling the passed `ctx` stops the actor.
-func (cm *ConfigManager[T]) Run(ctx context.Context) error {
+func (cm *ConfigManager) Run(ctx context.Context) error {
 	return cm.loop(ctx)
 }
 
-// Config returns the current valid config if available. Once the config manager
-// is started without any error, consumer should be able to get **valid** config
-// via this api.
-func (cm *ConfigManager[T]) Config() (*T, error) {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
+// // Config returns the current valid config if available. Once the config manager
+// // is started without any error, consumer should be able to get **valid** config
+// // via this api.
+// func (cm *ConfigManager) Config() (*T, error) {
+// 	cm.mu.RLock()
+// 	defer cm.mu.RUnlock()
 
-	if cm.currentConfig == nil {
-		return nil, ErrEmptyConfig
-	}
+// 	if cm.currentConfig == nil {
+// 		return nil, ErrEmptyConfig
+// 	}
 
-	return cm.currentConfig, nil
-}
+// 	return cm.currentConfig, nil
+// }
 
 // loadConfig reads and unmarshal the config from the file location.
-func (cm *ConfigManager[T]) loadConfig() error {
+func (cm *ConfigManager) loadConfig() error {
 	f, err := os.Open(cm.path)
 	if err != nil {
 		cm.lastLoadSuccess.Set(0)
@@ -145,7 +162,9 @@ func (cm *ConfigManager[T]) loadConfig() error {
 		return errors.Join(ErrFailedToParseConfig, err)
 	}
 
-	cm.updateConfig(cfg, hash)
+	if err := cm.updateConfig(cfg, hash); err != nil {
+		return err
+	}
 
 	cm.lastLoadSuccess.Set(1)
 	cm.configHash.Reset()
@@ -155,17 +174,37 @@ func (cm *ConfigManager[T]) loadConfig() error {
 }
 
 // updateConfig mutates the shared config
-func (cm *ConfigManager[T]) updateConfig(cfg *T, hash string) {
+func (cm *ConfigManager) updateConfig(newcfg ConfigValues, hash string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	cm.currentConfig = cfg
+	// invariant1: `newcfg` should not have any fields other than registered fileds
+	// invariant2: `newcfg` can have subset of registered values.
+
+	unknown := make([]string, 0)
+
+	for k := range newcfg {
+		_, ok := cm.registered[k]
+		if !ok {
+			unknown = append(unknown, k)
+		}
+	}
+
+	if len(unknown) > 0 {
+		return fmt.Errorf("%w: %v", ErrUnregisteredConfigFound, unknown)
+	}
+
+	for k, v := range newcfg {
+		cm.currentConfig[k].Set(v)
+	}
+
+	// cm.currentConfig = cfg
 	cm.currentHash = hash
 }
 
 // loop is a actor loop that runs forever till config manager is stopped.
 // it orchestrates between "loading" configs and "stopping" the config manager
-func (cm *ConfigManager[T]) loop(ctx context.Context) error {
+func (cm *ConfigManager) loop(ctx context.Context) error {
 	ticker := time.NewTicker(cm.interval)
 	defer ticker.Stop()
 

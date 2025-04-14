@@ -1679,6 +1679,8 @@ func (m membership) LeaderID() string {
 func initRuntimeOverrides(appState *state.State) {
 	// Enable runtime config manager
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
+		var registered configRuntime.ConfigValues
+
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
 			config.ParseYaml,
@@ -1700,9 +1702,9 @@ func initRuntimeOverrides(appState *state.State) {
 					Fatal("runtime config manager stopped")
 			}
 		}, appState.Logger)
-		rc := config.NewWeaviateRuntimeConfig(cm)
 		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCountFn = rc.GetMaximumAllowedCollectionsCount
 		appState.ServerConfig.Config.AutoSchema.EnabledFn = rc.GetAutoSchemaEnabled
 		appState.ServerConfig.Config.Replication.AsyncReplicationDisabledFn = rc.GetAsyncReplicationDisabled
+
 	}
 }

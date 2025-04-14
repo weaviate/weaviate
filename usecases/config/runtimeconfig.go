@@ -15,6 +15,8 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"sync/atomic"
+	"time"
 
 	"gopkg.in/yaml.v2"
 )
@@ -74,4 +76,42 @@ func ParseYaml(buf []byte) (*WeaviateRuntimeConfig, error) {
 		return nil, err
 	}
 	return &conf, nil
+}
+
+// Type represents different types that is supported in runtime configs
+type DynamicType interface {
+	int | float64 | bool | time.Duration
+}
+
+// Value represents any runtime config value.
+type DynamicValue[T DynamicType] struct {
+	// val is the dynamically chaning value.
+	val atomic.Value
+	// def represents the default value.
+	def T
+}
+
+// Get returns a current value for the given config. It can either be dynamic value or default
+// value (if unable to get dynamic value)
+// Consumer of the dynamic config value should care only about this `Get()` api.
+func (vv *DynamicValue[T]) Get() T {
+	v := vv.val.Load()
+	if v != nil {
+		return v.(T)
+	}
+	return vv.def
+}
+
+// Set is used by the config manager to update the dynamic value.
+
+// NOTE: Set accepts `any` so that config manager can use this API to maintain the `map` of
+// registered dynamic configs. Go needs concrete type in map, we cannot use
+// generic types like DynamicType or DynamicValue there. Hence `any`( ¯\_(ツ)_/¯)
+func (vv *DynamicValue[T]) Set(val any) {
+	if v, ok := val.(T); ok {
+		vv.val.Store(v)
+		return
+	}
+	// NOTE: doesn't need to set any default value here
+	// as `Get()` api will return default if dynamic value is not set.
 }
