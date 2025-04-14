@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/client/meta"
 
 	"github.com/go-openapi/strfmt"
 
@@ -760,7 +760,9 @@ func TestGetLastUsageMultinode(t *testing.T) {
 	})
 
 	t.Run("last usage with shutdowns", func(t *testing.T) {
-		helper.SetupClient(compose.GetWeaviate().URI())
+		firstNode := compose.GetWeaviateNode(2)
+		secondNode := compose.GetWeaviateNode(1)
+		helper.SetupClient(firstNode.URI())
 
 		dynUser := "dyn-user"
 		helper.DeleteUser(t, dynUser, adminKey)
@@ -780,13 +782,14 @@ func TestGetLastUsageMultinode(t *testing.T) {
 
 		// shutdown node, its login time should be transferred to other nodes
 		timeout := time.Minute
-		err := compose.StopAt(ctx, 0, &timeout)
+		err := firstNode.Container().Stop(ctx, &timeout)
 		require.NoError(t, err)
+		time.Sleep(time.Second * 5) // wait to make sure that node is gone
+		_, err = helper.Client(t).Meta.MetaGet(meta.NewMetaGetParams(), nil)
+		require.Error(t, err)
 
-		helper.SetupClient(compose.GetWeaviateNode(2).URI())
-		body, clientErr := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams(), nil)
-		require.NoError(t, clientErr)
-		require.Len(t, body.Payload.Nodes, 2)
+		helper.ResetClient()
+		helper.SetupClient(secondNode.URI())
 
 		userNode2 := helper.GetUserWithLastUsedTime(t, dynUser, adminKey, true)
 		require.Equal(t, *user.UserID, dynUser)
