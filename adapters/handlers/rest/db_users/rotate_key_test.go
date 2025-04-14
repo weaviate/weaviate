@@ -35,7 +35,8 @@ func TestSuccessRotate(t *testing.T) {
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 	dynUser := mocks.NewDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user"}}, nil)
-	dynUser.On("RotateKey", "user", mock.Anything).Return(nil)
+	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
+	dynUser.On("RotateKey", "user", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:       dynUser,
@@ -70,7 +71,8 @@ func TestRotateInternalServerError(t *testing.T) {
 			dynUser := mocks.NewDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(tt.GetUserReturnValue, tt.GetUserReturnErr)
 			if tt.GetUserReturnErr == nil {
-				dynUser.On("RotateKey", "user", mock.Anything).Return(tt.RotateKeyError)
+				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
+				dynUser.On("RotateKey", "user", mock.Anything, mock.Anything, mock.Anything).Return(tt.RotateKeyError)
 			}
 
 			h := dynUserHandler{

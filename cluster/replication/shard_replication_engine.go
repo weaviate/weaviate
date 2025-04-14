@@ -34,7 +34,7 @@ type ShardReplicationEngine struct {
 	logger *logrus.Entry
 
 	replicationFSM         *ShardReplicationFSM
-	leaderClient           types.ReplicationFSMUpdater
+	leaderClient           types.FSMUpdater
 	ongoingReplications    atomic.Int64
 	ongoingReplicationLock sync.RWMutex
 	ongoingReplicationOps  map[shardReplicationOp]struct{}
@@ -44,9 +44,10 @@ type ShardReplicationEngine struct {
 	replicaCopier types.ReplicaCopier
 }
 
-func NewShardReplicationEngine(logger *logrus.Logger, replicationFSM *ShardReplicationFSM, leaderClient types.ReplicationFSMUpdater, replicaCopier types.ReplicaCopier) *ShardReplicationEngine {
+func NewShardReplicationEngine(logger *logrus.Logger, node string, replicationFSM *ShardReplicationFSM, leaderClient types.FSMUpdater, replicaCopier types.ReplicaCopier) *ShardReplicationEngine {
 	return &ShardReplicationEngine{
-		logger:                logger.WithFields(logrus.Fields{"action": replicationEngineLogAction}),
+		node:                  node,
+		logger:                logger.WithFields(logrus.Fields{"action": replicationEngineLogAction, "node": node}),
 		replicationFSM:        replicationFSM,
 		leaderClient:          leaderClient,
 		ongoingReplicationOps: make(map[shardReplicationOp]struct{}),
@@ -69,18 +70,31 @@ func (s *ShardReplicationEngine) Start() {
 }
 
 func (s *ShardReplicationEngine) Stop() {
+	s.logger.Info("Stopping replication engine")
 	s.stopChan <- true
 }
 
 func (s *ShardReplicationEngine) replicationFSMMonitor() {
 	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
 	for {
 	LOOP_RESET:
 		select {
 		case <-s.stopChan:
 			return
 		case <-ticker.C:
+
 			ongoingShardReplicationOps, newShardReplicationOps := s.getShardReplicationOps()
+			if len(ongoingShardReplicationOps) == 0 && len(newShardReplicationOps) == 0 {
+				s.logger.Debug("No shard replication op found")
+				continue
+			}
+
+			s.logger.WithFields(logrus.Fields{
+				"ongoingShardReplicationOps": ongoingShardReplicationOps,
+				"newShardReplicationOps":     newShardReplicationOps,
+			}).Info("found shard replication ops to start/recover from FSM")
 
 			// First handle ongoing shard replication ops and check if need to recover from failure any of them
 			// The reason we do these first is that we want to prioritise unfinished shard replication operation vs new shard replication
@@ -122,27 +136,52 @@ func (s *ShardReplicationEngine) startShardReplication(op shardReplicationOp) {
 	// TODO: Handle shutdown/abort related routine to stop all ongoing replica movement
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	eg.Go(func() error {
+		defer s.ongoingReplications.Add(-1)
 		return backoff.Retry(func() error {
-			defer s.ongoingReplications.Add(-1)
 			// TODO how to cancel this context if we need to stop (eg hook it up to stopChan?)
 			ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour)
 			defer cancel()
+			logger := s.logger.WithFields(logrus.Fields{
+				"opId":   op.id,
+				"source": op.sourceShard.String(),
+				"target": op.targetShard.String(),
+			})
+
+			logger.Info("starting replica replication")
 
 			// Update FSM that we are starting to hydrate this replica
 			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.HYDRATING); err != nil {
-				s.logger.WithError(err).Errorf("failed to update replica op state to %s", api.HYDRATING)
+				logger.WithError(err).Errorf("failed to update replica op state to %s", api.HYDRATING)
 			}
+
+			logger.Info("starting replica replication file copy")
 
 			// Copy the replica
 			if err := s.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
+				logger.WithError(err).Warn("failed to file copy replica")
 				// TODO: Handle failure and failure tracking in replicationFSM of replica ops
 				return err
 			}
 
+			logger.Info("completed replica replication file copy")
+
 			// Update FSM that we are done copying files and we can start final sync follower phase
 			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.FINALIZING); err != nil {
-				s.logger.WithError(err).Errorf("failed to update replica op state to %s", api.FINALIZING)
+				logger.WithError(err).Errorf("failed to update replica op state to %s", api.FINALIZING)
 			}
+
+			// TODO: Sync follower + async replication
+
+			// Update schema to register the shard
+			// TODO: We should handle recovering the FINALIZING state and re-add to the sharding state of necessary
+			if _, err := s.leaderClient.AddReplicaToShard(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.targetShard.nodeId); err != nil {
+				logger.WithError(err).Errorf("failed to add replica to shard")
+				return err
+			}
+
+			logger.Info("added replica to sharding state")
+
+			logger.Info("replica replication state updated")
 
 			// TODO Handle finalizing step for replica movement
 			return nil

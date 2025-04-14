@@ -16,7 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/transformers"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
@@ -34,9 +34,9 @@ func New(client Client) *Vectorizer {
 
 type Client interface {
 	VectorizeObject(ctx context.Context, input string,
-		cfg ent.VectorizationConfig) (*ent.VectorizationResult, error)
+		cfg transformers.VectorizationConfig) (*transformers.VectorizationResult, error)
 	VectorizeQuery(ctx context.Context, input string,
-		cfg ent.VectorizationConfig) (*ent.VectorizationResult, error)
+		cfg transformers.VectorizationConfig) (*transformers.VectorizationResult, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed

@@ -4415,6 +4415,12 @@ func init() {
           "404": {
             "description": "user not found"
           },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -5617,6 +5623,14 @@ func init() {
         "active": {
           "description": "activity status of the returned user",
           "type": "boolean"
+        },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API-key",
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 3
         },
         "createdAt": {
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
@@ -12015,6 +12029,12 @@ func init() {
           "404": {
             "description": "user not found"
           },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -13372,6 +13392,14 @@ func init() {
         "active": {
           "description": "activity status of the returned user",
           "type": "boolean"
+        },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API-key",
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 3
         },
         "createdAt": {
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",

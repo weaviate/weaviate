@@ -53,7 +53,7 @@ func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string
 func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, shardName string) error {
 	sourceNodeHostname, ok := c.nodeSelector.NodeHostname(srcNodeId)
 	if !ok {
-		return fmt.Errorf("sourceNodeName not found for node %s", srcNodeId)
+		return fmt.Errorf("source node address not found in cluster membership for node %s", srcNodeId)
 	}
 	relativeFilePaths, err := c.remoteIndex.PauseAndListFiles(ctx, sourceNodeHostname, collectionName, shardName)
 	if err != nil {

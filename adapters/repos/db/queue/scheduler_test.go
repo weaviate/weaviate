@@ -233,13 +233,12 @@ func makeScheduler(t testing.TB, workers ...int) *Scheduler {
 	})
 }
 
-func makeQueueSize(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize uint64) *DiskQueue {
+func makeQueueWith(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize uint64, dir string) *DiskQueue {
 	t.Helper()
 
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
 
-	dir := t.TempDir()
 	q, err := NewDiskQueue(DiskQueueOptions{
 		ID:           "test_queue",
 		Scheduler:    s,
@@ -257,6 +256,10 @@ func makeQueueSize(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize ui
 	s.RegisterQueue(q)
 
 	return q
+}
+
+func makeQueueSize(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize uint64) *DiskQueue {
+	return makeQueueWith(t, s, decoder, chunkSize, t.TempDir())
 }
 
 func makeQueue(t *testing.T, s *Scheduler, decoder TaskDecoder) *DiskQueue {

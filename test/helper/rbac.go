@@ -229,6 +229,17 @@ func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permi
 	require.Nil(t, err)
 }
 
+func RemovePermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
+	resp, err := Client(t).Authz.RemovePermissions(
+		authz.NewRemovePermissionsParams().WithID(role).WithBody(authz.RemovePermissionsBody{
+			Permissions: permissions,
+		}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
 type BackupPermission models.Permission
 
 func NewBackupPermission() *BackupPermission {

@@ -92,6 +92,8 @@ jobs:
         with:
           api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
           project_key: ${{ env.PROJECT_KEY }}
+          # diff scans against the entire git history, so should only scan changes in this PR
+          fetch-depth: 0
           path:
             # scanning the entire repository
             "."
@@ -149,7 +151,8 @@ jobs:
           "--only-module-text2vec-transformers",
           "--only-module-text2vec-ollama",
           "--only-module-generative-ollama",
-          "--only-module-many-generative"
+          "--only-module-many-generative",
+          "--only-module-text2vec-model2vec"
         ]
     steps:
       - uses: actions/checkout@v4
@@ -322,6 +325,7 @@ jobs:
           "--acceptance-only-authz",
           "--acceptance-only-replication",
           "--acceptance-only-async-replication",
+          "--acceptance-only-replica-replication",
           "--acceptance-go-client-only-fast",
           "--acceptance-only-python",
         ]

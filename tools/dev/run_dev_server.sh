@@ -982,6 +982,19 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
+  local-model2vec)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-model2vec \
+      MODEL2VEC_INFERENCE_API="http://localhost:8012" \
+      ENABLE_MODULES="text2vec-model2vec" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
   local-prometheus)
     echo "Starting monitoring setup..."
 
