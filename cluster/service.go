@@ -69,12 +69,15 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 		5*24*time.Hour,
 		replication.RealTimer{},
 	)
+	realTimeProvider := replication.RealTimeProvider{}
+	tracker := replication.NewOpTracker(realTimeProvider)
 	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
 		cfg.Logger.WithField("component", "replication_engine_consumer").WithField("node", cfg.NodeSelector.LocalName()),
 		raft,
 		cfg.ReplicaCopier,
-		replication.RealTimeProvider{},
+		realTimeProvider,
 		cfg.NodeSelector.LocalName(),
+		tracker,
 		backoff.NewConstantBackOff(5*time.Second),
 		retentionPolicy,
 		24*time.Hour,

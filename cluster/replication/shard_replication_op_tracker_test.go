@@ -10,6 +10,7 @@ import (
 )
 
 func randomInt(t *testing.T, min, max int) int {
+	t.Helper()
 	var randValue [1]byte
 	_, err := rand.Read(randValue[:])
 	if err != nil {
