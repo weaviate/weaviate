@@ -197,8 +197,8 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 
 	var results *priorityqueue.Queue[any]
 	var extraIDs []uint64 = nil
-	var total int = 0
-	var maxConnections int = n.graph.maximumConnections
+	total := 0
+	maxConnections := n.graph.maximumConnections
 
 	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)

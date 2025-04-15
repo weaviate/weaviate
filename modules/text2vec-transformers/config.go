@@ -118,7 +118,7 @@ func (cv *ConfigValidator) validateIndexState(ctx context.Context,
 		"used to determine the vector position. To fix this, set 'vectorizeClassName' " +
 		"to true if the class name is contextionary-valid. Alternatively add at least " +
 		"contextionary-valid text/string property which is not excluded from " +
-		"indexing.")
+		"indexing")
 }
 
 func (cv *ConfigValidator) checkForPossibilityOfDuplicateVectors(

@@ -163,12 +163,21 @@ type Config struct {
 }
 
 type MapToBlockamaxConfig struct {
-	SwapBuckets               bool `json:"swap_buckets" yaml:"swap_buckets"`
-	UnswapBuckets             bool `json:"unswap_buckets" yaml:"unswap_buckets"`
-	TidyBuckets               bool `json:"tidy_buckets" yaml:"tidy_buckets"`
-	Rollback                  bool `json:"rollback" yaml:"rollback"`
-	ProcessingDurationSeconds int  `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
-	PauseDurationSeconds      int  `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
+	SwapBuckets               bool                     `json:"swap_buckets" yaml:"swap_buckets"`
+	UnswapBuckets             bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
+	TidyBuckets               bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
+	ReloadShards              bool                     `json:"reload_shards" yaml:"reload_shards"`
+	Rollback                  bool                     `json:"rollback" yaml:"rollback"`
+	ConditionalStart          bool                     `json:"conditional_start" yaml:"conditional_start"`
+	ProcessingDurationSeconds int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
+	PauseDurationSeconds      int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
+	Selected                  []CollectionPropsTenants `json:"selected" yaml:"selected"`
+}
+
+type CollectionPropsTenants struct {
+	Collection string   `json:"collection" yaml:"collection"`
+	Props      []string `json:"props" yaml:"props"`
+	Tenants    []string `json:"tenants" yaml:"tenants"`
 }
 
 // Validate the configuration
@@ -421,14 +430,17 @@ func (r ResourceUsage) Validate() error {
 }
 
 type Raft struct {
-	Port                   int
-	InternalRPCPort        int
-	RPCMessageMaxSize      int
-	Join                   []string
-	SnapshotThreshold      uint64
+	Port              int
+	InternalRPCPort   int
+	RPCMessageMaxSize int
+	Join              []string
+
+	SnapshotInterval  time.Duration
+	SnapshotThreshold uint64
+	TrailingLogs      uint64
+
 	HeartbeatTimeout       time.Duration
 	ElectionTimeout        time.Duration
-	SnapshotInterval       time.Duration
 	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration

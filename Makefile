@@ -97,4 +97,4 @@ banner: ## Add Weaviate banner with license details
 	./tools/gen-code-from-swagger.sh
 
 mocks: .mockery.yaml
-	mockery
+	docker run --rm -v $(PWD):/src -w /src vektra/mockery:v2.53.2

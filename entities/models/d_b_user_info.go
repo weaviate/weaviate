@@ -35,6 +35,10 @@ type DBUserInfo struct {
 	// Required: true
 	Active *bool `json:"active"`
 
+	// First 3 letters of the associated API-key
+	// Max Length: 3
+	APIKeyFirstLetters string `json:"apiKeyFirstLetters,omitempty"`
+
 	// Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
 	// Format: date-time
 	CreatedAt strfmt.DateTime `json:"createdAt,omitempty"`
@@ -43,6 +47,10 @@ type DBUserInfo struct {
 	// Required: true
 	// Enum: [db_user db_env_user]
 	DbUserType *string `json:"dbUserType"`
+
+	// Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+	// Format: date-time
+	LastUsedAt strfmt.DateTime `json:"lastUsedAt,omitempty"`
 
 	// The role names associated to the user
 	// Required: true
@@ -61,11 +69,19 @@ func (m *DBUserInfo) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateAPIKeyFirstLetters(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateCreatedAt(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if err := m.validateDbUserType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateLastUsedAt(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -86,6 +102,18 @@ func (m *DBUserInfo) Validate(formats strfmt.Registry) error {
 func (m *DBUserInfo) validateActive(formats strfmt.Registry) error {
 
 	if err := validate.Required("active", "body", m.Active); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *DBUserInfo) validateAPIKeyFirstLetters(formats strfmt.Registry) error {
+	if swag.IsZero(m.APIKeyFirstLetters) { // not required
+		return nil
+	}
+
+	if err := validate.MaxLength("apiKeyFirstLetters", "body", m.APIKeyFirstLetters, 3); err != nil {
 		return err
 	}
 
@@ -141,6 +169,18 @@ func (m *DBUserInfo) validateDbUserType(formats strfmt.Registry) error {
 
 	// value enum
 	if err := m.validateDbUserTypeEnum("dbUserType", "body", *m.DbUserType); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *DBUserInfo) validateLastUsedAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.LastUsedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("lastUsedAt", "body", "date-time", m.LastUsedAt.String(), formats); err != nil {
 		return err
 	}
 

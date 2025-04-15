@@ -9,10 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package clients
 
-type VectorizationResult struct {
-	Text       string
-	Dimensions int
-	Vector     []float32
+import (
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/transformers"
+)
+
+func (v *vectorizer) MetaInfo() (map[string]any, error) {
+	endpoint := v.urlBuilder.GetPassageURL("/meta", transformers.VectorizationConfig{})
+	return v.client.MetaInfo(endpoint)
 }

@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
+
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
 
@@ -153,8 +155,8 @@ func TestAuthzAutoTenantActivationRBAC(t *testing.T) {
 func TestAuthzAutoTenantActivationAdminList(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
-	readonlyKey := "readonly-key"
-	readonlyUser := "readonly-user"
+	readonlyKey := "viewer-key"
+	readonlyUser := "viewer-user"
 	adminAuth := helper.CreateAuth(adminKey)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -178,16 +180,20 @@ func TestAuthzAutoTenantActivationAdminList(t *testing.T) {
 
 	cls := articles.ParagraphsClass()
 	tenant := "tenant"
-	obj := articles.NewParagraph().WithID(UUID1).WithTenant(tenant).Object()
+	obj1 := articles.NewParagraph().WithID(UUID1).WithTenant(tenant).Object()
 	obj2 := articles.NewParagraph().WithID(UUID2).WithTenant(tenant).Object()
+	obj3 := articles.NewParagraph().WithID(UUID3).WithTenant("tenant2").Object()
+	obj4 := articles.NewParagraph().WithID(UUID4).WithTenant("tenant3").Object()
 
 	defer func() {
 		helper.DeleteClassWithAuthz(t, cls.Class, adminAuth)
 		teardown()
 	}()
 
-	deactivateTenant := func(t *testing.T) {
-		helper.UpdateTenantsWithAuthz(t, cls.Class, []*models.Tenant{{Name: obj.Tenant, ActivityStatus: models.TenantActivityStatusCOLD}}, adminAuth)
+	deactivateTenants := func(t *testing.T) {
+		for _, obj := range []*models.Object{obj1, obj2, obj3, obj4} {
+			helper.UpdateTenantsWithAuthz(t, cls.Class, []*models.Tenant{{Name: obj.Tenant, ActivityStatus: models.TenantActivityStatusCOLD}}, adminAuth)
+		}
 	}
 
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -195,34 +201,49 @@ func TestAuthzAutoTenantActivationAdminList(t *testing.T) {
 		AutoTenantActivation: true,
 		AutoTenantCreation:   false,
 	}
+	helper.DeleteClassWithAuthz(t, cls.Class, adminAuth)
 	helper.CreateClassAuth(t, cls, adminKey)
-	helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: obj.Tenant, ActivityStatus: models.TenantActivityStatusHOT}}, adminKey)
+	helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: obj1.Tenant, ActivityStatus: models.TenantActivityStatusHOT}}, adminKey)
+	helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: obj3.Tenant, ActivityStatus: models.TenantActivityStatusHOT}}, adminKey)
+	helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: obj4.Tenant, ActivityStatus: models.TenantActivityStatusHOT}}, adminKey)
 	helper.CreateObjectAuth(t, obj2, adminKey)
-	deactivateTenant(t)
+	deactivateTenants(t)
 
 	t.Run("successfully create object in tenant as admin", func(t *testing.T) {
-		defer deactivateTenant(t)
-		err := helper.CreateObjectAuth(t, obj, adminKey)
+		defer deactivateTenants(t)
+		err := helper.CreateObjectAuth(t, obj1, adminKey)
 		helper.AssertRequestOk(t, nil, err, nil)
 	})
 
 	t.Run("successfully update object in tenant as admin", func(t *testing.T) {
-		defer deactivateTenant(t)
-		obj.Properties = map[string]string{"contents": "updated"}
-		_, err := updateObject(t, obj, adminKey)
+		defer deactivateTenants(t)
+		obj1.Properties = map[string]string{"contents": "updated"}
+		_, err := updateObject(t, obj1, adminKey)
 		helper.AssertRequestOk(t, nil, err, nil)
 	})
 
+	t.Run("successfully batch-create object in tenant as admin", func(t *testing.T) {
+		defer deactivateTenants(t)
+		helper.CreateObjectsBatchAuth(t, []*models.Object{obj3}, adminKey)
+	})
+
+	t.Run("successfully GRPC batch-create object in tenant as admin", func(t *testing.T) {
+		defer deactivateTenants(t)
+		batchReply, err := grpchelper.BatchGRPCWithTenantAuth(t, []*models.Object{obj4}, adminKey)
+		require.NoError(t, err)
+		require.Len(t, batchReply.Errors, 0)
+	})
+
 	t.Run("fail to update object in tenant as read-only", func(t *testing.T) {
-		defer deactivateTenant(t)
-		obj.Properties = map[string]string{"contents": "updated"}
-		_, err := updateObject(t, obj, readonlyKey)
+		defer deactivateTenants(t)
+		obj1.Properties = map[string]string{"contents": "updated"}
+		_, err := updateObject(t, obj1, readonlyKey)
 		helper.AssertRequestFail(t, nil, err, nil)
 	})
 
 	t.Run("fail to delete object in tenant as read-only", func(t *testing.T) {
-		defer deactivateTenant(t)
-		_, err := deleteObject(t, obj.Class, obj.ID, &obj.Tenant, readonlyKey)
+		defer deactivateTenants(t)
+		_, err := deleteObject(t, obj1.Class, obj1.ID, &obj1.Tenant, readonlyKey)
 		helper.AssertRequestFail(t, nil, err, nil)
 	})
 
@@ -236,14 +257,14 @@ func TestAuthzAutoTenantActivationAdminList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("successfully get object in tenant as %s", tt.name), func(t *testing.T) {
-			defer deactivateTenant(t)
-			_, err := getObject(t, obj.Class, obj.ID, &obj.Tenant, tt.key)
+			defer deactivateTenants(t)
+			_, err := getObject(t, obj1.Class, obj1.ID, &obj1.Tenant, tt.key)
 			helper.AssertRequestOk(t, nil, err, nil)
 		})
 
 		t.Run(fmt.Sprintf("successfully search (Get) with gql in tenant as %s", tt.name), func(t *testing.T) {
-			defer deactivateTenant(t)
-			res, err := queryGQL(t, fmt.Sprintf(`{Get{%s(tenant:%q){_additional{id}}}}`, cls.Class, obj.Tenant), tt.key)
+			defer deactivateTenants(t)
+			res, err := queryGQL(t, fmt.Sprintf(`{Get{%s(tenant:%q){_additional{id}}}}`, cls.Class, obj1.Tenant), tt.key)
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			require.NotEmpty(t, res.GetPayload().Data)
@@ -251,8 +272,8 @@ func TestAuthzAutoTenantActivationAdminList(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("successfully search (Aggregate) with gql in tenant as %s", tt.name), func(t *testing.T) {
-			defer deactivateTenant(t)
-			res, err := queryGQL(t, fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, cls.Class, obj.Tenant), tt.key)
+			defer deactivateTenants(t)
+			res, err := queryGQL(t, fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, cls.Class, obj1.Tenant), tt.key)
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			require.NotEmpty(t, res.GetPayload().Data)
@@ -260,7 +281,7 @@ func TestAuthzAutoTenantActivationAdminList(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("successfully search (Get) with grpc in tenant as %s", tt.name), func(t *testing.T) {
-			defer deactivateTenant(t)
+			defer deactivateTenants(t)
 			ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", tt.key))
 			resp, err := helper.ClientGRPC(t).Search(ctx, &protocol.SearchRequest{
 				Collection: cls.Class,
@@ -271,7 +292,7 @@ func TestAuthzAutoTenantActivationAdminList(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("successfully search (Aggregate) with grpc in tenant as %s", tt.name), func(t *testing.T) {
-			defer deactivateTenant(t)
+			defer deactivateTenants(t)
 			ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", tt.key))
 			resp, err := helper.ClientGRPC(t).Aggregate(ctx, &protocol.AggregateRequest{
 				Collection:   cls.Class,
@@ -284,14 +305,14 @@ func TestAuthzAutoTenantActivationAdminList(t *testing.T) {
 	}
 
 	t.Run("successfully delete object in tenant as admin", func(t *testing.T) {
-		defer deactivateTenant(t)
-		_, err := deleteObject(t, obj.Class, obj.ID, &obj.Tenant, adminKey)
+		defer deactivateTenants(t)
+		_, err := deleteObject(t, obj1.Class, obj1.ID, &obj1.Tenant, adminKey)
 		helper.AssertRequestOk(t, nil, err, nil)
 	})
 
 	t.Run("fail to create object in tenant as read-only", func(t *testing.T) {
-		defer deactivateTenant(t)
-		err := helper.CreateObjectAuth(t, obj, readonlyKey)
+		defer deactivateTenants(t)
+		err := helper.CreateObjectAuth(t, obj1, readonlyKey)
 		helper.AssertRequestFail(t, nil, err, nil)
 	})
 }
