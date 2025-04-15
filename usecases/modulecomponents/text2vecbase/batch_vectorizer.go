@@ -13,6 +13,10 @@ package text2vecbase
 
 import (
 	"context"
+	"time"
+
+	"github.com/weaviate/tiktoken-go"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -33,6 +37,7 @@ func newBatchVectorizer[T types.Embedding](client BatchClient[T], batchVectorize
 		objectVectorizer: objectsvectorizer.New(),
 		batchVectorizer:  batchVectorizer,
 		tokenizerFunc:    tokenizerFunc,
+		encoderCache:     map[string]*tiktoken.Tiktoken{},
 	}
 
 	return vec
@@ -58,9 +63,10 @@ func (v *BatchVectorizer[T]) object(ctx context.Context, object *models.Object, 
 	return res.Vector[0], nil
 }
 
-func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
-) ([]T, map[int]error) {
-	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, cfg, v.objectVectorizer)
+func (v *BatchVectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
+) ([][]float32, map[int]error) {
+	beforeTokenization := time.Now()
+	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, cfg, v.objectVectorizer, v.encoderCache)
 	if err != nil {
 		errs := make(map[int]error)
 		for j := range texts {
@@ -68,6 +74,9 @@ func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.
 		}
 		return nil, errs
 	}
+
+	monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(v.batchVectorizer.Label, "tokenization").
+		Observe(time.Since(beforeTokenization).Seconds())
 
 	if skipAll {
 		return make([]T, len(objects)), make(map[int]error)
