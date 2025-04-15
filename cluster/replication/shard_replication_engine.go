@@ -553,7 +553,7 @@ type CopyOpConsumer struct {
 // The assumption is that each node runs one and only one replication engine,
 // which means there is one consumer per node.
 func (c *CopyOpConsumer) String() string {
-	return fmt.Sprintf("replication engine copy op consumer on node '%s'", c.nodeId)
+	return fmt.Sprintf("replication engine copy consumer on node '%s'", c.nodeId)
 }
 
 // NewCopyOpConsumer creates a new CopyOpConsumer instance responsible for executing
@@ -645,9 +645,12 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					}()
 
 					opLogger := c.logger.WithFields(logrus.Fields{
-						"op":     operation.ID,
-						"source": operation.sourceShard.String(),
-						"target": operation.targetShard.String(),
+						"consumer":    c,
+						"op":          operation.ID,
+						"sourceShard": operation.sourceShard,
+						"targetShard": operation.targetShard,
+						"sourceNode":  operation.sourceShard.nodeId,
+						"targetNode":  operation.targetShard.nodeId,
 					})
 
 					opLogger.WithField("consumer", c).Info("worker processing replication operation")
@@ -691,9 +694,12 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 // Errors are logged and wrapped using the structured error group wrapper.
 func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint64, op ShardReplicationOp) error {
 	logger := c.logger.WithFields(logrus.Fields{
-		"op":     op.ID,
-		"source": op.sourceShard,
-		"target": op.targetShard,
+		"consumer":    c,
+		"op":          op.ID,
+		"sourceShard": op.sourceShard.shardId,
+		"targetSHard": op.targetShard.shardId,
+		"sourceNode":  op.sourceShard.nodeId,
+		"targetNode":  op.targetShard.nodeId,
 	})
 
 	startTime := c.timeProvider.Now()
@@ -706,19 +712,27 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 			}
 
 			if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.ID, api.HYDRATING); err != nil {
-				logger.WithError(err).Errorf("replication op consumer %v failed to update replica status to 'HYDRATING'", c)
+				logger.WithError(err).WithField("consumer", c).Error("replication consumer failed to update replica status to 'HYDRATING'")
 				return err
 			}
 
-			logger.Infof("replication op consumer %v starting replication copy operation", c)
+			logger.WithField("consumer", c).Info("replication consumer starting replication copy operation")
 
 			if err := c.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
-				logger.WithError(err).Errorf("replication op consumer %v failure while copying replica shard %v from node %v to node %v", c, op.targetShard.shardId, op.sourceShard.shardId, op.targetShard.shardId)
+				logger.WithFields(logrus.Fields{
+					"consumer":    c,
+					"op":          op,
+					"sourceShard": op.sourceShard.shardId,
+					"targetSHard": op.targetShard.shardId,
+					"sourceNode":  op.sourceShard.nodeId,
+					"targetNode":  op.targetShard.nodeId,
+				}).WithError(err).Error("replication consumer failure while copying replica shard")
+
 				return err
 			}
 
 			if _, err := c.leaderClient.AddReplicaToShard(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.targetShard.nodeId); err != nil {
-				logger.WithError(err).Errorf("replication op consumer %v failure while updating sharding state", c)
+				logger.WithError(err).WithField("consumer", c).Error("replication consumer failure while updating sharding state")
 				return err
 			}
 
