@@ -162,7 +162,7 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 
 	// Start one replication operations producer.
 	e.wg.Add(1)
-	go func() {
+	enterrors.GoWrapper(func() {
 		defer e.wg.Done()
 		e.logger.WithField("producer", e.producer).Info("starting replication engine producer")
 		err := e.producer.Produce(engineCtx, e.opsChan)
@@ -171,11 +171,11 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 			producerErrChan <- err
 		}
 		e.logger.WithField("producer", e.producer).Info("replication engine producer stopped")
-	}()
+	}, e.logger)
 
 	// Start one replication operations consumer.
 	e.wg.Add(1)
-	go func() {
+	enterrors.GoWrapper(func() {
 		defer e.wg.Done()
 		e.logger.WithField("consumer", e.consumer).Info("starting replication engine consumer")
 		err := e.consumer.Consume(engineCtx, e.opsChan)
@@ -184,7 +184,7 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 			consumerErrChan <- err
 		}
 		e.logger.WithField("consumer", e.consumer).Info("replication engine consumer stopped")
-	}()
+	}, e.logger)
 
 	// Coordinate replication engine execution with producer and consumer lifecycle.
 	var err error
@@ -239,10 +239,10 @@ func (e *ShardReplicationEngine) Stop() {
 	defer timeoutCancel()
 
 	done := make(chan struct{})
-	go func() {
+	enterrors.GoWrapper(func() {
 		e.wg.Wait()
 		close(done)
-	}()
+	}, e.logger)
 
 	select {
 	case <-done:
@@ -634,16 +634,18 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 				wg.Add(1)
 
-				go func(op ShardReplicationOp) {
+				operation := op
+
+				enterrors.GoWrapper(func() {
 					defer func() {
 						<-c.tokens // Release token when completed
 						wg.Done()
 					}()
 
 					opLogger := c.logger.WithFields(logrus.Fields{
-						"op":     op.ID,
-						"source": op.sourceShard.String(),
-						"target": op.targetShard.String(),
+						"op":     operation.ID,
+						"source": operation.sourceShard.String(),
+						"target": operation.targetShard.String(),
 					})
 
 					opLogger.WithField("consumer", c).Info("worker processing replication operation")
@@ -653,21 +655,21 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					opCtx, opCancel := context.WithTimeout(workerCtx, c.opTimeout)
 					defer opCancel()
 
-					err := c.processReplicationOp(opCtx, op.ID, op)
+					err := c.processReplicationOp(opCtx, operation.ID, operation)
 					if err != nil && errors.Is(err, context.DeadlineExceeded) {
 						opLogger.WithError(err).Error("replication operation timed out")
 						// Remove the operation from tracking to allow retry
-						c.opTracker.CleanUpOp(op.ID)
+						c.opTracker.CleanUpOp(operation.ID)
 					} else if err != nil {
 						opLogger.WithError(err).Error("replication operation failed")
 						// Remove the operation from tracking to allow retry
-						c.opTracker.CleanUpOp(op.ID)
+						c.opTracker.CleanUpOp(operation.ID)
 					} else {
 						opLogger.Info("replication operation completed successfully")
-						c.opTracker.CompleteOp(op.ID)
-						c.opRetentionPolicy.ScheduleCleanUp(op.ID)
+						c.opTracker.CompleteOp(operation.ID)
+						c.opRetentionPolicy.ScheduleCleanUp(operation.ID)
 					}
-				}(op)
+				}, c.logger)
 
 			case <-ctx.Done():
 				return ctx.Err()
