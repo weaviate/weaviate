@@ -15,7 +15,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/weaviate/tiktoken-go"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/pkg/errors"
@@ -32,7 +31,7 @@ func New(client BatchClient, batchVectorizer *batch.Batch, tokenizerFunc batch.T
 		objectVectorizer: objectsvectorizer.New(),
 		batchVectorizer:  batchVectorizer,
 		tokenizerFunc:    tokenizerFunc,
-		encoderCache:     map[string]*tiktoken.Tiktoken{},
+		encoderCache:     batch.NewEncoderCache(),
 	}
 
 	return vec

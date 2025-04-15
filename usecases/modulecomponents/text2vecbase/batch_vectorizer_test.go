@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/tiktoken-go"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
@@ -102,7 +101,7 @@ func BenchmarkBatchVectorizer(b *testing.B) {
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 
 	vectorizer := objectsvectorizer.New()
-	encoderCache := map[string]*tiktoken.Tiktoken{}
+	encoderCache := batch.NewEncoderCache()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _, _, err := tokenizer(ctx, []*models.Object{}, []bool{false}, cfg, vectorizer, encoderCache)

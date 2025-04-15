@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/tiktoken-go"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -357,4 +359,27 @@ func TestBatchRequestMissingRLValues(t *testing.T) {
 	require.Len(t, errs, 0)
 	// refresh rate is 1s. If the missing values would have any effect the batch algo would wait for the refresh to happen
 	require.Less(t, time.Since(start), time.Millisecond*900)
+}
+
+func TestEncoderCache(t *testing.T) {
+	cache := NewEncoderCache()
+
+	modelString := "text-embedding-ada-002"
+	wg := sync.WaitGroup{}
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func() {
+			tke, err := tiktoken.EncodingForModel(modelString)
+			require.NoError(t, err)
+			cache.Set(modelString, tke)
+			wg.Done()
+		}()
+
+		go func() {
+			cache.Get(modelString)
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
 }

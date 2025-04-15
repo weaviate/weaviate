@@ -13,6 +13,7 @@ package batch
 
 import (
 	"context"
+	"sync"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 
@@ -24,10 +25,32 @@ import (
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
-type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache map[string]*tiktoken.Tiktoken) ([]string, []int, bool, error)
+type EncoderCache struct {
+	lock  sync.RWMutex
+	cache map[string]*tiktoken.Tiktoken
+}
+
+func NewEncoderCache() *EncoderCache {
+	return &EncoderCache{cache: make(map[string]*tiktoken.Tiktoken), lock: sync.RWMutex{}}
+}
+
+func (e *EncoderCache) Get(model string) (*tiktoken.Tiktoken, bool) {
+	e.lock.RLock()
+	defer e.lock.RUnlock()
+	tke, ok := e.cache[model]
+	return tke, ok
+}
+
+func (e *EncoderCache) Set(model string, tk *tiktoken.Tiktoken) {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	e.cache[model] = tk
+}
+
+type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache *EncoderCache) ([]string, []int, bool, error)
 
 func ReturnBatchTokenizer(multiplier float32, moduleName string, lowerCaseInput bool) TokenizerFuncType {
-	return func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache map[string]*tiktoken.Tiktoken) ([]string, []int, bool, error) {
+	return func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache *EncoderCache) ([]string, []int, bool, error) {
 		texts := make([]string, len(objects))
 		tokenCounts := make([]int, len(objects))
 		var tke *tiktoken.Tiktoken
@@ -36,14 +59,14 @@ func ReturnBatchTokenizer(multiplier float32, moduleName string, lowerCaseInput 
 		if multiplier > 0 {
 			var err error
 			// creating the tokenizer is quite expensive => cache for each module
-			if tke2, ok := encoderCache[modelString]; ok {
+			if tke2, ok := encoderCache.Get(modelString); ok {
 				tke = tke2
 			} else {
 				tke, err = tiktoken.EncodingForModel(modelString)
 				if err != nil {
 					tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
 				}
-				encoderCache[modelString] = tke
+				encoderCache.Set(modelString, tke)
 			}
 		}
 
