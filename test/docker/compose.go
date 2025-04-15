@@ -83,6 +83,8 @@ const (
 	envTestRerankerTransformersImage = "TEST_RERANKER_TRANSFORMERS_IMAGE"
 	// envTestText2vecModel2VecImage adds ability to pass a custom image to module tests
 	envTestText2vecModel2VecImage = "TEST_TEXT2VEC_MODEL2VEC_IMAGE"
+	// envTestMockOIDCImage adds ability to pass a custom image to module tests
+	envTestMockOIDCImage = "TEST_MOCKOIDC_IMAGE"
 )
 
 const (
@@ -763,7 +765,8 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		containers = append(containers, container)
 	}
 	if d.withMockOIDC {
-		container, err := startMockOIDC(ctx, networkName)
+		image := os.Getenv(envTestMockOIDCImage)
+		container, err := startMockOIDC(ctx, networkName, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MockOIDC)
 		}
