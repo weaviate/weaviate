@@ -47,10 +47,6 @@ type ConfigValue interface {
 // ConfigValues represent dynamic config values that config manager manage.
 type ConfigValues map[string]ConfigValue
 
-// // Parser takes care of unmarshaling a ConfigValues
-// // from given raw bytes(e.g: YAML, JSON, etc).
-// type Parser func([]byte) (ConfigValues, error)
-
 // ConfigManager takes care of periodically loading the config from
 // given filepath for every interval period.
 type ConfigManager struct {
@@ -58,8 +54,6 @@ type ConfigManager struct {
 	path string
 	// interval is how often config manager trigger loading the config file.
 	interval time.Duration
-	// parse takes care of unmarshaling the config struct from a file
-	// parse Parser
 
 	// currentConfig is last successfully loaded config.
 	// ConfigManager keep using this config if there are any
@@ -74,13 +68,11 @@ type ConfigManager struct {
 
 	// registered is the registered config values. This is used when marshal/unmarshal from
 	// config file. Anything conflicts with registered values is invalid config file.
-	// TODO(kavi): Should allow post-register api?
 	registered ConfigValues
 }
 
 func NewConfigManager(
 	filepath string,
-	// parser Parser,
 	registered ConfigValues,
 	interval time.Duration,
 	log logrus.FieldLogger,
@@ -92,8 +84,7 @@ func NewConfigManager(
 	}
 
 	cm := &ConfigManager{
-		path: filepath,
-		// parse:    parser,
+		path:     filepath,
 		interval: interval,
 		log:      log,
 		lastLoadSuccess: promauto.With(r).NewGauge(prometheus.GaugeOpts{
@@ -122,20 +113,6 @@ func NewConfigManager(
 func (cm *ConfigManager) Run(ctx context.Context) error {
 	return cm.loop(ctx)
 }
-
-// // Config returns the current valid config if available. Once the config manager
-// // is started without any error, consumer should be able to get **valid** config
-// // via this api.
-// func (cm *ConfigManager) Config() (*T, error) {
-// 	cm.mu.RLock()
-// 	defer cm.mu.RUnlock()
-
-// 	if cm.currentConfig == nil {
-// 		return nil, ErrEmptyConfig
-// 	}
-
-// 	return cm.currentConfig, nil
-// }
 
 // loadConfig reads and unmarshal the config from the file location.
 func (cm *ConfigManager) loadConfig() error {
