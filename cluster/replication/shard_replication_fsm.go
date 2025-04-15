@@ -55,7 +55,7 @@ type ShardReplicationFSM struct {
 	// opsByShard stores opId -> replicationOp
 	opsById map[uint64]ShardReplicationOp
 	// opsStatus stores op -> opStatus
-	opsStatus map[ShardReplicationOp]shardReplicationOpStatus
+	opsStatus       map[ShardReplicationOp]shardReplicationOpStatus
 	opsByStateGauge *prometheus.GaugeVec
 }
 
