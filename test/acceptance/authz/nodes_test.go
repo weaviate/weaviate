@@ -12,9 +12,11 @@
 package authz
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
@@ -24,9 +26,48 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
+func TestAuthzNodesFilter(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	customUser := "custom-user"
+	customKey := "custom-key"
+	roleName := "role"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
+
+	clsA := articles.ArticlesClass()
+	clsP := articles.ParagraphsClass()
+
+	helper.DeleteClassWithAuthz(t, clsP.Class, helper.CreateAuth(adminKey))
+	helper.DeleteClassWithAuthz(t, clsA.Class, helper.CreateAuth(adminKey))
+
+	helper.CreateClassAuth(t, clsP, adminKey)
+	helper.CreateClassAuth(t, clsA, adminKey)
+	helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewArticle().WithTitle("article1").Object()}, adminKey)
+
+	helper.DeleteRole(t, adminKey, roleName)
+	defer helper.DeleteRole(t, adminKey, roleName)
+	helper.CreateRole(t, adminKey, &models.Role{Name: &roleName, Permissions: []*models.Permission{
+		helper.NewNodesPermission().WithAction(authorization.ReadNodes).WithVerbosity(verbosity.OutputVerbose).WithCollection(clsA.Class).Permission(),
+	}})
+	helper.AssignRoleToUser(t, adminKey, roleName, customUser)
+
+	// only permissions for one of the classes
+	resp, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(String(verbosity.OutputVerbose)), helper.CreateAuth(customKey))
+	require.NoError(t, err)
+	require.Len(t, resp.Payload.Nodes[0].Shards, 1)
+	require.Equal(t, resp.Payload.Nodes[0].Shards[0].Class, clsA.Class)
+
+	// admin gets back shards for two classes
+	resp, err = helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(String(verbosity.OutputVerbose)), helper.CreateAuth(adminKey))
+	require.NoError(t, err)
+	require.Len(t, resp.Payload.Nodes[0].Shards, 2)
+}
+
 func TestAuthzNodes(t *testing.T) {
-	adminUser := "existing-user"
-	adminKey := "existing-key"
+	adminUser := "admin-user"
+	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
@@ -37,32 +78,29 @@ func TestAuthzNodes(t *testing.T) {
 
 	clsA := articles.ArticlesClass()
 
-	t.Run("setup", func(t *testing.T) {
-		helper.CreateClassAuth(t, articles.ParagraphsClass(), adminKey)
-		helper.CreateClassAuth(t, clsA, adminKey)
-		helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewArticle().WithTitle("article1").Object()}, adminKey)
-	})
+	helper.CreateClassAuth(t, articles.ParagraphsClass(), adminKey)
+	helper.CreateClassAuth(t, clsA, adminKey)
+	helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewArticle().WithTitle("article1").Object()}, adminKey)
+
+	// make custom role with read_nodes and minimal nodes resource
+	helper.CreateRole(t, adminKey, &models.Role{Name: &customRole, Permissions: []*models.Permission{
+		helper.NewNodesPermission().WithAction(authorization.ReadNodes).WithVerbosity(verbosity.OutputMinimal).Permission(),
+	}})
 
 	t.Run("fail to get nodes without minimal read_nodes", func(t *testing.T) {
 		_, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*nodes.NodesGetForbidden)
-		require.True(t, forbidden)
+		var parsed *nodes.NodesGetForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("fail to get cluster stats without read_cluster", func(t *testing.T) {
 		_, err := helper.Client(t).Cluster.ClusterGetStatistics(cluster.NewClusterGetStatisticsParams(), helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*cluster.ClusterGetStatisticsForbidden)
-		require.True(t, forbidden)
+		var parsed *cluster.ClusterGetStatisticsForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
-	})
-
-	t.Run("make custom role with read_nodes and minimal nodes resource", func(t *testing.T) {
-		helper.CreateRole(t, adminKey, &models.Role{Name: &customRole, Permissions: []*models.Permission{
-			helper.NewNodesPermission().WithAction(authorization.ReadNodes).WithVerbosity(verbosity.OutputMinimal).Permission(),
-		}})
 	})
 
 	t.Run("assign custom role to custom user", func(t *testing.T) {
@@ -88,8 +126,8 @@ func TestAuthzNodes(t *testing.T) {
 	t.Run("fail to get verbose nodes without verbose read_nodes on all collections", func(t *testing.T) {
 		_, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(clsA.Class).WithOutput(String("verbose")), helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*nodes.NodesGetClassForbidden)
-		require.True(t, forbidden)
+		var parsed *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
@@ -101,14 +139,6 @@ func TestAuthzNodes(t *testing.T) {
 		resp, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(clsA.Class).WithOutput(String("verbose")), helper.CreateAuth(customKey))
 		require.Nil(t, err)
 		require.Len(t, resp.Payload.Nodes, 1)
-	})
-
-	t.Run("fail to get verbose nodes on all classes without read_nodes on *", func(t *testing.T) {
-		_, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(String("verbose")), helper.CreateAuth(customKey))
-		require.NotNil(t, err)
-		parsed, forbidden := err.(*nodes.NodesGetForbidden)
-		require.True(t, forbidden)
-		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("add read_data on * to custom role", func(t *testing.T) {

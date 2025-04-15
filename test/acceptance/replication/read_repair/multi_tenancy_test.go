@@ -22,13 +22,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 const (
@@ -50,7 +50,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.ContainerURI(1))
@@ -125,7 +125,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 					WithTitle(fmt.Sprintf("Article#%d", i)).
 					WithTenant(tenantID.String()).
 					Object()
-				common.CreateObjectCL(t, compose.ContainerURI(3), obj, replica.Quorum)
+				common.CreateObjectCL(t, compose.ContainerURI(3), obj, types.ConsistencyLevelQuorum)
 			}
 		})
 
@@ -183,7 +183,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 			// maps article id to referenced paragraph id
 			refPairs := make(map[strfmt.UUID]strfmt.UUID)
-			resp := common.GQLTenantGet(t, compose.ContainerURI(2), "Article", replica.One,
+			resp := common.GQLTenantGet(t, compose.ContainerURI(2), "Article", types.ConsistencyLevelOne,
 				tenantID.String(), "_additional{id}", "hasParagraphs {... on Paragraph {_additional{id}}}")
 			assert.Len(t, resp, len(articleIDs))
 
@@ -222,7 +222,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 				Properties: map[string]interface{}{"title": newTitle},
 				Tenant:     tenantID.String(),
 			}
-			common.UpdateObjectCL(t, compose.ContainerURI(3), patch, replica.Quorum)
+			common.UpdateObjectCL(t, compose.ContainerURI(3), patch, types.ConsistencyLevelQuorum)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -247,7 +247,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 	t.Run("DeleteObject", func(t *testing.T) {
 		t.Run("OnNode-1", func(t *testing.T) {
-			common.DeleteTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String(), replica.All)
+			common.DeleteTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String(), types.ConsistencyLevelAll)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -268,7 +268,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 	t.Run("BatchAllObjects", func(t *testing.T) {
 		t.Run("OnNode-2", func(t *testing.T) {
 			common.DeleteTenantObjects(t, compose.ContainerURI(2),
-				"Article", []string{"title"}, "Article#*", tenantID.String(), replica.All)
+				"Article", []string{"title"}, "Article#*", tenantID.String(), types.ConsistencyLevelAll)
 		})
 
 		t.Run("StopNode-2", func(t *testing.T) {

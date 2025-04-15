@@ -28,6 +28,8 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(rest)
 		helper.SetupGRPCClient(t, grpc)
+		// Define path to test/helper/sample-schema/planets/data folder
+		dataFolderPath := "../../../test/helper/sample-schema/planets/data"
 		// Data
 		data := planets.Planets
 		// Define class
@@ -50,17 +52,9 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			name               string
 			generativeModel    string
 			absentModuleConfig bool
+			withImages         bool
 		}{
-			// AI21 Labs
-			{
-				name:            "ai21.j2-ultra-v1",
-				generativeModel: "ai21.j2-ultra-v1",
-			},
-			{
-				name:            "ai21.j2-mid-v1",
-				generativeModel: "ai21.j2-mid-v1",
-			},
-			// Amazon
+			// Amazon Titan
 			{
 				name:            "amazon.titan-text-lite-v1",
 				generativeModel: "amazon.titan-text-lite-v1",
@@ -81,6 +75,7 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			{
 				name:            "anthropic.claude-3-haiku-20240307-v1:0",
 				generativeModel: "anthropic.claude-3-haiku-20240307-v1:0",
+				withImages:      true,
 			},
 			{
 				name:            "anthropic.claude-v2:1",
@@ -112,6 +107,11 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				name:            "meta.llama3-70b-instruct-v1:0",
 				generativeModel: "meta.llama3-70b-instruct-v1:0",
 			},
+			{
+				name:               "absent module config",
+				generativeModel:    "meta.llama3-70b-instruct-v1:0",
+				absentModuleConfig: true,
+			},
 			// Mistral AI
 			{
 				name:            "mistral.mistral-7b-instruct-v0:2",
@@ -124,11 +124,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			{
 				name:            "mistral.mistral-large-2402-v1:0",
 				generativeModel: "mistral.mistral-large-2402-v1:0",
-			},
-			{
-				name:               "absent module config",
-				generativeModel:    "ai21.j2-mid-v1",
-				absentModuleConfig: true,
 			},
 		}
 		for _, tt := range tests {
@@ -149,7 +144,11 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					planets.InsertObjects(t, class.Class)
+					if tt.withImages {
+						planets.InsertObjectsWithImages(t, class.Class, dataFolderPath)
+					} else {
+						planets.InsertObjects(t, class.Class)
+					}
 				})
 				t.Run("check objects existence", func(t *testing.T) {
 					for _, planet := range data {
@@ -181,20 +180,75 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
-				t.Run("create a tweet with params using grpc", func(t *testing.T) {
-					aws := &pb.GenerativeAWS{
+
+				params := func() *pb.GenerativeAWS {
+					params := &pb.GenerativeAWS{
 						Model:       grpchelper.ToPtr(tt.generativeModel),
 						Temperature: grpchelper.ToPtr(0.9),
 					}
 					if tt.absentModuleConfig {
-						aws.Region = grpchelper.ToPtr(region)
-						aws.Service = grpchelper.ToPtr("bedrock")
+						params.Region = grpchelper.ToPtr(region)
+						params.Service = grpchelper.ToPtr("bedrock")
 					}
+					return params
+				}
+
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
 					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
 						ReturnMetadata: false, // no metadata for aws
-						Kind:           &pb.GenerativeProvider_Aws{Aws: aws},
+						Kind:           &pb.GenerativeProvider_Aws{Aws: params()},
 					})
 				})
+				if tt.withImages {
+					t.Run("image prompt", func(t *testing.T) {
+						t.Run("graphql", func(t *testing.T) {
+							prompt := "Caption image"
+							params := "aws:{imageProperties:\"image\"}"
+							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
+						})
+
+						singlePrompt := "Give a short answer: What's on the image?"
+						groupPrompt := "Give a short answer: What are on the following images?"
+
+						t.Run("grpc server stored images", func(t *testing.T) {
+							params := params()
+							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: false,
+								Kind:           &pb.GenerativeProvider_Aws{Aws: params},
+							})
+						})
+
+						t.Run("grpc user provided images", func(t *testing.T) {
+							earth, err := planets.GetImageBlob(dataFolderPath, "earth")
+							require.NoError(t, err)
+							mars, err := planets.GetImageBlob(dataFolderPath, "mars")
+							require.NoError(t, err)
+
+							params := params()
+							params.Images = &pb.TextArray{Values: []string{earth, mars}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: false,
+								Kind:           &pb.GenerativeProvider_Aws{Aws: params},
+							})
+						})
+
+						t.Run("grpc mixed images", func(t *testing.T) {
+							earth, err := planets.GetImageBlob(dataFolderPath, "earth")
+							require.NoError(t, err)
+							mars, err := planets.GetImageBlob(dataFolderPath, "mars")
+							require.NoError(t, err)
+
+							params := params()
+							params.Images = &pb.TextArray{Values: []string{earth, mars}}
+							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: false,
+								Kind:           &pb.GenerativeProvider_Aws{Aws: params},
+							})
+						})
+					})
+				}
 			})
 		}
 	}

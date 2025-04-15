@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/go-openapi/strfmt"
@@ -30,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -41,7 +41,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 
 	class := &models.Class{
 		Class:             "TestClass",
-		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: &models.InvertedIndexConfig{
 			CleanupIntervalSeconds: 60,
 			Stopwords: &models.StopwordConfig{
@@ -50,6 +50,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			IndexTimestamps:     true,
 			IndexNullState:      true,
 			IndexPropertyLength: true,
+			UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 		},
 		Properties: []*models.Property{
 			{
@@ -222,6 +223,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				IndexNullState:      true,
 				IndexTimestamps:     true,
 				IndexPropertyLength: true,
+				UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 			},
 			Properties: []*models.Property{
 				{
@@ -238,6 +240,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps:     true,
 				IndexPropertyLength: true,
+				UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 			},
 			Properties: []*models.Property{
 				{
@@ -487,6 +490,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexPropertyLength: true,
 				IndexTimestamps:     true,
+				UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 			},
 			Properties: []*models.Property{
 				{
@@ -505,7 +509,8 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			Class:             "RefClass",
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				IndexTimestamps: true,
+				IndexTimestamps:   true,
+				UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 			},
 			Properties: []*models.Property{
 				{
@@ -840,6 +845,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps:     true,
 				IndexPropertyLength: true,
+				UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 			},
 			Properties: []*models.Property{
 				{
@@ -856,6 +862,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps:     true,
 				IndexPropertyLength: true,
+				UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 			},
 			Properties: []*models.Property{
 				{

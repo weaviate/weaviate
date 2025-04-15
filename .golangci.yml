@@ -1,113 +1,490 @@
-linters:
-  disable:
-    - errcheck
-  enable:
-    - misspell
-    - bodyclose
-    - gofumpt
-    - exhaustive
-    - govet
-    - unused
-    - nolintlint
-linters-settings:
-  exhaustive:
-    # Presence of "default" case in switch statements satisfies exhaustiveness,
-    # even if all enum members are not listed.
-    default-signifies-exhaustive: true
-issues:
-  exclude-rules:
-    # Exclude some staticcheck messages
-    - linters:
-        - staticcheck
-      text: "S1034"
-    - linters:
-        - staticcheck
-      text: "SA1029:"
-    - linters:
-        - staticcheck
-      text: "SA1015:"
-    - linters:
-        - staticcheck
-      text: "SA5011"
-    - linters:
-        - govet
-      text: "composites"
-    - linters:
-        - staticcheck
-      path: ^adapters/handlers/grpc/v1\/(?:[^\/]+\/)*[^\/]+\.go$
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API implementation
-    - linters:
-        - staticcheck
-      path: ^test/acceptance/grpc\/[^\/]+\.go$
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API implementation
-    - linters:
-        - staticcheck
-      path: adapters/handlers/grpc/v1/prepare_reply.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: adapters/handlers/grpc/v1/parse_search_request.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: adapters/handlers/grpc/v1/batch_parse_request.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: adapters/handlers/grpc/v1/service.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: test/acceptance/grpc/grpc_test_deprecated.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: adapters/handlers/grpc/v1/mapping.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: test/acceptance/grpc/list_value_return_test.go
-      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
-    - linters:
-        - staticcheck
-      path: usecases/auth/authentication/oidc/middleware_test.go
-      text: 'SA1019' # jwt.StandardClaims is deprecated, but for the purpose of this test, this doesn't matter
-    # Exclude 'unused' linter for assembly files
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/dot_inline.go
-      text: "func `dot[357]`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l2[35]`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l22FloatByte`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l23FloatByte`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l24FloatByte`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l25FloatByte`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l210FloatByte`"
-    - linters:
-        - unused
-      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
-      text: "func `l212FloatByte`"
-
+version: "2"
 run:
-  timeout: 5m
   build-tags:
     - integrationTest
     - integrationTestSlow
+linters:
+  enable:
+    - bodyclose
+    - errorlint
+    - exhaustive
+    - forbidigo
+    - misspell
+    - nolintlint
+  disable:
+    - errcheck
+  settings:
+    errorlint:
+      errorf: true
+      errorf-multi: true
+      asserts: true
+      comparison: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    forbidigo:
+      forbid:
+        - pattern: ^print(ln)?$
+        - pattern: ^fmt\.Print.*$
+          msg: Do not commit print statements.
+        - pattern: ^spew\.(ConfigState\.)?Dump$
+      exclude-godoc-examples: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - staticcheck
+        text: S1034
+      - linters:
+          - staticcheck
+        text: 'SA1029:'
+      - linters:
+          - staticcheck
+        text: 'SA1015:'
+      - linters:
+          - staticcheck
+        text: SA5011
+      - linters:
+          - govet
+        text: composites
+      - linters:
+          - staticcheck
+        path: ^adapters/handlers/grpc/v1\/(?:[^\/]+\/)*[^\/]+\.go$
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: ^test/acceptance/grpc\/[^\/]+\.go$
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/prepare_reply.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/parse_search_request.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/batch_parse_request.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/service.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: test/acceptance/grpc/grpc_test_deprecated.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/mapping.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: test/acceptance/grpc/list_value_return_test.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: usecases/auth/authentication/oidc/middleware_test.go
+        text: SA1019
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/dot_inline.go
+        text: func dot[357]
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l2[35]
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l22FloatByte
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l23FloatByte
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l24FloatByte
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l25FloatByte
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l210FloatByte
+      - linters:
+          - unused
+        path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+        text: func l212FloatByte
+      - linters:
+          - forbidigo
+        path: test/*
+      - linters:
+          - forbidigo
+        path: tools/*
+      - linters:
+          - forbidigo
+        path: adapters/repos/db/vector/hnsw/debug.go
+      - linters:
+          - forbidigo
+        path: adapters/repos/db/vector/.*/dump.go
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/filters.go
+        text: QF1003 # could use tagged switch on propToFilterOn
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/parse_aggregate_request.go
+        text: QF1003 # could use tagged switch on hs.FusionType
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/parse_search_request.go
+        text: QF1003 # could use tagged switch on hs.FusionType
+      - linters:
+          - staticcheck
+        path: entities/storobj/storage_object.go
+        text: QF1003 # could use tagged switch on size
+      - linters:
+          - staticcheck
+        path: modules/text2vec-voyageai/module.go
+        text: QF1003 # could use tagged switch on model
+      - linters:
+          - staticcheck
+        path: test/acceptance/authz/rbac_viewer_test.go
+        text: QF1003 # could use tagged switch on method
+      - linters:
+          - staticcheck
+        path: test/docker/compose.go
+        text: QF1003 # could use tagged switch on size
+      - linters:
+          - staticcheck
+        path: usecases/traverser/hybrid/searcher.go
+        text: QF1003 # could use tagged switch on params.FusionAlgorithm
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/lsmkv/compactor_inverted.go
+        text: QF1006 # could lift into loop condition
+      - linters:
+          - staticcheck
+        path: modules/backup-azure/client.go
+        text: QF1006 # could lift into loop condition
+      - linters:
+          - staticcheck
+        path: test/acceptance_lsmkv/replace_bucket_acceptance_test.go
+        text: QF1006 # could lift into loop condition
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/lsmkv/compactor_map.go
+        text: QF1006 # could lift into loop condition
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/lsmkv/compactor_replace
+        text: QF1006 # could lift into loop condition
+      - linters:
+          - staticcheck
+        path: entities/cyclemanager/cyclecallbackgroup.go
+        text: QF1006 # could lift into loop condition
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/lsmkv/compactor_set.go
+        text: QF1006 # could lift into loop condition
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/lsmkv/segment_key_and_tombstone_extractor.go
+        text: QF1006 # could lift into loop condition
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/vector/hnsw/commit_log_combiner_integration_test.go
+        text: QF1006 # could lift into loop condition
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/lsmkv/compactor_inverted.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/lsmkv/compactor_replace.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/lsmkv/compactor_replace.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: entities/storobj/storage_object.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: modules/generative-openai/config/class_settings.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: usecases/config/environment.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/vector/flat/index.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: modules/text2vec-mistral/vectorizer/fakes_for_test.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: modules/text2vec-openai/ent/class_settings.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: modules/text2vec-openai/vectorizer/fakes_for_test.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: usecases/schema/property_test.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/inverted_migrator_filter_to_search.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/inverted_reindexer_map_to_blockmax.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/shard_debug.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: usecases/modules/vectorizer.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: modules/text2vec-cohere/vectorizer/fakes_for_test.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: modules/text2vec-voyageai/vectorizer/fakes_for_test.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: usecases/modulecomponents/clients/transformers/transformers.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
+        path: adapters/handlers/grpc/v1/models.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: adapters/handlers/rest/handlers_debug.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: adapters/repos/db/vector_index_queue.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: cluster/resolver/raft.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: cluster/service.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/backup-azure/client.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/qna-transformers/additional/answer/answer_result.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2colbert-jinaai/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-google/vectorizer/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/auth/authorization/mocks/authorizer_mock
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/backup/backend.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/backup/shard.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/cluster/delegate_test.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/modules/modules_test.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/objects/add_test.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/objects/auto_schema.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/objects/fakes_for_test.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/objects/head_test.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/objects/query_test.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/qna-openai/additional/answer/answer_result.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-jinaai/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-aws/vectorizer/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-cohere/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-openai/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-cohere/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/objects/references_test.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: usecases/traverser/hybrid/searcher.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-weaviate/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-contextionary/vectorizer/index_check.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-huggingface/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-databricks/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-model2vec/vectorizer/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-ollama/vectorizer/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-octoai/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-transformers/vectorizer/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-ollama/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-voyageai/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-voyageai/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-gpt4all/vectorizer/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-mistral/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: modules/text2vec-nvidia/ent/class_settings.go
+        text: QF1008 # could remove embedded field <name> from selector
+      - linters:
+          - staticcheck
+        path: adapters/handlers/graphql/local/get/class_builder_fields.go
+        text: ST1005 # error strings should not end with punctuation or newlines
+      - linters:
+          - staticcheck
+        path: entities/lsmkv/errors.go
+        text: ST1012 # error var NotFound should have name of the form ErrFoo
+      - linters:
+          - staticcheck
+        path: usecases/auth/authentication/anonymous/middleware.go
+        text: QF1012 # Use fmt.Fprintf(...) instead of Write([]byte(fmt.Sprintf(...)))
+      - linters:
+          - staticcheck
+        path: usecases/modulecomponents/clients/transformers/transformers_test.go
+        text: QF1012 # Use fmt.Fprintf(...) instead of Write([]byte(fmt.Sprintf(...)))
+      - linters:
+          - staticcheck
+        path: modules/text2vec-model2vec/clients/model2vec_test.go
+        text: QF1012 # Use fmt.Fprintf(...) instead of Write([]byte(fmt.Sprintf(...)))
+      - linters:
+          - staticcheck
+        path: modules/text2vec-transformers/clients/transformers_test.go
+        text: QF1012 # Use fmt.Fprintf(...) instead of Write([]byte(fmt.Sprintf(...)))
+      - linters:
+          - staticcheck
+        path: modules/generative-anthropic/clients/anthropic.go
+        text: ST1005 # error strings should not end with punctuation or newlines
+      - linters:
+          - staticcheck
+        path: modules/generative-aws/clients/aws.go
+        text: ST1005 # error strings should not end with punctuation or newlines
+      - linters:
+          - staticcheck
+        path: modules/text2vec-aws/clients/aws.go
+        text: ST1005 # error strings should not end with punctuation or newlines
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofumpt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

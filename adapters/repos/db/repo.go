@@ -20,7 +20,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/cenkalti/backoff/v4"
@@ -28,7 +27,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/utils"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -41,6 +42,7 @@ import (
 
 type DB struct {
 	logger            logrus.FieldLogger
+	router            *router.Router
 	schemaGetter      schemaUC.SchemaGetter
 	config            Config
 	indices           map[string]*Index
@@ -88,6 +90,10 @@ type DB struct {
 	// in the case of metrics grouping we need to observe some metrics
 	// node-centric, rather than shard-centric
 	metricsObserver *nodeWideMetricsObserver
+
+	shardLoadLimiter ShardLoadLimiter
+
+	reindexer ShardReindexerV3
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -108,6 +114,10 @@ func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	db.schemaGetter = sg
+}
+
+func (db *DB) SetRouter(r *router.Router) {
+	db.router = r
 }
 
 func (db *DB) GetScheduler() *queue.Scheduler {
@@ -136,6 +146,11 @@ func New(logger logrus.FieldLogger, config Config,
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
 	}
+	metricsRegisterer := monitoring.NoopRegisterer
+	if promMetrics != nil && promMetrics.Registerer != nil {
+		metricsRegisterer = promMetrics.Registerer
+	}
+
 	db := &DB{
 		logger:              logger,
 		config:              config,
@@ -149,6 +164,8 @@ func New(logger logrus.FieldLogger, config Config,
 		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:   newResourceScanState(),
 		memMonitor:          memMonitor,
+		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
+		reindexer:           NewShardReindexerV3Noop(),
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -182,32 +199,35 @@ func New(logger logrus.FieldLogger, config Config,
 }
 
 type Config struct {
-	RootPath                             string
-	QueryLimit                           int64
-	QueryMaximumResults                  int64
-	QueryNestedRefLimit                  int64
-	ResourceUsage                        config.ResourceUsage
-	MaxImportGoroutinesFactor            float64
-	MemtablesFlushDirtyAfter             int
-	MemtablesInitialSizeMB               int
-	MemtablesMaxSizeMB                   int
-	MemtablesMinActiveSeconds            int
-	MemtablesMaxActiveSeconds            int
-	SegmentsCleanupIntervalSeconds       int
-	SeparateObjectsCompactions           bool
-	MaxSegmentSize                       int64
-	HNSWMaxLogSize                       int64
-	HNSWWaitForCachePrefill              bool
-	HNSWFlatSearchConcurrency            int
-	VisitedListPoolMaxSize               int
-	TrackVectorDimensions                bool
-	ServerVersion                        string
-	GitHash                              string
-	AvoidMMap                            bool
-	DisableLazyLoadShards                bool
-	ForceFullReplicasSearch              bool
-	LSMDisableSegmentsChecksumValidation bool
-	Replication                          replication.GlobalConfig
+	RootPath                            string
+	QueryLimit                          int64
+	QueryMaximumResults                 int64
+	QueryNestedRefLimit                 int64
+	ResourceUsage                       config.ResourceUsage
+	MaxImportGoroutinesFactor           float64
+	MemtablesFlushDirtyAfter            int
+	MemtablesInitialSizeMB              int
+	MemtablesMaxSizeMB                  int
+	MemtablesMinActiveSeconds           int
+	MemtablesMaxActiveSeconds           int
+	SegmentsCleanupIntervalSeconds      int
+	SeparateObjectsCompactions          bool
+	MaxSegmentSize                      int64
+	HNSWMaxLogSize                      int64
+	HNSWWaitForCachePrefill             bool
+	HNSWFlatSearchConcurrency           int
+	HNSWAcornFilterRatio                float64
+	VisitedListPoolMaxSize              int
+	TrackVectorDimensions               bool
+	ServerVersion                       string
+	GitHash                             string
+	AvoidMMap                           bool
+	DisableLazyLoadShards               bool
+	ForceFullReplicasSearch             bool
+	LSMEnableSegmentsChecksumValidation bool
+	Replication                         replication.GlobalConfig
+	MaximumConcurrentShardLoads         int
+	CycleManagerRoutinesFactor          int
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -358,4 +378,9 @@ func (db *DB) batchWorker(first bool) {
 			checkTime = time.Now().Add(time.Second)
 		}
 	}
+}
+
+func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB {
+	db.reindexer = reindexer
+	return db
 }

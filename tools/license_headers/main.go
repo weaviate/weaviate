@@ -50,13 +50,13 @@ func main() {
 func processSingleFile(name string) error {
 	bytes, err := os.ReadFile(name)
 	if err != nil {
-		return fmt.Errorf("%s: %v", name, err)
+		return fmt.Errorf("%s: %w", name, err)
 	}
 
 	if hasNoHeader(bytes, name) {
 		err := extendWithHeader(name, bytes)
 		if err != nil {
-			return fmt.Errorf("%s: %v", name, err)
+			return fmt.Errorf("%s: %w", name, err)
 		}
 		fmt.Printf("🖋️  successfully created header: %s\n", name)
 		return nil
@@ -65,7 +65,7 @@ func processSingleFile(name string) error {
 	if headerNeedsUpdate(bytes) {
 		err := updateHeader(name, bytes)
 		if err != nil {
-			return fmt.Errorf("%s: %v", name, err)
+			return fmt.Errorf("%s: %w", name, err)
 		}
 
 		fmt.Printf("👷 successfully updated: %s\n", name)

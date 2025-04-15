@@ -12,17 +12,15 @@
 package cluster
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/protobuf/proto"
-	gproto "google.golang.org/protobuf/proto"
+
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -48,11 +46,6 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 
 	// Always call Error first otherwise the response can't  be read from the future
 	if err := fut.Error(); err != nil {
-		// If the current node is not the leader (it might have changed recently) return ErrNotLeader to ensure that we
-		// will retry the apply to the leader
-		if errors.Is(err, raft.ErrNotLeader) {
-			return 0, types.ErrNotLeader
-		}
 		return 0, err
 	}
 
@@ -61,7 +54,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	resp, ok := futureResponse.(Response)
 	if !ok {
 		// This should not happen, but it's better to log an error *if* it happens than panic and crash.
-		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen!", futureResponse)
+		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen", futureResponse)
 	}
 	return resp.Version, resp.Error
 }
@@ -80,7 +73,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		return ret
 	}
 	cmd := api.ApplyRequest{}
-	if err := gproto.Unmarshal(l.Data, &cmd); err != nil {
+	if err := proto.Unmarshal(l.Data, &cmd); err != nil {
 		st.log.WithError(err).Error("decode command")
 		panic("error proto un-marshalling log data")
 	}
@@ -121,7 +114,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	cmd.Version = l.Index
 	// Report only when not ready the progress made on applying log entries. This help users with big schema and long
 	// startup time to keep track of progress.
-	if !st.Ready() {
+	// We check for ready state and index <= lastAppliedIndexToDB because just checking ready state would mean this log line
+	// would keep printing if the node has caught up but there's no leader in the cluster.
+	// This can happen for example if quorum is lost briefly.
+	// By checking lastAppliedIndexToDB we ensure that we never print past that index
+	if !st.Ready() && l.Index <= st.lastAppliedIndexToDB.Load() {
 		st.log.Infof("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
 	}
 	st.log.WithFields(logrus.Fields{
@@ -167,6 +164,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.schemaManager.UpdateShardStatus(&cmd, schemaOnly)
 		}
+	case api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.AddReplicaToShard(&cmd, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_ADD_TENANT:
 		f = func() {
@@ -192,7 +193,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.StoreSchemaV1()
 		}
-
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
 			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
@@ -214,6 +214,36 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
 		}
 
+	case api.ApplyRequest_TYPE_UPSERT_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.CreateUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.DeleteUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_ROTATE_USER_API_KEY:
+		f = func() {
+			ret.Error = st.dynUserManager.RotateKey(&cmd)
+		}
+	case api.ApplyRequest_TYPE_SUSPEND_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.SuspendUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_ACTIVATE_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.ActivateUser(&cmd)
+		}
+
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		f = func() {
+			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:
+		f = func() {
+			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
+		}
+
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
@@ -223,7 +253,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			"class": cmd.Class,
 			"more":  msg,
 		}).Error("unknown command")
-		panic(fmt.Sprintf("unknown command type=%d class=%s more=%s", cmd.Type, cmd.Class, msg))
 	}
 
 	// Wrap the function in a go routine to ensure panic recovery. This is necessary as this function is run in an

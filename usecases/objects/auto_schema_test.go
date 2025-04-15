@@ -23,10 +23,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/test_utils"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -605,7 +607,9 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 
 	var obj *models.Object
 
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, obj)
+	knownClasses := map[string]versioned.Class{}
+
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
 	assert.EqualError(t, fmt.Errorf(validation.ErrorMissingObject), err.Error())
 }
 
@@ -638,9 +642,11 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 			"numberArray":     []interface{}{json.Number("30")},
 		},
 	}
+	knownClasses := map[string]versioned.Class{}
+
 	// when
 	schemaBefore := schemaManager.GetSchemaResponse
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, obj)
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
 	schemaAfter := schemaManager.GetSchemaResponse
 
 	// then
@@ -648,23 +654,28 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	require.Nil(t, err)
 	require.NotNil(t, schemaAfter.Objects)
 	assert.Equal(t, 1, len(schemaAfter.Objects.Classes))
-	assert.Equal(t, "Publication", (schemaAfter.Objects.Classes)[0].Class)
-	assert.Equal(t, 5, len((schemaAfter.Objects.Classes)[0].Properties))
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "name"))
-	assert.Equal(t, "name", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").Name)
-	assert.Equal(t, "text", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "age"))
-	assert.Equal(t, "age", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").Name)
-	assert.Equal(t, "number", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate"))
-	assert.Equal(t, "publicationDate", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").Name)
-	assert.Equal(t, "date", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "textArray"))
-	assert.Equal(t, "textArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "textArray").Name)
-	assert.Equal(t, "text[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "textArray").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray"))
-	assert.Equal(t, "numberArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").Name)
-	assert.Equal(t, "number[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").DataType[0])
+
+	class := (schemaAfter.Objects.Classes)[0]
+	assert.Equal(t, "Publication", class.Class)
+	assert.Equal(t, 5, len(class.Properties))
+	require.NotNil(t, getProperty(class.Properties, "name"))
+	assert.Equal(t, "name", getProperty(class.Properties, "name").Name)
+	assert.Equal(t, "text", getProperty(class.Properties, "name").DataType[0])
+	require.NotNil(t, getProperty(class.Properties, "age"))
+	assert.Equal(t, "age", getProperty(class.Properties, "age").Name)
+	assert.Equal(t, "number", getProperty(class.Properties, "age").DataType[0])
+	require.NotNil(t, getProperty(class.Properties, "publicationDate"))
+	assert.Equal(t, "publicationDate", getProperty(class.Properties, "publicationDate").Name)
+	assert.Equal(t, "date", getProperty(class.Properties, "publicationDate").DataType[0])
+	require.NotNil(t, getProperty(class.Properties, "textArray"))
+	assert.Equal(t, "textArray", getProperty(class.Properties, "textArray").Name)
+	assert.Equal(t, "text[]", getProperty(class.Properties, "textArray").DataType[0])
+	require.NotNil(t, getProperty(class.Properties, "numberArray"))
+	assert.Equal(t, "numberArray", getProperty(class.Properties, "numberArray").Name)
+	assert.Equal(t, "number[]", getProperty(class.Properties, "numberArray").DataType[0])
+	assert.Equal(t, "hnsw", class.VectorIndexType)
+	assert.Equal(t, "none", class.Vectorizer)
+	assert.NotNil(t, class.VectorIndexConfig)
 }
 
 func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
@@ -673,20 +684,20 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	logger, _ := test.NewNullLogger()
+
+	class := &models.Class{
+		Class: "Publication",
+		Properties: []*models.Property{
+			{
+				Name:     "age",
+				DataType: []string{"int"},
+			},
+		},
+	}
 	schemaManager := &fakeSchemaManager{
 		GetSchemaResponse: schema.Schema{
 			Objects: &models.Schema{
-				Classes: []*models.Class{
-					{
-						Class: "Publication",
-						Properties: []*models.Property{
-							{
-								Name:     "age",
-								DataType: []string{"int"},
-							},
-						},
-					},
-				},
+				Classes: []*models.Class{class},
 			},
 		},
 	}
@@ -722,7 +733,11 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	assert.Equal(t, "age", (schemaBefore.Objects.Classes)[0].Properties[0].Name)
 	assert.Equal(t, "int", (schemaBefore.Objects.Classes)[0].Properties[0].DataType[0])
 
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, obj)
+	knownClasses := map[string]versioned.Class{
+		class.Class: {Version: 0, Class: class},
+	}
+
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
 	require.Nil(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse
@@ -1640,7 +1655,11 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 		authorizer: fakeAuthorizer{},
 	}
 
-	_, err := manager.autoSchema(context.Background(), &models.Principal{}, true, object)
+	knownClasses := map[string]versioned.Class{
+		class.Class: {Version: 0, Class: class},
+	}
+
+	_, err := manager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, object)
 	require.NoError(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse
@@ -1681,4 +1700,12 @@ type fakeAuthorizer struct{}
 
 func (f fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
 	return nil
+}
+
+func (f fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
+	return nil
+}
+
+func (f fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	return resources, nil
 }

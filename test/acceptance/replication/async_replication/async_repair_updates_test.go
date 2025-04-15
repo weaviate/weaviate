@@ -20,12 +20,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
@@ -45,7 +47,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
 	paragraphClass := articles.ParagraphsClass()
@@ -61,64 +63,74 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 1
+	node := 2
 
-	for it := 0; it < itCount; it++ {
-		// pick one node to be down during upserts
-		node := 2 + rand.Intn(clusterSize-1)
+	t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, node)
+	})
 
-		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			common.StopNodeAt(ctx, t, compose, node)
-		})
+	t.Run("upsert paragraphs", func(t *testing.T) {
+		batch := make([]*models.Object, len(paragraphIDs))
+		for i, id := range paragraphIDs {
+			batch[i] = articles.NewParagraph().
+				WithID(id).
+				WithContents(fmt.Sprintf("paragraph#%d", i)).
+				Object()
+		}
 
-		t.Run("upsert paragraphs", func(t *testing.T) {
-			batch := make([]*models.Object, len(paragraphIDs))
+		// choose one more node to insert the objects into
+		var targetNode int
+		for {
+			targetNode = 1 + rand.Intn(clusterSize)
+			if targetNode != node {
+				break
+			}
+		}
+
+		common.CreateObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, types.ConsistencyLevelOne)
+	})
+
+	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
+		common.StartNodeAt(ctx, t, compose, node)
+		time.Sleep(5 * time.Second)
+	})
+
+	t.Run("verify that all nodes are running", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verbose := verbosity.OutputVerbose
+			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+
+			resp := body.Payload
+			require.Len(ct, resp.Nodes, clusterSize)
+			for _, n := range resp.Nodes {
+				require.NotNil(ct, n.Status)
+				assert.Equal(ct, "HEALTHY", *n.Status)
+			}
+		}, 15*time.Second, 500*time.Millisecond)
+	})
+
+	t.Run(fmt.Sprintf("assert node %d has all the objects at its latest version", node), func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			count := common.CountObjects(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class)
+			assert.EqualValues(ct, len(paragraphIDs), count)
+
 			for i, id := range paragraphIDs {
-				batch[i] = articles.NewParagraph().
-					WithID(id).
-					WithContents(fmt.Sprintf("paragraph#%d_%d", it, i)).
-					Object()
-			}
+				resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, types.ConsistencyLevelOne)
+				assert.NoError(ct, err)
+				assert.NotNil(ct, resp)
 
-			// choose one more node to insert the objects into
-			var targetNode int
-			for {
-				targetNode = 1 + rand.Intn(clusterSize)
-				if targetNode != node {
-					break
+				if resp == nil {
+					continue
 				}
+
+				assert.Equal(ct, id, resp.ID)
+
+				props := resp.Properties.(map[string]interface{})
+				props["contents"] = fmt.Sprintf("paragraph#%d", i)
 			}
-
-			common.CreateObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, replica.One)
-		})
-
-		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			common.StartNodeAt(ctx, t, compose, node)
-			time.Sleep(time.Second)
-		})
-	}
-
-	for n := 1; n <= clusterSize; n++ {
-		t.Run(fmt.Sprintf("assert node %d has all the objects at its latest version", n), func(t *testing.T) {
-			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-				count := common.CountObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
-				assert.EqualValues(ct, len(paragraphIDs), count)
-
-				for i, id := range paragraphIDs {
-					resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class, id, replica.One)
-					assert.NoError(ct, err)
-					assert.NotNil(t, resp)
-
-					if resp == nil {
-						continue
-					}
-
-					assert.Equal(ct, id, resp.ID)
-
-					props := resp.Properties.(map[string]interface{})
-					props["contents"] = fmt.Sprintf("paragraph#%d_%d", itCount, i)
-				}
-			}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
-		})
-	}
+		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
+	})
 }

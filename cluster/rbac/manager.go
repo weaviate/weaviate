@@ -15,9 +15,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
+
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -25,12 +27,13 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ  authorization.Controller
-	logger logrus.FieldLogger
+	authZ       authorization.Controller
+	authNconfig config.Authentication
+	logger      logrus.FieldLogger
 }
 
-func NewManager(authZ authorization.Controller, logger logrus.FieldLogger) *Manager {
-	return &Manager{authZ: authZ, logger: logger}
+func NewManager(authZ authorization.Controller, authNconfig config.Authentication, logger logrus.FieldLogger) *Manager {
+	return &Manager{authZ: authZ, authNconfig: authNconfig, logger: logger}
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
@@ -66,7 +69,7 @@ func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	roles, err := m.authZ.GetRolesForUser(subCommand.User)
+	roles, err := m.authZ.GetRolesForUser(subCommand.User, subCommand.UserType)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
@@ -89,7 +92,7 @@ func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	users, err := m.authZ.GetUsersForRole(subCommand.Role)
+	users, err := m.authZ.GetUsersForRole(subCommand.Role, subCommand.UserType)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
@@ -134,8 +137,22 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	switch req.Version {
-	case cmd.RBACCommandPolicyVersionV0:
+	// don't allow to create roles if there is already a role present
+	if req.RoleCreation {
+		names := make([]string, 0, len(req.Roles))
+		for name := range req.Roles {
+			names = append(names, name)
+		}
+		roles, err := m.authZ.GetRoles(names...)
+		if err != nil {
+			return err
+		}
+		if len(roles) > 0 {
+			return fmt.Errorf("%w: roles already exist", ErrBadRequest)
+		}
+	}
+
+	if req.Version < cmd.RBACLatestCommandPolicyVersion {
 		for roleName, policies := range req.Roles {
 			permissions := []*authorization.Policy{}
 			for _, p := range policies {
@@ -145,27 +162,15 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 			if err := m.authZ.RemovePermissions(roleName, permissions); err != nil {
 				return err
 			}
-
-			// create new permissions
-			for idx := range policies {
-				if req.Roles[roleName][idx].Domain != authorization.SchemaDomain {
-					continue
-				}
-
-				parts := strings.Split(req.Roles[roleName][idx].Resource, "/")
-				if len(parts) < 3 {
-					// shall never happens
-					return fmt.Errorf("invalid schema path")
-				}
-				req.Roles[roleName][idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
-
-			}
 		}
-	default:
-		// do nothing
 	}
 
-	return m.authZ.UpsertRolesPermissions(req.Roles)
+	reqMigrated, err := migrateUpsertRolesPermissions(req)
+	if err != nil {
+		return err
+	}
+
+	return m.authZ.UpdateRolesPermissions(reqMigrated.Roles) // update is upsert, naming is to satisfy interface
 }
 
 func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {
@@ -189,7 +194,13 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.authZ.AddRolesForUser(req.User, req.Roles)
+	reqs := migrateAssignRoles(req, m.authNconfig)
+	for _, req := range reqs {
+		if err := m.authZ.AddRolesForUser(req.User, req.Roles); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
@@ -201,29 +212,18 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	switch req.Version {
-	case cmd.RBACCommandPolicyVersionV0:
-		// keep to remove old formats
+	if req.Version < cmd.RBACLatestCommandPolicyVersion {
 		if err := m.authZ.RemovePermissions(req.Role, req.Permissions); err != nil {
 			return err
 		}
-		// remove any added with new format after migration
-		for idx := range req.Permissions {
-			if req.Permissions[idx].Domain != authorization.SchemaDomain {
-				continue
-			}
-			parts := strings.Split(req.Permissions[idx].Resource, "/")
-			if len(parts) < 3 {
-				// shall never happens
-				return fmt.Errorf("invalid schema path")
-			}
-			req.Permissions[idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
-		}
-	default:
-		// do nothing
 	}
 
-	return m.authZ.RemovePermissions(req.Role, req.Permissions)
+	reqMigrated, err := migrateRemovePermissions(req)
+	if err != nil {
+		return err
+	}
+
+	return m.authZ.RemovePermissions(reqMigrated.Role, reqMigrated.Permissions)
 }
 
 func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
@@ -235,5 +235,11 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.authZ.RevokeRolesForUser(req.User, req.Roles...)
+	reqs := migrateRevokeRoles(req)
+	for _, req := range reqs {
+		if err := m.authZ.RevokeRolesForUser(req.User, req.Roles...); err != nil {
+			return err
+		}
+	}
+	return nil
 }

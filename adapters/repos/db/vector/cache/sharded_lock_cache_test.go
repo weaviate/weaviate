@@ -80,7 +80,7 @@ func TestCacheCleanup(t *testing.T) {
 	maxSize := 10
 	batchSize := maxSize - 1
 	deletionInterval := 200 * time.Millisecond // overwrite default deletionInterval of 3s
-	sleepMs := deletionInterval + 100*time.Millisecond
+	sleepDuration := deletionInterval + 100*time.Millisecond
 
 	t.Run("count is not reset on unnecessary deletion", func(t *testing.T) {
 		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, 1, logger, false, deletionInterval, nil)
@@ -90,7 +90,7 @@ func TestCacheCleanup(t *testing.T) {
 		for i := 0; i < batchSize; i++ {
 			shardedLockCache.Preload(uint64(i), []float32{float32(i), float32(i)})
 		}
-		time.Sleep(sleepMs) // wait for deletion to fire
+		time.Sleep(sleepDuration) // wait for deletion to fire
 
 		assert.Equal(t, batchSize, int(shardedLockCache.CountVectors()))
 		assert.Equal(t, batchSize, countCached(shardedLockCache))
@@ -111,7 +111,7 @@ func TestCacheCleanup(t *testing.T) {
 				id := b*batchSize + i
 				shardedLockCache.Preload(uint64(id), []float32{float32(id), float32(id)})
 			}
-			time.Sleep(sleepMs) // wait for deletion to fire, 2nd should clean the cache
+			time.Sleep(sleepDuration) // wait for deletion to fire, 2nd should clean the cache
 		}
 
 		assert.Equal(t, 0, int(shardedLockCache.CountVectors()))
@@ -248,4 +248,113 @@ func TestGetAllInCurrentLock(t *testing.T) {
 			assert.Equal(t, expectedErr, resultErrs[i])
 		}
 	})
+}
+
+func TestMultiVectorCacheGrowth(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	var multivecForId common.VectorForID[[]float32] = nil
+	id := 100_000
+	expectedCount := int64(0)
+
+	vectorCache := NewShardedMultiFloat32LockCache(multivecForId, 1_000_000, logger, false, time.Duration(10_000), nil)
+	initialSize := vectorCache.Len()
+	assert.Less(t, int(initialSize), id)
+	assert.Equal(t, expectedCount, vectorCache.CountVectors())
+
+	vectorCache.Grow(uint64(id))
+	size1stGrow := vectorCache.Len()
+	assert.Greater(t, int(size1stGrow), id)
+	assert.Equal(t, expectedCount, vectorCache.CountVectors())
+
+	vectorCache.Grow(uint64(id))
+	size2ndGrow := vectorCache.Len()
+	assert.Equal(t, size1stGrow, size2ndGrow)
+	assert.Equal(t, expectedCount, vectorCache.CountVectors())
+}
+
+func TestMultiCache_ParallelGrowth(t *testing.T) {
+	// no asserts
+	// ensures there is no "index out of range" panic on get
+
+	logger, _ := test.NewNullLogger()
+	var multivecForId common.VectorForID[[]float32] = func(context.Context, uint64) ([][]float32, error) { return nil, nil }
+	vectorCache := NewShardedMultiFloat32LockCache(multivecForId, 1_000_000, logger, false, time.Second, nil)
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	count := 10_000
+	maxNode := 100_000
+
+	wg := new(sync.WaitGroup)
+	wg.Add(count)
+	for i := 0; i < count; i++ {
+		node := uint64(r.Intn(maxNode))
+		go func(node uint64) {
+			defer wg.Done()
+
+			vectorCache.Grow(node)
+		}(node)
+	}
+
+	wg.Wait()
+}
+
+func TestMultiCacheCleanup(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	var multivecForId common.VectorForID[[]float32] = nil
+
+	maxSize := 10
+	batchSize := maxSize - 1
+	deletionInterval := 200 * time.Millisecond // overwrite default deletionInterval of 3s
+	sleepDuration := deletionInterval + 100*time.Millisecond
+
+	t.Run("count is not reset on unnecessary deletion", func(t *testing.T) {
+		vectorCache := NewShardedMultiFloat32LockCache(multivecForId, maxSize, logger, false, deletionInterval, nil)
+		shardedLockCache, ok := vectorCache.(*shardedMultipleLockCache[float32])
+		assert.True(t, ok)
+
+		for i := 0; i < batchSize; i++ {
+			shardedLockCache.PreloadMulti(uint64(i), []uint64{uint64(i)}, [][]float32{{float32(i), float32(i)}})
+		}
+		time.Sleep(sleepDuration) // wait for deletion to fire
+
+		assert.Equal(t, batchSize, int(shardedLockCache.CountVectors()))
+		assert.Equal(t, batchSize, countMultiCached(shardedLockCache))
+
+		shardedLockCache.Drop()
+
+		assert.Equal(t, 0, int(shardedLockCache.count))
+		assert.Equal(t, 0, countMultiCached(shardedLockCache))
+	})
+
+	t.Run("deletion clears cache and counter when maxSize exceeded", func(t *testing.T) {
+		vectorCache := NewShardedMultiFloat32LockCache(multivecForId, maxSize, logger, false, deletionInterval, nil)
+		shardedLockCache, ok := vectorCache.(*shardedMultipleLockCache[float32])
+		assert.True(t, ok)
+
+		for b := 0; b < 2; b++ {
+			for i := 0; i < batchSize; i++ {
+				id := b*batchSize + i
+				shardedLockCache.PreloadMulti(uint64(id), []uint64{uint64(id)}, [][]float32{{float32(id), float32(id)}})
+			}
+			time.Sleep(sleepDuration) // wait for deletion to fire, 2nd should clean the cache
+		}
+
+		assert.Equal(t, 0, int(shardedLockCache.CountVectors()))
+		assert.Equal(t, 0, countMultiCached(shardedLockCache))
+
+		shardedLockCache.Drop()
+	})
+}
+
+func countMultiCached(c *shardedMultipleLockCache[float32]) int {
+	c.shardedLocks.LockAll()
+	defer c.shardedLocks.UnlockAll()
+
+	count := 0
+	for _, vec := range c.cache {
+		if vec != nil {
+			count++
+		}
+	}
+	return count
 }

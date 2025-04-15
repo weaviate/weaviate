@@ -13,12 +13,13 @@ package test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/go-openapi/runtime"
+
 	"github.com/weaviate/weaviate/client/graphql"
-	graphql_client "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -30,7 +31,7 @@ type GraphQLResult struct {
 // Perform a GraphQL request
 func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) (*models.GraphQLResponse, error) {
 	var vars interface{} = variables
-	params := graphql_client.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
+	params := graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
 	response, err := helper.Client(t).Graphql.GraphqlPost(params, nil)
 	if err != nil {
 		return nil, err
@@ -43,11 +44,11 @@ func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation
 func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query string) *GraphQLResult {
 	response, err := QueryGraphQL(t, auth, "", query, nil)
 	if err != nil {
-		parsedErr, ok := err.(*graphql.GraphqlPostUnprocessableEntity)
-		if !ok {
+		var parsedErr *graphql.GraphqlPostUnprocessableEntity
+		if !errors.As(err, &parsedErr) {
 			t.Fatalf("Expected the query to succeed, but failed due to: %#v", err)
 		}
-		t.Fatalf("Expected the query to succeed, but failed with unprocessable entity: %v", parsedErr.Payload.Error[0])
+		t.Fatalf("Expected the query to succeed, but failed with unprocessable entity: %#v", parsedErr.Payload.Error[0])
 	}
 
 	if len(response.Errors) != 0 {

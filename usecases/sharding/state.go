@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"sort"
 
 	"github.com/spaolacci/murmur3"
@@ -74,6 +75,26 @@ type Physical struct {
 // always returns the first node of the list
 func (p Physical) BelongsToNode() string {
 	return p.BelongsToNodes[0]
+}
+
+func (s *State) AddReplicaToShard(shard string, replica string) error {
+	phys, ok := s.Physical[shard]
+	if !ok {
+		return fmt.Errorf("could not find shard %s", shard)
+	}
+	if err := phys.AddReplica(replica); err != nil {
+		return err
+	}
+	s.Physical[shard] = phys
+	return nil
+}
+
+func (p *Physical) AddReplica(replica string) error {
+	if slices.Contains(p.BelongsToNodes, replica) {
+		return fmt.Errorf("replica %s already exists", replica)
+	}
+	p.BelongsToNodes = append(p.BelongsToNodes, replica)
+	return nil
 }
 
 // AdjustReplicas shrinks or extends the replica set (p.BelongsToNodes)
@@ -194,6 +215,14 @@ func (s *State) AllPhysicalShards() []string {
 	})
 
 	return names
+}
+
+func (s *State) AllPhysicalShardsAndReplicas() map[string][]string {
+	shardsToReplicas := make(map[string][]string, len(s.Physical))
+	for _, physical := range s.Physical {
+		shardsToReplicas[physical.Name] = physical.BelongsToNodes
+	}
+	return shardsToReplicas
 }
 
 func (s *State) AllLocalPhysicalShards() []string {
@@ -350,9 +379,16 @@ func (s *State) AddPartition(name string, nodes []string, status string) Physica
 	return p
 }
 
-// DeletePartition to physical shards
-func (s *State) DeletePartition(name string) {
+// DeletePartition to physical shards. Return `true` if given partition is
+// actually deleted.
+func (s *State) DeletePartition(name string) (string, bool) {
+	t, ok := s.Physical[name]
+	if !ok {
+		return "", false
+	}
+	status := t.Status
 	delete(s.Physical, name)
+	return status, true
 }
 
 // ApplyNodeMapping replaces node names with their new value form nodeMapping in s.

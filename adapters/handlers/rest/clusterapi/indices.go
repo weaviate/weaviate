@@ -22,15 +22,17 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	reposdb "github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -48,14 +50,14 @@ type indices struct {
 	auth   auth
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all indices requests just return a 418
-	maintenanceModeEnabled          func() bool
-	regexpObjects                   *regexp.Regexp
-	regexpObjectsOverwrite          *regexp.Regexp
-	regexObjectsDigest              *regexp.Regexp
-	regexObjectsDigestsInTokenRange *regexp.Regexp
-	regexObjectsHashTreeLevel       *regexp.Regexp
-	regexpObjectsSearch             *regexp.Regexp
-	regexpObjectsFind               *regexp.Regexp
+	maintenanceModeEnabled     func() bool
+	regexpObjects              *regexp.Regexp
+	regexpObjectsOverwrite     *regexp.Regexp
+	regexObjectsDigest         *regexp.Regexp
+	regexObjectsDigestsInRange *regexp.Regexp
+	regexObjectsHashTreeLevel  *regexp.Regexp
+	regexpObjectsSearch        *regexp.Regexp
+	regexpObjectsFind          *regexp.Regexp
 
 	regexpObjectsAggregations *regexp.Regexp
 	regexpObject              *regexp.Regexp
@@ -65,6 +67,7 @@ type indices struct {
 	regexpShardFiles          *regexp.Regexp
 	regexpShard               *regexp.Regexp
 	regexpShardReinit         *regexp.Regexp
+	regexpPauseAndListFiles   *regexp.Regexp
 
 	logger logrus.FieldLogger
 }
@@ -81,8 +84,8 @@ const (
 		`\/shards\/(` + sh + `)\/objects:overwrite`
 	urlPatternObjectsDigest = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects:digest`
-	urlPatternObjectsDigestsInTokenRange = `\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/objects:digestsInTokenRange`
+	urlPatternObjectsDigestsInRange = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects:digestsInRange`
 	urlPatternHashTreeLevel = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/hashtree\/(` + l + `)`
 	urlPatternObjectsSearch = `\/indices\/(` + cl + `)` +
@@ -105,6 +108,8 @@ const (
 		`\/shards\/(` + sh + `)$`
 	urlPatternShardReinit = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `):reinit`
+	urlPatternPauseAndListFiles = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/background/pauselist`
 )
 
 type shards interface {
@@ -144,11 +149,11 @@ type shards interface {
 
 	// Replication-specific
 	OverwriteObjects(ctx context.Context, indexName, shardName string,
-		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
+		vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	DigestObjects(ctx context.Context, indexName, shardName string,
-		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
-	DigestObjectsInTokenRange(ctx context.Context, indexName, shardName string,
-		initialToken, finalToken uint64, limit int) (result []replica.RepairResponse, lastTokenRead uint64, err error)
+		ids []strfmt.UUID) (result []types.RepairResponse, err error)
+	DigestObjectsInRange(ctx context.Context, indexName, shardName string,
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
 	HashTreeLevel(ctx context.Context, indexName, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 
@@ -157,6 +162,11 @@ type shards interface {
 		filePath string) (io.WriteCloser, error)
 	CreateShard(ctx context.Context, indexName, shardName string) error
 	ReInitShard(ctx context.Context, indexName, shardName string) error
+	// PauseAndListFiles See adapters/clients.RemoteIndex.PauseAndListFiles
+	PauseAndListFiles(ctx context.Context, indexName, shardName string) ([]string, error)
+	// GetFile See adapters/clients.RemoteIndex.GetFile
+	GetFile(ctx context.Context, indexName, shardName,
+		relativeFilePath string) (io.ReadCloser, error)
 }
 
 type db interface {
@@ -165,13 +175,13 @@ type db interface {
 
 func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() bool, logger logrus.FieldLogger) *indices {
 	return &indices{
-		regexpObjects:                   regexp.MustCompile(urlPatternObjects),
-		regexpObjectsOverwrite:          regexp.MustCompile(urlPatternObjectsOverwrite),
-		regexObjectsDigest:              regexp.MustCompile(urlPatternObjectsDigest),
-		regexObjectsDigestsInTokenRange: regexp.MustCompile(urlPatternObjectsDigestsInTokenRange),
-		regexObjectsHashTreeLevel:       regexp.MustCompile(urlPatternHashTreeLevel),
-		regexpObjectsSearch:             regexp.MustCompile(urlPatternObjectsSearch),
-		regexpObjectsFind:               regexp.MustCompile(urlPatternObjectsFind),
+		regexpObjects:              regexp.MustCompile(urlPatternObjects),
+		regexpObjectsOverwrite:     regexp.MustCompile(urlPatternObjectsOverwrite),
+		regexObjectsDigest:         regexp.MustCompile(urlPatternObjectsDigest),
+		regexObjectsDigestsInRange: regexp.MustCompile(urlPatternObjectsDigestsInRange),
+		regexObjectsHashTreeLevel:  regexp.MustCompile(urlPatternHashTreeLevel),
+		regexpObjectsSearch:        regexp.MustCompile(urlPatternObjectsSearch),
+		regexpObjectsFind:          regexp.MustCompile(urlPatternObjectsFind),
 
 		regexpObjectsAggregations: regexp.MustCompile(urlPatternObjectsAggregations),
 		regexpObject:              regexp.MustCompile(urlPatternObject),
@@ -181,6 +191,7 @@ func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() b
 		regexpShardFiles:          regexp.MustCompile(urlPatternShardFiles),
 		regexpShard:               regexp.MustCompile(urlPatternShard),
 		regexpShardReinit:         regexp.MustCompile(urlPatternShardReinit),
+		regexpPauseAndListFiles:   regexp.MustCompile(urlPatternPauseAndListFiles),
 		shards:                    shards,
 		db:                        db,
 		auth:                      auth,
@@ -241,12 +252,12 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 			}
 
 			i.getObjectsDigest().ServeHTTP(w, r)
-		case i.regexObjectsDigestsInTokenRange.MatchString(path):
+		case i.regexObjectsDigestsInRange.MatchString(path):
 			if r.Method != http.MethodPost {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			}
 
-			i.getObjectsDigestsInTokenRange().ServeHTTP(w, r)
+			i.getObjectsDigestsInRange().ServeHTTP(w, r)
 		case i.regexObjectsHashTreeLevel.MatchString(path):
 			if r.Method != http.MethodPost {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
@@ -318,6 +329,10 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 				i.postShardFile().ServeHTTP(w, r)
 				return
 			}
+			if r.Method == http.MethodGet {
+				i.getShardFile().ServeHTTP(w, r)
+				return
+			}
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
 
@@ -335,7 +350,13 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 			}
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
-
+		case i.regexpPauseAndListFiles.MatchString(path):
+			if r.Method == http.MethodPost {
+				i.postPauseAndListFiles().ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
 		default:
 			http.NotFound(w, r)
 			return
@@ -1016,9 +1037,9 @@ func (i *indices) getObjectsDigest() http.Handler {
 	})
 }
 
-func (i *indices) getObjectsDigestsInTokenRange() http.Handler {
+func (i *indices) getObjectsDigestsInRange() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := i.regexObjectsDigestsInTokenRange.FindStringSubmatch(r.URL.Path)
+		args := i.regexObjectsDigestsInRange.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -1033,24 +1054,23 @@ func (i *indices) getObjectsDigestsInTokenRange() http.Handler {
 			return
 		}
 
-		var tokenRangeReq replica.DigestObjectsInTokenRangeReq
-		if err := json.Unmarshal(reqPayload, &tokenRangeReq); err != nil {
+		var rangeReq replica.DigestObjectsInRangeReq
+		if err := json.Unmarshal(reqPayload, &rangeReq); err != nil {
 			http.Error(w, "unmarshal digest objects in token range params from json: "+err.Error(),
 				http.StatusBadRequest)
 			return
 		}
 
-		digests, lastTokenRead, err := i.shards.DigestObjectsInTokenRange(r.Context(),
-			index, shard, tokenRangeReq.InitialToken, tokenRangeReq.FinalToken, tokenRangeReq.Limit)
+		digests, err := i.shards.DigestObjectsInRange(r.Context(),
+			index, shard, rangeReq.InitialUUID, rangeReq.FinalUUID, rangeReq.Limit)
 		if err != nil {
 			http.Error(w, "digest objects in range: "+err.Error(),
 				http.StatusInternalServerError)
 			return
 		}
 
-		resBytes, err := json.Marshal(replica.DigestObjectsInTokenRangeResp{
-			Digests:       digests,
-			LastTokenRead: lastTokenRead,
+		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{
+			Digests: digests,
 		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1312,7 +1332,12 @@ func (i *indices) postShardFile() http.Handler {
 			return
 		}
 
-		fmt.Printf("%s/%s/%s n=%d\n", index, shard, filename, n)
+		i.logger.WithFields(logrus.Fields{
+			"index":    index,
+			"shard":    shard,
+			"fileName": filename,
+			"n":        n,
+		}).Debug()
 
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -1321,7 +1346,6 @@ func (i *indices) postShardFile() http.Handler {
 func (i *indices) postShard() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpShard.FindStringSubmatch(r.URL.Path)
-		fmt.Println(args)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -1342,7 +1366,6 @@ func (i *indices) postShard() http.Handler {
 func (i *indices) putShardReinit() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpShardReinit.FindStringSubmatch(r.URL.Path)
-
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -1357,5 +1380,81 @@ func (i *indices) putShardReinit() http.Handler {
 		}
 
 		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+func (i *indices) getShardFile() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpShardFiles.FindStringSubmatch(r.URL.Path)
+		if len(args) != 4 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		indexName, shardName, relativeFilePath := args[1], args[2], args[3]
+
+		ct, ok := IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
+		if !ok {
+			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
+				http.StatusUnsupportedMediaType)
+			return
+		}
+
+		reader, err := i.shards.GetFile(r.Context(), indexName, shardName, relativeFilePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer reader.Close()
+
+		n, err := io.Copy(w, reader)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		i.logger.WithFields(logrus.Fields{
+			"action":        "replica_movement",
+			"index":         indexName,
+			"shard":         shardName,
+			"fileName":      relativeFilePath,
+			"fileSizeBytes": n,
+		}).Debug("Copied replica file")
+
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func (i *indices) postPauseAndListFiles() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpPauseAndListFiles.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		indexName, shardName := args[1], args[2]
+
+		relativeFilePaths, err := i.shards.PauseAndListFiles(r.Context(), indexName, shardName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resBytes, err := json.Marshal(relativeFilePaths)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		i.logger.WithFields(logrus.Fields{
+			"action":   "replica_movement",
+			"index":    indexName,
+			"shard":    shardName,
+			"numFiles": len(relativeFilePaths),
+		}).Debug("Paused and listed replica files")
+
+		w.Write(resBytes)
+		w.WriteHeader(http.StatusOK)
 	})
 }

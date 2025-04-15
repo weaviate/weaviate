@@ -25,7 +25,7 @@ func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentin
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
-		Version:          segmentindex.SegmentV1,
+		Version:          segmentindex.ChooseHeaderVersion(m.enableChecksumValidation),
 		SecondaryIndices: 0,
 		Strategy:         segmentindex.StrategyRoaringSet,
 	}

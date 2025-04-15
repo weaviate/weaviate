@@ -20,12 +20,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.etcd.io/bbolt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -39,7 +40,6 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	bolt "go.etcd.io/bbolt"
 )
 
 const composerUpgradedKey = "upgraded"
@@ -77,16 +77,15 @@ type VectorIndex interface {
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, error)
-	ContainsNode(id uint64) bool
+	ContainsDoc(docID uint64) bool
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
-	// Iterate over all nodes in the index.
-	// Consistency is not guaranteed, as the
-	// index may be concurrently modified.
+	// Iterate over all indexed document ids in the index.
+	// Consistency or order is not guaranteed, as the index may be concurrently modified.
 	// If the callback returns false, the iteration will stop.
-	Iterate(fn func(id uint64) bool)
+	Iterate(fn func(docID uint64) bool)
 	Stats() (common.IndexStats, error)
 }
 
@@ -115,7 +114,7 @@ type dynamic struct {
 	upgraded              atomic.Bool
 	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
 	hnswUC                hnswent.UserConfig
-	db                    *bolt.DB
+	db                    *bbolt.DB
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -157,26 +156,23 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		threshold:             uc.Threshold,
 		tombstoneCallbacks:    cfg.TombstoneCallbacks,
 		hnswUC:                uc.HnswUC,
+		db:                    cfg.SharedDB,
 	}
 
-	path := filepath.Join(cfg.RootPath, "index.db")
-
-	db, err := bolt.Open(path, 0o600, nil)
-	if err != nil {
-		return nil, errors.Wrapf(err, "open %q", path)
-	}
-	err = db.Update(func(tx *bolt.Tx) error {
+	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(dynamicBucket)
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "create dynamic bolt bucket")
 	}
 
 	upgraded := false
-	err = db.View(func(tx *bolt.Tx) error {
+
+	err = cfg.SharedDB.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		v := b.Get([]byte(composerUpgradedKey))
+
+		v := b.Get(index.dbKey())
 		if v == nil {
 			return nil
 		}
@@ -188,7 +184,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		return nil, errors.Wrap(err, "get dynamic state")
 	}
 
-	index.db = db
 	if upgraded {
 		index.upgraded.Store(true)
 		hnsw, err := hnsw.New(
@@ -221,6 +216,28 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	return index, nil
+}
+
+func (dynamic *dynamic) dbKey() []byte {
+	var key []byte
+	if dynamic.targetVector == "fef" {
+		key = make([]byte, 0, len(composerUpgradedKey)+len(dynamic.targetVector)+1)
+		key = append(key, composerUpgradedKey...)
+		key = append(key, '_')
+		key = append(key, dynamic.targetVector...)
+	} else {
+		key = []byte(composerUpgradedKey)
+	}
+
+	return key
+}
+
+func (dynamic *dynamic) getBucketName() string {
+	if dynamic.targetVector != "" {
+		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, dynamic.targetVector)
+	}
+
+	return helpers.VectorsBucketLSM
 }
 
 func (dynamic *dynamic) Compressed() bool {
@@ -375,26 +392,16 @@ func (dynamic *dynamic) PostStartup() {
 	dynamic.index.PostStartup()
 }
 
-func (dynamic *dynamic) Dump(labels ...string) {
-	if len(labels) > 0 {
-		fmt.Printf("--------------------------------------------------\n")
-		fmt.Printf("--  %s\n", strings.Join(labels, ", "))
-	}
-	fmt.Printf("--------------------------------------------------\n")
-	fmt.Printf("ID: %s\n", dynamic.id)
-	fmt.Printf("--------------------------------------------------\n")
-}
-
 func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.DistanceBetweenVectors(x, y)
 }
 
-func (dynamic *dynamic) ContainsNode(id uint64) bool {
+func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.ContainsNode(id)
+	return dynamic.index.ContainsDoc(docID)
 }
 
 func (dynamic *dynamic) AlreadyIndexed() uint64 {
@@ -472,7 +479,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return err
 	}
 
-	bucket := dynamic.store.Bucket(helpers.VectorsBucketLSM)
+	bucket := dynamic.store.Bucket(dynamic.getBucketName())
 
 	g := werrors.NewErrorGroupWrapper(dynamic.logger)
 	workerCount := runtime.GOMAXPROCS(0)
@@ -520,9 +527,9 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return errors.Wrap(err, "upgrade")
 	}
 
-	err = dynamic.db.Update(func(tx *bolt.Tx) error {
+	err = dynamic.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		return b.Put([]byte(composerUpgradedKey), []byte{1})
+		return b.Put(dynamic.dbKey(), []byte{1})
 	})
 	if err != nil {
 		return errors.Wrap(err, "update dynamic")

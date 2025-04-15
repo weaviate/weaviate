@@ -21,12 +21,20 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func (s *Raft) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
+func (s *Raft) UpdateRolesPermissions(roles map[string][]authorization.Policy) error {
+	return s.upsertRolesPermissions(roles, false)
+}
+
+func (s *Raft) CreateRolesPermissions(roles map[string][]authorization.Policy) error {
+	return s.upsertRolesPermissions(roles, true)
+}
+
+func (s *Raft) upsertRolesPermissions(roles map[string][]authorization.Policy, roleCreation bool) error {
 	if len(roles) == 0 {
 		return fmt.Errorf("no roles to create: %w", schema.ErrBadRequest)
 	}
 
-	req := cmd.CreateRolesRequest{Roles: roles, Version: cmd.RBACLatestCommandPolicyVersion}
+	req := cmd.CreateRolesRequest{Roles: roles, Version: cmd.RBACLatestCommandPolicyVersion, RoleCreation: roleCreation}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -83,7 +91,7 @@ func (s *Raft) AddRolesForUser(user string, roles []string) error {
 	if len(roles) == 0 {
 		return fmt.Errorf("no roles to assign: %w", schema.ErrBadRequest)
 	}
-	req := cmd.AddRolesForUsersRequest{User: user, Roles: roles}
+	req := cmd.AddRolesForUsersRequest{User: user, Roles: roles, Version: cmd.RBACAssignRevokeLatestCommandPolicyVersion}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -102,7 +110,7 @@ func (s *Raft) RevokeRolesForUser(user string, roles ...string) error {
 	if len(roles) == 0 {
 		return fmt.Errorf("no roles to revoke: %w", schema.ErrBadRequest)
 	}
-	req := cmd.RevokeRolesForUserRequest{User: user, Roles: roles}
+	req := cmd.RevokeRolesForUserRequest{User: user, Roles: roles, Version: cmd.RBACAssignRevokeLatestCommandPolicyVersion}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)

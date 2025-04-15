@@ -102,7 +102,11 @@ func (s schemaSearchTests) AssertValidation(t *testing.T) {
 			err := test.searchParams.Validate()
 
 			// assert error
-			assert.Equal(t, test.expectedError, err, "should match the expected error")
+			if test.expectedError != nil {
+				assert.Equal(t, test.expectedError.Error(), err.Error(), "should match the expected error")
+			} else {
+				assert.Equal(t, test.expectedError, err, "should match the expected error")
+			}
 		})
 	}
 }

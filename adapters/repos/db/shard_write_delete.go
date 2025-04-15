@@ -19,7 +19,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -71,24 +70,24 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, queue := range s.queues {
-			if err = queue.Delete(docID); err != nil {
-				return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
-			}
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
 		}
-		for targetVector, queue := range s.Queues() {
-			if err = queue.Flush(); err != nil {
-				return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
-			}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Flush(); err != nil {
+			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
 		}
-	} else {
-		if err = s.queue.Delete(docID); err != nil {
-			return fmt.Errorf("delete from vector index: %w", err)
-		}
-		if err = s.queue.Flush(); err != nil {
-			return fmt.Errorf("flush all vector index buffered WALs: %w", err)
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
@@ -147,24 +146,24 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, queue := range s.queues {
-			if err = queue.Delete(docID); err != nil {
-				return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
-			}
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
 		}
-		for targetVector, queue := range s.queues {
-			if err = queue.Flush(); err != nil {
-				return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
-			}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Flush(); err != nil {
+			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
 		}
-	} else {
-		if err = s.queue.Delete(docID); err != nil {
-			return fmt.Errorf("delete from vector index: %w", err)
-		}
-		if err = s.queue.Flush(); err != nil {
-			return fmt.Errorf("flush all vector index buffered WALs: %w", err)
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	if err = s.mayDeleteObjectHashTree(idBytes, currentUpdateTime); err != nil {
@@ -195,16 +194,14 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	}
 
 	if s.index.Config.TrackVectorDimensions {
-		if s.hasTargetVectors() {
-			for vecName, vec := range previousObject.Vectors {
-				if err = s.removeDimensionsForVecLSM(len(vec), docID, vecName); err != nil {
-					return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
-				}
+		err = previousObject.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+			if err = s.removeDimensionsLSM(dims, docID, targetVector); err != nil {
+				return fmt.Errorf("remove dimension tracking for vector %q: %w", targetVector, err)
 			}
-		} else {
-			if err = s.removeDimensionsLSM(len(previousObject.Vector), docID); err != nil {
-				return fmt.Errorf("track dimensions (delete): %w", err)
-			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 	}
 
@@ -212,8 +209,8 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 }
 
 func (s *Shard) mayDeleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
-	s.hashtreeRWMux.RLock()
-	defer s.hashtreeRWMux.RUnlock()
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
 
 	if s.hashtree == nil {
 		return nil
@@ -231,9 +228,7 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 		return fmt.Errorf("invalid object update time")
 	}
 
-	h := murmur3.New64()
-	h.Write(uuidBytes)
-	token := h.Sum64()
+	leaf := s.hashtreeLeafFor(uuidBytes)
 
 	var objectDigest [16 + 8]byte
 
@@ -243,9 +238,7 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 	// object deletion is treated as non-existent,
 	// that because deletion time or tombstone may not be available
 
-	s.hashtree.AggregateLeafWith(token, objectDigest[:])
-
-	s.objectPropagationRequired()
+	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
 	return nil
 }

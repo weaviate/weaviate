@@ -14,9 +14,8 @@ package config
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
-
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
 // Authorization configuration
@@ -35,13 +34,13 @@ func (a Authorization) Validate() error {
 
 	if a.AdminList.Enabled {
 		if err := a.AdminList.Validate(); err != nil {
-			return fmt.Errorf("authorization adminlist: %s", err)
+			return fmt.Errorf("authorization adminlist: %w", err)
 		}
 	}
 
 	if a.Rbac.Enabled {
 		if err := a.Rbac.Validate(); err != nil {
-			return fmt.Errorf("authorization rbac: %s", err)
+			return fmt.Errorf("authorization rbac: %w", err)
 		}
 	}
 

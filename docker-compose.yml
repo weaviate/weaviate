@@ -97,6 +97,10 @@ services:
     image: semitechnologies/multi2vec-bind:imagebind
     ports:
       - "8011:8080"
+  text2vec-model2vec:
+    image: semitechnologies/model2vec-inference:minishlab-potion-base-32M
+    ports:
+      - "8012:8080"
   backup-s3:
     image: minio/minio
     ports:
@@ -121,3 +125,14 @@ services:
     volumes:
       - ./backups-azure:/data
     command: "azurite --blobHost 0.0.0.0 --blobPort 10000"
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11435:11434"
+    volumes:
+      - ./_local/ollama:/root/.ollama
+      - ./tools/dev/ollama_startup.sh:/ollama_startup.sh
+    environment:
+      - MODELS_TO_PULL=nomic-embed-text
+      - OLLAMA_HOST=0.0.0.0
+    entrypoint: ["/bin/sh", "/ollama_startup.sh"]

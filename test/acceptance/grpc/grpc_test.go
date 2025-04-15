@@ -27,7 +27,7 @@ import (
 )
 
 func idByte(id string) []byte {
-	hexInteger, _ := new(big.Int).SetString(strings.Replace(id, "-", "", -1), 16)
+	hexInteger, _ := new(big.Int).SetString(strings.ReplaceAll(id, "-", ""), 16)
 	return hexInteger.Bytes()
 }
 
@@ -255,6 +255,17 @@ func TestGRPC(t *testing.T) {
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.GroupByResults)
 		require.Len(t, resp.GroupByResults, 1)
+	})
+
+	t.Run("Aggregate", func(t *testing.T) {
+		resp, err := grpcClient.Aggregate(context.TODO(), &pb.AggregateRequest{
+			Collection:   booksClass.Class,
+			ObjectsCount: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.GetSingleResult())
+		require.Equal(t, int64(3), resp.GetSingleResult().GetObjectsCount())
 	})
 
 	t.Run("Batch delete", func(t *testing.T) {

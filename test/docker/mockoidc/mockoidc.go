@@ -53,7 +53,7 @@ func main() {
 	m.QueueUser(admin)
 	m.QueueCode(authCode)
 
-	custom := &mockoidc.MockUser{Subject: "custom-user"}
+	custom := &mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}}
 	m.QueueUser(custom)
 	m.QueueCode(authCode)
 

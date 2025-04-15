@@ -24,7 +24,7 @@ func main() {
 func overrideObject(name string) error {
 	bytes, err := os.ReadFile(name)
 	if err != nil {
-		return fmt.Errorf("%s: %v", name, err)
+		return fmt.Errorf("%s: %w", name, err)
 	}
 
 	objectStr := string(bytes)

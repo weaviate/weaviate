@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -666,7 +667,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 
 		_, err = fs.scheduler().Restore(ctx, nil, req)
-		if _, ok := err.(backup.ErrNotFound); !ok {
+		if !errors.As(err, &backup.ErrNotFound{}) {
 			t.Errorf("must return an error if meta data doesn't exist: %v", err)
 		}
 	})

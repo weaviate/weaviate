@@ -714,10 +714,8 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 	byteObject, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	var propertyNames []string
 	var propStrings [][]string
 	for key := range properties {
-		propertyNames = append(propertyNames, key)
 		propStrings = append(propStrings, []string{key})
 	}
 
@@ -725,7 +723,7 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 
 	// test with reused property map
 	for i := 0; i < 2; i++ {
-		require.Nil(t, UnmarshalPropertiesFromObject(byteObject, &extractedProperties, propertyNames, propStrings))
+		require.Nil(t, UnmarshalPropertiesFromObject(byteObject, extractedProperties, propStrings))
 		for key := range expected {
 			require.Equal(t, expected[key], extractedProperties[key])
 		}
@@ -950,7 +948,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 
 				t.Run("with explicit properties", func(t *testing.T) {
 					after, err := FromBinaryOptional(asBinary, additional.Properties{},
-						&PropertyExtraction{PropStrings: []string{"name"}, PropStringsList: [][]string{{"name"}}},
+						&PropertyExtraction{PropertyPaths: [][]string{{"name"}}},
 					)
 					require.Nil(t, err)
 
@@ -964,7 +962,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 						NoProps:      true,
 						ModuleParams: map[string]interface{}{"foo": "bar"}, // this causes the property extraction code to run
 					},
-						&PropertyExtraction{PropStrings: nil, PropStringsList: nil},
+						&PropertyExtraction{PropertyPaths: nil},
 					)
 					require.Nil(t, err)
 
@@ -1252,12 +1250,9 @@ func TestMemoryReuse(t *testing.T) {
 			Properties: beforeProp,
 		}
 
-		propStrings := make([]string, 0, len(beforeProp))
-		propStringsList := make([][]string, 0, len(beforeProp))
-
+		propertyPaths := make([][]string, 0, len(beforeProp))
 		for j := range beforeProp {
-			propStrings = append(propStrings, j)
-			propStringsList = append(propStringsList, []string{j})
+			propertyPaths = append(propertyPaths, []string{j})
 		}
 
 		before := FromObject(&obj, nil, nil, nil)
@@ -1267,7 +1262,7 @@ func TestMemoryReuse(t *testing.T) {
 		copy(reuseableBuff, asBinary)
 
 		afterProp := map[string]interface{}{}
-		require.Nil(t, UnmarshalProperties(reuseableBuff, &afterProp, propStrings, propStringsList))
+		require.Nil(t, UnmarshalProperties(reuseableBuff, afterProp, propertyPaths))
 		afterProps = append(afterProps, afterProp)
 	}
 
@@ -1311,14 +1306,13 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 	var props *PropertyExtraction
 
 	if len(propStrings) > 0 {
-		propStringsList := make([][]string, len(propStrings))
+		propertyPaths := make([][]string, len(propStrings))
 		for i, prop := range propStrings {
-			propStringsList[i] = []string{prop}
+			propertyPaths[i] = []string{prop}
 		}
 
 		props = &PropertyExtraction{
-			PropStrings:     propStrings,
-			PropStringsList: propStringsList,
+			PropertyPaths: propertyPaths,
 		}
 	}
 
@@ -1411,6 +1405,98 @@ func TestSkipMissingObjects(t *testing.T) {
 	require.Len(t, objs, 100)
 	for _, obj := range objs {
 		require.NotNil(t, obj)
+	}
+}
+
+func TestIterateThroughVectorDimensions(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		object Object
+
+		expect map[string]int
+	}{
+		{
+			name:   "empty",
+			object: Object{},
+			expect: map[string]int{},
+		},
+		{
+			name: "legacy",
+			object: Object{
+				Vector: make([]float32, 100),
+			},
+			expect: map[string]int{
+				"": 100,
+			},
+		},
+		{
+			name: "named",
+			object: Object{
+				Vectors: map[string][]float32{
+					"vec1": make([]float32, 100),
+					"vec2": make([]float32, 200),
+				},
+			},
+			expect: map[string]int{
+				"vec1": 100,
+				"vec2": 200,
+			},
+		},
+		{
+			name: "multi",
+			object: Object{
+				MultiVectors: map[string][][]float32{
+					"vec1": {
+						make([]float32, 100),
+						make([]float32, 200),
+						make([]float32, 300),
+					},
+					"vec2": {
+						make([]float32, 400),
+						make([]float32, 500),
+					},
+				},
+			},
+			expect: map[string]int{
+				"vec1": 600,
+				"vec2": 900,
+			},
+		},
+		{
+			name: "mixed",
+			object: Object{
+				Vector: make([]float32, 100),
+				Vectors: map[string][]float32{
+					"vec1": make([]float32, 200),
+					"vec2": make([]float32, 300),
+				},
+				MultiVectors: map[string][][]float32{
+					"vec3": {
+						make([]float32, 400),
+					},
+					"vec4": {
+						make([]float32, 500),
+					},
+				},
+			},
+			expect: map[string]int{
+				"":     100,
+				"vec1": 200,
+				"vec2": 300,
+				"vec3": 400,
+				"vec4": 500,
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			captured := map[string]int{}
+			err := tt.object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+				captured[targetVector] += dims
+				return nil
+			})
+			require.NoError(t, err)
+			require.Equal(t, tt.expect, captured)
+		})
 	}
 }
 

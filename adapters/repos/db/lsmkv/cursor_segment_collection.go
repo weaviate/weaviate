@@ -27,14 +27,15 @@ func (s *segment) newCollectionCursor() *segmentCursorCollection {
 }
 
 func (sg *SegmentGroup) newCollectionCursors() ([]innerCursorCollection, func()) {
-	sg.maintenanceLock.RLock()
-	out := make([]innerCursorCollection, len(sg.segments))
+	segments, release := sg.getAndLockSegments()
 
-	for i, segment := range sg.segments {
+	out := make([]innerCursorCollection, len(segments))
+
+	for i, segment := range segments {
 		out[i] = segment.newCollectionCursor()
 	}
 
-	return out, sg.maintenanceLock.RUnlock
+	return out, release
 }
 
 func (s *segmentCursorCollection) seek(key []byte) ([]byte, []value, error) {

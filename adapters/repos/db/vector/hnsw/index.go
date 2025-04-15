@@ -126,10 +126,10 @@ type hnsw struct {
 	id       string
 	rootPath string
 
-	logger            logrus.FieldLogger
-	distancerProvider distancer.Provider
-
-	pools *pools
+	logger                 logrus.FieldLogger
+	distancerProvider      distancer.Provider
+	multiDistancerProvider distancer.Provider
+	pools                  *pools
 
 	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
 
@@ -158,9 +158,10 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed   atomic.Bool
-	doNotRescore bool
-	acornSearch  atomic.Bool
+	compressed       atomic.Bool
+	doNotRescore     bool
+	acornSearch      atomic.Bool
+	acornFilterRatio float64
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -238,10 +239,7 @@ func New(cfg Config, uc ent.UserConfig,
 		cfg.Logger = logger
 	}
 
-	normalizeOnRead := false
-	if cfg.DistanceProvider.Type() == "cosine-dot" {
-		normalizeOnRead = true
-	}
+	normalizeOnRead := cfg.DistanceProvider.Type() == "cosine-dot"
 
 	var vectorCache cache.Cache[float32]
 
@@ -265,6 +263,7 @@ func New(cfg Config, uc ent.UserConfig,
 		efConstruction:        uc.EFConstruction,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
+		acornFilterRatio:      cfg.AcornFilterRatio,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
@@ -334,13 +333,13 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 
 	if uc.Multivector.Enabled {
+		index.multiDistancerProvider = distancer.NewDotProductProvider()
 		err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
 		if err != nil {
 			return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
 		}
 	}
 
-	cfg.MakeCommitLoggerThunk()
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
 	}
@@ -601,7 +600,7 @@ func (h *hnsw) isEmpty() bool {
 }
 
 func (h *hnsw) isEmptyUnlocked() bool {
-	return h.nodes[h.entryPointID] == nil
+	return h.entryPointID > uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
@@ -685,17 +684,32 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return h.distancerProvider.SingleDist(x, y)
 }
 
-func (h *hnsw) ContainsNode(id uint64) bool {
+func (h *hnsw) ContainsDoc(docID uint64) bool {
+	if h.Multivector() {
+		h.RLock()
+		vecIds, exists := h.docIDVectors[docID]
+		h.RUnlock()
+		return exists && !h.hasTombstones(vecIds)
+	}
+
 	h.RLock()
-	h.shardedNodeLocks.RLock(id)
-	exists := len(h.nodes) > int(id) && h.nodes[id] != nil
-	h.shardedNodeLocks.RUnlock(id)
+	h.shardedNodeLocks.RLock(docID)
+	exists := len(h.nodes) > int(docID) && h.nodes[docID] != nil
+	h.shardedNodeLocks.RUnlock(docID)
 	h.RUnlock()
 
-	return exists && !h.hasTombstone(id)
+	return exists && !h.hasTombstone(docID)
 }
 
-func (h *hnsw) Iterate(fn func(id uint64) bool) {
+func (h *hnsw) Iterate(fn func(docID uint64) bool) {
+	if h.Multivector() {
+		h.iterateMulti(fn)
+		return
+	}
+	h.iterate(fn)
+}
+
+func (h *hnsw) iterate(fn func(docID uint64) bool) {
 	var id uint64
 
 	for {
@@ -724,6 +738,31 @@ func (h *hnsw) Iterate(fn func(id uint64) bool) {
 		}
 
 		id++
+	}
+}
+
+func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
+	h.RLock()
+	indexedDocIDs := make([]uint64, 0, len(h.docIDVectors))
+	for docID := range h.docIDVectors {
+		indexedDocIDs = append(indexedDocIDs, docID)
+	}
+	h.RUnlock()
+
+	for _, docID := range indexedDocIDs {
+		if h.shutdownCtx.Err() != nil || h.resetCtx.Err() != nil {
+			return
+		}
+
+		h.RLock()
+		nodes, ok := h.docIDVectors[docID]
+		h.RUnlock()
+
+		if ok && !h.hasTombstones(nodes) {
+			if !fn(docID) {
+				return
+			}
+		}
 	}
 }
 
@@ -860,13 +899,15 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 }
 
 type HnswStats struct {
-	Dimensions         int32        `json:"dimensions"`
-	EntryPointID       uint64       `json:"entryPointID"`
-	DistributionLayers map[int]uint `json:"distributionLayers"`
-	UnreachablePoints  []uint64     `json:"unreachablePoints"`
-	NumTombstones      int          `json:"numTombstones"`
-	CacheSize          int32        `json:"cacheSize"`
-	PQConfiguration    ent.PQConfig `json:"pqConfiguration"`
+	Dimensions         int32                               `json:"dimensions"`
+	EntryPointID       uint64                              `json:"entryPointID"`
+	DistributionLayers map[int]uint                        `json:"distributionLayers"`
+	UnreachablePoints  []uint64                            `json:"unreachablePoints"`
+	NumTombstones      int                                 `json:"numTombstones"`
+	CacheSize          int32                               `json:"cacheSize"`
+	Compressed         bool                                `json:"compressed"`
+	CompressorStats    compressionhelpers.CompressionStats `json:"compressionStats"`
+	CompressionType    string                              `json:"compressionType"`
 }
 
 func (s *HnswStats) IndexType() common.IndexType {
@@ -905,8 +946,16 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 		UnreachablePoints:  h.calculateUnreachablePoints(),
 		NumTombstones:      len(h.tombstones),
 		CacheSize:          h.cache.Len(),
-		PQConfiguration:    h.pqConfig,
+		Compressed:         h.compressed.Load(),
 	}
+
+	if stats.Compressed {
+		stats.CompressorStats = h.compressor.Stats()
+	} else {
+		stats.CompressorStats = compressionhelpers.UncompressedStats{}
+	}
+
+	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
 }

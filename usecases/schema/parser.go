@@ -15,16 +15,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/config"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
+
+var errPropertiesUpdatedInClassUpdate = errors.Errorf(
+	"property fields other than description cannot be updated through updating the class. Use the add " +
+		"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
+		"to add additional properties")
 
 type modulesProvider interface {
 	IsGenerative(string) bool
@@ -37,6 +44,8 @@ type Parser struct {
 	configParser VectorConfigParser
 	validator    validator
 	modules      modulesProvider
+
+	experimentBackwardsCompatibleNamedVectorsEnabled bool
 }
 
 func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider) *Parser {
@@ -45,6 +54,8 @@ func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules mo
 		configParser: vCfg,
 		validator:    v,
 		modules:      modules,
+
+		experimentBackwardsCompatibleNamedVectorsEnabled: experimentBackwardsCompatibleNamedVectorsEnabled(),
 	}
 }
 
@@ -144,9 +155,8 @@ func (p *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 	return parsedMC, nil
 }
 
-func (p *Parser) parseVectorIndexConfig(class *models.Class,
-) error {
-	if !hasTargetVectors(class) {
+func (p *Parser) parseVectorIndexConfig(class *models.Class) error {
+	if !hasTargetVectors(class) || class.VectorIndexType != "" {
 		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer))
 		if err != nil {
 			return err
@@ -155,14 +165,9 @@ func (p *Parser) parseVectorIndexConfig(class *models.Class,
 			return fmt.Errorf("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 		}
 		class.VectorIndexConfig = parsed
-		return nil
 	}
 
-	if class.VectorIndexConfig != nil {
-		return fmt.Errorf("class.vectorIndexConfig can not be set if class.vectorConfig is configured")
-	}
-
-	if err := p.parseTargetVectorsVectorIndexConfig(class); err != nil {
+	if err := p.parseTargetVectorsIndexConfig(class); err != nil {
 		return err
 	}
 	return nil
@@ -172,8 +177,7 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
 	cfg := shardingConfig.Config{} // cfg is empty in case of MT
 	if !schema.MultiTenancyEnabled(class) {
-		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig,
-			p.clusterState.NodeCount())
+		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig, p.clusterState.NodeCount())
 		if err != nil {
 			return err
 		}
@@ -183,7 +187,7 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	return nil
 }
 
-func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
+func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 	for targetVector, vectorConfig := range class.VectorConfig {
 		isMultiVector := false
 		vectorizerModuleName := ""
@@ -215,6 +219,12 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 			vectorIndexType)
 	}
 
+	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && isMultiVector {
+		return nil, errors.Errorf(
+			"parse vector index config: multi vector index is not supported for vector index type: %q, only supported type is hnsw",
+			vectorIndexType)
+	}
+
 	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType, isMultiVector)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse vector index config")
@@ -242,20 +252,15 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 
 	// run target vectors validation first, as it will reject classes
 	// where legacy vector was changed to target vectors and vice versa
-	if err := validateVectorConfigsParityAndImmutables(class, update); err != nil {
+	if err = p.validateNamedVectorConfigsParityAndImmutables(class, update); err != nil {
 		return nil, err
 	}
 
-	if err := validateVectorIndexConfigImmutableFields(class, update); err != nil {
+	if err = validateLegacyVectorIndexConfigImmutableFields(class, update); err != nil {
 		return nil, err
 	}
 
-	if hasTargetVectors(update) {
-		if err := p.validator.ValidateVectorIndexConfigsUpdate(
-			asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
-			return nil, err
-		}
-	} else {
+	if class.VectorIndexConfig != nil || update.VectorIndexConfig != nil {
 		vIdxConfig, ok1 := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		vIdxConfigU, ok2 := update.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		if !ok1 || !ok2 {
@@ -266,15 +271,19 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		}
 	}
 
+	if hasTargetVectors(update) {
+		if err := p.validator.ValidateVectorIndexConfigsUpdate(
+			asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := validateShardingConfig(class, update, mtEnabled); err != nil {
 		return nil, fmt.Errorf("validate sharding config: %w", err)
 	}
 
-	if !reflect.DeepEqual(class.Properties, update.Properties) {
-		return nil, errors.Errorf(
-			"properties cannot be updated through updating the class. Use the add " +
-				"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
-				"to add additional properties")
+	if err = p.validatePropertiesForUpdate(class.Properties, update.Properties); err != nil {
+		return nil, err
 	}
 
 	if err := p.validator.ValidateInvertedIndexConfigUpdate(
@@ -284,6 +293,117 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	}
 
 	return update, nil
+}
+
+func (p *Parser) validatePropertiesForUpdate(existing []*models.Property, new []*models.Property) error {
+	if len(existing) != len(new) {
+		return errPropertiesUpdatedInClassUpdate
+	}
+
+	sort.Slice(existing, func(i, j int) bool {
+		return existing[i].Name < existing[j].Name
+	})
+
+	sort.Slice(new, func(i, j int) bool {
+		return new[i].Name < new[j].Name
+	})
+
+	for i, prop := range existing {
+		// make a copy of the properties to remove the description field
+		// so that we can compare the rest of the fields
+		if prop == nil {
+			continue
+		}
+		if new[i] == nil {
+			continue
+		}
+
+		if err := p.validatePropertyForUpdate(prop, new[i]); err != nil {
+			return errors.Wrapf(err, "property %q", prop.Name)
+		}
+	}
+
+	return nil
+}
+
+func propertyAsMap(in any) (map[string]any, error) {
+	out := make(map[string]any)
+
+	v := reflect.ValueOf(in)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Struct { // Non-structural return error
+		return nil, fmt.Errorf("asMap only accepts struct or struct pointer; got %T", v)
+	}
+
+	t := v.Type()
+	// Traversing structure fields
+	// Specify the tagName value as the key in the map; the field value as the value in the map
+	for i := 0; i < v.NumField(); i++ {
+		tfi := t.Field(i)
+		if tagValue := tfi.Tag.Get("json"); tagValue != "" {
+			key := strings.Split(tagValue, ",")[0]
+			if key == "description" {
+				continue
+			}
+			if key == "nestedProperties" {
+				nps := v.Field(i).Interface().([]*models.NestedProperty)
+				out[key] = make([]map[string]any, 0, len(nps))
+				for _, np := range nps {
+					npm, err := propertyAsMap(np)
+					if err != nil {
+						return nil, err
+					}
+					out[key] = append(out[key].([]map[string]any), npm)
+				}
+				continue
+			}
+			out[key] = v.Field(i).Interface()
+		}
+	}
+	return out, nil
+}
+
+func (p *Parser) validatePropertyForUpdate(existing, new *models.Property) error {
+	e, err := propertyAsMap(existing)
+	if err != nil {
+		return errors.Wrap(err, "converting existing properties to a map")
+	}
+
+	n, err := propertyAsMap(new)
+	if err != nil {
+		return errors.Wrap(err, "converting new properties to a map")
+	}
+
+	var (
+		existingModuleConfig = cutModuleConfig(e)
+		newModuleConfig      = cutModuleConfig(n)
+	)
+
+	for moduleName, existingCfg := range existingModuleConfig {
+		newCfg, ok := newModuleConfig[moduleName]
+		if !ok {
+			return errors.Errorf("module %q configuration was removed", moduleName)
+		}
+
+		if !reflect.DeepEqual(existingCfg, newCfg) {
+			return errors.Errorf("module %q configuration cannot be updated", moduleName)
+		}
+	}
+
+	if !reflect.DeepEqual(e, n) {
+		return errPropertiesUpdatedInClassUpdate
+	}
+
+	return nil
+}
+
+func cutModuleConfig(properties map[string]any) map[string]any {
+	cfg, _ := properties["moduleConfig"].(map[string]any)
+	delete(properties, "moduleConfig")
+	return cfg
 }
 
 func hasTargetVectors(class *models.Class) bool {
@@ -305,12 +425,10 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 		return err
 	}
 
-	var initialModConf map[string]any
-	if initial.ModuleConfig != nil {
-		initialModConf, _ = initial.ModuleConfig.(map[string]any)
-	}
+	initialModConf, _ := initial.ModuleConfig.(map[string]any)
 
 	// this part:
+	// - allow adding new modules
 	// - only allows updating generative and rerankers
 	// - only one gen/rerank module can be present. Existing ones will be replaced, updating with more than one is not
 	//   allowed
@@ -318,7 +436,6 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 	hasGenerativeUpdate := false
 	hasRerankerUpdate := false
 	for module := range updatedModConf {
-
 		if p.modules.IsGenerative(module) {
 			if hasGenerativeUpdate {
 				return fmt.Errorf("updated moduleconfig has multiple generative modules: %v", updatedModConf)
@@ -335,7 +452,11 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
-		if initialModConf != nil && reflect.DeepEqual(initialModConf[module], updatedModConf[module]) {
+		if _, moduleExisted := initialModConf[module]; p.experimentBackwardsCompatibleNamedVectorsEnabled && !moduleExisted {
+			continue
+		}
+
+		if reflect.DeepEqual(initialModConf[module], updatedModConf[module]) {
 			continue
 		}
 
@@ -376,43 +497,28 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 	return nil
 }
 
-func validateVectorConfigsParityAndImmutables(initial, updated *models.Class) error {
-	initialVecCount := len(initial.VectorConfig)
-	updatedVecCount := len(updated.VectorConfig)
-
-	// no cfgs for target vectors
-	if initialVecCount == 0 && updatedVecCount == 0 {
-		return nil
-	}
-	// no cfgs for target vectors in initial
-	if initialVecCount == 0 && updatedVecCount > 0 {
-		return fmt.Errorf("additional configs for vectors")
-	}
-	// no cfgs for target vectors in updated
-	if initialVecCount > 0 && updatedVecCount == 0 {
-		return fmt.Errorf("missing configs for vectors")
-	}
-
-	// matching cfgs on both sides
-	for vecName := range initial.VectorConfig {
-		if _, ok := updated.VectorConfig[vecName]; !ok {
-			return fmt.Errorf("missing config for vector %q", vecName)
-		}
-	}
-
-	if initialVecCount != updatedVecCount {
+func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated *models.Class) error {
+	if !p.experimentBackwardsCompatibleNamedVectorsEnabled {
 		for vecName := range updated.VectorConfig {
 			if _, ok := initial.VectorConfig[vecName]; !ok {
 				return fmt.Errorf("additional config for vector %q", vecName)
 			}
 		}
-		// fallback, error should be returned in loop
-		return fmt.Errorf("number of configs for vectors does not match")
 	}
 
-	// compare matching cfgs
+	if modelsext.ClassHasLegacyVectorIndex(initial) {
+		for targetVector := range updated.VectorConfig {
+			if targetVector == modelsext.DefaultNamedVectorName {
+				return fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", modelsext.DefaultNamedVectorName)
+			}
+		}
+	}
+
 	for vecName, initialCfg := range initial.VectorConfig {
-		updatedCfg := updated.VectorConfig[vecName]
+		updatedCfg, ok := updated.VectorConfig[vecName]
+		if !ok {
+			return fmt.Errorf("missing config for vector %q", vecName)
+		}
 
 		// immutable vector type
 		if initialCfg.VectorIndexType != updatedCfg.VectorIndexType {
@@ -455,15 +561,6 @@ func asVectorIndexConfigs(c *models.Class) map[string]schemaConfig.VectorIndexCo
 		cfgs[vecName] = c.VectorConfig[vecName].VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 	}
 	return cfgs
-}
-
-func asVectorIndexConfig(c *models.Class) schemaConfig.VectorIndexConfig {
-	validCfg, ok := c.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
-	if !ok {
-		return nil
-	}
-
-	return validCfg
 }
 
 func validateShardingConfig(current, update *models.Class, mtEnabled bool) error {

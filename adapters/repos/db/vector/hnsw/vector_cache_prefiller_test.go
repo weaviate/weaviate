@@ -164,15 +164,11 @@ func (f *fakeCache) SetKeys(id uint64, docID uint64, relativeID uint64) {
 	panic("not implemented")
 }
 
-func (f *fakeCache) GrowMultiCache(id uint64) {
-	panic("not implemented")
-}
-
 func (f *fakeCache) PreloadMulti(docID uint64, ids []uint64, vecs [][]float32) {
 	panic("not implemented")
 }
 
-func (f *fakeCache) AllMulti() [][][]float32 {
+func (f *fakeCache) PreloadPassage(id uint64, docID uint64, relativeID uint64, vec []float32) {
 	panic("not implemented")
 }
 

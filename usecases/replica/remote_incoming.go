@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -42,13 +43,13 @@ type RemoteIndexIncomingRepo interface {
 	ReplicateReferences(ctx context.Context, shardName, requestID string, refs []objects.BatchReference) SimpleResponse
 	CommitReplication(shardName, requestID string) interface{}
 	AbortReplication(shardName, requestID string) interface{}
-	OverwriteObjects(ctx context.Context, shard string, vobjects []*objects.VObject) ([]RepairResponse, error)
+	OverwriteObjects(ctx context.Context, shard string, vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	// Read endpoints
 	FetchObject(ctx context.Context, shardName string, id strfmt.UUID) (objects.Replica, error)
 	FetchObjects(ctx context.Context, shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
-	DigestObjects(ctx context.Context, shardName string, ids []strfmt.UUID) (result []RepairResponse, err error)
-	DigestObjectsInTokenRange(ctx context.Context, shardName string,
-		initialToken, finalToken uint64, limit int) (result []RepairResponse, lastTokenRead uint64, err error)
+	DigestObjects(ctx context.Context, shardName string, ids []strfmt.UUID) (result []types.RepairResponse, err error)
+	DigestObjectsInRange(ctx context.Context, shardName string,
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
 	HashTreeLevel(ctx context.Context, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
@@ -147,7 +148,7 @@ func (rri *RemoteReplicaIncoming) AbortReplication(indexName,
 
 func (rri *RemoteReplicaIncoming) OverwriteObjects(ctx context.Context,
 	indexName, shardName string, vobjects []*objects.VObject,
-) ([]RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
 	if simpleResp != nil {
 		return nil, simpleResp.Errors[0].Err
@@ -177,10 +178,10 @@ func (rri *RemoteReplicaIncoming) FetchObjects(ctx context.Context,
 
 func (rri *RemoteReplicaIncoming) DigestObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
-) (result []RepairResponse, err error) {
+) (result []types.RepairResponse, err error) {
 	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
 	if simpleResp != nil {
-		return []RepairResponse{}, simpleResp.Errors[0].Err
+		return []types.RepairResponse{}, simpleResp.Errors[0].Err
 	}
 	return index.DigestObjects(ctx, shardName, ids)
 }
@@ -206,14 +207,14 @@ func (rri *RemoteReplicaIncoming) indexForIncomingWrite(ctx context.Context, ind
 	return index, nil
 }
 
-func (rri *RemoteReplicaIncoming) DigestObjectsInTokenRange(ctx context.Context,
-	indexName, shardName string, initialToken, finalToken uint64, limit int,
-) (result []RepairResponse, lastTokenRead uint64, err error) {
+func (rri *RemoteReplicaIncoming) DigestObjectsInRange(ctx context.Context,
+	indexName, shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
+) (result []types.RepairResponse, err error) {
 	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
 	if simpleResp != nil {
-		return []RepairResponse{}, 0, simpleResp.Errors[0].Err
+		return []types.RepairResponse{}, simpleResp.Errors[0].Err
 	}
-	return index.DigestObjectsInTokenRange(ctx, shardName, initialToken, finalToken, limit)
+	return index.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
 func (rri *RemoteReplicaIncoming) HashTreeLevel(ctx context.Context,

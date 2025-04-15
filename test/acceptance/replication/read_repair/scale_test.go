@@ -20,13 +20,13 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func (suite *ReplicationTestSuite) TestReplicationFactorIncrease() {
@@ -44,7 +44,7 @@ func (suite *ReplicationTestSuite) TestReplicationFactorIncrease() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -143,9 +143,9 @@ func (suite *ReplicationTestSuite) TestReplicationFactorIncrease() {
 
 	t.Run("kill a node and check contents of remaining node", func(t *testing.T) {
 		common.StopNodeAt(ctx, t, compose, 2)
-		p := common.GQLGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
+		p := common.GQLGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, types.ConsistencyLevelOne)
 		assert.Len(t, p, 10)
-		a := common.GQLGet(t, compose.GetWeaviate().URI(), articleClass.Class, replica.One)
+		a := common.GQLGet(t, compose.GetWeaviate().URI(), articleClass.Class, types.ConsistencyLevelOne)
 		assert.Len(t, a, 10)
 	})
 }

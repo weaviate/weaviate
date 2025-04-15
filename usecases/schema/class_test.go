@@ -18,9 +18,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modelsext"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -34,17 +37,6 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func Test_GetSchema(t *testing.T) {
-	t.Parallel()
-	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-	fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
-
-	sch, err := handler.GetSchema(nil)
-	assert.Nil(t, err)
-	assert.NotNil(t, sch)
-	fakeSchemaManager.AssertExpectations(t)
-}
-
 func Test_AddClass(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -52,7 +44,7 @@ func Test_AddClass(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-		class := models.Class{
+		class := &models.Class{
 			Class: "NewClass",
 			Properties: []*models.Property{
 				{DataType: []string{"text"}, Name: "textProp"},
@@ -61,11 +53,62 @@ func Test_AddClass(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 
-		_, _, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, class)
 		assert.Nil(t, err)
 
 		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("happy path, named vectors", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		class := &models.Class{
+			Class: "NewClass",
+			Properties: []*models.Property{
+				{DataType: []string{"text"}, Name: "textProp"},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: hnswT,
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{},
+					},
+				},
+			},
+		}
+		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+
+		_, _, err := handler.AddClass(ctx, nil, class)
+		require.NoError(t, err)
+
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("mixed vector schema creation", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+
+		class := &models.Class{
+			Class: "NewClass",
+			Properties: []*models.Property{
+				{DataType: []string{"text"}, Name: "textProp"},
+			},
+			Vectorizer:      "text2vec-contextionary",
+			VectorIndexType: hnswT,
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: hnswT,
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{},
+					},
+				},
+			},
+		}
+
+		_, _, err := handler.AddClass(ctx, nil, class)
+		require.ErrorContains(t, err, "creating a class with both a class level vector index and named vectors is forbidden")
 	})
 
 	t.Run("with empty class name", func(t *testing.T) {
@@ -117,9 +160,10 @@ func Test_AddClass(t *testing.T) {
 			Bm25:                   expectedBM25Config,
 			CleanupIntervalSeconds: 60,
 			Stopwords:              expectedStopwordConfig,
+			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
-
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -134,7 +178,8 @@ func Test_AddClass(t *testing.T) {
 		class := models.Class{
 			Class: "NewClass",
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				Bm25: expectedBM25Config,
+				Bm25:              expectedBM25Config,
+				UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 			},
 			Vectorizer: "none",
 		}
@@ -149,8 +194,10 @@ func Test_AddClass(t *testing.T) {
 			Bm25:                   expectedBM25Config,
 			CleanupIntervalSeconds: 60,
 			Stopwords:              expectedStopwordConfig,
+			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -210,6 +257,7 @@ func Test_AddClass(t *testing.T) {
 					// fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(&models.Class{Class: classes[tc.dataType[0]].Class, Vectorizer: classes[tc.dataType[0]].Vectorizer})
 					if tc.expectedErrMsg == "" {
 						fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 
 					_, _, err := handler.AddClass(context.Background(), nil, class)
@@ -242,7 +290,7 @@ func Test_AddClass(t *testing.T) {
 					propName:       propName(dataType, tokenization),
 					dataType:       dataType.PropString(),
 					tokenization:   tokenization,
-					expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+					expectedErrMsg: fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 				})
 			}
 
@@ -269,7 +317,7 @@ func Test_AddClass(t *testing.T) {
 							propName:       propName(dataType, tokenization),
 							dataType:       dataType.PropString(),
 							tokenization:   tokenization,
-							expectedErrMsg: fmt.Sprintf("Tokenization is not allowed for data type '%s'", dataType),
+							expectedErrMsg: fmt.Sprintf("tokenization is not allowed for data type '%s'", dataType),
 						})
 					}
 				}
@@ -297,7 +345,7 @@ func Test_AddClass(t *testing.T) {
 						propName:       fmt.Sprintf("RefProp_%d_%s", i, tokenization),
 						dataType:       dataType,
 						tokenization:   tokenization,
-						expectedErrMsg: "Tokenization is not allowed for reference data type",
+						expectedErrMsg: "tokenization is not allowed for reference data type",
 						callReadOnly:   true,
 					})
 				}
@@ -331,7 +379,7 @@ func Test_AddClass(t *testing.T) {
 							propName:       propName(dataType, tokenization),
 							dataType:       dataType.PropString(),
 							tokenization:   tokenization,
-							expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+							expectedErrMsg: fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 						})
 					}
 				}
@@ -344,51 +392,163 @@ func Test_AddClass(t *testing.T) {
 	t.Run("with invalid settings", func(t *testing.T) {
 		handler, _ := newTestHandler(t, &fakeDB{})
 
-		// Vectorizer while VectorConfig exists
 		_, _, err := handler.AddClass(ctx, nil, &models.Class{
-			Class:      "NewClass",
-			Vectorizer: "some",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "hnsw",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
-			}},
-		})
-		assert.EqualError(t, err, "class.vectorizer \"some\" can not be set if class.vectorConfig is configured")
-
-		// VectorIndexType while VectorConfig exists
-		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class:           "NewClass",
-			VectorIndexType: "some",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "hnsw",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
-			}},
+			VectorIndexType: "invalid",
 		})
-		assert.EqualError(t, err, "class.vectorIndexType \"some\" can not be set if class.vectorConfig is configured")
+		assert.EqualError(t, err, `unrecognized or unsupported vectorIndexType "invalid"`)
 
 		// VectorConfig is invalid VectorIndexType
 		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class: "NewClass",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "invalid",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
-			}},
+			VectorConfig: map[string]models.VectorConfig{
+				"custom": {
+					VectorIndexType:   "invalid",
+					VectorIndexConfig: hnsw.UserConfig{},
+					Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+				},
+			},
 		})
-		assert.EqualError(t, err, "target vector \"custom\": unrecognized or unsupported vectorIndexType \"invalid\"")
+		assert.EqualError(t, err, `target vector "custom": unrecognized or unsupported vectorIndexType "invalid"`)
 
 		// VectorConfig is invalid Vectorizer
 		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class: "NewClass",
-			VectorConfig: map[string]models.VectorConfig{"custom": {
-				VectorIndexType:   "flat",
-				VectorIndexConfig: hnsw.UserConfig{},
-				Vectorizer:        map[string]interface{}{"invalid": nil},
-			}},
+			VectorConfig: map[string]models.VectorConfig{
+				"custom": {
+					VectorIndexType:   "flat",
+					VectorIndexConfig: hnsw.UserConfig{},
+					Vectorizer:        map[string]interface{}{"invalid": nil},
+				},
+			},
 		})
-		assert.EqualError(t, err, "target vector \"custom\": vectorizer: invalid vectorizer \"invalid\"")
+		assert.EqualError(t, err, `target vector "custom": vectorizer: invalid vectorizer "invalid"`)
+	})
+}
+
+func Test_AddClassWithLimits(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("with max collections limit", func(t *testing.T) {
+		tests := []struct {
+			name          string
+			existingCount int
+			maxAllowed    int
+			expectedError error
+		}{
+			{
+				name:          "under the limit",
+				existingCount: 5,
+				maxAllowed:    10,
+				expectedError: nil,
+			},
+			{
+				name:          "at the limit",
+				existingCount: 10,
+				maxAllowed:    10,
+				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
+			},
+			{
+				name:          "over the limit",
+				existingCount: 11,
+				maxAllowed:    10,
+				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
+			},
+			{
+				name:          "no limit set",
+				existingCount: 100,
+				maxAllowed:    -1,
+				expectedError: nil,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+				// Mock the schema count
+				fakeSchemaManager.On("QueryCollectionsCount").Return(tt.existingCount, nil)
+
+				// Set the max collections limit in config
+				handler.schemaConfig.MaximumAllowedCollectionsCount = tt.maxAllowed
+
+				class := &models.Class{
+					Class:      "NewClass",
+					Vectorizer: "none",
+				}
+
+				if tt.expectedError == nil {
+					fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+				}
+
+				_, _, err := handler.AddClass(ctx, nil, class)
+				if tt.expectedError != nil {
+					require.NotNil(t, err)
+					assert.Contains(t, err.Error(), tt.expectedError.Error())
+				} else {
+					require.Nil(t, err)
+				}
+				fakeSchemaManager.AssertExpectations(t)
+			})
+		}
+	})
+
+	t.Run("adding dynamic index", func(t *testing.T) {
+		for _, tt := range []struct {
+			name                 string
+			asyncIndexingEnabled bool
+
+			expectError string
+		}{
+			{
+				name:                 "async indexing disabled",
+				asyncIndexingEnabled: false,
+
+				expectError: "the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)",
+			},
+			{
+				name:                 "async indexing enabled",
+				asyncIndexingEnabled: true,
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				handler, schemaManager := newTestHandler(t, &fakeDB{})
+				handler.asyncIndexingEnabled = tt.asyncIndexingEnabled
+
+				if tt.expectError == "" {
+					schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+					schemaManager.On("QueryCollectionsCount").Return(0, nil)
+					defer schemaManager.AssertExpectations(t)
+				}
+
+				assertError := func(err error) {
+					if tt.expectError != "" {
+						require.ErrorContains(t, err, tt.expectError)
+					} else {
+						require.NoError(t, err)
+					}
+				}
+
+				_, _, err := handler.AddClass(ctx, nil, &models.Class{
+					Class:           "NewClass",
+					VectorIndexType: "dynamic",
+				})
+				assertError(err)
+
+				_, _, err = handler.AddClass(ctx, nil, &models.Class{
+					Class: "NewClass",
+					VectorConfig: map[string]models.VectorConfig{
+						"vec1": {
+							VectorIndexType: "dynamic",
+							Vectorizer:      map[string]any{"text2vec-contextionary": map[string]any{}},
+						},
+					},
+				})
+				assertError(err)
+			})
+		}
 	})
 }
 
@@ -485,7 +645,8 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
-
+			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+			handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 		})
@@ -651,6 +812,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 			fakeSchemaManager.AssertExpectations(t)
@@ -815,6 +977,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -835,6 +998,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -931,9 +1095,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
+					handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 					_, _, err := handler.AddClass(context.Background(), nil, class)
-					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeSchemaManager.AssertExpectations(t)
 				})
@@ -955,6 +1120,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -982,6 +1148,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
@@ -1015,6 +1182,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(ctx, nil, class)
 					t.Log(err)
@@ -1029,18 +1197,17 @@ func Test_Validation_PropertyNames(t *testing.T) {
 // As of now, most class settings are immutable, but we need to allow some
 // specific updates, such as the vector index config
 func Test_UpdateClass(t *testing.T) {
-	t.Run("ClassNotFound", func(t *testing.T) {
+	t.Run("class not found", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 		fakeSchemaManager.On("ReadOnlyClass", "WrongClass", mock.Anything).Return(nil)
 		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(ErrNotFound)
 
 		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{})
-		require.NotNil(t, err)
-		assert.Equal(t, ErrNotFound, err)
+		require.ErrorIs(t, err, ErrNotFound)
 		fakeSchemaManager.AssertExpectations(t)
 	})
 
-	t.Run("Fields validation", func(t *testing.T) {
+	t.Run("fields validation", func(t *testing.T) {
 		tests := []struct {
 			name          string
 			initial       *models.Class
@@ -1078,7 +1245,7 @@ func Test_UpdateClass(t *testing.T) {
 				expectedError: fmt.Errorf("unsupported vector"),
 			},
 			{
-				name:    "AddProperty",
+				name:    "add property to an empty class",
 				initial: &models.Class{Class: "InitialName", Vectorizer: "none"},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1089,10 +1256,71 @@ func Test_UpdateClass(t *testing.T) {
 						},
 					},
 				},
-				expectedError: fmt.Errorf(
-					"properties cannot be updated through updating the class. Use the add " +
-						"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
-						"to add additional properties"),
+				expectedError: errPropertiesUpdatedInClassUpdate,
+			},
+			{
+				name: "updating second property",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "prop1",
+							DataType: schema.DataTypeText.PropString(),
+						},
+						{
+							Name:     "prop2",
+							DataType: schema.DataTypeText.PropString(),
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "prop1",
+							DataType: schema.DataTypeText.PropString(),
+						},
+						{
+							Name:     "prop2",
+							DataType: schema.DataTypeInt.PropString(),
+						},
+					},
+				},
+				expectedError: errPropertiesUpdatedInClassUpdate,
+			},
+			{
+				name: "properties order should not matter",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "prop1",
+							DataType: schema.DataTypeText.PropString(),
+						},
+						{
+							Name:     "prop2",
+							DataType: schema.DataTypeInt.PropString(),
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "prop2",
+							DataType: schema.DataTypeInt.PropString(),
+						},
+						{
+							Name:     "prop1",
+							DataType: schema.DataTypeText.PropString(),
+						},
+					},
+				},
+				expectedError: nil,
 			},
 			{
 				name: "leaving properties unchanged",
@@ -1141,7 +1369,7 @@ func Test_UpdateClass(t *testing.T) {
 					},
 				},
 				expectedError: fmt.Errorf(
-					"properties cannot be updated through updating the class. Use the add " +
+					"property fields other than description cannot be updated through updating the class. Use the add " +
 						"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
 						"to add additional properties"),
 			},
@@ -1152,6 +1380,7 @@ func Test_UpdateClass(t *testing.T) {
 					Vectorizer: "none",
 					InvertedIndexConfig: &models.InvertedIndexConfig{
 						CleanupIntervalSeconds: 17,
+						UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 					},
 				},
 				update: &models.Class{
@@ -1163,6 +1392,7 @@ func Test_UpdateClass(t *testing.T) {
 							K1: config.DefaultBM25k1,
 							B:  config.DefaultBM25b,
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 			},
@@ -1177,6 +1407,7 @@ func Test_UpdateClass(t *testing.T) {
 							K1: 1.012,
 							B:  0.125,
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 				update: &models.Class{
@@ -1188,6 +1419,7 @@ func Test_UpdateClass(t *testing.T) {
 							K1: 1.012,
 							B:  0.125,
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 			},
@@ -1201,6 +1433,7 @@ func Test_UpdateClass(t *testing.T) {
 						Stopwords: &models.StopwordConfig{
 							Preset: "en",
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 				update: &models.Class{
@@ -1213,6 +1446,7 @@ func Test_UpdateClass(t *testing.T) {
 							Additions: []string{"banana", "passionfruit", "kiwi"},
 							Removals:  []string{"a", "the"},
 						},
+						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
 				},
 			},
@@ -1237,6 +1471,136 @@ func Test_UpdateClass(t *testing.T) {
 					},
 				},
 				expectedError: fmt.Errorf("can only update generative and reranker module configs"),
+			},
+			{
+				name: "adding new module configuration",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					ModuleConfig: map[string]interface{}{
+						"my-module1": map[string]interface{}{
+							"my-setting": "some-value",
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					ModuleConfig: map[string]interface{}{
+						"my-module1": map[string]interface{}{
+							"my-setting": "some-value",
+						},
+						"my-module2": map[string]interface{}{
+							"my-setting": "some-value",
+						},
+					},
+				},
+				expectedError: nil,
+			},
+			{
+				name: "adding new module configuration for a property",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module1": map[string]interface{}{
+									"my-setting": "some-value",
+								},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module1": map[string]interface{}{
+									"my-setting": "some-value",
+								},
+								"my-module2": map[string]interface{}{
+									"my-setting": "some-value",
+								},
+							},
+						},
+					},
+				},
+				expectedError: nil,
+			},
+			{
+				name: "updating existing module configuration for a property",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module1": map[string]interface{}{
+									"my-setting": "some-value",
+								},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module1": map[string]interface{}{
+									"my-setting": "new-value",
+								},
+							},
+						},
+					},
+				},
+				expectedError: errors.New(`module "my-module1" configuration cannot be updated`),
+			},
+			{
+				name: "removing existing module configuration for a property",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module1": map[string]interface{}{
+									"my-setting": "some-value",
+								},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: schema.DataTypeText.PropString(),
+							ModuleConfig: map[string]interface{}{
+								"my-module2": map[string]interface{}{
+									"my-setting": "new-value",
+								},
+							},
+						},
+					},
+				},
+				expectedError: errors.New(`module "my-module1" configuration was removed`),
 			},
 			{
 				name: "updating vector index config",
@@ -1330,20 +1694,171 @@ func Test_UpdateClass(t *testing.T) {
 				},
 				expectedError: nil,
 			},
+			{
+				name: "adding named vector on a class with legacy index",
+				initial: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+				},
+				update: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+					VectorConfig: map[string]models.VectorConfig{
+						"vec1": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				expectedError: nil,
+			},
+			{
+				name: "adding new vector to a class with named vectors",
+				initial: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"initial": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"initial": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+						"new": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+			},
+			{
+				name: "adding legacy vector to a class with named vectors",
+				initial: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"initial": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+					VectorConfig: map[string]models.VectorConfig{
+						"initial": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				expectedError: fmt.Errorf("vectorizer is immutable"),
+			},
+			{
+				name: "removing existing named vector",
+				initial: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"first": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+						"second": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				update: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"first": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				expectedError: fmt.Errorf(`missing config for vector "second"`),
+			},
+			{
+				name: "removing existing legacy vector",
+				initial: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+				},
+				update: &models.Class{
+					Class: "InitialName",
+				},
+				expectedError: fmt.Errorf("vectorizer is immutable"),
+			},
+			{
+				name: "adding named vector with reserved named on a collection with legacy index",
+				initial: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+				},
+				update: &models.Class{
+					Class:           "InitialName",
+					Vectorizer:      "text2vec-contextionary",
+					VectorIndexType: hnswT,
+					VectorConfig: map[string]models.VectorConfig{
+						modelsext.DefaultNamedVectorName: {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+				},
+				expectedError: fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", modelsext.DefaultNamedVectorName),
+			},
 		}
 
 		for _, test := range tests {
-			store := NewFakeStore()
 			t.Run(test.name, func(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 				ctx := context.Background()
 
+				store := NewFakeStore()
+				store.parser = handler.parser
+
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				if len(test.initial.Properties) > 0 {
 					fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				}
+				handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 				_, _, err := handler.AddClass(ctx, nil, test.initial)
 				assert.Nil(t, err)
 				store.AddClass(test.initial)
@@ -1355,10 +1870,9 @@ func Test_UpdateClass(t *testing.T) {
 				}
 
 				if test.expectedError == nil {
-					assert.Nil(t, err)
+					assert.NoError(t, err)
 				} else {
-					require.NotNil(t, err, "update must error")
-					assert.Contains(t, err.Error(), test.expectedError.Error())
+					assert.ErrorContains(t, err, test.expectedError.Error())
 				}
 			})
 		}
@@ -1630,6 +2144,8 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.False(t, schema.AutoTenantCreationEnabled(c))
@@ -1649,6 +2165,8 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.True(t, schema.AutoTenantCreationEnabled(c))
@@ -1664,6 +2182,8 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})
@@ -1677,6 +2197,8 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})
@@ -1740,4 +2262,50 @@ func Test_SetClassDefaults(t *testing.T) {
 			assert.Equal(t, tt.expectedFactor, tt.class.ReplicationConfig.Factor)
 		})
 	}
+}
+
+func TestExperimentBackwardsCompatibleNamedVectorsGuard(t *testing.T) {
+	var (
+		className              = "TestClass"
+		ctx                    = context.Background()
+		handler, schemaManager = newTestHandler(t, &fakeDB{})
+	)
+	handler.parser.experimentBackwardsCompatibleNamedVectorsEnabled = false
+
+	t.Run("updating class with named vectors", func(t *testing.T) {
+		store := NewFakeStore()
+
+		schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		schemaManager.On("QueryCollectionsCount").Return(0, nil)
+
+		class := &models.Class{
+			Class:           className,
+			VectorIndexType: "hnsw",
+			Vectorizer:      "text2vec-contextionary",
+		}
+		_, _, err := handler.AddClass(ctx, nil, class)
+		require.NoError(t, err)
+		store.AddClass(class)
+
+		schemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+		schemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(class)
+
+		updatedClass := &models.Class{
+			Class:           className,
+			VectorIndexType: "hnsw",
+			Vectorizer:      "text2vec-contextionary",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: hnswT,
+					Vectorizer:      map[string]any{"text2vec-contextionary": map[string]any{}},
+				},
+			},
+		}
+
+		err = handler.UpdateClass(ctx, nil, className, updatedClass)
+		require.NoError(t, err)
+
+		err = store.UpdateClass(updatedClass)
+		require.ErrorContains(t, err, `additional config for vector "vec1"`)
+	})
 }

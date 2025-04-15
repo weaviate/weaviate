@@ -21,6 +21,7 @@ import (
 	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -80,11 +81,11 @@ type diskIndex interface {
 }
 
 type segmentConfig struct {
-	mmapContents              bool
-	useBloomFilter            bool
-	calcCountNetAdditions     bool
-	overwriteDerived          bool
-	disableChecksumValidation bool
+	mmapContents             bool
+	useBloomFilter           bool
+	calcCountNetAdditions    bool
+	overwriteDerived         bool
+	enableChecksumValidation bool
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -131,7 +132,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
-	if header.Version >= segmentindex.SegmentV1 && !cfg.disableChecksumValidation {
+	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation {
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
@@ -177,7 +178,9 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		useBloomFilter:        cfg.useBloomFilter,
 		calcCountNetAdditions: cfg.calcCountNetAdditions,
 		invertedHeader:        invertedHeader,
-		invertedData:          &segmentInvertedData{},
+		invertedData: &segmentInvertedData{
+			tombstones: sroar.NewBitmap(),
+		},
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -209,6 +212,19 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
+	if seg.strategy == segmentindex.StrategyInverted {
+		_, err := seg.loadTombstones()
+		if err != nil {
+			return nil, fmt.Errorf("load tombstones: %w", err)
+		}
+
+		_, err = seg.loadPropertyLengths()
+		if err != nil {
+			return nil, fmt.Errorf("load property lengths: %w", err)
+		}
+
+	}
+
 	return seg, nil
 }
 
@@ -222,7 +238,7 @@ func (s *segment) close() error {
 	}
 
 	if munmapErr != nil || fileCloseErr != nil {
-		return fmt.Errorf("close segment: munmap: %v, close contents file: %w", munmapErr, fileCloseErr)
+		return fmt.Errorf("close segment: munmap: %w, close contents file: %w", munmapErr, fileCloseErr)
 	}
 
 	return nil

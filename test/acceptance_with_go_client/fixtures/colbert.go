@@ -20,6 +20,10 @@ var (
 	BringYourOwnColBERTClassName       = "BringYourOwnColBERT"
 	BringYourOwnColBERTPropertyName    = "name"
 	BringYourOwnColBERTNamedVectorName = "byoc"
+	NormalVector2dName                 = "normal_2d"
+	MultiVector1dName                  = "multi_1d"
+	MultiVector2dName                  = "multi_2d"
+	MultiVector3dName                  = "multi_3d"
 )
 
 var BringYourOwnColBERTClass = func(className string) *models.Class {
@@ -32,6 +36,45 @@ var BringYourOwnColBERTClass = func(className string) *models.Class {
 		},
 		VectorConfig: map[string]models.VectorConfig{
 			BringYourOwnColBERTNamedVectorName: {
+				Vectorizer: map[string]interface{}{
+					"none": map[string]interface{}{},
+				},
+				VectorIndexConfig: map[string]interface{}{
+					"multivector": map[string]interface{}{
+						"enabled": true,
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+			NormalVector2dName: {
+				Vectorizer: map[string]interface{}{
+					"none": map[string]interface{}{},
+				},
+				VectorIndexType: "hnsw",
+			},
+			MultiVector1dName: {
+				Vectorizer: map[string]interface{}{
+					"none": map[string]interface{}{},
+				},
+				VectorIndexConfig: map[string]interface{}{
+					"multivector": map[string]interface{}{
+						"enabled": true,
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+			MultiVector2dName: {
+				Vectorizer: map[string]interface{}{
+					"none": map[string]interface{}{},
+				},
+				VectorIndexConfig: map[string]interface{}{
+					"multivector": map[string]interface{}{
+						"enabled": true,
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+			MultiVector3dName: {
 				Vectorizer: map[string]interface{}{
 					"none": map[string]interface{}{},
 				},

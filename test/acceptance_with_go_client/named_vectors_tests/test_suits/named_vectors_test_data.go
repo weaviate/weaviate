@@ -22,9 +22,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
+	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -47,6 +47,7 @@ var (
 	text2vecTransformers                = "text2vec-transformers"
 	id1                                 = "00000000-0000-0000-0000-000000000001"
 	id2                                 = "00000000-0000-0000-0000-000000000002"
+	id3                                 = "00000000-0000-0000-0000-000000000003"
 )
 
 var targetVectors = []string{
@@ -262,9 +263,30 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 		Name: "_additional",
 		Fields: []graphql.Field{
 			{Name: "id"},
-			{Name: fmt.Sprintf("vectors{%s}", strings.Join(targetVectors, " "))},
 		},
 	}
+
+	var (
+		requireLegacyVector   bool
+		filteredTargetVectors []string
+	)
+	for _, targetVector := range targetVectors {
+		if targetVector == "" {
+			requireLegacyVector = true
+		} else {
+			filteredTargetVectors = append(filteredTargetVectors, targetVector)
+		}
+	}
+
+	if requireLegacyVector {
+		field.Fields = append(field.Fields, graphql.Field{Name: "vector"})
+	}
+
+	if len(filteredTargetVectors) > 0 {
+		vectors := fmt.Sprintf("vectors{%s}", strings.Join(filteredTargetVectors, " "))
+		field.Fields = append(field.Fields, graphql.Field{Name: vectors})
+	}
+
 	if withCertainty {
 		field.Fields = append(field.Fields, graphql.Field{Name: "certainty"})
 	}

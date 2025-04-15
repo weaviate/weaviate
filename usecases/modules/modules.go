@@ -18,13 +18,13 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -926,6 +926,10 @@ func (p *Provider) getTargetVector(class *models.Class, params interface{}) ([]s
 		return nearParam.GetTargetVectors(), nil
 	}
 	if class != nil {
+		if modelsext.ClassHasLegacyVectorIndex(class) {
+			return []string{""}, nil
+		}
+
 		if len(class.VectorConfig) > 1 {
 			return nil, fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
 		}
@@ -962,7 +966,7 @@ func (p *Provider) VectorFromInput(ctx context.Context,
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if mod.Name() == targetModule {
+		if p.isModuleNameEqual(mod, targetModule) {
 			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
 				if found, vector, err := vectorFromInput[[]float32](ctx, mod, class, input, targetVector); found {
 					return vector, err
@@ -984,7 +988,7 @@ func (p *Provider) MultiVectorFromInput(ctx context.Context,
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if mod.Name() == targetModule {
+		if p.isModuleNameEqual(mod, targetModule) {
 			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
 				if found, vector, err := vectorFromInput[[][]float32](ctx, mod, class, input, targetVector); found {
 					return vector, err

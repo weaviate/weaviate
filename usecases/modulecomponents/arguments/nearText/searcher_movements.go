@@ -24,9 +24,22 @@ func newMovements[T dto.Embedding]() *movements[T] {
 	return &movements[T]{}
 }
 
+var (
+	ErrMultiVectorMoveTo   = errors.New("move to operations are not applicable for multivector embeddings")
+	ErrMultiVectorMoveAway = errors.New("move away from operations are not applicable for multivector embeddings")
+)
+
 // MoveTo moves one vector toward another
 func (v *movements[T]) MoveTo(source T, target T, weight float32,
 ) (T, error) {
+	// the type of source/target should always be the same, but check both to be sure
+	if _, sourceOk := any(source).([][]float32); sourceOk {
+		return nil, ErrMultiVectorMoveTo
+	}
+	if _, targetOk := any(target).([][]float32); targetOk {
+		return nil, ErrMultiVectorMoveTo
+	}
+
 	multiplier := float32(0.5)
 
 	if len(source) != len(target) {
@@ -54,6 +67,14 @@ func (v *movements[T]) MoveTo(source T, target T, weight float32,
 // MoveAwayFrom moves one vector away from another
 func (v *movements[T]) MoveAwayFrom(source T, target T, weight float32,
 ) (T, error) {
+	// the type of source/target should always be the same, but check both to be sure
+	if _, sourceOk := any(source).([][]float32); sourceOk {
+		return nil, ErrMultiVectorMoveAway
+	}
+	if _, targetOk := any(target).([][]float32); targetOk {
+		return nil, ErrMultiVectorMoveAway
+	}
+
 	multiplier := float32(0.5) // so the movement is fair in comparison with moveTo
 	if len(source) != len(target) {
 		return nil, fmt.Errorf("movement (moveAwayFrom): vector lengths don't match: "+

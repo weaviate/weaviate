@@ -111,7 +111,7 @@ type timestampCountPair struct {
 func (a *dateAggregator) AddTimestamp(rfc3339 string) error {
 	t, err := time.Parse(time.RFC3339Nano, rfc3339)
 	if err != nil {
-		return fmt.Errorf("failed to parse timestamp: %s", err)
+		return fmt.Errorf("failed to parse timestamp: %w", err)
 	}
 
 	ts := timestamp{

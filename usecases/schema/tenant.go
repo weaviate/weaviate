@@ -18,12 +18,14 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -212,17 +214,58 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 }
 
 func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.TenantResponse, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenants...)...); err != nil {
+	var allTenants []*models.TenantResponse
+	var err error
+
+	if consistency {
+		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
+	} else {
+		// If non consistent, fallback to the default implementation
+		allTenants, err = h.getTenantsByNames(class, tenants)
+	}
+	if err != nil {
 		return nil, err
 	}
 
-	if consistency {
-		tenants, _, err := h.schemaManager.QueryTenants(class, tenants)
-		return tenants, err
+	resourceFilter := filter.New[*models.TenantResponse](h.Authorizer, h.config.Authorization.Rbac)
+	filteredTenants := resourceFilter.Filter(
+		h.logger,
+		principal,
+		allTenants,
+		authorization.READ,
+		func(tenant *models.TenantResponse) string {
+			return authorization.ShardsMetadata(class, tenant.Name)[0]
+		},
+	)
+
+	return filteredTenants, nil
+}
+
+func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.TenantResponse, error) {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
+		return nil, err
 	}
 
-	// If non consistent, fallback to the default implementation
-	return h.getTenantsByNames(class, tenants)
+	var allTenants []*models.TenantResponse
+	var err error
+
+	tenants := []string{tenant}
+	if consistency {
+		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
+	} else {
+		// If non consistent, fallback to the default implementation
+		allTenants, err = h.getTenantsByNames(class, tenants)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(allTenants) == 0 {
+		return nil, ErrNotFound
+	}
+	if len(allTenants) > 1 {
+		return nil, ErrUnexpectedMultiple
+	}
+	return allTenants[0], nil
 }
 
 func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {

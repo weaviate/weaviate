@@ -85,6 +85,9 @@ func testText2VecOllama(host, ollamaApiEndpoint string) func(t *testing.T) {
 				t.Run("perform vector search", func(t *testing.T) {
 					companies.PerformVectorSearchTest(t, host, class.Class)
 				})
+				t.Run("perform hybrid search", func(t *testing.T) {
+					companies.PerformHybridSearchTest(t, host, class.Class)
+				})
 				t.Run("perform second vector search", func(t *testing.T) {
 					query := fmt.Sprintf(`
 						{

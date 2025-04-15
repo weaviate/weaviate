@@ -42,12 +42,12 @@ func (g group) flattenMerge() (search.Result, error) {
 	values := g.makeValueGroups()
 	merged, err := mergeValueGroups(values)
 	if err != nil {
-		return search.Result{}, fmt.Errorf("merge values: %v", err)
+		return search.Result{}, fmt.Errorf("merge values: %w", err)
 	}
 
 	vector, err := g.mergeVectors()
 	if err != nil {
-		return search.Result{}, fmt.Errorf("merge vectors: %v", err)
+		return search.Result{}, fmt.Errorf("merge vectors: %w", err)
 	}
 
 	className := g.mergeGetClassName()
@@ -151,7 +151,7 @@ func mergeValueGroups(props map[string]valueGroup) (map[string]interface{}, erro
 			err = fmt.Errorf("unrecognized value type")
 		}
 		if err != nil {
-			return nil, fmt.Errorf("prop '%s': %v", propName, err)
+			return nil, fmt.Errorf("prop '%s': %w", propName, err)
 		}
 
 		mergedProps[propName] = res

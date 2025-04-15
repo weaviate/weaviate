@@ -92,6 +92,8 @@ jobs:
         with:
           api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
           project_key: ${{ env.PROJECT_KEY }}
+          # diff scans against the entire git history, so should only scan changes in this PR
+          fetch-depth: 0
           path:
             # scanning the entire repository
             "."
@@ -149,7 +151,8 @@ jobs:
           "--only-module-text2vec-transformers",
           "--only-module-text2vec-ollama",
           "--only-module-generative-ollama",
-          "--only-module-many-generative"
+          "--only-module-many-generative",
+          "--only-module-text2vec-model2vec"
         ]
     steps:
       - uses: actions/checkout@v4
@@ -197,7 +200,7 @@ jobs:
           fi
   Modules-Acceptance-Tests-large:
     name: modules-acceptance-tests-large
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
@@ -322,6 +325,7 @@ jobs:
           "--acceptance-only-authz",
           "--acceptance-only-replication",
           "--acceptance-only-async-replication",
+          "--acceptance-only-replica-replication",
           "--acceptance-go-client-only-fast",
           "--acceptance-only-python",
         ]
@@ -345,7 +349,7 @@ jobs:
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-large:
     name: acceptance-tests-large
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     strategy:
       fail-fast: false
       matrix:
@@ -403,7 +407,7 @@ jobs:
           verbose: true
   Compile-and-upload-binaries:
     name: compile-and-upload-binaries
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -479,10 +483,11 @@ jobs:
         run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
 
   Push-Docker:
-    if: ${{ !github.event.pull_request.head.repo.fork && !startsWith(github.head_ref, 'build') }} # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && (startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '') }} # no PRs from fork
     needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
     name: push-docker
-    runs-on: ubuntu-latest-8-cores
+    timeout-minutes: 30
+    runs-on: DB-ubuntu-24.04-8-cores
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -501,9 +506,22 @@ jobs:
           PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
-    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
     name: push-docker-fast
-    runs-on: ubuntu-latest-8-cores
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    outputs:
+      preview-tags-amd64: ${{ steps.set-outputs.outputs.preview-tags-amd64 }}
+      semver-tags-amd64: ${{ steps.set-outputs.outputs.semver-tags-amd64 }}
+      preview-tags-arm64: ${{ steps.set-outputs.outputs.preview-tags-arm64 }}
+      semver-tags-arm64: ${{ steps.set-outputs.outputs.semver-tags-arm64 }}
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -513,11 +531,36 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
         id: push-container
-        run: ./ci/push_docker.sh
+        run: ./ci/push_docker.sh --${{ matrix.arch }}-only
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
-      - name: Generate Report
-        env:
-          PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
-          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
-        run: ./ci/generate_docker_report.sh
+      - name: Set architecture-specific outputs
+        id: set-outputs
+        run: |
+          # Unique output names per architecture
+          echo "preview-tags-${{ matrix.arch }}=${{ steps.push-container.outputs.PREVIEW_TAG }}" >> $GITHUB_OUTPUT
+          echo "semver-tags-${{ matrix.arch }}=${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}" >> $GITHUB_OUTPUT
+  Generate-Docker-Report:
+    needs: [Push-Docker-Fast]
+    name: generate-docker-report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Combine tags
+        run: |
+          # Collect all architecture-specific outputs
+          ALL_PREVIEW_TAGS="${{ needs.Push-Docker-Fast.outputs.preview-tags-amd64 }}"
+          ALL_PREVIEW_TAGS+="\n${{ needs.Push-Docker-Fast.outputs.preview-tags-arm64 }}"
+          
+          ALL_SEMVER_TAGS="${{ needs.Push-Docker-Fast.outputs.semver-tags-amd64 }}"
+          ALL_SEMVER_TAGS+="\n${{ needs.Push-Docker-Fast.outputs.semver-tags-arm64 }}"
+
+          # Write to environment variables
+          echo "PREVIEW_TAG<<EOF" >> $GITHUB_ENV
+          echo -e "$ALL_PREVIEW_TAGS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+          echo "PREVIEW_SEMVER_TAG<<EOF" >> $GITHUB_ENV
+          echo -e "$ALL_SEMVER_TAGS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+      - run: ./ci/generate_docker_report.sh

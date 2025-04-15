@@ -20,8 +20,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
+	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -151,6 +151,51 @@ func testHybrid(host string) func(t *testing.T) {
 			}, 5*time.Second, 1*time.Second)
 
 			require.ElementsMatch(t, ids, []string{id, id2})
+		})
+
+		t.Run("default vector chosen", func(t *testing.T) {
+			singleVecClass := &models.Class{
+				Class: "TestClass",
+				Properties: []*models.Property{
+					{
+						Name: "text", DataType: []string{schema.DataTypeText.String()},
+					},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					contextionary: {
+						Vectorizer: map[string]interface{}{
+							text2vecContextionary: map[string]interface{}{},
+						},
+						VectorIndexType: "flat",
+					},
+				},
+			}
+
+			require.NoError(t, client.Schema().ClassCreator().WithClass(singleVecClass).Do(ctx))
+			defer cleanup()
+
+			_, err = client.Data().Creator().
+				WithClassName(class.Class).
+				WithID(id).
+				WithProperties(map[string]interface{}{
+					"text": "Some text goes here",
+				}).
+				Do(ctx)
+			require.NoError(t, err)
+
+			// query without providing target vector
+			resp, err := client.GraphQL().Get().
+				WithClassName(class.Class).
+				WithHybrid(client.GraphQL().
+					HybridArgumentBuilder().
+					WithQuery("Some text goes here").
+					WithAlpha(0.5)).
+				WithFields(field).
+				Do(ctx)
+			require.NoError(t, err)
+
+			ids := acceptance_with_go_client.GetIds(t, resp, class.Class)
+			require.ElementsMatch(t, ids, []string{id})
 		})
 	}
 }

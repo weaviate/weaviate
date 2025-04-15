@@ -23,13 +23,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/qna-openai/config"
 	"github.com/weaviate/weaviate/modules/qna-openai/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
@@ -88,7 +88,8 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	if err != nil {
 		return nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
-	fmt.Printf("using the OpenAI URL: %v\n", oaiUrl)
+	v.logger.WithField("URL", oaiUrl).Info("using OpenAI")
+
 	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
 		bytes.NewReader(body))
 	if err != nil {
@@ -142,15 +143,15 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 	passedBaseURL := baseURL
 
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 
-	if headerDeploymentID := v.getValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
+	if headerDeploymentID := modulecomponents.GetValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
 		deploymentID = headerDeploymentID
 	}
 
-	if headerResourceName := v.getValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
+	if headerResourceName := modulecomponents.GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
 		resourceName = headerResourceName
 	}
 
@@ -206,7 +207,7 @@ func (v *qna) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 }
 
 func (v *qna) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {
-	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
+	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
 	if envVarValue != "" {
@@ -215,21 +216,8 @@ func (v *qna) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, env
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
-func (v *qna) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
-}
-
 func (v *qna) getOpenAIOrganization(ctx context.Context) string {
-	if value := v.getValueFromContext(ctx, "X-Openai-Organization"); value != "" {
+	if value := modulecomponents.GetValueFromContext(ctx, "X-Openai-Organization"); value != "" {
 		return value
 	}
 	return v.openAIOrganization

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -82,9 +83,10 @@ func (s *nodes) incomingNodeStatus() http.Handler {
 
 		var className string
 
-		args := regxNodesClass.FindStringSubmatch(r.URL.Path)
-		if len(args) == 3 {
-			className = args[2]
+		// url is /nodes/status[/className], where /className is optional
+		args := strings.Split(r.URL.Path, "/")
+		if len(args) == 4 {
+			className = args[3]
 		}
 
 		output := verbosity.OutputMinimal
@@ -92,7 +94,6 @@ func (s *nodes) incomingNodeStatus() http.Handler {
 		if found && len(out) > 0 {
 			output = out[0]
 		}
-
 		nodeStatus, err := s.nodesManager.GetNodeStatus(r.Context(), className, output)
 		if err != nil {
 			http.Error(w, "/nodes fulfill request: "+err.Error(),

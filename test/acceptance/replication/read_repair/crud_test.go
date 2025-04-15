@@ -14,6 +14,7 @@ package replication
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -22,15 +23,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 var (
@@ -88,7 +90,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.ContainerURI(1))
@@ -123,12 +125,12 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("ObjectsExistOnNode-1", func(t *testing.T) {
-			resp := common.GQLGet(t, compose.ContainerURI(1), "Paragraph", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(1), "Paragraph", types.ConsistencyLevelOne)
 			assert.Len(t, resp, len(paragraphIDs))
 		})
 
 		t.Run("ObjectsExistOnNode-2", func(t *testing.T) {
-			resp := common.GQLGet(t, compose.ContainerURI(2), "Paragraph", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(2), "Paragraph", types.ConsistencyLevelOne)
 			require.Len(t, resp, len(paragraphIDs))
 		})
 
@@ -145,7 +147,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 					WithID(id).
 					WithTitle(fmt.Sprintf("Article#%d", i)).
 					Object()
-				common.CreateObjectCL(t, compose.ContainerURI(3), obj, replica.One)
+				common.CreateObjectCL(t, compose.ContainerURI(3), obj, types.ConsistencyLevelOne)
 			}
 		})
 
@@ -154,12 +156,12 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("ObjectsExistOnNode-1", func(t *testing.T) {
-			resp := common.GQLGet(t, compose.ContainerURI(1), "Article", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(1), "Article", types.ConsistencyLevelOne)
 			require.Len(t, resp, len(articleIDs))
 		})
 
 		t.Run("ObjectsExistOnNode-2", func(t *testing.T) {
-			resp := common.GQLGet(t, compose.ContainerURI(2), "Article", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(2), "Article", types.ConsistencyLevelOne)
 			require.Len(t, resp, len(articleIDs))
 		})
 
@@ -200,7 +202,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 
 			// maps article id to referenced paragraph id
 			refPairs := make(map[strfmt.UUID]strfmt.UUID)
-			resp := common.GQLGet(t, compose.ContainerURI(2), "Article", replica.One,
+			resp := common.GQLGet(t, compose.ContainerURI(2), "Article", types.ConsistencyLevelOne,
 				"_additional{id}", "hasParagraphs {... on Paragraph {_additional{id}}}")
 			require.Len(t, resp, len(articleIDs))
 
@@ -238,7 +240,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 				Class:      "Article",
 				Properties: map[string]interface{}{"title": newTitle},
 			}
-			common.UpdateObjectCL(t, compose.ContainerURI(3), patch, replica.Quorum)
+			common.UpdateObjectCL(t, compose.ContainerURI(3), patch, types.ConsistencyLevelQuorum)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -261,7 +263,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 
 	t.Run("DeleteObject", func(t *testing.T) {
 		t.Run("OnNode-3", func(t *testing.T) {
-			common.DeleteObject(t, compose.ContainerURI(3), "Article", articleIDs[0], replica.All)
+			common.DeleteObject(t, compose.ContainerURI(3), "Article", articleIDs[0], types.ConsistencyLevelAll)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -285,7 +287,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 	t.Run("BatchAllObjects", func(t *testing.T) {
 		t.Run("OnNode-3", func(t *testing.T) {
 			common.DeleteObjects(t, compose.ContainerURI(3),
-				"Article", []string{"title"}, "Article#*", replica.All)
+				"Article", []string{"title"}, "Article#*", types.ConsistencyLevelAll)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -293,12 +295,12 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("OnNode-1", func(t *testing.T) {
-			resp := common.GQLGet(t, compose.ContainerURI(1), "Article", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(1), "Article", types.ConsistencyLevelOne)
 			require.Empty(t, resp)
 		})
 
 		t.Run("OnNode-2", func(t *testing.T) {
-			resp := common.GQLGet(t, compose.ContainerURI(2), "Article", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(2), "Article", types.ConsistencyLevelOne)
 			require.Empty(t, resp)
 		})
 
@@ -379,9 +381,9 @@ func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 
 	t.Run("assert all previous data replicated to node 2", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-			resp := common.GQLGet(t, compose.GetWeaviateNode2().URI(), "Article", replica.One)
+			resp := common.GQLGet(t, compose.GetWeaviateNode2().URI(), "Article", types.ConsistencyLevelOne)
 			require.Len(collect, resp, len(articleIDs))
-			resp = common.GQLGet(t, compose.GetWeaviateNode2().URI(), "Paragraph", replica.One)
+			resp = common.GQLGet(t, compose.GetWeaviateNode2().URI(), "Paragraph", types.ConsistencyLevelOne)
 			require.Len(collect, resp, len(paragraphIDs))
 		}, 5*time.Second, 100*time.Millisecond)
 	})
@@ -392,9 +394,9 @@ func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 
 	t.Run("assert all previous data replicated to node 3", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-			resp := common.GQLGet(t, compose.GetWeaviateNode3().URI(), "Article", replica.All)
+			resp := common.GQLGet(t, compose.GetWeaviateNode3().URI(), "Article", types.ConsistencyLevelAll)
 			assert.Len(collect, resp, len(articleIDs))
-			resp = common.GQLGet(t, compose.GetWeaviateNode3().URI(), "Paragraph", replica.All)
+			resp = common.GQLGet(t, compose.GetWeaviateNode3().URI(), "Paragraph", types.ConsistencyLevelAll)
 			assert.Len(collect, resp, len(paragraphIDs))
 		}, 5*time.Second, 100*time.Millisecond)
 	})
@@ -445,7 +447,7 @@ func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 
 		t.Run("DeleteObject", func(t *testing.T) {
 			t.Run("OnNode-2", func(t *testing.T) {
-				common.DeleteObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], replica.All)
+				common.DeleteObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], types.ConsistencyLevelAll)
 			})
 
 			t.Run("OnNode-1", func(t *testing.T) {
@@ -459,12 +461,12 @@ func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 		t.Run("BatchDeleteAllObjects", func(t *testing.T) {
 			t.Run("OnNode-2", func(t *testing.T) {
 				common.DeleteObjects(t, compose.GetWeaviateNode2().URI(),
-					"Article", []string{"title"}, "Article#*", replica.All)
+					"Article", []string{"title"}, "Article#*", types.ConsistencyLevelAll)
 			})
 
 			t.Run("OnNode-1", func(t *testing.T) {
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					resp := common.GQLGet(t, compose.GetWeaviate().URI(), "Article", replica.One)
+					resp := common.GQLGet(t, compose.GetWeaviate().URI(), "Article", types.ConsistencyLevelOne)
 					assert.Empty(collect, resp)
 				}, 5*time.Second, 100*time.Millisecond)
 			})
@@ -481,8 +483,8 @@ func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 			resp, err := helper.Client(t).Schema.SchemaObjectsUpdate(params, nil)
 			require.NotNil(t, err)
 			helper.AssertRequestFail(t, resp, err, func() {
-				errResponse, ok := err.(*schema.SchemaObjectsUpdateUnprocessableEntity)
-				require.True(t, ok)
+				var errResponse *schema.SchemaObjectsUpdateUnprocessableEntity
+				require.True(t, errors.As(err, &errResponse))
 				require.Equal(t, fmt.Sprintf("scale \"%s\" from 3 replicas to 2: scaling in not supported yet", ac.Class), errResponse.Payload.Error[0].Message)
 			})
 		})

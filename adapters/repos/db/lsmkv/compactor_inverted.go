@@ -18,10 +18,13 @@ import (
 	"encoding/gob"
 	"io"
 	"maps"
+	"math"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 )
 
 type compactorInverted struct {
@@ -52,6 +55,9 @@ type compactorInverted struct {
 	propertyLengthsToClean map[uint64]uint32
 
 	invertedHeader *segmentindex.HeaderInverted
+
+	docIdEncoder varenc.VarEncEncoder[uint64]
+	tfEncoder    varenc.VarEncEncoder[uint64]
 }
 
 func newCompactorInverted(w io.WriteSeeker,
@@ -78,12 +84,12 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "init")
 	}
 
-	c.tombstonesToWrite, err = c.c1.segment.GetTombstones()
+	c.tombstonesToWrite, err = c.c1.segment.ReadOnlyTombstones()
 	if err != nil {
 		return errors.Wrap(err, "get tombstones")
 	}
 
-	c.tombstonesToClean, err = c.c2.segment.GetTombstones()
+	c.tombstonesToClean, err = c.c2.segment.ReadOnlyTombstones()
 	if err != nil {
 		return errors.Wrap(err, "get tombstones")
 	}
@@ -180,13 +186,18 @@ func (c *compactorInverted) init() error {
 		DataFields:            c.c1.segment.invertedHeader.DataFields,
 	}
 
+	c.docIdEncoder = varenc.GetVarEncEncoder64(c.invertedHeader.DataFields[0])
+	c.docIdEncoder.Init(terms.BLOCK_SIZE)
+	c.tfEncoder = varenc.GetVarEncEncoder64(c.invertedHeader.DataFields[1])
+	c.tfEncoder.Init(terms.BLOCK_SIZE)
+
 	return nil
 }
 
 func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, error) {
 	tombstonesBuffer := make([]byte, 0)
 
-	if tombstones != nil && tombstones.GetCardinality() > 0 {
+	if tombstones != nil && !tombstones.IsEmpty() {
 		tombstonesBuffer = tombstones.ToBuffer()
 	}
 
@@ -203,11 +214,12 @@ func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, erro
 	return len(tombstonesBuffer) + 8, nil
 }
 
-func (c *compactorInverted) combinePropertyLengths() (uint64, uint64) {
+func (c *compactorInverted) combinePropertyLengths() (uint64, float64) {
 	count := c.c1.segment.invertedData.avgPropertyLengthsCount + c.c2.segment.invertedData.avgPropertyLengthsCount
-	sum := c.c1.segment.invertedData.avgPropertyLengthsSum + c.c2.segment.invertedData.avgPropertyLengthsSum
+	average := c.c1.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c1.segment.invertedData.avgPropertyLengthsCount) / float64(count))
+	average += c.c2.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c2.segment.invertedData.avgPropertyLengthsCount) / float64(count))
 
-	return count, sum
+	return count, average
 }
 
 func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) (int, error) {
@@ -221,11 +233,11 @@ func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 		return 0, err
 	}
 
-	count, sum := c.combinePropertyLengths()
+	count, average := c.combinePropertyLengths()
 
 	buf := make([]byte, 8)
 
-	binary.LittleEndian.PutUint64(buf, sum)
+	binary.LittleEndian.PutUint64(buf, math.Float64bits(average))
 	if _, err := c.bufw.Write(buf); err != nil {
 		return 0, err
 	}
@@ -262,11 +274,7 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 		}
 		if bytes.Equal(key1, key2) {
 
-			value1Clean, skip := c.cleanupValues(value1)
-			if skip {
-				key1, value1, _ = c.c1.next()
-				continue
-			}
+			value1Clean, _ := c.cleanupValues(value1)
 
 			sim.reset([][]MapPair{value1Clean, value2})
 			mergedPairs, err := sim.
@@ -275,15 +283,21 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 				return nil, err
 			}
 
-			if values, skip := c.cleanupValues(mergedPairs); !skip {
-				ki, err := c.writeIndividualNode(c.offset, key2, values, c.propertyLengthsToWrite)
-				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (equal keys)")
-				}
-
-				c.offset = ki.ValueEnd
-				kis = append(kis, ki)
+			if len(mergedPairs) == 0 {
+				// skip key if no values left
+				key1, value1, _ = c.c1.next()
+				key2, value2, _ = c.c2.next()
+				continue
 			}
+
+			ki, err := c.writeIndividualNode(c.offset, key2, mergedPairs, c.propertyLengthsToWrite)
+			if err != nil {
+				return nil, errors.Wrap(err, "write individual node (equal keys)")
+			}
+
+			c.offset = ki.ValueEnd
+			kis = append(kis, ki)
+
 			// advance both!
 			key1, value1, _ = c.c1.next()
 			key2, value2, _ = c.c2.next()
@@ -340,7 +354,7 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 		primaryKey:  keyCopy,
 		offset:      offset,
 		propLengths: propertyLengths,
-	}.KeyIndexAndWriteTo(c.bufw)
+	}.KeyIndexAndWriteTo(c.bufw, c.docIdEncoder, c.tfEncoder)
 }
 
 func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {

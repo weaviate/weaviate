@@ -16,25 +16,26 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 const (
 	// https://casbin.org/docs/rbac/#how-to-distinguish-role-from-user
 	// ROLE_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	ROLE_NAME_PREFIX = "role:"
-	// USER_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	USER_NAME_PREFIX = "user:"
+	ROLE_NAME_PREFIX = "role" + PREFIX_SEPARATOR
+	// GROUP_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
+	GROUP_NAME_PREFIX = "group" + PREFIX_SEPARATOR
+	PREFIX_SEPARATOR  = ":"
 
 	// CRUD allow all actions on a resource
 	// this is internal for casbin to handle admin actions
 	CRUD = "(C)|(R)|(U)|(D)"
 	// CRU allow all actions on a resource except DELETE
 	// this is internal for casbin to handle editor actions
-	CRU = "(C)|(R)|(U)"
+	CRU         = "(C)|(R)|(U)"
+	VALID_VERBS = "(C)|(R)|(U)|(D)|(A)"
 	// InternalPlaceHolder is a place holder to mark empty roles
 	InternalPlaceHolder = "wv_internal_empty"
 )
@@ -42,15 +43,18 @@ const (
 var (
 	BuiltInPolicies = map[string]string{
 		authorization.Viewer: authorization.READ,
-		authorization.Admin:  CRUD,
+		authorization.Admin:  VALID_VERBS,
+		authorization.Root:   VALID_VERBS,
 	}
-	actions = map[string]string{
-		CRUD:                 "manage",
-		CRU:                  "manage",
-		authorization.CREATE: "create",
-		authorization.READ:   "read",
-		authorization.UPDATE: "update",
-		authorization.DELETE: "delete",
+	weaviate_actions_prefixes = map[string]string{
+		CRUD:                                 "manage",
+		CRU:                                  "manage",
+		authorization.ROLE_SCOPE_MATCH:       "manage",
+		authorization.CREATE:                 "create",
+		authorization.READ:                   "read",
+		authorization.UPDATE:                 "update",
+		authorization.DELETE:                 "delete",
+		authorization.USER_ASSIGN_AND_REVOKE: "assign_and_revoke",
 	}
 )
 
@@ -156,11 +160,12 @@ func CasbinData(collection, shard, object string) string {
 }
 
 func extractFromExtAction(inputAction string) (string, string, error) {
-	action, domain, found := strings.Cut(inputAction, "_")
-	if !found {
+	splits := strings.Split(inputAction, "_")
+	if len(splits) < 2 {
 		return "", "", fmt.Errorf("invalid action: %s", inputAction)
 	}
-	verb := strings.ToUpper(action[:1])
+	domain := splits[len(splits)-1]
+	verb := strings.ToUpper(splits[0][:1])
 	if verb == "M" {
 		verb = CRUD
 	}
@@ -198,13 +203,21 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	var resource string
 	switch domain {
 	case authorization.UsersDomain:
-		// do nothing TODO-RBAC: to be handled when dynamic users management gets added
 		user := "*"
+		if permission.Users != nil && permission.Users.Users != nil {
+			user = *permission.Users.Users
+		}
 		resource = CasbinUsers(user)
 	case authorization.RolesDomain:
 		role := "*"
+		// default verb for role to handle cases where role is nil
+		origVerb := verb
+		verb = authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_MATCH)
 		if permission.Roles != nil && permission.Roles.Role != nil {
 			role = *permission.Roles.Role
+			if permission.Roles.Scope != nil {
+				verb = authorization.VerbWithScope(origVerb, strings.ToUpper(*permission.Roles.Scope))
+			}
 		}
 		resource = CasbinRoles(role)
 	case authorization.ClusterDomain:
@@ -280,7 +293,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 }
 
 func weaviatePermissionAction(pathLastPart, verb, domain string) string {
-	action := fmt.Sprintf("%s_%s", actions[verb], domain)
+	action := fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], domain)
 	action = strings.ReplaceAll(action, "_*", "")
 	switch domain {
 	case authorization.SchemaDomain:
@@ -288,9 +301,9 @@ func weaviatePermissionAction(pathLastPart, verb, domain string) string {
 			// e.g
 			// schema/collections/ABC/shards/#    collection permission
 			// schema/collections/ABC/shards/*    tenant permission
-			action = fmt.Sprintf("%s_%s", actions[verb], authorization.CollectionsDomain)
+			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.CollectionsDomain)
 		} else {
-			action = fmt.Sprintf("%s_%s", actions[verb], authorization.TenantsDomain)
+			action = fmt.Sprintf("%s_%s", weaviate_actions_prefixes[verb], authorization.TenantsDomain)
 		}
 		return action
 	default:
@@ -340,6 +353,12 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Roles = &models.PermissionRoles{
 			Role: &splits[1],
 		}
+
+		verbSplits := strings.Split(mapped.Verb, "_")
+		mapped.Verb = verbSplits[0]
+		scope := strings.ToLower(verbSplits[1])
+		permission.Roles.Scope = &scope
+
 	case authorization.NodesDomain:
 		verbosity := splits[2]
 		var collection *string
@@ -356,6 +375,10 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Backups = &models.PermissionBackups{
 			Collection: &splits[2],
 		}
+	case authorization.UsersDomain:
+		permission.Users = &models.PermissionUsers{
+			Users: &splits[1],
+		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
@@ -363,7 +386,8 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Roles = authorization.AllRoles
 		permission.Collections = authorization.AllCollections
 		permission.Tenants = authorization.AllTenants
-	case authorization.ClusterDomain, authorization.UsersDomain:
+		permission.Users = authorization.AllUsers
+	case authorization.ClusterDomain:
 		// do nothing
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
@@ -377,7 +401,6 @@ func validResource(input string) bool {
 	for _, pattern := range resourcePatterns {
 		matched, err := regexp.MatchString(pattern, input)
 		if err != nil {
-			fmt.Printf("Error matching pattern: %v\n", err)
 			return false
 		}
 		if matched {
@@ -388,7 +411,7 @@ func validResource(input string) bool {
 }
 
 func validVerb(input string) bool {
-	return regexp.MustCompile(CRUD).MatchString(input)
+	return regexp.MustCompile(VALID_VERBS).MatchString(input)
 }
 
 func PrefixRoleName(name string) string {
@@ -398,17 +421,30 @@ func PrefixRoleName(name string) string {
 	return fmt.Sprintf("%s%s", ROLE_NAME_PREFIX, name)
 }
 
-func PrefixUserName(name string) string {
-	if strings.HasPrefix(name, USER_NAME_PREFIX) {
+func PrefixGroupName(name string) string {
+	if strings.HasPrefix(name, GROUP_NAME_PREFIX) {
 		return name
 	}
-	return fmt.Sprintf("%s%s", USER_NAME_PREFIX, name)
+	return fmt.Sprintf("%s%s", GROUP_NAME_PREFIX, name)
+}
+
+func NameHasPrefix(name string) bool {
+	return strings.Contains(name, PREFIX_SEPARATOR)
+}
+
+func UserNameWithTypeFromPrincipal(principal *models.Principal) string {
+	return fmt.Sprintf("%s:%s", principal.UserType, principal.Username)
+}
+
+func UserNameWithTypeFromId(username string, userType models.UserTypeInput) string {
+	return fmt.Sprintf("%s:%s", userType, username)
 }
 
 func TrimRoleNamePrefix(name string) string {
 	return strings.TrimPrefix(name, ROLE_NAME_PREFIX)
 }
 
-func TrimUserNamePrefix(name string) string {
-	return strings.TrimPrefix(name, USER_NAME_PREFIX)
+func GetUserAndPrefix(name string) (string, string) {
+	splits := strings.Split(name, PREFIX_SEPARATOR)
+	return splits[1], splits[0]
 }

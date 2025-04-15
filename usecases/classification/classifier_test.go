@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	testhelper "github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"

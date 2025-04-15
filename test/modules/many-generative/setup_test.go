@@ -81,7 +81,6 @@ func createSingleNodeEnvironment(ctx context.Context,
 		openAIApiKey, openAIOrganization, googleApiKey, cohereApiKey,
 	).
 		WithWeaviate().
-		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return
 }

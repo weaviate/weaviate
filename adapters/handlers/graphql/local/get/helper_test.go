@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -632,6 +633,14 @@ type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
 	return nil
+}
+
+func (f *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
+
+func (f *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, action string, resources ...string) ([]string, error) {
+	return resources, nil
 }
 
 func getFakeAuthorizer() authorization.Authorizer {

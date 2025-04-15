@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/locks"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -47,12 +47,13 @@ import (
 type State struct {
 	OIDC            *oidc.Client
 	AnonymousAccess *anonymous.Client
-	APIKey          *apikey.Client
+	APIKey          *apikey.ApiKey
+	APIKeyRemote    *apikey.RemoteApiKey
 	Authorizer      authorization.Authorizer
 	AuthzController authorization.Controller
 
 	ServerConfig          *config.WeaviateConfig
-	Locks                 locks.ConnectorSchemaLock
+	LDIntegration         *configRuntime.LDIntegration
 	Logger                *logrus.Logger
 	gqlMutex              sync.Mutex
 	GraphQL               graphql.GraphQL
@@ -67,12 +68,13 @@ type State struct {
 
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics
-	ServerMetrics      *monitoring.ServerMetrics
+	HTTPServerMetrics  *monitoring.HTTPServerMetrics
+	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
 	ClusterHttpClient  *http.Client
-	ReindexCtxCancel   context.CancelFunc
+	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
 	ClusterService *rCluster.Service

@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 // Compactor takes in a left and a right segment and merges them into a single
@@ -65,7 +66,8 @@ type Compactor struct {
 	// Tells if deletions or keys without corresponding values
 	// can be removed from merged segment.
 	// (left segment is root (1st) one, keepTombstones is off for bucket)
-	cleanupDeletions bool
+	cleanupDeletions         bool
+	enableChecksumValidation bool
 
 	w    io.WriteSeeker
 	bufw *bufio.Writer
@@ -75,15 +77,16 @@ type Compactor struct {
 // an explanation of what goes on under the hood, and why the input
 // requirements are the way they are.
 func NewCompactor(w io.WriteSeeker, left, right SegmentCursor,
-	level uint16, cleanupDeletions bool,
+	level uint16, cleanupDeletions bool, enableChecksumValidation bool,
 ) *Compactor {
 	return &Compactor{
-		left:             left,
-		right:            right,
-		w:                w,
-		bufw:             bufio.NewWriterSize(w, 256*1024),
-		currentLevel:     level,
-		cleanupDeletions: cleanupDeletions,
+		left:                     left,
+		right:                    right,
+		w:                        w,
+		bufw:                     bufio.NewWriterSize(w, 256*1024),
+		currentLevel:             level,
+		cleanupDeletions:         cleanupDeletions,
+		enableChecksumValidation: enableChecksumValidation,
 	}
 }
 
@@ -95,6 +98,7 @@ func (c *Compactor) Do() error {
 
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(c.bufw),
+		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
 	written, err := c.writeNodes(segmentFile)
@@ -110,6 +114,10 @@ func (c *Compactor) Do() error {
 	dataEnd := segmentindex.HeaderSize + uint64(written)
 	if err := c.writeHeader(segmentFile, dataEnd); err != nil {
 		return fmt.Errorf("write header: %w", err)
+	}
+
+	if _, err := segmentFile.WriteChecksum(); err != nil {
+		return fmt.Errorf("write compactorRoaringSetRange segment checksum: %w", err)
 	}
 
 	return nil
@@ -155,7 +163,7 @@ func (c *Compactor) writeHeader(f *segmentindex.SegmentFile,
 
 	h := &segmentindex.Header{
 		Level:            c.currentLevel,
-		Version:          0,
+		Version:          segmentindex.ChooseHeaderVersion(c.enableChecksumValidation),
 		SecondaryIndices: 0,
 		Strategy:         segmentindex.StrategyRoaringSetRange,
 		IndexStart:       startOfIndex,
@@ -230,6 +238,10 @@ func (nc *nodeCompactor) loopThroughKeys() error {
 	}
 
 	// both segments, merge
+	//
+	// bitmaps' cloning is necessary for both types of cursors: mmap and pread
+	// (pread cursor use buffers to read entire nodes from file, therefore nodes already read
+	// are later overwritten with nodes being read later)
 	nc.deletionsLeft = nc.emptyBitmap
 	if !layerLeft.Deletions.IsEmpty() {
 		nc.deletionsLeft = layerLeft.Deletions.Clone()
@@ -269,14 +281,17 @@ func (nc *nodeCompactor) loopThroughKeys() error {
 
 func (nc *nodeCompactor) mergeLayers(key uint8, additionsLeft, additionsRight *sroar.Bitmap,
 ) roaringset.BitmapLayer {
+	// bitmaps' cloning is necessary for both types of cursors: mmap and pread
+	// (pread cursor use buffers to read entire nodes from file, therefore nodes already read
+	// are later overwritten with nodes being read later)
 	additions := additionsLeft.Clone()
-	additions.AndNot(nc.deletionsRight)
-	additions.Or(additionsRight)
+	additions.AndNotConc(nc.deletionsRight, concurrency.SROAR_MERGE)
+	additions.OrConc(additionsRight, concurrency.SROAR_MERGE)
 
 	var deletions *sroar.Bitmap
 	if key == 0 {
 		deletions = nc.deletionsLeft.Clone()
-		deletions.Or(nc.deletionsRight)
+		deletions.OrConc(nc.deletionsRight, concurrency.SROAR_MERGE)
 	}
 
 	return roaringset.BitmapLayer{Additions: additions, Deletions: deletions}

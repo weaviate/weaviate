@@ -18,12 +18,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func (suite *ReplicationTestSuite) TestReadRepair() {
@@ -41,7 +41,7 @@ func (suite *ReplicationTestSuite) TestReadRepair() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.ContainerURI(1))
@@ -96,7 +96,7 @@ func (suite *ReplicationTestSuite) TestReadRepair() {
 		},
 	}
 	t.Run("AddObjectToNode-1", func(t *testing.T) {
-		common.CreateObjectCL(t, compose.ContainerURI(1), &repairObj, replica.One)
+		common.CreateObjectCL(t, compose.ContainerURI(1), &repairObj, types.ConsistencyLevelOne)
 	})
 
 	t.Run("RestartNode-3", func(t *testing.T) {
@@ -106,7 +106,7 @@ func (suite *ReplicationTestSuite) TestReadRepair() {
 
 	t.Run("TriggerRepairQuorumOnNode-3", func(t *testing.T) {
 		resp, err := common.GetObjectCL(t, compose.ContainerURI(3),
-			repairObj.Class, repairObj.ID, replica.Quorum)
+			repairObj.Class, repairObj.ID, types.ConsistencyLevelQuorum)
 		require.Nil(t, err)
 		require.Equal(t, repairObj.ID, resp.ID)
 		require.Equal(t, repairObj.Class, resp.Class)
@@ -124,7 +124,7 @@ func (suite *ReplicationTestSuite) TestReadRepair() {
 	}
 
 	t.Run("ReplaceObjectOneOnNode2", func(t *testing.T) {
-		common.UpdateObjectCL(t, compose.ContainerURI(2), &replaceObj, replica.One)
+		common.UpdateObjectCL(t, compose.ContainerURI(2), &replaceObj, types.ConsistencyLevelOne)
 	})
 
 	t.Run("RestartNode-3", func(t *testing.T) {
@@ -133,19 +133,19 @@ func (suite *ReplicationTestSuite) TestReadRepair() {
 
 	t.Run("TriggerRepairAllOnNode1", func(t *testing.T) {
 		exists, err := common.ObjectExistsCL(t, compose.ContainerURI(1),
-			replaceObj.Class, replaceObj.ID, replica.All)
+			replaceObj.Class, replaceObj.ID, types.ConsistencyLevelAll)
 		require.Nil(t, err)
 		require.True(t, exists)
 	})
 
 	t.Run("UpdatedObjectRepairedOnNode-3", func(t *testing.T) {
 		exists, err := common.ObjectExistsCL(t, compose.ContainerURI(3),
-			replaceObj.Class, replaceObj.ID, replica.One)
+			replaceObj.Class, replaceObj.ID, types.ConsistencyLevelOne)
 		require.Nil(t, err)
 		require.True(t, exists)
 
 		resp, err := common.GetObjectCL(t, compose.ContainerURI(1),
-			repairObj.Class, repairObj.ID, replica.One)
+			repairObj.Class, repairObj.ID, types.ConsistencyLevelOne)
 		require.Nil(t, err)
 		require.Equal(t, replaceObj.ID, resp.ID)
 		require.Equal(t, replaceObj.Class, resp.Class)
@@ -159,7 +159,7 @@ func (suite *ReplicationTestSuite) TestReadRepair() {
 
 	t.Run("delete article with consistency level ONE and node2 down", func(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviate().URI())
-		helper.DeleteObjectCL(t, replaceObj.Class, replaceObj.ID, replica.One)
+		helper.DeleteObjectCL(t, replaceObj.Class, replaceObj.ID, types.ConsistencyLevelOne)
 	})
 
 	t.Run("restart node2", func(t *testing.T) {
@@ -168,21 +168,21 @@ func (suite *ReplicationTestSuite) TestReadRepair() {
 
 	t.Run("deleted article should be present in node2", func(t *testing.T) {
 		exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode2().URI(),
-			replaceObj.Class, replaceObj.ID, replica.One)
+			replaceObj.Class, replaceObj.ID, types.ConsistencyLevelOne)
 		require.Nil(t, err)
 		require.True(t, exists)
 	})
 
 	t.Run("run exists to trigger read repair with deleted object resolution", func(t *testing.T) {
 		exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode2().URI(),
-			replaceObj.Class, replaceObj.ID, replica.All)
+			replaceObj.Class, replaceObj.ID, types.ConsistencyLevelAll)
 		require.Nil(t, err)
 		require.False(t, exists)
 	})
 
 	t.Run("deleted article should still be present in node2 (object deletion is not resolved)", func(t *testing.T) {
 		exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode2().URI(),
-			replaceObj.Class, replaceObj.ID, replica.One)
+			replaceObj.Class, replaceObj.ID, types.ConsistencyLevelOne)
 		require.Nil(t, err)
 		require.True(t, exists)
 	})

@@ -14,20 +14,21 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/transformers"
 )
 
 type fakeClient struct {
 	lastInput  string
-	lastConfig ent.VectorizationConfig
+	lastConfig transformers.VectorizationConfig
 }
 
 func (c *fakeClient) VectorizeObject(ctx context.Context,
-	text string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	text string, cfg transformers.VectorizationConfig,
+) (*transformers.VectorizationResult, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
-	return &ent.VectorizationResult{
+	return &transformers.VectorizationResult{
 		Vector:     []float32{0, 1, 2, 3},
 		Dimensions: 4,
 		Text:       text,
@@ -35,8 +36,8 @@ func (c *fakeClient) VectorizeObject(ctx context.Context,
 }
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	text string, cfg transformers.VectorizationConfig,
+) (*transformers.VectorizationResult, error) {
 	return c.VectorizeObject(ctx, text, cfg)
 }
 
@@ -86,4 +87,8 @@ func (f fakeClassConfig) Tenant() string {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
 }

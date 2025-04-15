@@ -4,26 +4,16 @@ updates:
     directory: "/"
     schedule:
       # Check for updates to GitHub Actions every week
-      interval: "weekly"
-  # security updates for vulnerabilities in gomod files
-  - package-ecosystem: "gomod"
-    directory: "/"    
+      interval: "weekly"    
+  - package-ecosystem: "gomod" 
+  # Enable Dependabot to monitor and automatically update Go module dependencies for 
+  # security vulnerabilities and version updates
+    directories:
+      - "/"
+      - "/test/acceptance_with_go_client"
+      - "/test/benchmark_bm25"
     labels: ["security-update", "dependencies"]
     schedule:
-      interval: "daily"
+      interval: "monthly"
     commit-message:
-      prefix: "SEC(update)"
-  - package-ecosystem: "gomod"
-    directory: "/test/acceptance_with_go_client"    
-    labels: ["security-update", "dependencies"]
-    schedule:
-      interval: "daily"
-    commit-message:
-      prefix: "SEC(update)"
-  - package-ecosystem: "gomod"
-    directory: "/test/benchmark_bm25"    
-    labels: ["security-update", "dependencies"]
-    schedule:
-      interval: "daily"
-    commit-message:
-      prefix: "SEC(update)"
+      prefix: "dependencies(update)"

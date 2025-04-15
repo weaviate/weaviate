@@ -22,6 +22,8 @@ import (
 
 	"github.com/pkg/errors"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
+	"golang.org/x/sync/errgroup"
+
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -32,15 +34,19 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
+	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
+	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2colbert-jinaai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
@@ -48,11 +54,12 @@ import (
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modmodel2vec "github.com/weaviate/weaviate/modules/text2vec-model2vec"
+	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -74,6 +81,8 @@ const (
 	envTestImg2VecNeuralImage = "TEST_IMG2VEC_NEURAL_IMAGE"
 	// envTestRerankerTransformersImage adds ability to pass a custom image to module tests
 	envTestRerankerTransformersImage = "TEST_RERANKER_TRANSFORMERS_IMAGE"
+	// envTestText2vecModel2VecImage adds ability to pass a custom image to module tests
+	envTestText2vecModel2VecImage = "TEST_TEXT2VEC_MODEL2VEC_IMAGE"
 )
 
 const (
@@ -96,6 +105,7 @@ type Compose struct {
 	withBackendAzure           bool
 	withBackendAzureContainer  string
 	withTransformers           bool
+	withModel2Vec              bool
 	withContextionary          bool
 	withQnATransformers        bool
 	withWeaviateExposeGRPCPort bool
@@ -103,28 +113,32 @@ type Compose struct {
 	withWeaviateCluster        bool
 	withWeaviateClusterSize    int
 
-	withWeaviateAuth              bool
-	withWeaviateBasicAuth         bool
-	withWeaviateBasicAuthUsername string
-	withWeaviateBasicAuthPassword string
-	withWeaviateApiKey            bool
-	weaviateApiKeyUsers           []ApiKeyUser
-	withWeaviateRbac              bool
-	weaviateRbacAdmins            []string
-	weaviateRbacViewers           []string
-	withSUMTransformers           bool
-	withCentroid                  bool
-	withCLIP                      bool
-	withGoogleApiKey              string
-	withBind                      bool
-	withImg2Vec                   bool
-	withRerankerTransformers      bool
-	withOllamaVectorizer          bool
-	withOllamaGenerative          bool
-	withAutoschema                bool
-	withMockOIDC                  bool
-	weaviateEnvs                  map[string]string
-	removeEnvs                    map[string]struct{}
+	withWeaviateAuth               bool
+	withWeaviateBasicAuth          bool
+	withWeaviateBasicAuthUsername  string
+	withWeaviateBasicAuthPassword  string
+	withWeaviateApiKey             bool
+	weaviateApiKeyUsers            []ApiKeyUser
+	weaviateAdminlistAdminUsers    []string
+	weaviateAdminlistReadOnlyUsers []string
+	withWeaviateDbUsers            bool
+	withWeaviateRbac               bool
+	weaviateRbacAdmins             []string
+	weaviateRbacRootGroups         []string
+	weaviateRbacViewers            []string
+	withSUMTransformers            bool
+	withCentroid                   bool
+	withCLIP                       bool
+	withGoogleApiKey               string
+	withBind                       bool
+	withImg2Vec                    bool
+	withRerankerTransformers       bool
+	withOllamaVectorizer           bool
+	withOllamaGenerative           bool
+	withAutoschema                 bool
+	withMockOIDC                   bool
+	weaviateEnvs                   map[string]string
+	removeEnvs                     map[string]struct{}
 }
 
 func New() *Compose {
@@ -235,6 +249,12 @@ func (d *Compose) WithMulti2VecCohere(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2VecNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecnvidia.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecVoyageAI(apiKey string) *Compose {
 	d.weaviateEnvs["VOYAGEAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecvoyageai.Name)
@@ -317,6 +337,18 @@ func (d *Compose) WithGenerativeOpenAI(openAIApiKey, openAIOrganization, azureAp
 	return d
 }
 
+func (d *Compose) WithGenerativeNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativenvidia.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeXAI(apiKey string) *Compose {
+	d.weaviateEnvs["XAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativexai.Name)
+	return d
+}
+
 func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modjinaai.Name)
@@ -326,6 +358,25 @@ func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 func (d *Compose) WithText2ColBERTJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modtext2colbertjinaai.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankernvidia.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
+	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modnvidia.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecModel2Vec() *Compose {
+	d.withModel2Vec = true
+	d.enableModules = append(d.enableModules, modmodel2vec.Name)
+	d.defaultVectorizerModule = Text2VecModel2Vec
 	return d
 }
 
@@ -440,6 +491,16 @@ func (d *Compose) WithWeaviateAuth() *Compose {
 	return d.With1NodeCluster()
 }
 
+func (d *Compose) WithAdminListAdmins(users ...string) *Compose {
+	d.weaviateAdminlistAdminUsers = users
+	return d
+}
+
+func (d *Compose) WithAdminListUsers(users ...string) *Compose {
+	d.weaviateAdminlistReadOnlyUsers = users
+	return d
+}
+
 func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	d.weaviateEnvs[name] = value
 	return d
@@ -471,11 +532,24 @@ func (d *Compose) WithRBAC() *Compose {
 	return d
 }
 
+func (d *Compose) WithDbUsers() *Compose {
+	d.withWeaviateDbUsers = true
+	return d
+}
+
 func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
 	d.weaviateRbacAdmins = append(d.weaviateRbacAdmins, usernames...)
+	return d
+}
+
+func (d *Compose) WithRbacRootGroups(groups ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacRootGroups = append(d.weaviateRbacRootGroups, groups...)
 	return d
 }
 
@@ -565,6 +639,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 	if d.withBackendFilesystem {
 		envSettings["BACKUP_FILESYSTEM_PATH"] = "/tmp/backups"
+	}
+	if d.withModel2Vec {
+		image := os.Getenv(envTestText2vecModel2VecImage)
+		container, err := startT2VModel2Vec(ctx, networkName, image)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", Text2VecModel2Vec)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
 	}
 	if d.withTransformers {
 		image := os.Getenv(envTestText2vecTransformersImage)
@@ -772,7 +857,14 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
 		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
-		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
+		settings["AUTHORIZATION_ADMINLIST_USERS"] = "oidc-test-user@weaviate.io"
+	}
+	if len(d.weaviateAdminlistAdminUsers) > 0 {
+		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
+		settings["AUTHORIZATION_ADMINLIST_USERS"] = strings.Join(d.weaviateAdminlistAdminUsers, ",")
+		if len(d.weaviateAdminlistReadOnlyUsers) > 0 {
+			settings["AUTHORIZATION_ADMINLIST_READONLY_USERS"] = strings.Join(d.weaviateAdminlistReadOnlyUsers, ",")
+		}
 	}
 
 	if d.withWeaviateApiKey {
@@ -798,11 +890,19 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"] = "false" // incompatible
 
 		if len(d.weaviateRbacAdmins) > 0 {
-			settings["AUTHORIZATION_ADMIN_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
+			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
 		}
 		if len(d.weaviateRbacViewers) > 0 {
 			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
 		}
+
+		if len(d.weaviateRbacRootGroups) > 0 {
+			settings["AUTHORIZATION_RBAC_ROOT_GROUPS"] = strings.Join(d.weaviateRbacRootGroups, ",")
+		}
+	}
+
+	if d.withWeaviateDbUsers {
+		settings["AUTHENTICATION_DB_USERS_ENABLED"] = "true"
 	}
 
 	if d.withAutoschema {
@@ -842,7 +942,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		config2["CLUSTER_DATA_BIND_PORT"] = "7103"
 		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
 		eg.Go(func() (err error) {
-			time.Sleep(time.Second * 3)
+			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node2"))
 			if err != nil {
@@ -859,7 +959,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		config3["CLUSTER_DATA_BIND_PORT"] = "7105"
 		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
 		eg.Go(func() (err error) {
-			time.Sleep(time.Second * 3)
+			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node3"))
 			if err != nil {

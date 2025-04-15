@@ -113,12 +113,12 @@ func (p *contextualPreparer) findTargetsForProps() (map[string]search.Results, e
 	for _, targetProp := range p.params.ClassifyProperties {
 		class, err := p.classAndKindOfTarget(targetProp)
 		if err != nil {
-			return nil, fmt.Errorf("target prop '%s': find target class: %v", targetProp, err)
+			return nil, fmt.Errorf("target prop '%s': find target class: %w", targetProp, err)
 		}
 
 		targets, err := p.findTargets(class)
 		if err != nil {
-			return nil, fmt.Errorf("target prop '%s': find targets: %v", targetProp, err)
+			return nil, fmt.Errorf("target prop '%s': find targets: %w", targetProp, err)
 		}
 
 		targetsMap[targetProp] = targets
@@ -139,7 +139,7 @@ func (p *contextualPreparer) findTargets(class schema.ClassName) (search.Results
 		Properties: []string{"id"},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("search closest target: %v", err)
+		return nil, fmt.Errorf("search closest target: %w", err)
 	}
 
 	if len(res) == 0 {
@@ -162,7 +162,7 @@ func (p *contextualPreparer) classAndKindOfTarget(propName string) (schema.Class
 
 	dataType, err := schema.FindPropertyDataTypeWithRefs(p.getClass, prop.DataType, false, "")
 	if err != nil {
-		return "", fmt.Errorf("extract dataType of prop '%s': %v", propName, err)
+		return "", fmt.Errorf("extract dataType of prop '%s': %w", propName, err)
 	}
 
 	// we have passed validation, so it is safe to assume that this is a ref prop

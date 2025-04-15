@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -27,7 +28,22 @@ import (
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"go.etcd.io/bbolt"
 )
+
+func (s *Shard) initShardVectors(ctx context.Context) error {
+	if s.index.vectorIndexUserConfig != nil {
+		if err := s.initLegacyVector(ctx); err != nil {
+			return err
+		}
+	}
+
+	if err := s.initTargetVectors(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func (s *Shard) initVectorIndex(ctx context.Context,
 	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig,
@@ -99,6 +115,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				AllocChecker:           s.index.allocChecker,
 				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
 				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
+				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
 				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
@@ -148,6 +165,11 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		// here we label the main vector index as such.
 		vecIdxID := s.vectorIndexID(targetVector)
 
+		sharedDB, err := s.getOrInitDynamicVectorIndexDB()
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
+		}
+
 		vi, err := dynamic.New(dynamic.Config{
 			ID:                   vecIdxID,
 			TargetVector:         targetVector,
@@ -164,67 +186,96 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 			},
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			SharedDB:           sharedDB,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
 		}
 		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
+		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
 			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC)
 	}
 	defer vectorIndex.PostStartup()
 	return vectorIndex, nil
 }
 
-func (s *Shard) hasTargetVectors() bool {
-	return hasTargetVectors(s.index.vectorIndexUserConfig, s.index.vectorIndexUserConfigs)
-}
+func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
+	if s.dynamicVectorIndexDB == nil {
+		path := filepath.Join(s.path(), "index.db")
 
-// target vectors and legacy vector are (supposed to be) exclusive
-// method allows to distinguish which of them is configured for the class
-func hasTargetVectors(cfg schemaConfig.VectorIndexConfig, targetCfgs map[string]schemaConfig.VectorIndexConfig) bool {
-	return len(targetCfgs) != 0
+		db, err := bbolt.Open(path, 0o600, nil)
+		if err != nil {
+			return nil, errors.Wrapf(err, "open %q", path)
+		}
+
+		s.dynamicVectorIndexDB = db
+	}
+
+	return s.dynamicVectorIndexDB, nil
 }
 
 func (s *Shard) initTargetVectors(ctx context.Context) error {
-	s.vectorIndexes = make(map[string]VectorIndex)
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+
+	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
+	s.queues = make(map[string]*VectorIndexQueue, len(s.index.vectorIndexUserConfigs))
+
 	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
-		vectorIndex, err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
-		if err != nil {
-			return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
+		if err := s.initTargetVectorWithLock(ctx, targetVector, vectorIndexConfig); err != nil {
+			return err
 		}
-		s.vectorIndexes[targetVector] = vectorIndex
 	}
 	return nil
 }
 
-func (s *Shard) initTargetQueues() error {
-	s.queues = make(map[string]*VectorIndexQueue)
-	for targetVector, vectorIndex := range s.vectorIndexes {
-		queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
-		if err != nil {
-			return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
-		}
-		s.queues[targetVector] = queue
+func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig) error {
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+	return s.initTargetVectorWithLock(ctx, targetVector, cfg)
+}
+
+func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig) error {
+	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg)
+	if err != nil {
+		return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 	}
+	queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
+	if err != nil {
+		return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
+	}
+
+	s.vectorIndexes[targetVector] = vectorIndex
+	s.queues[targetVector] = queue
 	return nil
 }
 
 func (s *Shard) initLegacyVector(ctx context.Context) error {
-	vectorindex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig)
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+
+	vectorIndex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig)
 	if err != nil {
 		return err
 	}
-	s.vectorIndex = vectorindex
+
+	queue, err := NewVectorIndexQueue(s, "", vectorIndex)
+	if err != nil {
+		return err
+	}
+	s.vectorIndex = vectorIndex
+	s.queue = queue
 	return nil
 }
 
-func (s *Shard) initLegacyQueue() error {
-	queue, err := NewVectorIndexQueue(s, "", s.vectorIndex)
-	if err != nil {
-		return err
+func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+
+	if targetVector == "" {
+		s.vectorIndex = index
+	} else {
+		s.vectorIndexes[targetVector] = index
 	}
-	s.queue = queue
-	return nil
 }

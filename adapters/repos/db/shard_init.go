@@ -32,9 +32,12 @@ import (
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	scheduler *queue.Scheduler,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
+	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
+	reindexer ShardReindexerV3,
 ) (_ *Shard, err error) {
+	promMetrics.StartLoadingShard()
+	defer promMetrics.FinishLoadingShard()
+
 	before := time.Now()
 
 	index.logger.WithFields(logrus.Fields{
@@ -60,7 +63,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		shut:         false,
 		shutdownLock: new(sync.RWMutex),
 
-		status: NewShardStatus(),
+		status:                          NewShardStatus(),
+		searchableBlockmaxPropNamesLock: new(sync.Mutex),
+		reindexer:                       reindexer,
+		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 	}
 
 	defer func() {
@@ -101,57 +107,37 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	defer s.metrics.ShardStartup(before)
 
 	_, err = os.Stat(s.path())
-	exists := false
-	if err == nil {
-		exists = true
-	}
+	exists := err == nil
 
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err
 	}
 
-	mux := sync.Mutex{}
-	s.objectPropagationNeededCond = sync.NewCond(&mux)
+	// init the store itself synchronously
+	if err := s.initLSMStore(); err != nil {
+		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
+	}
+
+	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
-	if s.hasTargetVectors() {
-		if err := s.initTargetVectors(ctx); err != nil {
-			return nil, err
-		}
-		if err := s.initTargetQueues(); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := s.initLegacyVector(ctx); err != nil {
-			return nil, err
-		}
-		if err := s.initLegacyQueue(); err != nil {
-			return nil, err
-		}
+	if err = s.initShardVectors(ctx); err != nil {
+		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
 
 	s.initDimensionTracking()
 
 	if asyncEnabled() {
 		f := func() {
-			// convert in-memory queues to on-disk queues in the background.
-			// no-op if the queues are already on disk.
-			if s.hasTargetVectors() {
-				for targetVector, queue := range s.queues {
-					err := s.ConvertQueue(targetVector)
-					if err != nil {
-						queue.Logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
-					}
+			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
+				if err := s.ConvertQueue(targetVector); err != nil {
+					index.logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
 				}
-			} else {
-				err := s.ConvertQueue("")
-				if err != nil {
-					s.queue.Logger.WithError(err).Error("preload shard")
-				}
-			}
+				return nil
+			})
 		}
 		enterrors.GoWrapper(f, s.index.logger)
 	}
@@ -162,6 +148,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
+
+	_ = s.reindexer.RunAfterLsmInit(ctx, s)
+	_ = s.reindexer.RunAfterLsmInitAsync(ctx, s)
 	return s, nil
 }
 

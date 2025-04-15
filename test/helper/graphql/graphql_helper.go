@@ -13,6 +13,7 @@ package graphqlhelper
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -20,8 +21,8 @@ import (
 
 	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/graphql"
-	graphql_client "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -33,7 +34,7 @@ type GraphQLResult struct {
 // Perform a GraphQL request
 func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) (*models.GraphQLResponse, error) {
 	var vars interface{} = variables
-	params := graphql_client.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
+	params := graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
 	response, err := helper.Client(t).Graphql.GraphqlPost(params, nil)
 	if err != nil {
 		return nil, err
@@ -45,7 +46,7 @@ func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation
 // Perform a GraphQL request with timeout
 func QueryGraphQLWithTimeout(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}, timeout time.Duration) (*models.GraphQLResponse, error) {
 	var vars interface{} = variables
-	params := graphql_client.NewGraphqlPostParamsWithTimeout(timeout).WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
+	params := graphql.NewGraphqlPostParamsWithTimeout(timeout).WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
 	response, err := helper.Client(t).Graphql.GraphqlPost(params, nil)
 	if err != nil {
 		return nil, err
@@ -71,11 +72,12 @@ func QueryGraphQLOrFatalWithTimeout(t *testing.T, auth runtime.ClientAuthInfoWri
 func getGraphQLResponseOrFatal(t *testing.T, response *models.GraphQLResponse, err error) *models.GraphQLResponse {
 	t.Helper()
 	if err != nil {
-		parsedErr, ok := err.(*graphql.GraphqlPostUnprocessableEntity)
-		if !ok {
-			t.Fatalf("Expected the query to succeed, but failed due to: %#v", err)
+		var parsedErr *graphql.GraphqlPostUnprocessableEntity
+		if !errors.As(err, &parsedErr) {
+			t.Fatalf("Expected the query to succeed, but failed due to: %#v, with message: %s", err, err.Error())
 		}
-		t.Fatalf("Expected the query to succeed, but failed with unprocessable entity: %v", parsedErr.Payload.Error[0])
+		innerErr := parsedErr.Payload.Error[0]
+		t.Fatalf("Expected the query to succeed, but failed with unprocessable entity: %v, with message: %s", innerErr, innerErr.Message)
 	}
 	return response
 }

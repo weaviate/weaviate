@@ -110,7 +110,7 @@ func (c *CombinedCursor) getResultFromStates(states []innerCursorState) ([]byte,
 		return nil, nil
 	}
 
-	bm := layers.Flatten()
+	bm := layers.Flatten(true)
 	if key == nil {
 		return nil, bm
 	}

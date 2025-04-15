@@ -25,8 +25,10 @@ import (
 	friendliai "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	google "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistral "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
+	nvidia "github.com/weaviate/weaviate/modules/generative-nvidia/parameters"
 	ollama "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openai "github.com/weaviate/weaviate/modules/generative-openai/parameters"
+	xai "github.com/weaviate/weaviate/modules/generative-xai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 )
 
@@ -679,7 +681,7 @@ func Test_RequestParser(t *testing.T) {
 									DeploymentId:     makeStrPtr("deploymentId"),
 									IsAzure:          makeBoolPtr(true),
 									MaxTokens:        makeInt64Ptr(10),
-									Model:            "model",
+									Model:            makeStrPtr("model"),
 									Temperature:      makeFloat64Ptr(0.5),
 									N:                makeInt64Ptr(5),
 									TopP:             makeFloat64Ptr(0.5),
@@ -961,8 +963,155 @@ func Test_RequestParser(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:       "generative search; single response; nil dynamic nvidia",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Nvidia{},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt:  makeStrPtr("prompt"),
+				Options: nil,
+			},
+		},
+		{
+			name:       "generative search; single response; empty dynamic nvidia",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Nvidia{
+								Nvidia: &pb.GenerativeNvidia{},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"nvidia": nvidia.Params{},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; full dynamic nvidia",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Nvidia{
+								Nvidia: &pb.GenerativeNvidia{
+									BaseUrl:     makeStrPtr("baseURL"),
+									Model:       makeStrPtr("model"),
+									Temperature: makeFloat64Ptr(0.5),
+									TopP:        makeFloat64Ptr(0.5),
+									MaxTokens:   makeInt64Ptr(10),
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"nvidia": nvidia.Params{
+						BaseURL:     "baseURL",
+						Model:       "model",
+						Temperature: makeFloat64Ptr(0.5),
+						TopP:        makeFloat64Ptr(0.5),
+						MaxTokens:   makeIntPtr(10),
+					},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; nil dynamic xai",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Xai{},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt:  makeStrPtr("prompt"),
+				Options: nil,
+			},
+		},
+		{
+			name:       "generative search; single response; empty dynamic xai",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Xai{
+								Xai: &pb.GenerativeXAI{},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"xai": xai.Params{},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; full dynamic xai",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Xai{
+								Xai: &pb.GenerativeXAI{
+									BaseUrl:     makeStrPtr("baseURL"),
+									Model:       makeStrPtr("model"),
+									Temperature: makeFloat64Ptr(0.5),
+									TopP:        makeFloat64Ptr(0.5),
+									MaxTokens:   makeInt64Ptr(10),
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"xai": xai.Params{
+						BaseURL:     "baseURL",
+						Model:       "model",
+						Temperature: makeFloat64Ptr(0.5),
+						TopP:        makeFloat64Ptr(0.5),
+						MaxTokens:   makeIntPtr(10),
+					},
+				},
+			},
+		},
 	}
-
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			parser := NewParser(test.uses127Api)

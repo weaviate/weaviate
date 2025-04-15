@@ -25,10 +25,10 @@ import (
 )
 
 func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
-	adminKey := "admin-Key"
-	adminUser := "admin-User"
+	adminKey := "admin-key"
+	adminUser := "admin-user"
 	viewerKey := "viewer-key"
-	viewerUser := "viewer-User"
+	viewerUser := "viewer-user"
 
 	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, map[string]string{viewerUser: viewerKey})
 	defer down()
@@ -38,6 +38,9 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 	tenantNames := []string{
 		"Tenant1", "Tenant2", "Tenant3",
 	}
+	helper.AssignRoleToUser(t, adminKey, "viewer", viewerUser)
+
+	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(adminKey))
 	helper.CreateClassAuth(t, &models.Class{Class: className, MultiTenancyConfig: &models.MultiTenancyConfig{
 		Enabled: true,
 	}}, adminKey)
@@ -72,6 +75,8 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{id}", "someId")
 		url = strings.ReplaceAll(url, "{backend}", "filesystem")
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
+		url = strings.ReplaceAll(url, "{user_id}", "admin-user")
+		url = strings.ReplaceAll(url, "{userType}", "db")
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
 			require.NotContains(t, url, "{")

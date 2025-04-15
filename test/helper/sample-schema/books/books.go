@@ -16,6 +16,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/config"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -86,6 +87,30 @@ func ClassNamedContextionaryVectorizer() *models.Class {
 	}
 
 	return classNamedVectors(defaultClassName, vc)
+}
+
+func ClassMixedContextionaryVectorizer() *models.Class {
+	vc := map[string]models.VectorConfig{
+		"contextionary_all": {
+			Vectorizer: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
+			VectorIndexType: "hnsw",
+		},
+		"title": {
+			Vectorizer: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": false,
+					"properties":         []string{"title"},
+				},
+			},
+			VectorIndexType: "hnsw",
+		},
+	}
+
+	return classBase(defaultClassName, "text2vec-contextionary", vc)
 }
 
 func ClassContextionaryVectorizerWithName(className string) *models.Class {
@@ -159,6 +184,7 @@ func classBase(className, vectorizer string, vectorConfig map[string]models.Vect
 			IndexNullState:      true,
 			IndexTimestamps:     true,
 			IndexPropertyLength: true,
+			UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 		},
 		VectorConfig: vectorConfig,
 		Properties: []*models.Property{

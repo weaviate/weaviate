@@ -447,7 +447,7 @@ func Test_Compactor(t *testing.T) {
 			f, err := os.Create(segmentFile)
 			require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, false)
+			c := NewCompactor(f, leftCursor, rightCursor, 5, false, false)
 			err = c.Do()
 			require.NoError(t, f.Close())
 
@@ -493,7 +493,7 @@ func Test_Compactor(t *testing.T) {
 			f, err := os.Create(segmentFile)
 			require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, true)
+			c := NewCompactor(f, leftCursor, rightCursor, 5, true, false)
 			err = c.Do()
 			require.NoError(t, f.Close())
 

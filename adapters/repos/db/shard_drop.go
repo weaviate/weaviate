@@ -30,8 +30,10 @@ import (
 // from shard directory, it needs to be reflected as well in LazyLoadShard::drop()
 // method to keep drop behaviour consistent.
 func (s *Shard) drop() (err error) {
+	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
+
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
-	s.metrics.baseMetrics.StartUnloadingShard(s.index.Config.ClassName.String())
+	s.metrics.baseMetrics.StartUnloadingShard()
 	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {
@@ -42,21 +44,16 @@ func (s *Shard) drop() (err error) {
 		s.clearDimensionMetrics()
 	}
 
-	s.mayStopHashBeater()
+	s.index.logger.WithFields(logrus.Fields{
+		"action": "drop_shard",
+		"class":  s.class.Class,
+		"shard":  s.name,
+	}).Debug("dropping shard")
 
-	s.hashtreeRWMux.Lock()
-	if s.hashtree != nil {
-		s.hashtree = nil
-		s.hashtreeInitialized.Store(false)
-	}
-	s.hashtreeRWMux.Unlock()
+	s.mayStopAsyncReplication()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
-	s.index.logger.WithFields(logrus.Fields{
-		"action":   "drop_shard",
-		"duration": 5 * time.Second,
-	}).Debug("context.WithTimeout")
 
 	// unregister all callbacks at once, in parallel
 	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
@@ -91,27 +88,24 @@ func (s *Shard) drop() (err error) {
 		return errors.Wrapf(err, "remove version at %s", s.path())
 	}
 
-	if s.hasTargetVectors() {
-		// TODO run in parallel?
-		for targetVector, queue := range s.queues {
-			if err = queue.Drop(); err != nil {
-				return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
-			}
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Drop(); err != nil {
+			return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
 		}
-		for targetVector, vectorIndex := range s.vectorIndexes {
-			if err = vectorIndex.Drop(ctx); err != nil {
-				return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
-			}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		if err = index.Drop(ctx); err != nil {
+			return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
 		}
-	} else {
-		// delete queue cursor
-		if err = s.queue.Drop(); err != nil {
-			return errors.Wrapf(err, "close queue at %s", s.path())
-		}
-		// remove vector index
-		if err = s.vectorIndex.Drop(ctx); err != nil {
-			return errors.Wrapf(err, "remove vector index at %s", s.path())
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	// delete property length tracker
@@ -132,7 +126,13 @@ func (s *Shard) drop() (err error) {
 		return fmt.Errorf("delete shard dir: %w", err)
 	}
 
-	s.metrics.baseMetrics.FinishUnloadingShard(s.index.Config.ClassName.String())
+	s.metrics.baseMetrics.FinishUnloadingShard()
+
+	s.index.logger.WithFields(logrus.Fields{
+		"action": "drop_shard",
+		"class":  s.class.Class,
+		"shard":  s.name,
+	}).Debug("shard successfully dropped")
 
 	return nil
 }

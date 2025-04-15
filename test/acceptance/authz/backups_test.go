@@ -14,11 +14,11 @@ package authz
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -82,35 +82,33 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(testRoleName),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.ReadRoles), Backups: &models.PermissionBackups{Collection: String(testRoleName)}},
+				{Action: String(authorization.ReadRoles), Backups: &models.PermissionBackups{Collection: String("IDoNotExist")}},
 			},
 		})
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 	})
 
 	t.Run("viewer cannot create a backup", func(t *testing.T) {
-		roles := helper.GetRolesForOwnUser(t, viewerKey)
-		fmt.Println(roles)
 		_, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, backupID, helper.CreateAuth(viewerKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*backups.BackupsCreateForbidden)
-		require.True(t, forbidden)
+		var parsed *backups.BackupsCreateForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("fail to create a backup due to missing manage_backups action", func(t *testing.T) {
 		_, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, backupID, helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*backups.BackupsCreateForbidden)
-		require.True(t, forbidden)
+		var parsed *backups.BackupsCreateForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("fail to cancel a backup due to missing manage_backups action", func(t *testing.T) {
 		err := helper.CancelBackupWithAuthz(t, backend, backupID, helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*backups.BackupsCancelForbidden)
-		require.True(t, forbidden)
+		var parsed *backups.BackupsCancelForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 

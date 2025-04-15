@@ -79,7 +79,7 @@ func NewScalarQuantizer(data [][]float32, distance distancer.Provider) *ScalarQu
 		dimensions: len(data[0]),
 	}
 	sq.b = data[0][0]
-	for i := 1; i < len(data); i++ {
+	for i := 0; i < len(data); i++ {
 		vec := data[i]
 		for _, x := range vec {
 			if x < sq.b {
@@ -201,4 +201,20 @@ func (sq *ScalarQuantizer) PersistCompression(logger CommitLogger) {
 
 func (sq *ScalarQuantizer) norm(code []byte) uint32 {
 	return binary.BigEndian.Uint32(code[len(code)-8:])
+}
+
+type SQStats struct {
+	A float32 `json:"a"`
+	B float32 `json:"b"`
+}
+
+func (s SQStats) CompressionType() string {
+	return "sq"
+}
+
+func (sq *ScalarQuantizer) Stats() CompressionStats {
+	return SQStats{
+		A: sq.a,
+		B: sq.b,
+	}
 }

@@ -40,6 +40,11 @@ type UpdateShardStatusRequest struct {
 	SchemaVersion        uint64
 }
 
+type AddReplicaToShardRequest struct {
+	Class, Shard, Replica string
+	SchemaVersion         uint64
+}
+
 type QueryReadOnlyClassesRequest struct {
 	Classes []string
 }
@@ -65,6 +70,10 @@ type QueryTenantsResponse struct {
 
 type QuerySchemaResponse struct {
 	Schema models.Schema
+}
+
+type QueryCollectionsCountResponse struct {
+	Count int
 }
 
 type QueryShardOwnerRequest struct {
@@ -93,4 +102,13 @@ type QueryShardingStateRequest struct {
 type QueryShardingStateResponse struct {
 	State   *sharding.State
 	Version uint64
+}
+
+type QueryClassVersionsRequest struct {
+	Classes []string
+}
+
+type QueryClassVersionsResponse struct {
+	// Classes is a map of class name to the class version
+	Classes map[string]uint64
 }

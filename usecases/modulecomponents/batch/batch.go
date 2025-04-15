@@ -202,7 +202,7 @@ func (b *Batch[T]) batchWorker() {
 			stats.WithLabelValues(b.label, "concurrent_batches").Set(float64(b.concurrentBatches.Load()))
 			stats.WithLabelValues(b.label, "repeats_for_scheduling").Set(float64(repeats))
 
-			if rateLimit.CanSendFullBatch(expectedNumRequests, job.tokenSum) {
+			if rateLimit.CanSendFullBatch(expectedNumRequests, job.tokenSum, repeats > 0, b.label) {
 				b.concurrentBatches.Add(1)
 				monitoring.GetMetrics().T2VBatches.WithLabelValues(b.label).Inc()
 				jobCopy := job.copy()
@@ -359,14 +359,19 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 		batchesPerMinute := 61.0 / batchTookInS
 		if batchesPerMinute > float64(rateLimit.LimitRequests) {
 			sleepFor := time.Duration((60.0-batchTookInS*float64(rateLimit.LimitRequests))/float64(rateLimit.LimitRequests)) * time.Second
-			time.Sleep(sleepFor)
+			// limit for how long we sleep to avoid deadlocks. This can happen if we get values from the vectorizer that
+			// should not happen such as the LimitRequests being 0
+			time.Sleep(min(b.maxBatchTime/2, sleepFor))
 
 			// adapt the batches per limit
 			batchesPerMinute = float64(rateLimit.LimitRequests)
 		}
 		if batchesPerMinute*float64(estimatedTokensInCurrentBatch) > float64(rateLimit.LimitTokens) {
 			sleepFor := batchTookInS * (batchesPerMinute*float64(estimatedTokensInCurrentBatch) - float64(rateLimit.LimitTokens)) / float64(rateLimit.LimitTokens)
-			time.Sleep(time.Duration(sleepFor * float64(time.Second)))
+			// limit for how long we sleep to avoid deadlocks. This can happen if we get values from the vectorizer that
+			// should not happen such as the LimitTokens being 0
+			sleepTime := min(b.maxBatchTime/2, time.Duration(sleepFor*float64(time.Second)))
+			time.Sleep(sleepTime)
 		}
 
 		// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the OpenAI

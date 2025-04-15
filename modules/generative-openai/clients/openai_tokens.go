@@ -38,11 +38,36 @@ func getTokensCount(model string, messages []message) (int, error) {
 	for _, message := range messages {
 		tokensCount += tokensPerMessage
 		tokensCount += len(tke.Encode(message.Role, nil, nil))
-		tokensCount += len(tke.Encode(message.Content, nil, nil))
+		tokensCount += len(tke.Encode(parseMessageContent(message.Content), nil, nil))
 		if message.Name != "" {
 			tokensCount += tokensPerName
 			tokensCount += len(tke.Encode(message.Name, nil, nil))
 		}
 	}
 	return tokensCount, nil
+}
+
+func parseMessageContent(content interface{}) string {
+	switch c := content.(type) {
+	case string:
+		return c
+	case []interface{}:
+		var contents []string
+		for i := range c {
+			switch input := c[i].(type) {
+			case contentText:
+				contents = append(contents, input.Text)
+			case contentImage:
+				if input.ImageURL.URL == nil {
+					continue
+				}
+				contents = append(contents, *input.ImageURL.URL)
+			default:
+				// do nothing
+			}
+		}
+		return strings.Join(contents, " ")
+	default:
+		return ""
+	}
 }

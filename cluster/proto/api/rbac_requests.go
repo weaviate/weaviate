@@ -12,13 +12,29 @@
 package api
 
 import (
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 const (
-	// in case changes happens to the RBAC message, add new version before the RBACLatestCommandPolicyVersion
-	// RBACCommandPolicyVersionV0 represents the first version of RBAC commands
+	// NOTE: in case changes happens to the RBAC message, add new version before the RBACLatestCommandPolicyVersion
+	// RBACCommandPolicyVersionV0 represents the first version of RBAC commands where it wasn't set and equal 0
+	// this version was needed because we did migrate paths of SchemaDomain to limit the collection
+	// old "schema/collections/{collection_name}/shards/*" all shards in collection
+	// new "schema/collections/{collection_name}/shards/#" limited to collection only
 	RBACCommandPolicyVersionV0 = iota
+
+	// this version was needed because we did migrate verbs of RolesDomain to control the scope
+	// of Role permissions and default to MATCH scope instead of ALL
+	// old verb was (C)|(R)|(U)|(D)
+	// new verb was MATCH
+	RBACCommandPolicyVersionV1
+
+	// this version was needed because we did flatten manage_roles to C+U+D_roles
+	RBACCommandPolicyVersionV2
+	// this version was needed because assign_and_revoke_users was saved with verb UPDATE. However with dynamic user
+	// management we need a special permission to update users
+	RBACCommandPolicyVersionV3
 
 	// RBACLatestCommandPolicyVersion represents the latest version of RBAC commands policies
 	// It's used to migrate policy changes. if we end up with a cluster having different version
@@ -27,9 +43,15 @@ const (
 	RBACLatestCommandPolicyVersion
 )
 
+const (
+	RBACAssignRevokeCommandPolicyVersionV0 = iota
+	RBACAssignRevokeLatestCommandPolicyVersion
+)
+
 type CreateRolesRequest struct {
-	Roles   map[string][]authorization.Policy
-	Version int
+	Roles        map[string][]authorization.Policy
+	RoleCreation bool
+	Version      int
 }
 
 type DeleteRolesRequest struct {
@@ -43,13 +65,15 @@ type RemovePermissionsRequest struct {
 }
 
 type AddRolesForUsersRequest struct {
-	User  string
-	Roles []string
+	User    string
+	Roles   []string
+	Version int
 }
 
 type RevokeRolesForUserRequest struct {
-	User  string
-	Roles []string
+	User    string
+	Roles   []string
+	Version int
 }
 
 type QueryHasPermissionRequest struct {
@@ -70,7 +94,8 @@ type QueryGetRolesResponse struct {
 }
 
 type QueryGetRolesForUserRequest struct {
-	User string
+	User     string
+	UserType models.UserTypeInput
 }
 
 type QueryGetRolesForUserResponse struct {
@@ -78,7 +103,8 @@ type QueryGetRolesForUserResponse struct {
 }
 
 type QueryGetUsersForRoleRequest struct {
-	Role string
+	Role     string
+	UserType models.UserTypeInput
 }
 
 type QueryGetUsersForRoleResponse struct {

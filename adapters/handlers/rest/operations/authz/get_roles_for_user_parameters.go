@@ -20,16 +20,26 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // NewGetRolesForUserParams creates a new GetRolesForUserParams object
-//
-// There are no default values defined in the spec.
+// with the default values initialized.
 func NewGetRolesForUserParams() GetRolesForUserParams {
 
-	return GetRolesForUserParams{}
+	var (
+		// initialize parameters with default values
+
+		includeFullRolesDefault = bool(false)
+	)
+
+	return GetRolesForUserParams{
+		IncludeFullRoles: &includeFullRolesDefault,
+	}
 }
 
 // GetRolesForUserParams contains all the bound params for the get roles for user operation
@@ -46,6 +56,16 @@ type GetRolesForUserParams struct {
 	  In: path
 	*/
 	ID string
+	/*Whether to include detailed role information needed the roles permission
+	  In: query
+	  Default: false
+	*/
+	IncludeFullRoles *bool
+	/*The type of user
+	  Required: true
+	  In: path
+	*/
+	UserType string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -57,8 +77,20 @@ func (o *GetRolesForUserParams) BindRequest(r *http.Request, route *middleware.M
 
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qIncludeFullRoles, qhkIncludeFullRoles, _ := qs.GetOK("includeFullRoles")
+	if err := o.bindIncludeFullRoles(qIncludeFullRoles, qhkIncludeFullRoles, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	rUserType, rhkUserType, _ := route.Params.GetOK("userType")
+	if err := o.bindUserType(rUserType, rhkUserType, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -77,6 +109,58 @@ func (o *GetRolesForUserParams) bindID(rawData []string, hasKey bool, formats st
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.ID = raw
+
+	return nil
+}
+
+// bindIncludeFullRoles binds and validates parameter IncludeFullRoles from query.
+func (o *GetRolesForUserParams) bindIncludeFullRoles(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		// Default values have been previously initialized by NewGetRolesForUserParams()
+		return nil
+	}
+
+	value, err := swag.ConvertBool(raw)
+	if err != nil {
+		return errors.InvalidType("includeFullRoles", "query", "bool", raw)
+	}
+	o.IncludeFullRoles = &value
+
+	return nil
+}
+
+// bindUserType binds and validates parameter UserType from path.
+func (o *GetRolesForUserParams) bindUserType(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: true
+	// Parameter is provided by construction from the route
+	o.UserType = raw
+
+	if err := o.validateUserType(formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateUserType carries on validations for parameter UserType
+func (o *GetRolesForUserParams) validateUserType(formats strfmt.Registry) error {
+
+	if err := validate.EnumCase("userType", "path", o.UserType, []interface{}{"oidc", "db"}, true); err != nil {
+		return err
+	}
 
 	return nil
 }

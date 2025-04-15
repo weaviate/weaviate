@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -66,7 +67,7 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters
 // The boolean return argument is a way to stop iteration (e.g. when a limit is
 // reached) without producing an error. In normal operation always return true,
 // if false is returned once, the loop is broken.
-type ReadFn func(k []byte, v *sroar.Bitmap) (bool, error)
+type ReadFn func(k []byte, v *sroar.Bitmap, release func()) (bool, error)
 
 // Read a row using the specified ReadFn. If RowReader was created with
 // keysOnly==true, the values argument in the readFn will always be nil on all
@@ -104,7 +105,7 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 		return err
 	}
 
-	_, err = readFn(rr.value, v)
+	_, err = readFn(rr.value, v, noopRelease)
 	return err
 }
 
@@ -116,9 +117,9 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 		return err
 	}
 
-	inverted := rr.bitmapFactory.GetBitmap()
-	inverted.AndNot(v)
-	_, err = readFn(rr.value, inverted)
+	inverted, release := rr.bitmapFactory.GetBitmap()
+	inverted.AndNotConc(v, concurrency.SROAR_MERGE)
+	_, err = readFn(rr.value, inverted, release)
 	return err
 }
 
@@ -139,7 +140,7 @@ func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 			continue
 		}
 
-		if continueReading, err := readFn(k, v); err != nil {
+		if continueReading, err := readFn(k, v, noopRelease); err != nil {
 			return err
 		} else if !continueReading {
 			break
@@ -167,7 +168,7 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 			continue
 		}
 
-		if continueReading, err := readFn(k, v); err != nil {
+		if continueReading, err := readFn(k, v, noopRelease); err != nil {
 			return err
 		} else if !continueReading {
 			break
@@ -256,7 +257,7 @@ func (rr *RowReaderRoaringSet) likeHelper(ctx context.Context, like *likeRegexp,
 			continue
 		}
 
-		if continueReading, err := rp(k, v); err != nil {
+		if continueReading, err := readFn(k, v, noopRelease); err != nil {
 			return err
 		} else if !continueReading {
 			break

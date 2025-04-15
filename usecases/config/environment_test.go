@@ -13,6 +13,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -702,7 +703,7 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			name:         "Valid API Key",
 			auth_env_var: []string{"AUTHENTICATION_APIKEY_ENABLED"},
 			expected: Authentication{
-				APIKey: APIKey{
+				APIKey: StaticAPIKey{
 					Enabled: true,
 				},
 			},
@@ -723,6 +724,13 @@ func TestEnvironmentAuthentication(t *testing.T) {
 				OIDC: OIDC{
 					Enabled: true,
 				},
+			},
+		},
+		{
+			name:         "Enabled db user",
+			auth_env_var: []string{"AUTHENTICATION_DB_USERS_ENABLED"},
+			expected: Authentication{
+				DBUsers: DbUsers{Enabled: true},
 			},
 		},
 		{
@@ -865,6 +873,248 @@ func TestEnvironmentHNSWFlatSearchConcurrency(t *testing.T) {
 			} else {
 				require.Equal(t, tt.expected, conf.HNSWFlatSearchConcurrency)
 			}
+		})
+	}
+}
+
+func TestEnvironmentHNSWAcornFilterRatio(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    float64
+		expectedErr bool
+	}{
+		{"Valid", []string{"0.5"}, 0.5, false},
+		{"not given", []string{}, 0.4, false},
+		{"max", []string{"0.0"}, 0.0, false},
+		{"min", []string{"1.0"}, 1.0, false},
+		{"negative", []string{"-1.2"}, -1.0, true},
+		{"too large", []string{"1.2"}, -1.0, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("HNSW_ACORN_FILTER_RATIO", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.HNSWAcornFilterRatio)
+			}
+		})
+	}
+}
+
+func TestEnabledForHost(t *testing.T) {
+	localHostname := "weaviate-1"
+	envName := "HOSTBASED_SETTING"
+
+	enabledVals := []string{"enabled", "1", "true", "on", "weaviate-1", "weaviate-0,weaviate-1,weaviate-2"}
+	for _, val := range enabledVals {
+		t.Run(fmt.Sprintf("enabled %q", val), func(t *testing.T) {
+			t.Setenv(envName, val)
+			assert.True(t, enabledForHost(envName, localHostname))
+		})
+	}
+
+	disabledVals := []string{"disabled", "0", "false", "off", "weaviate-0", "weaviate-0,weaviate-2,weaviate-3", ""}
+	for _, val := range disabledVals {
+		t.Run(fmt.Sprintf("disabled %q", val), func(t *testing.T) {
+			t.Setenv(envName, val)
+			assert.False(t, enabledForHost(envName, localHostname))
+		})
+	}
+}
+
+func TestParseCollectionPropsTenants(t *testing.T) {
+	type testCase struct {
+		env            string
+		expected       []CollectionPropsTenants
+		expectedErrMsg string
+	}
+
+	p := newCollectionPropsTenantsParser()
+
+	testCases := []testCase{
+		{
+			env:      "",
+			expected: []CollectionPropsTenants{},
+		},
+
+		// collections
+		{
+			env: "Collection1",
+			expected: []CollectionPropsTenants{
+				{Collection: "Collection1"},
+			},
+		},
+		{
+			env: "Collection1; Collection2; ;",
+			expected: []CollectionPropsTenants{
+				{Collection: "Collection1"},
+				{Collection: "Collection2"},
+			},
+		},
+		{
+			env: "Collection1:; Collection2::; ;",
+			expected: []CollectionPropsTenants{
+				{Collection: "Collection1"},
+				{Collection: "Collection2"},
+			},
+		},
+
+		// collections + props
+		{
+			env: "Collection1:prop1,prop2",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1", "prop2"},
+				},
+			},
+		},
+		{
+			env: "Collection1:prop1, prop2;Collection2:prop3: ;",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1", "prop2"},
+				},
+				{
+					Collection: "Collection2",
+					Props:      []string{"prop3"},
+				},
+			},
+		},
+
+		// collections + tenants
+		{
+			env: "Collection1::tenant1,tenant2",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Tenants:    []string{"tenant1", "tenant2"},
+				},
+			},
+		},
+		{
+			env: "Collection1::tenant1, tenant2;Collection2::tenant3",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Tenants:    []string{"tenant1", "tenant2"},
+				},
+				{
+					Collection: "Collection2",
+					Tenants:    []string{"tenant3"},
+				},
+			},
+		},
+
+		// collections + props + tenants
+		{
+			env: "Collection1:prop1:tenant1,tenant2",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1"},
+					Tenants:    []string{"tenant1", "tenant2"},
+				},
+			},
+		},
+		{
+			env: "Collection1:prop1 :tenant1, tenant2;Collection2:prop2,prop3 :tenant3 ; ",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1"},
+					Tenants:    []string{"tenant1", "tenant2"},
+				},
+				{
+					Collection: "Collection2",
+					Props:      []string{"prop2", "prop3"},
+					Tenants:    []string{"tenant3"},
+				},
+			},
+		},
+
+		// unique / merged
+		{
+			env: "Collection1:prop1,prop2:tenant1,tenant2;Collection2:propX;Collection1:prop2,prop3;Collection3::tenantY;Collection1:prop4:tenant2,tenant3",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1", "prop2", "prop3", "prop4"},
+					Tenants:    []string{"tenant1", "tenant2", "tenant3"},
+				},
+				{
+					Collection: "Collection2",
+					Props:      []string{"propX"},
+				},
+				{
+					Collection: "Collection3",
+					Tenants:    []string{"tenantY"},
+				},
+			},
+		},
+
+		// errors
+		{
+			env:            "lowerCaseCollectionName",
+			expectedErrMsg: "invalid collection name",
+		},
+		{
+			env:            "InvalidChars#",
+			expectedErrMsg: "invalid collection name",
+		},
+		{
+			env:            "Collection1:InvalidChars#",
+			expectedErrMsg: "invalid property name",
+		},
+		{
+			env:            "Collection1::InvalidChars#",
+			expectedErrMsg: "invalid tenant/shard name",
+		},
+		{
+			env:            ":prop",
+			expectedErrMsg: "missing collection name",
+		},
+		{
+			env:            "::tenant",
+			expectedErrMsg: "missing collection name",
+		},
+		{
+			env:            ":prop:tenant",
+			expectedErrMsg: "missing collection name",
+		},
+		{
+			env:            "Collection1:::",
+			expectedErrMsg: "too many parts",
+		},
+		{
+			env:            "Collection1:prop:tenant:",
+			expectedErrMsg: "too many parts",
+		},
+		{
+			env:            "Collection1:prop:tenant:something",
+			expectedErrMsg: "too many parts",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.env, func(t *testing.T) {
+			cpts, err := p.parse(tc.env)
+
+			if tc.expectedErrMsg != "" {
+				assert.ErrorContains(t, err, tc.expectedErrMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			assert.ElementsMatch(t, tc.expected, cpts)
 		})
 	}
 }

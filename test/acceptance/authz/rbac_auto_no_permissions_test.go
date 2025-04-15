@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -32,8 +33,8 @@ func TestCollectEndpoints(t *testing.T) {
 }
 
 func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
-	adminKey := "admin-Key"
-	adminUser := "admin-User"
+	adminKey := "admin-key"
+	adminUser := "admin-user"
 	customKey := "custom-key"
 	customUser := "custom-user"
 
@@ -65,10 +66,20 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/.well-known/openid-configuration",
 		"/.well-known/ready",
 		"/meta",
-		"/authz/users/own-roles", // will return roles for own user
-		"/backups/{backend}",     // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
+		"/users/own-info",    // will return info for own user
+		"/backups/{backend}", // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
 		"/backups/{backend}/{id}",
 		"/backups/{backend}/{id}/restore",
+		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
+	}
+
+	ignoreGetAll := []string{
+		"/authz/roles",
+		"/objects",
+		"/schema",
+		"/schema/{className}/tenants",
+		"/schema/{className}/tenants/{tenantName}",
+		"/users/db",
 	}
 
 	for _, endpoint := range endpoints {
@@ -78,20 +89,29 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{className}", className)
 		url = strings.ReplaceAll(url, "{tenantName}", "Tenant1")
 		url = strings.ReplaceAll(url, "{shardName}", "Shard1")
-		url = strings.ReplaceAll(url, "{id}", "admin-User")
+		url = strings.ReplaceAll(url, "{id}", "admin-user")
 		url = strings.ReplaceAll(url, "{backend}", "filesystem")
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
+		url = strings.ReplaceAll(url, "{user_id}", "admin-user")
+		url = strings.ReplaceAll(url, "{userType}", "db")
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
 			require.NotContains(t, url, "{")
 			require.NotContains(t, url, "}")
+
+			shallIgnore := slices.Contains(ignoreEndpoints, endpoint.path) ||
+				(endpoint.method == http.MethodGet && slices.Contains(ignoreGetAll, endpoint.path))
+			if shallIgnore {
+				t.Skip("Endpoint is in ignore list")
+				return
+			}
 
 			var req *http.Request
 			var err error
 
 			endpoint.method = strings.ToUpper(endpoint.method)
 
-			if endpoint.method == "POST" || endpoint.method == "PUT" || endpoint.method == "PATCH" || endpoint.method == "DELETE" {
+			if endpoint.method == http.MethodPost || endpoint.method == http.MethodPut || endpoint.method == http.MethodPatch || endpoint.method == http.MethodDelete {
 				req, err = http.NewRequest(endpoint.method, url, bytes.NewBuffer(endpoint.validGeneratedBodyData))
 				require.Nil(t, err)
 				req.Header.Set("Content-Type", "application/json")
@@ -107,9 +127,6 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 			require.Nil(t, err)
 			defer resp.Body.Close()
 
-			if slices.Contains(ignoreEndpoints, endpoint.path) {
-				return
-			}
 			require.Equal(t, http.StatusForbidden, resp.StatusCode)
 		})
 	}

@@ -18,6 +18,7 @@ import (
 	"io"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
@@ -83,7 +84,7 @@ type RemoteIndexClient interface {
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
-		searchVector []models.Vector, targetVector []string, limit int, filters *filters.LocalFilter,
+		searchVector []models.Vector, targetVector []string, distance float32, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
@@ -101,6 +102,14 @@ type RemoteIndexClient interface {
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
+	// PauseAndListFiles pauses the shard replica background processes on the specified node and
+	// returns a list of files that can be used to get the shard data at the time the pause was
+	// requested. You should explicitly resume the background processes once you're done.
+	// The returned relative file paths are relative to the shard's root directory.
+	PauseAndListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error)
+	// GetFile returns a reader for the file at the given path in the shard's root directory.
+	// The caller must close the returned io.ReadCloser if no error is returned.
+	GetFile(ctx context.Context, hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
@@ -257,6 +266,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	shard string,
 	queryVec []models.Vector,
 	targetVector []string,
+	distance float32,
 	limit int,
 	filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking,
@@ -271,7 +281,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 ) ([]ReplicasSearchResult, error) {
 	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {
 			return ReplicasSearchResult{}, err
 		}
@@ -283,6 +293,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	queryVec []models.Vector,
 	targetVector []string,
+	distance float32,
 	limit int,
 	filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking,
@@ -300,7 +311,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	}
 	f := func(node, host string) (interface{}, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {
 			return nil, err
 		}
@@ -429,6 +440,8 @@ func (ri *RemoteIndex) queryAllReplicas(
 		return do(replica, host)
 	}
 
+	var queriesSent atomic.Int64
+
 	queryAll := func(replicas []string) (resp []ReplicasSearchResult, err error) {
 		var mu sync.Mutex // protect resp + errlist
 		var searchResult ReplicasSearchResult
@@ -453,6 +466,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 					return
 				}
 
+				queriesSent.Add(1)
 				if searchResult, err = queryOne(node); err != nil {
 					mu.Lock()
 					errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, err))
@@ -475,8 +489,8 @@ func (ri *RemoteIndex) queryAllReplicas(
 		if len(resp) == 0 {
 			return nil, errList
 		}
-		if len(resp) != len(replicas)-1 {
-			log.Warnf("full replicas search has less results than the count of replicas: have=%d want=%d", len(resp), len(replicas)-1)
+		if len(resp) != int(queriesSent.Load()) {
+			log.Warnf("full replicas search response does not match replica count: response=%d replicas=%d", len(resp), len(replicas))
 		}
 		return resp, nil
 	}

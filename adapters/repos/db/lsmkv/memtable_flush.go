@@ -48,12 +48,13 @@ func (m *Memtable) flush() error {
 	bufw := bufio.NewWriter(f)
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(bufw),
+		segmentindex.WithChecksumsDisabled(!m.enableChecksumValidation),
 	)
 
 	var keys []segmentindex.Key
 	skipIndices := false
 
-	switch m.flushStrategy {
+	switch m.strategy {
 	case StrategyReplace:
 		if keys, err = m.flushDataReplace(segmentFile); err != nil {
 			return err
@@ -97,7 +98,7 @@ func (m *Memtable) flush() error {
 		// TODO: Currently no checksum validation support for StrategyInverted.
 		//       This condition can be removed once support is added, and for
 		//       all strategies we can simply `segmentFile.WriteIndexes(indexes)`
-		if m.flushStrategy == StrategyInverted {
+		if m.strategy == StrategyInverted {
 			if _, err := indexes.WriteTo(bufw); err != nil {
 				return err
 			}
@@ -111,7 +112,7 @@ func (m *Memtable) flush() error {
 	// TODO: Currently no checksum validation support for StrategyInverted.
 	//       This condition can be removed once support is added, and for
 	//       all strategies we can simply `segmentFile.WriteChecksum()`
-	if m.flushStrategy != StrategyInverted {
+	if m.strategy != StrategyInverted {
 		if _, err := segmentFile.WriteChecksum(); err != nil {
 			return err
 		}
@@ -140,7 +141,7 @@ func (m *Memtable) flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
 		Level:            0, // always level zero on a new one
-		Version:          segmentindex.SegmentV1,
+		Version:          segmentindex.ChooseHeaderVersion(m.enableChecksumValidation),
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(m.strategy),
 	}
@@ -217,7 +218,7 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
-		Version:          segmentindex.SegmentV1,
+		Version:          segmentindex.ChooseHeaderVersion(m.enableChecksumValidation),
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(m.strategy),
 	}

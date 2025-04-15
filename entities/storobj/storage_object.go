@@ -134,7 +134,8 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 	}
 	ko.Object.ID = strfmt.UUID(uuidObj.String())
 
-	rw.MoveBufferPositionForward(16)
+	ko.Object.CreationTimeUnix = int64(rw.ReadUint64())
+	ko.Object.LastUpdateTimeUnix = int64(rw.ReadUint64())
 
 	vecLen := rw.ReadUint16()
 	rw.MoveBufferPositionForward(uint64(vecLen * 4))
@@ -286,8 +287,20 @@ func FromBinaryOptional(data []byte,
 }
 
 type PropertyExtraction struct {
-	PropStrings     []string
-	PropStringsList [][]string
+	PropertyPaths [][]string
+}
+
+func NewPropExtraction() *PropertyExtraction {
+	return &PropertyExtraction{
+		PropertyPaths: [][]string{},
+	}
+}
+
+func (pe *PropertyExtraction) Add(props ...string) *PropertyExtraction {
+	for i := range props {
+		pe.PropertyPaths = append(pe.PropertyPaths, []string{props[i]})
+	}
+	return pe
 }
 
 type bucket interface {
@@ -378,16 +391,13 @@ func objectsByDocIDSequential(bucket bucket, ids []uint64,
 	var props *PropertyExtraction = nil
 	// not all code paths forward the list of properties that should be extracted - if nil is passed fall back
 	if properties != nil {
-		propStrings := make([]string, len(properties))
-		propStringsList := make([][]string, len(properties))
+		propertyPaths := make([][]string, len(properties))
 		for j := range properties {
-			propStrings[j] = properties[j]
-			propStringsList[j] = []string{properties[j]}
+			propertyPaths[j] = []string{properties[j]}
 		}
 
 		props = &PropertyExtraction{
-			PropStrings:     propStrings,
-			PropStringsList: propStringsList,
+			PropertyPaths: propertyPaths,
 		}
 	}
 
@@ -597,6 +607,33 @@ func (ko *Object) SearchResultWithScoreAndTenant(addl additional.Properties, sco
 func (ko *Object) Valid() bool {
 	return ko.ID() != "" &&
 		ko.Class().String() != ""
+}
+
+// IterateThroughVectorDimensions iterates through all vectors present on the Object and invokes
+// the callback with target name and dimensions of the vector.
+func (ko *Object) IterateThroughVectorDimensions(f func(targetVector string, dims int) error) error {
+	if len(ko.Vector) > 0 {
+		if err := f("", len(ko.Vector)); err != nil {
+			return err
+		}
+	}
+
+	for targetVector, vector := range ko.Vectors {
+		if err := f(targetVector, len(vector)); err != nil {
+			return err
+		}
+	}
+
+	for targetVector, vectors := range ko.MultiVectors {
+		var dims int
+		for _, vector := range vectors {
+			dims += len(vector)
+		}
+		if err := f(targetVector, dims); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func SearchResults(in []*Object, additional additional.Properties, tenant string) search.Results {
@@ -941,43 +978,43 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	return byteBuffer, nil
 }
 
-// UnmarshalPropertiesFromObject only unmarshals and returns the properties part of the object
+// UnmarshalPropertiesFromObject accepts marshaled object as data and populates resultProperties map with the properties specified by propertyPaths.
 //
 // Check MarshalBinary for the order of elements in the input array
-func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
+func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]interface{}, propertyPaths [][]string) error {
 	if data[0] != uint8(1) {
 		return errors.Errorf("unsupported binary marshaller version %d", data[0])
 	}
 
 	// clear out old values in case an object misses values. This should NOT shrink the capacity of the map, eg there
-	// are no allocations when adding the properties of the next object again
-	for k := range *properties {
-		delete(*properties, k)
-	}
+	// are no allocations when adding the resultProperties of the next object again
+	clear(resultProperties)
 
 	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
 	rw := byteops.NewReadWriter(data, byteops.WithPosition(startPos))
 	// get the length of the vector, each element is a float32 (4 bytes)
 	vectorLength := uint64(rw.ReadUint16())
 	rw.MoveBufferPositionForward(vectorLength * 4)
-
 	classnameLength := uint64(rw.ReadUint16())
 	rw.MoveBufferPositionForward(classnameLength)
 	propertyLength := uint64(rw.ReadUint32())
 
-	return UnmarshalProperties(rw.Buffer[rw.Position:rw.Position+propertyLength], properties, aggregationProperties, propStrings)
+	return UnmarshalProperties(rw.Buffer[rw.Position:rw.Position+propertyLength], resultProperties, propertyPaths)
 }
 
-func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
+// UnmarshalProperties accepts serialized properties as data and populates resultProperties map with the properties specified by propertyPaths.
+func UnmarshalProperties(data []byte, properties map[string]interface{}, propertyPaths [][]string) error {
 	var returnError error
 	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
+		propertyName := propertyPaths[idx][len(propertyPaths[idx])-1]
+
 		switch dataType {
 		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
 			val, err := parseValues(dataType, value)
 			if err != nil {
 				returnError = err
 			}
-			(*properties)[aggregationProperties[idx]] = val
+			properties[propertyName] = val
 		case jsonparser.Array: // can be a beacon or an actual array
 			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
 			// this checks if refs are present - the return points to the underlying memory, dont use without copying
@@ -991,7 +1028,7 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 					beacons = append(beacons, map[string]interface{}{"beacon": beaconVal})
 				}
 				_, returnError = jsonparser.ArrayEach(value, handler)
-				(*properties)[aggregationProperties[idx]] = beacons
+				properties[propertyName] = beacons
 			} else {
 				// check how many entries there are in the array by counting the ",". This allows us to allocate an
 				// array with the right size without extending it with every append.
@@ -1031,7 +1068,7 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 				if err != nil {
 					returnError = err
 				}
-				(*properties)[aggregationProperties[idx]] = array
+				properties[propertyName] = array
 
 			}
 		case jsonparser.Object:
@@ -1048,11 +1085,11 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 			if err != nil {
 				returnError = err
 			}
-			(*properties)[aggregationProperties[idx]] = nestedProps
+			properties[propertyName] = nestedProps
 		default:
 			returnError = fmt.Errorf("unknown data type %v", dataType)
 		}
-	}, propStrings...)
+	}, propertyPaths...)
 
 	return returnError
 }
@@ -1158,7 +1195,7 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 		if len(targetVectorsOffsets) > 0 {
 			var tvOffsets map[string]uint32
 			if err := msgpack.Unmarshal(targetVectorsOffsets, &tvOffsets); err != nil {
-				return nil, fmt.Errorf("Could not unmarshal target vectors offset: %w", err)
+				return nil, fmt.Errorf("could not unmarshal target vectors offset: %w", err)
 			}
 
 			targetVectors := map[string][]float32{}
@@ -1382,8 +1419,8 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		}
 	} else if len(propsB) >= int(propLength) {
 		// the properties are not read in all cases, skip if not needed
-		returnProps = make(map[string]interface{}, len(properties.PropStrings))
-		if err := UnmarshalProperties(propsB[:propLength], &returnProps, properties.PropStrings, properties.PropStringsList); err != nil {
+		returnProps = make(map[string]interface{}, len(properties.PropertyPaths))
+		if err := UnmarshalProperties(propsB[:propLength], returnProps, properties.PropertyPaths); err != nil {
 			return err
 		}
 	}

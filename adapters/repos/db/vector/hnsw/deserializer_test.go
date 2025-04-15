@@ -454,7 +454,7 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 		data, _ := testinghelpers.RandomVecs(20, 0, dimensions)
 		kms := make([]compressionhelpers.PQEncoder, 4)
 		for i := 0; i < 4; i++ {
-			kms[i] = compressionhelpers.NewKMeans(
+			kms[i] = compressionhelpers.NewKMeansEncoder(
 				dimensions,
 				4,
 				int(i),

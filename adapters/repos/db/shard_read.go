@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -26,7 +27,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -39,10 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
-
-var maxUUID [16]byte = [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 
 func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
@@ -126,44 +123,38 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	return objects, nil
 }
 
-func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
-	initialToken, finalToken uint64, limit int) (
-	res []replica.RepairResponse, lastTokenRead uint64, err error,
+func (s *Shard) ObjectDigestsInRange(ctx context.Context,
+	initialUUID, finalUUID strfmt.UUID, limit int) (
+	objs []types.RepairResponse, err error,
 ) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-
-	if int(bucket.GetSecondaryIndices()) < helpers.ObjectsBucketLSMTokenRangeSecondaryIndex {
-		return nil, 0, fmt.Errorf("secondary index for token ranges not available")
+	initialUUIDBytes, err := uuid.MustParse(initialUUID.String()).MarshalBinary()
+	if err != nil {
+		return nil, err
 	}
 
-	cursor := bucket.CursorWithSecondaryIndex(helpers.ObjectsBucketLSMTokenRangeSecondaryIndex)
+	finalUUIDBytes, err := uuid.MustParse(finalUUID.String()).MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	cursor := bucket.Cursor()
 	defer cursor.Close()
 
 	n := 0
 
-	var objs []replica.RepairResponse
-
-	var initialTokenBytes, finalTokenBytes [8 + 16]byte
-
-	binary.BigEndian.PutUint64(initialTokenBytes[:], initialToken)
-
-	binary.BigEndian.PutUint64(finalTokenBytes[:], finalToken)
-	copy(finalTokenBytes[8:], maxUUID[:])
-
-	lastTokenRead = initialToken
-
-	for k, v := cursor.Seek(initialTokenBytes[:]); n < limit && k != nil && bytes.Compare(k, finalTokenBytes[:]) < 1; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
-		if err != nil {
-			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %v", err)
+	for k, v := cursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = cursor.Next() {
+		if ctx.Err() != nil {
+			return objs, ctx.Err()
 		}
 
-		uuidBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
+		obj, err := storobj.FromBinaryUUIDOnly(v)
 		if err != nil {
-			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %v", err)
+			return objs, fmt.Errorf("cannot unmarshal object: %w", err)
 		}
 
-		replicaObj := replica.RepairResponse{
+		replicaObj := types.RepairResponse{
 			ID:         obj.ID().String(),
 			UpdateTime: obj.LastUpdateTimeUnix(),
 			// TODO: use version when supported
@@ -172,20 +163,10 @@ func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
 
 		objs = append(objs, replicaObj)
 
-		h := murmur3.New64()
-		h.Write(uuidBytes)
-		lastTokenRead = h.Sum64()
-
 		n++
 	}
 
-	if n < limit {
-		return objs, finalToken, nil
-	} else if n == limit {
-		return objs, lastTokenRead, storobj.ErrLimitReached
-	}
-
-	return objs, lastTokenRead, nil
+	return objs, nil
 }
 
 // TODO: This does an actual read which is not really needed, if we see this
@@ -332,10 +313,11 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			}
 
 			filterDocIds = objs
+			defer objs.Close()
 		}
 
 		className := s.index.Config.ClassName
-		bm25Config := s.index.getInvertedIndexConfig().BM25
+		bm25Config := s.index.GetInvertedIndexConfig().BM25
 		logger := s.index.logger.WithFields(logrus.Fields{"class": s.index.Config.ClassName, "shard": s.name})
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher,
@@ -366,17 +348,19 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	}
 
 	distances := make([]float32, len(targetVectors))
-	indexes := s.VectorIndexes()
 	for j, target := range targetVectors {
-		index, ok := indexes[target]
+		index, ok := s.GetVectorIndex(target)
 		if !ok {
 			return nil, fmt.Errorf("index %s not found", target)
 		}
 		var distancer common.QueryVectorDistancer
-		if index.Multivector() {
-			distancer = index.QueryMultiVectorDistancer(searchVectors[j].([][]float32))
-		} else {
-			distancer = index.QueryVectorDistancer(searchVectors[j].([]float32))
+		switch v := searchVectors[j].(type) {
+		case []float32:
+			distancer = index.QueryVectorDistancer(v)
+		case [][]float32:
+			distancer = index.QueryMultiVectorDistancer(v)
+		default:
+			return nil, fmt.Errorf("unsupported vector type: %T", v)
 		}
 		dist, err := distancer.DistanceToNode(docId)
 		if err != nil {
@@ -385,41 +369,6 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 		distances[j] = dist
 	}
 	return distances, nil
-}
-
-func (s *Shard) getVectorIndex(targetVector string) (VectorIndex, error) {
-	if s.hasTargetVectors() {
-		if targetVector == "" {
-			return nil, fmt.Errorf("vector index: missing target vector")
-		}
-		vidx, ok := s.vectorIndexes[targetVector]
-		if !ok {
-			return nil, fmt.Errorf("vector index for target vector: %s doesn't exist", targetVector)
-		}
-		return vidx, nil
-	}
-	if targetVector != "" {
-		return nil, fmt.Errorf("vector index: target vector not found: %q", targetVector)
-	}
-
-	return s.vectorIndex, nil
-}
-
-func (s *Shard) getIndexQueue(targetVector string) (*VectorIndexQueue, error) {
-	if s.hasTargetVectors() {
-		if targetVector == "" {
-			return nil, fmt.Errorf("index queue: missing target vector")
-		}
-		queue, ok := s.queues[targetVector]
-		if !ok {
-			return nil, fmt.Errorf("index queue for target vector: %s doesn't exist", targetVector)
-		}
-		return queue, nil
-	}
-	if targetVector != "" {
-		return nil, fmt.Errorf("index queue: target vector not found: %q", targetVector)
-	}
-	return s.queue, nil
 }
 
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
@@ -467,14 +416,16 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	for i, targetVector := range targetVectors {
 		i := i
 		targetVector := targetVector
-		var (
-			ids   []uint64
-			dists []float32
-		)
 		eg.Go(func() error {
-			vidx, err := s.getVectorIndex(targetVector)
-			if err != nil {
-				return err
+			var (
+				ids   []uint64
+				dists []float32
+				err   error
+			)
+
+			vidx, ok := s.GetVectorIndex(targetVector)
+			if !ok {
+				return fmt.Errorf("index for target vector %q not found", targetVector)
 			}
 
 			if limit < 0 {
@@ -546,6 +497,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
+	}
+	if allowList != nil {
+		defer allowList.Close()
 	}
 
 	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, targetCombination, limit, targetDist)
@@ -751,16 +705,14 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, queue := range s.queues {
-			if err = queue.Delete(docID); err != nil {
-				return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
-			}
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
 		}
-	} else {
-		if err = s.queue.Delete(docID); err != nil {
-			return errors.Wrap(err, "delete from vector index queue")
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {

@@ -14,19 +14,43 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
+
+	// TODO this should be removed before merging, just here for testing until we have the API code
+	http.HandleFunc("/debug/index/copy/files", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sourceNodeName := r.URL.Query().Get("sourceNodeName")
+		collectionName := r.URL.Query().Get("collectionName")
+		shardName := r.URL.Query().Get("shardName")
+
+		if sourceNodeName == "" || collectionName == "" || shardName == "" {
+			http.Error(w, "sourceNodeName, collectionName, and shardName are required", http.StatusBadRequest)
+			return
+		}
+		c := copier.New(appState.DB.GetRemoteIndex(), appState.Cluster, appState.DB.GetConfig().RootPath, appState.DB)
+		err := c.CopyReplica(context.Background(), sourceNodeName, collectionName, shardName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
@@ -66,6 +90,437 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		appState.ReindexCtxCancel(fmt.Errorf("abort endpoint"))
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/start", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		forceRestartString := r.URL.Query().Get("force")
+		rootPath := appState.DB.GetConfig().RootPath
+
+		if colName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+
+		forceRestart := config.Enabled(forceRestartString)
+
+		className := schema.ClassName(colName)
+		classNameString := strings.ToLower(className.String())
+		idx := appState.DB.GetIndex(className)
+
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found or not ready")
+			http.Error(w, "collection not found or not ready", http.StatusNotFound)
+			return
+		}
+		// shard map: shardName -> shardPath
+		paths := make(map[string]string)
+		shards := make(map[string]db.ShardLike)
+
+		// shards will not be force loaded, as we are only getting the name
+		err := idx.ForEachShard(
+			func(shardName string, shard db.ShardLike) error {
+				shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
+				paths[shardName] = shardPath
+				shards[shardName] = shard
+				return nil
+			},
+		)
+		if err != nil {
+			logger.WithField("collection", colName).Error("failed to get shard names")
+			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
+			return
+		}
+
+		migratingShards := make([]string, 0, len(paths))
+
+		output := make(map[string]map[string]string, len(paths))
+		for i, path := range paths {
+			output[i] = map[string]string{
+				"shard":  i,
+				"status": "unknown",
+			}
+			if path == "" {
+				output[i]["status"] = "shard_not_loaded"
+				output[i]["message"] = "shard not loaded"
+				continue
+			}
+
+			// check if the shard directory exists
+			_, err := os.Stat(path)
+			if err != nil {
+				output[i]["status"] = "shard_not_loaded"
+				output[i]["message"] = "shard directory does not exist"
+				continue
+			}
+
+			// check if a .migrations/searchable_map_to_blockmax exists
+			_, err = os.Stat(path + ".migrations/searchable_map_to_blockmax")
+			if err != nil {
+				output[i]["status"] = "not_started"
+				output[i]["message"] = "no searchable_map_to_blockmax folder found"
+				continue
+			}
+
+			path += ".migrations/searchable_map_to_blockmax/"
+			// check if started.mig exists
+			_, err = os.Stat(path + "started.mig")
+			if err == nil && !forceRestart {
+				output[i]["status"] = "started"
+				output[i]["message"] = "reindexing started"
+				continue
+			}
+
+			// migration is not started yet, create start file as start.mig
+			// check if start.mig exists
+			_, err = os.Stat(path + "start.mig")
+			if err == nil && !forceRestart {
+				output[i]["status"] = "started"
+				output[i]["message"] = "reindexing started"
+				continue
+			}
+			// create start.mig file
+			startedFile, err := os.Create(path + "start.mig")
+			if err != nil && !forceRestart {
+				output[i]["status"] = "error"
+				output[i]["message"] = "failed to create start.mig"
+				continue
+			}
+			startedFile.Close()
+
+			shard := shards[i]
+
+			migratingShards = append(migratingShards, shard.Name())
+
+		}
+		for _, shard := range migratingShards {
+			err := idx.IncomingReinitShard(
+				context.Background(),
+				shard,
+			)
+			if err != nil {
+				logger.WithField("shard", shard).Error("failed to reinit shard")
+				http.Error(w, "failed to reinit shard", http.StatusInternalServerError)
+				return
+			}
+			logger.WithField("shard", shard).Info("reinit shard started")
+			output[shard]["status"] = "reinit"
+			output[shard]["message"] = "reinit shard started"
+		}
+
+		response := map[string]interface{}{
+			"shards": output,
+		}
+		jsonBytes, err := json.Marshal(response)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(jsonBytes)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		rootPath := appState.DB.GetConfig().RootPath
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if colName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+		className := schema.ClassName(colName)
+		info := appState.SchemaManager.SchemaReader.ClassInfo(className.String())
+
+		classNameString := strings.ToLower(className.String())
+		idx := appState.DB.GetIndex(className)
+
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found or not ready")
+			http.Error(w, "collection not found or not ready", http.StatusNotFound)
+			return
+		}
+
+		blockMaxStatus := "not_ready"
+		blockMaxEnabled := idx.GetInvertedIndexConfig().UsingBlockMaxWAND
+		if blockMaxEnabled {
+			blockMaxStatus = "enabled"
+		}
+		// shard map: shardName -> shardPath
+		paths := make(map[string]string)
+
+		// shards will not be force loaded, as we are only getting the name
+		err := idx.ForEachShard(
+			func(shardName string, shard db.ShardLike) error {
+				shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
+				paths[shardName] = shardPath
+				return nil
+			},
+		)
+		if err != nil {
+			logger.WithField("collection", colName).Error("failed to get shard names")
+			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
+			return
+		}
+
+		// tenant map: tenantName -> *models.TenantResponse
+		tenantMap := make(map[string]*models.TenantResponse)
+
+		if info.MultiTenancy.Enabled {
+
+			tenantResponses, err := appState.SchemaManager.GetConsistentTenants(ctx, nil, colName, true, []string{})
+			if err != nil {
+				logger.WithField("collection", colName).Error("failed to get tenant responses")
+				http.Error(w, "failed to get tenant responses", http.StatusInternalServerError)
+				return
+			}
+
+			for _, tenant := range tenantResponses {
+				tenantMap[tenant.Name] = tenant
+			}
+		} else {
+			for name := range paths {
+				tenantMap[name] = &models.TenantResponse{
+					Tenant: models.Tenant{
+						Name: name,
+					},
+				}
+			}
+		}
+
+		if len(tenantMap) == 0 {
+			http.Error(w, "no shards or tenants found", http.StatusNotFound)
+			return
+		}
+
+		output := make(map[string]map[string]string, len(paths))
+
+		for i, tenant := range tenantMap {
+			output[i] = map[string]string{
+				"shard":  i,
+				"status": "unknown",
+			}
+			path := paths[tenant.Name]
+			if path == "" {
+				output[i]["status"] = "shard_not_loaded"
+				output[i]["message"] = "shard not loaded"
+				continue
+			}
+
+			// check if the shard directory exists
+			_, err := os.Stat(path)
+			if err != nil {
+				output[i]["status"] = "shard_not_loaded"
+				output[i]["message"] = "shard directory does not exist"
+				continue
+			}
+
+			// check if a .migrations/searchable_map_to_blockmax exists
+			_, err = os.Stat(path + ".migrations/searchable_map_to_blockmax")
+			if err != nil {
+				output[i]["status"] = "not_started"
+				output[i]["message"] = "no searchable_map_to_blockmax folder found"
+				continue
+			}
+
+			path += ".migrations/searchable_map_to_blockmax/"
+			// check if started.mig exists
+			_, err = os.Stat(path + "started.mig")
+			if err != nil {
+				output[i]["status"] = "not_started"
+				output[i]["message"] = "no started.mig found"
+				continue
+			}
+			// load the started.mig file and add it's value to the output
+			startedFile, err := os.ReadFile(path + "started.mig")
+			if err != nil {
+				output[i]["status"] = "error"
+				output[i]["message"] = "failed to read started.mig"
+				continue
+			}
+			output[i]["status"] = "started"
+			output[i]["start_time"] = string(startedFile)
+
+			// check if the properties.mig file exists
+			_, err = os.Stat(path + "properties.mig")
+			if err != nil {
+				output[i]["message"] = "computing properties to reindex"
+				continue
+			}
+
+			// load the properties.mig file and add it's value to the output
+			propertiesFile, err := os.ReadFile(path + "properties.mig")
+			if err != nil {
+				output[i]["status"] = "error"
+				output[i]["message"] = "failed to read properties.mig"
+				continue
+			}
+
+			output[i]["properties"] = string(propertiesFile)
+			output[i]["message"] = "re-indexing started"
+
+			// count the progress.mig.* files in the shard directory
+			files, err := os.ReadDir(path)
+			if err != nil {
+				output[i]["status"] = "error"
+				output[i]["message"] = "failed to read shard directory"
+				continue
+			}
+			progressCount := 0
+			objectsMigratedCountTotal := 0
+
+			// files sorted by filename
+
+			for _, file := range files {
+				if strings.HasPrefix(file.Name(), "progress.mig.") {
+					progressCount++
+					// open progress file
+
+					progressFilePath := path + file.Name()
+					progressFile, err := os.ReadFile(progressFilePath)
+					if err != nil {
+						output[i]["status"] = "error"
+						output[i]["message"] = fmt.Sprintf("failed to read %s", progressFilePath)
+						continue
+					}
+
+					// parse progress file
+					progressFileFields := strings.Split(string(progressFile), "\n")
+					if len(progressFileFields) != 4 {
+						output[i]["status"] = "error"
+						output[i]["message"] = fmt.Sprintf("invalid progress file %s", progressFilePath)
+						continue
+					}
+					// parse objects migrated count
+					objectsMigratedCount, err := strconv.Atoi(strings.Split(progressFileFields[3], " ")[1])
+					if err != nil {
+						output[i]["status"] = "error"
+						output[i]["message"] = fmt.Sprintf("failed to parse objects migrated count %s", progressFilePath)
+						continue
+					}
+					objectsMigratedCountTotal += objectsMigratedCount
+					output[i]["objects_migrated"] = fmt.Sprintf("%d", objectsMigratedCountTotal)
+				}
+			}
+			if progressCount == 0 {
+				output[i]["message"] = "migration started recently, no snapshots yet"
+				continue
+			}
+
+			// load latest progress.mig.* file and add it's value to the output
+			progressFile, err := os.ReadFile(path + fmt.Sprintf("progress.mig.%09d", progressCount))
+			if err != nil {
+				output[i]["status"] = "error"
+				output[i]["message"] = fmt.Sprintf("failed to read progress.mig.%09d", progressCount)
+				continue
+			}
+
+			output[i]["latest_snapshot"] = strings.Join(strings.Split(string(progressFile), "\n"), ", ")
+
+			output[i]["status"] = "in progress"
+			output[i]["snapshot_count"] = fmt.Sprintf("%d", progressCount)
+
+			// check if reindexed.mig exists
+			_, err = os.Stat(path + "reindexed.mig")
+			if err == nil {
+				output[i]["status"] = "reindexed"
+				output[i]["message"] = "reindexing done"
+			} else {
+				continue
+			}
+
+			// load the reindexed.mig file and add it's value to the output
+			reindexedFile, err := os.ReadFile(path + "reindexed.mig")
+			if err != nil {
+				output[i]["status"] = "error"
+				output[i]["message"] = "failed to read reindexed.mig"
+				continue
+			}
+			output[i]["reindexed"] = strings.Join(strings.Split(string(reindexedFile), "\n"), ", ")
+
+			// check if merged.mig exists
+			_, err = os.Stat(path + "merged.mig")
+			if err != nil {
+				output[i]["message"] = "reindexing done, merging buckets"
+				continue
+			}
+
+			output[i]["status"] = "merged"
+			output[i]["message"] = "merged reindex and ingest buckets"
+
+			// load the merged.mig file and add it's value to the output
+			mergedFile, err := os.ReadFile(path + "merged.mig")
+			if err != nil {
+				output[i]["status"] = "error"
+				output[i]["message"] = "failed to read merged.mig"
+				continue
+			}
+			output[i]["merged"] = string(mergedFile)
+
+			// check if swapped.mig.* exists
+			swappedFiles, err := os.ReadDir(path)
+			if err != nil {
+				output[i]["status"] = "error"
+				output[i]["message"] = "failed to read shard directory"
+				continue
+			}
+			swappedCount := 0
+			for _, file := range swappedFiles {
+				if strings.HasPrefix(file.Name(), "swapped.mig.") {
+					swappedCount++
+				}
+			}
+
+			if swappedCount > 0 {
+				output[i]["status"] = "swapped"
+				output[i]["message"] = fmt.Sprintf("swapped %d files", swappedCount)
+			}
+
+			// check if swapped.mig exists
+			_, err = os.Stat(path + "swapped.mig")
+			if err != nil {
+				output[i]["message"] = "reindexing done, buckets not swapped yet"
+				continue
+			}
+
+			output[i]["status"] = "swapped"
+			output[i]["message"] = "swapped buckets"
+
+			// load the swapped.mig file and add it's value to the output
+			swappedFile, err := os.ReadFile(path + "swapped.mig")
+			if err != nil {
+				output[i]["status"] = "error"
+				output[i]["message"] = "failed to read swapped.mig"
+				continue
+			}
+			output[i]["swapped"] = string(swappedFile)
+			output[i]["message"] = "reindexing done"
+			output[i]["status"] = "done"
+
+		}
+
+		response := map[string]interface{}{
+			"shards":        output,
+			"BlockMax WAND": blockMaxStatus,
+		}
+
+		jsonBytes, err := json.Marshal(response)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(jsonBytes)
 	}))
 
 	// newLogLevel can be one of: panic, fatal, error, warn, info, debug, trace (defaults to info)
@@ -181,9 +636,9 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		colName, shardName := parts[0], parts[2]
-		vecIdxID := "main"
+		var targetVector string
 		if len(parts) == 4 {
-			vecIdxID = parts[3]
+			targetVector = parts[3]
 		}
 
 		idx := appState.DB.GetIndex(schema.ClassName(colName))
@@ -206,15 +661,8 @@ func setupDebugHandlers(appState *state.State) {
 		}
 		defer release()
 
-		// Get the vector index
-		var vidx db.VectorIndex
-		if vecIdxID == "main" {
-			vidx = shard.VectorIndex()
-		} else {
-			vidx = shard.VectorIndexes()[vecIdxID]
-		}
-
-		if vidx == nil {
+		vidx, ok := shard.GetVectorIndex(targetVector)
+		if !ok {
 			logger.WithField("shard", shardName).Error("vector index not found")
 			http.Error(w, "vector index not found", http.StatusNotFound)
 			return

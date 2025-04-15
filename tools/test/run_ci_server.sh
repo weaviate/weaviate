@@ -51,10 +51,20 @@ function echo_red() {
   echo -e "${red}${*}${nc}"
 }
 
-build "$@" docker-compose-test.yml weaviate
-build "$@" docker-compose-auth-test.yml weaviate-auth
-surpress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate contextionary
-surpress_on_success docker compose -f docker-compose-auth-test.yml up --force-recreate -d weaviate-auth
+START_WEAVIATE_AUTH=${1:-""}
+if [ $# -eq 1 ] && [ "$1" == "--with-auth" ]; then
+  START_WEAVIATE_AUTH="true"
+fi
 
-wait "$@" docker-compose-test.yml
-wait "$@" docker-compose-auth-test.yml
+build docker-compose-test.yml weaviate
+surpress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate contextionary
+
+if [ "$START_WEAVIATE_AUTH" == "true" ]; then
+  build docker-compose-auth-test.yml weaviate-auth
+  surpress_on_success docker compose -f docker-compose-auth-test.yml up --force-recreate -d weaviate-auth
+fi
+
+wait docker-compose-test.yml
+if [ "$START_WEAVIATE_AUTH" == "true" ]; then
+  wait docker-compose-auth-test.yml
+fi

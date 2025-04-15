@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -31,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -78,11 +78,11 @@ type RemoteIndexIncomingRepo interface {
 	IncomingGetShardStatus(ctx context.Context, shardName string) (string, error)
 	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error
 	IncomingOverwriteObjects(ctx context.Context, shard string,
-		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
+		vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	IncomingDigestObjects(ctx context.Context, shardName string,
-		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
-	IncomingDigestObjectsInTokenRange(ctx context.Context, shardName string,
-		initialToken, finalToken uint64, limit int) (result []replica.RepairResponse, lastTokenRead uint64, err error)
+		ids []strfmt.UUID) (result []types.RepairResponse, err error)
+	IncomingDigestObjectsInRange(ctx context.Context, shardName string,
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
 	IncomingHashTreeLevel(ctx context.Context, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 
@@ -91,6 +91,10 @@ type RemoteIndexIncomingRepo interface {
 		filePath string) (io.WriteCloser, error)
 	IncomingCreateShard(ctx context.Context, className string, shardName string) error
 	IncomingReinitShard(ctx context.Context, shardName string) error
+	// IncomingPauseAndListFiles See adapters/clients.RemoteIndex.PauseAndListFiles
+	IncomingPauseAndListFiles(ctx context.Context, shardName string) ([]string, error)
+	// IncomingGetFile See adapters/clients.RemoteIndex.GetFile
+	IncomingGetFile(ctx context.Context, shardName, relativeFilePath string) (io.ReadCloser, error)
 }
 
 type RemoteIndexIncoming struct {
@@ -310,9 +314,33 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 	return index.IncomingReinitShard(ctx, shardName)
 }
 
+// PauseAndListFiles see adapters/clients.RemoteIndex.PauseAndListFiles
+func (rii *RemoteIndexIncoming) PauseAndListFiles(ctx context.Context,
+	indexName, shardName string,
+) ([]string, error) {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return nil, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingPauseAndListFiles(ctx, shardName)
+}
+
+// GetFile see adapters/clients.RemoteIndex.GetFile
+func (rii *RemoteIndexIncoming) GetFile(ctx context.Context,
+	indexName, shardName, relativeFilePath string,
+) (io.ReadCloser, error) {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return nil, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingGetFile(ctx, shardName, relativeFilePath)
+}
+
 func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
 	indexName, shardName string, vobjects []*objects.VObject,
-) ([]replica.RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)
@@ -323,7 +351,7 @@ func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
 
 func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
-) ([]replica.RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local index %q not found", indexName))
@@ -347,15 +375,15 @@ func (rii *RemoteIndexIncoming) indexForIncomingWrite(ctx context.Context, index
 	return index, nil
 }
 
-func (rii *RemoteIndexIncoming) DigestObjectsInTokenRange(ctx context.Context,
-	indexName, shardName string, initialToken, finalToken uint64, limit int,
-) ([]replica.RepairResponse, uint64, error) {
+func (rii *RemoteIndexIncoming) DigestObjectsInRange(ctx context.Context,
+	indexName, shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
+) ([]types.RepairResponse, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
-		return nil, 0, fmt.Errorf("local index %q not found", indexName)
+		return nil, fmt.Errorf("local index %q not found", indexName)
 	}
 
-	return index.IncomingDigestObjectsInTokenRange(ctx, shardName, initialToken, finalToken, limit)
+	return index.IncomingDigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
 func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,

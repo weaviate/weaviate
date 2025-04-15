@@ -98,7 +98,7 @@ func TestObjects(t *testing.T) {
 		}
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -217,7 +217,7 @@ func TestDocIDs(t *testing.T) {
 		}
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter - 1))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -258,7 +258,7 @@ func TestDocIDs(t *testing.T) {
 					},
 				},
 			},
-			expectedMatches: len(charSet)*multiplier - 1,
+			expectedMatches: (len(charSet) - 1) * multiplier,
 		},
 	}
 
@@ -266,6 +266,7 @@ func TestDocIDs(t *testing.T) {
 		allow, err := searcher.DocIDs(context.Background(), &tc.filter, additional.Properties{}, className)
 		require.Nil(t, err)
 		assert.Equal(t, tc.expectedMatches, allow.Len())
+		allow.Close()
 	}
 }
 

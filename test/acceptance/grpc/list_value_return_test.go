@@ -165,7 +165,7 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 
 		numbers := nonRefProps.GetFields()["numbers"].GetListValue().GetNumberValues()
 		require.NotNil(t, numbers)
-		require.Equal(t, []float64{1.1, 2.2}, byteops.Float64FromByteVector(numbers.GetValues()))
+		require.Equal(t, []float64{1.1, 2.2}, byteops.Fp64SliceFromBytes(numbers.GetValues()))
 
 		uuids := nonRefProps.GetFields()["uuids"].GetListValue().GetUuidValues()
 		require.NotNil(t, uuids)

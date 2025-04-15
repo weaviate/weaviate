@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -286,7 +287,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				filter, err := Parse(test.input, "Todo")
-				assert.Equal(t, test.expectedErr, err)
+				assert.ErrorAs(t, err, &test.expectedErr)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
 		}

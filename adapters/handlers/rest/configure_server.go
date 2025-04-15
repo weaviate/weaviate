@@ -19,7 +19,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/utils"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -61,7 +63,7 @@ func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
 			appState.Modules,
 			appState.Authorizer,
 		)
-		if err != nil && err != utils.ErrEmptySchema {
+		if err != nil && !errors.Is(err, utils.ErrEmptySchema) {
 			appState.Logger.WithField("action", "graphql_rebuild").
 				WithError(err).Error("could not (re)build graphql provider")
 		}
@@ -94,10 +96,10 @@ func configureOIDC(appState *state.State) *oidc.Client {
 	return c
 }
 
-func configureAPIKey(appState *state.State) *apikey.Client {
-	c, err := apikey.New(appState.ServerConfig.Config)
+func configureAPIKey(appState *state.State) *apikey.ApiKey {
+	c, err := apikey.New(appState.ServerConfig.Config, appState.Logger)
 	if err != nil {
-		appState.Logger.WithField("action", "oidc_init").WithError(err).Fatal("oidc client could not start up")
+		appState.Logger.WithField("action", "api_keys_init").WithError(err).Fatal("apikey client could not start up")
 		os.Exit(1)
 	}
 
@@ -116,7 +118,7 @@ func configureAuthorizer(appState *state.State) error {
 		// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
 		rbacController, err := rbac.New(
 			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
-			appState.ServerConfig.Config.Authorization.Rbac,
+			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
 			appState.Logger)
 		if err != nil {
 			return fmt.Errorf("can't init casbin %w", err)

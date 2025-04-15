@@ -58,7 +58,8 @@ type SegmentFile struct {
 	// this is necessary, because in the case of
 	// compactions, we don't want to re-write the header
 	// when it is later re-written
-	writtenTo bool
+	writtenTo         bool
+	checksumsDisabled bool
 }
 
 type SegmentFileOption func(*SegmentFile)
@@ -81,10 +82,20 @@ func WithReader(reader io.Reader) SegmentFileOption {
 	}
 }
 
+// WithChecksumsDisabled configures the segment file
+// to be written without checksums
+func WithChecksumsDisabled(disable bool) SegmentFileOption {
+	return func(segmentFile *SegmentFile) {
+		segmentFile.checksumsDisabled = disable
+	}
+}
+
 // NewSegmentFile creates a new instance of SegmentFile.
 // Be sure to include a writer or reader option depending on your needs.
 func NewSegmentFile(opts ...SegmentFileOption) *SegmentFile {
-	s := &SegmentFile{}
+	s := &SegmentFile{
+		checksumsDisabled: true,
+	}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -103,6 +114,10 @@ func NewSegmentFile(opts ...SegmentFileOption) *SegmentFile {
 // This method uses the written data to further calculate the checksum.
 func (f *SegmentFile) BodyWriter() io.Writer {
 	f.writtenTo = true
+
+	if f.checksumsDisabled {
+		return f.writer
+	}
 	return f.checksumWriter
 }
 
@@ -113,6 +128,13 @@ func (f *SegmentFile) WriteHeader(header *Header) (int64, error) {
 	if f.writer == nil {
 		return 0, fmt.Errorf(" SegmentFile not initialized with a reader, " +
 			"try adding one with segmentindex.WithBufferedWriter(*bufio.Writer)")
+	}
+
+	if f.checksumsDisabled {
+		if f.writtenTo {
+			return 0, nil
+		}
+		return header.WriteTo(f.writer)
 	}
 
 	f.header = header
@@ -143,6 +165,10 @@ func (f *SegmentFile) WriteIndexes(indexes *Indexes) (int64, error) {
 			"try adding one with segmentindex.WithBufferedWriter(*bufio.Writer)")
 	}
 
+	if f.checksumsDisabled {
+		return indexes.WriteTo(f.writer)
+	}
+
 	n, err := indexes.WriteTo(f.checksumWriter)
 	if err != nil {
 		return n, fmt.Errorf("write segment file indexes: %w", err)
@@ -161,17 +187,22 @@ func (f *SegmentFile) WriteChecksum() (int64, error) {
 			"try adding one with segmentindex.WithBufferedWriter(*bufio.Writer)")
 	}
 
-	if err := f.addHeaderToChecksum(); err != nil {
-		return 0, err
+	var n int
+	var err error
+
+	if !f.checksumsDisabled {
+		if err = f.addHeaderToChecksum(); err != nil {
+			return 0, err
+		}
+
+		n, err = f.writer.Write(f.checksumWriter.Hash())
+		if err != nil {
+			return int64(n), fmt.Errorf("write segment file checksum: %w", err)
+		}
 	}
 
-	n, err := f.writer.Write(f.checksumWriter.Hash())
-	if err != nil {
-		return int64(n), fmt.Errorf("write segment file checksum: %w", err)
-	}
-
-	if err := f.writer.Flush(); err != nil {
-		return int64(n), fmt.Errorf("flush segmentfile: %w", err)
+	if err = f.writer.Flush(); err != nil {
+		return 0, fmt.Errorf("flush segmentfile: %w", err)
 	}
 
 	return int64(n), nil

@@ -42,10 +42,9 @@ func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument, class *m
 				case "debug":
 					out.Debug = field.Value.(*ast.BooleanValue).Value
 				default:
-					if p.isDynamicRAGSyntaxEnabled {
-						if value := p.extractGenerativeParameter(field); value != nil {
-							out.Options[field.Name.Value] = value
-						}
+					// Dynamic RAG syntax generative module specific parameters
+					if value := p.extractGenerativeParameter(field); value != nil {
+						out.Options[field.Name.Value] = value
 					}
 				}
 			}
@@ -68,10 +67,9 @@ func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument, class *m
 				case "debug":
 					out.Debug = field.Value.(*ast.BooleanValue).Value
 				default:
-					if p.isDynamicRAGSyntaxEnabled {
-						if value := p.extractGenerativeParameter(field); value != nil {
-							out.Options[field.Name.Value] = value
-						}
+					// Dynamic RAG syntax generative module specific parameters
+					if value := p.extractGenerativeParameter(field); value != nil {
+						out.Options[field.Name.Value] = value
 					}
 				}
 			}

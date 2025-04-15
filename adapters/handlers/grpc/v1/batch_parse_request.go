@@ -42,6 +42,14 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 	insertCounter := 0
 	for i, obj := range objectsBatch {
 		var props map[string]interface{}
+
+		obj.Collection = schema.UppercaseClassName(obj.Collection)
+		class, err := authorizedGetClass(obj.Collection, obj.Tenant)
+		if err != nil {
+			objectErrors[i] = err
+			continue
+		}
+
 		if obj.Properties != nil {
 			props = extractPrimitiveProperties(&pb.ObjectPropertiesValue{
 				NonRefProperties:       obj.Properties.NonRefProperties,
@@ -53,11 +61,6 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 				ObjectArrayProperties:  obj.Properties.ObjectArrayProperties,
 				EmptyListProps:         obj.Properties.EmptyListProps,
 			})
-			class, err := authorizedGetClass(obj.Collection, obj.Tenant)
-			if err != nil {
-				objectErrors[insertCounter] = err
-				continue
-			}
 			// If class is not in schema, continue as there is no ref to extract
 			if class != nil {
 				if err := extractSingleRefTarget(class, obj.Properties.SingleTargetRefProps, props); err != nil {
@@ -71,8 +74,7 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 			}
 		}
 
-		_, err := uuid.Parse(obj.Uuid)
-		if err != nil {
+		if _, err := uuid.Parse(obj.Uuid); err != nil {
 			objectErrors[i] = err
 			continue
 		}
@@ -80,24 +82,36 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 		var vector []float32 = nil
 		// bytes vector has precedent for being more efficient
 		if len(obj.VectorBytes) > 0 {
-			vector = byteops.Float32FromByteVector(obj.VectorBytes)
+			vector = byteops.Fp32SliceFromBytes(obj.VectorBytes)
 		} else if len(obj.Vector) > 0 {
 			vector = obj.Vector
 		}
 
 		var vectors models.Vectors = nil
 		if len(obj.Vectors) > 0 {
-			parsedVectors := make(map[string][][]float32)
+			parsedVectors := make(map[string][]float32)
+			parsedMultiVectors := make(map[string][][]float32)
 			for _, vec := range obj.Vectors {
-				parsedVectors[vec.Name] = append(parsedVectors[vec.Name], byteops.Float32FromByteVector(vec.VectorBytes))
-			}
-			vectors = make(models.Vectors)
-			for targetVector, vector := range parsedVectors {
-				if len(vector) == 1 {
-					vectors[targetVector] = vector[0]
-				} else {
-					vectors[targetVector] = vector
+				switch vec.Type {
+				case *pb.Vectors_VECTOR_TYPE_UNSPECIFIED.Enum(), *pb.Vectors_VECTOR_TYPE_SINGLE_FP32.Enum():
+					parsedVectors[vec.Name] = byteops.Fp32SliceFromBytes(vec.VectorBytes)
+				case *pb.Vectors_VECTOR_TYPE_MULTI_FP32.Enum():
+					out, err := byteops.Fp32SliceOfSlicesFromBytes(vec.VectorBytes)
+					if err != nil {
+						objectErrors[i] = err
+						continue
+					}
+					parsedMultiVectors[vec.Name] = out
+				default:
+					// do nothing
 				}
+			}
+			vectors = make(models.Vectors, len(parsedVectors)+len(parsedMultiVectors))
+			for targetVector, vector := range parsedVectors {
+				vectors[targetVector] = vector
+			}
+			for targetVector, multiVector := range parsedMultiVectors {
+				vectors[targetVector] = multiVector
 			}
 		}
 
@@ -146,6 +160,7 @@ func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_Mul
 			return fmt.Errorf("target is a single-target reference, need multi-target %v", prop.DataType)
 		}
 		beacons := make([]interface{}, len(refMulti.Uuids))
+		refMulti.TargetCollection = schema.UppercaseClassName(refMulti.TargetCollection)
 		for j, uid := range refMulti.Uuids {
 			beacons[j] = map[string]interface{}{"beacon": BEACON_START + refMulti.TargetCollection + "/" + uid}
 		}
@@ -172,7 +187,7 @@ func extractPrimitiveProperties(properties *pb.ObjectPropertiesValue) map[string
 		var values []float64
 
 		if len(inputValuesBytes) > 0 {
-			values = byteops.Float64FromByteVector(inputValuesBytes)
+			values = byteops.Fp64SliceFromBytes(inputValuesBytes)
 		} else {
 			values = properties.NumberArrayProperties[j].Values
 		}

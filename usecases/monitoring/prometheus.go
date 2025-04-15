@@ -19,7 +19,6 @@ import (
 )
 
 const (
-	// DefaultMetricsNamespace is used to group the weaviate metrics with common prefix.
 	DefaultMetricsNamespace = "weaviate"
 )
 
@@ -31,11 +30,14 @@ type Config struct {
 	MonitorCriticalBucketsOnly bool   `json:"monitor_critical_buckets_only" yaml:"monitor_critical_buckets_only"`
 
 	// Metrics namespace group the metrics with common prefix.
-	// currently used only on ServerMetrics.
 	MetricsNamespace string `json:"metrics_namespace" yaml:"metrics_namespace" long:"metrics_namespace" default:""`
 }
 
+// NOTE: Do not add any new metrics to this global `PrometheusMetrics` struct.
+// Instead add your metrics close the corresponding component.
 type PrometheusMetrics struct {
+	Registerer prometheus.Registerer
+
 	BatchTime                           *prometheus.HistogramVec
 	BatchSizeBytes                      *prometheus.SummaryVec
 	BatchSizeObjects                    prometheus.Summary
@@ -94,17 +96,15 @@ type PrometheusMetrics struct {
 	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
 	VectorDimensionsSum                *prometheus.GaugeVec
 	VectorSegmentsSum                  *prometheus.GaugeVec
-	VectorDimensionsSumByVector        *prometheus.GaugeVec
-	VectorSegmentsSumByVector          *prometheus.GaugeVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
-	ShardsLoaded    *prometheus.GaugeVec
-	ShardsUnloaded  *prometheus.GaugeVec
-	ShardsLoading   *prometheus.GaugeVec
-	ShardsUnloading *prometheus.GaugeVec
+	ShardsLoaded    prometheus.Gauge
+	ShardsUnloaded  prometheus.Gauge
+	ShardsLoading   prometheus.Gauge
+	ShardsUnloading prometheus.Gauge
 
 	// RAFT-based schema metrics
 	SchemaWrites         *prometheus.SummaryVec
@@ -136,7 +136,14 @@ type PrometheusMetrics struct {
 	T2VTokensInBatch      *prometheus.HistogramVec
 	T2VTokensInRequest    *prometheus.HistogramVec
 	T2VRateLimitStats     *prometheus.GaugeVec
+	T2VRepeatStats        *prometheus.GaugeVec
 	T2VRequestsPerBatch   *prometheus.HistogramVec
+
+	TokenizerDuration           *prometheus.HistogramVec
+	TokenizerRequests           *prometheus.CounterVec
+	TokenizerInitializeDuration *prometheus.HistogramVec
+	TokenCount                  *prometheus.CounterVec
+	TokenCountPerRequest        *prometheus.HistogramVec
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
@@ -167,48 +174,81 @@ type TenantOffloadMetrics struct {
 	OpsDuration      *prometheus.HistogramVec
 }
 
-func NewServerMetrics(namespace string, reg prometheus.Registerer) *ServerMetrics {
+// NewHTPServerMetrics return the ServerMetrics that can be used in any of the grpc or http servers.
+func NewHTTPServerMetrics(namespace string, reg prometheus.Registerer) *HTTPServerMetrics {
 	r := promauto.With(reg)
 
-	return &ServerMetrics{
-		TCPActiveConnections: r.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "tcp_active_connections",
-			Help:      "Current number of accepted TCP connections.",
-		}, []string{"protocol"}),
+	return &HTTPServerMetrics{
 		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Name:      "request_duration_seconds",
-			Help:      "Time (in seconds) spent serving HTTP requests.",
+			Name:      "http_request_duration_seconds",
+			Help:      "Time (in seconds) spent serving requests.",
 			Buckets:   LatencyBuckets,
 		}, []string{"method", "route", "status_code"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Name:      "request_message_bytes",
-			Help:      "Size (in bytes) of messages received in the request.",
+			Name:      "http_request_size_bytes",
+			Help:      "Size (in bytes) of the request received.",
 			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Name:      "response_message_bytes",
-			Help:      "Size (in bytes) of messages sent in response.",
+			Name:      "http_response_size_bytes",
+			Help:      "Size (in bytes) of the response sent.",
 			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "inflight_requests",
+			Name:      "http_requests_inflight",
 			Help:      "Current number of inflight requests.",
 		}, []string{"method", "route"}),
 	}
 }
 
-// ServerMetrics exposes set of prometheus metrics for http and grpc servers.
-type ServerMetrics struct {
+// HTTPServerMetrics exposes set of prometheus metrics for http servers.
+type HTTPServerMetrics struct {
 	TCPActiveConnections *prometheus.GaugeVec
 	RequestDuration      *prometheus.HistogramVec
 	RequestBodySize      *prometheus.HistogramVec
 	ResponseBodySize     *prometheus.HistogramVec
 	InflightRequests     *prometheus.GaugeVec
+}
+
+// GRPCServerMetrics exposes set of prometheus metrics for grpc servers.
+type GRPCServerMetrics struct {
+	RequestDuration  *prometheus.HistogramVec
+	RequestBodySize  *prometheus.HistogramVec
+	ResponseBodySize *prometheus.HistogramVec
+	InflightRequests *prometheus.GaugeVec
+}
+
+func NewGRPCServerMetrics(namespace string, reg prometheus.Registerer) *GRPCServerMetrics {
+	r := promauto.With(reg)
+	return &GRPCServerMetrics{
+		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "grpc_server_request_duration_seconds",
+			Help:      "Time (in seconds) spent serving requests.",
+			Buckets:   LatencyBuckets,
+		}, []string{"grpc_service", "method", "status"}),
+		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "grpc_server_request_size_bytes",
+			Help:      "Size (in bytes) of the request received.",
+			Buckets:   sizeBuckets,
+		}, []string{"grpc_service", "method"}),
+		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "grpc_server_response_size_bytes",
+			Help:      "Size (in bytes) of the response sent.",
+			Buckets:   sizeBuckets,
+		}, []string{"grpc_service", "method"}),
+		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "grpc_server_requests_inflight",
+			Help:      "Current number of inflight requests.",
+		}, []string{"grpc_service", "method"}),
+	}
 }
 
 // Delete Shard deletes existing label combinations that match both
@@ -519,14 +559,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_segments_sum",
 			Help: "Total segments in a shard if quantization enabled",
 		}, []string{"class_name", "shard_name"}),
-		VectorDimensionsSumByVector: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "vector_dimensions_sum_by_vector",
-			Help: "Total dimensions in a shard for target vector",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		VectorSegmentsSumByVector: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "vector_segments_sum_by_vector",
-			Help: "Total segments in a shard for target vector if quantization enabled",
-		}, []string{"class_name", "shard_name", "target_vector"}),
 
 		// Startup metrics
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
@@ -585,22 +617,22 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}, []string{"backend_name", "class_name"}),
 
 		// Shard metrics
-		ShardsLoaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_loaded",
 			Help: "Number of shards loaded",
-		}, []string{"class_name"}),
-		ShardsUnloaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		}),
+		ShardsUnloaded: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_unloaded",
 			Help: "Number of shards on not loaded",
-		}, []string{"class_name"}),
-		ShardsLoading: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		}),
+		ShardsLoading: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_loading",
 			Help: "Number of shards in process of loading",
-		}, []string{"class_name"}),
-		ShardsUnloading: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		}),
+		ShardsUnloading: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "shards_unloading",
 			Help: "Number of shards in process of unloading",
-		}, []string{"class_name"}),
+		}),
 
 		// Schema TX-metrics. Can be removed when RAFT is ready
 		SchemaTxOpened: promauto.NewCounterVec(prometheus.CounterOpts{
@@ -679,11 +711,38 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "t2v_rate_limit_stats",
 			Help: "Rate limit stats for the vectorizer",
 		}, []string{"vectorizer", "stat"}),
+		T2VRepeatStats: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "t2v_repeat_stats",
+			Help: "Why batch scheduling is repeated",
+		}, []string{"vectorizer", "stat"}),
 		T2VRequestsPerBatch: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "t2v_requests_per_batch",
 			Help:    "Number of requests required to process an entire (user) batch",
 			Buckets: []float64{1, 2, 5, 10, 100, 1000},
 		}, []string{"vectorizer"}),
+		TokenizerDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "tokenizer_duration_seconds",
+			Help:    "Duration of a tokenizer operation",
+			Buckets: LatencyBuckets,
+		}, []string{"tokenizer"}),
+		TokenizerRequests: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tokenizer_requests_total",
+			Help: "Number of tokenizer requests",
+		}, []string{"tokenizer"}),
+		TokenizerInitializeDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "tokenizer_initialize_duration_seconds",
+			Help:    "Duration of a tokenizer initialization operation",
+			Buckets: []float64{0.05, 0.1, 0.5, 1, 2, 5, 10},
+		}, []string{"tokenizer"}),
+		TokenCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "token_count_total",
+			Help: "Number of tokens processed",
+		}, []string{"tokenizer"}),
+		TokenCountPerRequest: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "token_count_per_request",
+			Help:    "Number of tokens processed per request",
+			Buckets: []float64{1, 10, 50, 100, 500, 1000, 10000, 100000, 1000000},
+		}, []string{"tokenizer"}),
 	}
 }
 

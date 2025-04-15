@@ -18,12 +18,12 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/google/uuid"
-
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -176,12 +176,11 @@ func Test_Kinds_Authorization(t *testing.T) {
 			}
 			t.Run(test.methodName, func(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
-				locks := &fakeLocks{}
 				cfg := &config.WeaviateConfig{}
 				authorizer := mocks.NewMockAuthorizer()
 				authorizer.SetErr(errors.New("just a test fake"))
 				vectorRepo := &fakeVectorRepo{}
-				manager := NewManager(locks, schemaManager,
+				manager := NewManager(schemaManager,
 					cfg, logger, authorizer,
 					vectorRepo, getFakeModulesProvider(), nil, nil)
 
@@ -190,7 +189,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 
 				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 				aerr := out[len(out)-1].Interface().(error)
-				if err, ok := aerr.(*Error); !ok || !err.Forbidden() {
+				var customErr *Error
+				if !errors.As(aerr, &customErr) || !customErr.Forbidden() {
 					assert.Equal(t, errors.New("just a test fake"), aerr,
 						"execution must abort with authorizer error")
 				}
@@ -220,8 +220,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				[]*string{},
 				&additional.ReplicationProperties{},
 			},
-			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("", ""),
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.ShardsData("", ""),
 		},
 		{
 			methodName: "AddReferences",
@@ -264,13 +264,12 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			schemaManager := &fakeSchemaManager{}
-			locks := &fakeLocks{}
 			cfg := &config.WeaviateConfig{}
 			authorizer := mocks.NewMockAuthorizer()
 			authorizer.SetErr(errors.New("just a test fake"))
 			vectorRepo := &fakeVectorRepo{}
 			modulesProvider := getFakeModulesProvider()
-			manager := NewBatchManager(vectorRepo, modulesProvider, locks, schemaManager, cfg, logger, authorizer, nil)
+			manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

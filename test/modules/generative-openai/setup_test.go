@@ -45,7 +45,7 @@ func createSingleNodeEnvironment(ctx context.Context, apiKey, organization strin
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(apiKey, organization).
 		WithWeaviateWithGRPC().
-		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
+		WithWeaviateEnv("MODULES_CLIENT_TIMEOUT", "120s").
 		Start(ctx)
 	return
 }

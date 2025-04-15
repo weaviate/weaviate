@@ -38,15 +38,20 @@ type GenerateResponse struct {
 	Debug  *GenerateDebugInformation
 }
 
+// GenerateProperties defines the properties to be supplied as part of the generative request.
+// They must be differentiated at this point due to the different ways third-parties handle them.
+type GenerateProperties struct {
+	Text map[string]string
+	Blob map[string]*string
+}
+
 // GenerativeClient defines generative client
 type GenerativeClient interface {
 	GenerateSingleResult(ctx context.Context,
-		textProperties map[string]string, prompt string, requestParams interface{}, debug bool, cfg moduletools.ClassConfig,
+		properties *GenerateProperties, prompt string, requestParams interface{}, debug bool, cfg moduletools.ClassConfig,
 	) (*GenerateResponse, error)
 	GenerateAllResults(ctx context.Context,
-		textProperties []map[string]string, task string, requestParams interface{}, debug bool, cfg moduletools.ClassConfig,
-	) (*GenerateResponse, error)
-	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, requestParams interface{}, debug bool,
+		properties []*GenerateProperties, task string, requestParams interface{}, debug bool, cfg moduletools.ClassConfig,
 	) (*GenerateResponse, error)
 }
 

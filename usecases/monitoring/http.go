@@ -17,9 +17,16 @@ import (
 	"strconv"
 
 	"github.com/felixge/httpsnoop"
-	"github.com/go-openapi/runtime/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+// StaticRouteLabel takes any http request and return canonical and static route label
+// that can used in metrics without worrying about unbounded cardinality.
+
+// Examples:
+// `/schema/Movies/properties` -> `/schema/{className}`
+// `/replicas/indices/Movies/shards/hello0/objects` -> `/replicas/indices`
+type StaticRouteLabel func(r *http.Request) (*http.Request, string)
 
 type InstrumentHandler struct {
 	inflightRequests *prometheus.GaugeVec
@@ -32,15 +39,12 @@ type InstrumentHandler struct {
 	// next is original http handler we instrument
 	next http.Handler
 
-	// context is from openapi spec. Used for routing information.
-	// for e.g: to turn dynamic routing `/api/v1/schema/Question/tenant1` to static route `/api/v1/schema/{class}/{tenant}`
-	// This is useful to create bounded cardinality value for "route" label.
-	context *middleware.Context
+	routeLabel StaticRouteLabel
 }
 
 func InstrumentHTTP(
 	next http.Handler,
-	context *middleware.Context,
+	routeLabel StaticRouteLabel,
 	inflight *prometheus.GaugeVec,
 	duration *prometheus.HistogramVec,
 	requestSize *prometheus.HistogramVec,
@@ -48,7 +52,7 @@ func InstrumentHTTP(
 ) *InstrumentHandler {
 	return &InstrumentHandler{
 		next:             next,
-		context:          context,
+		routeLabel:       routeLabel,
 		inflightRequests: inflight,
 		duration:         duration,
 		requestSize:      requestSize,
@@ -57,15 +61,7 @@ func InstrumentHTTP(
 }
 
 func (i *InstrumentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	route := r.URL.String()
-	matchedRoute, rr, ok := i.context.RouteInfo(r)
-	if ok {
-		// convert dynamic route to static route.
-		// `/api/v1/schema/Question/tenant1` -> `/api/v1/schema/{class}/{tenant}`
-		route = matchedRoute.PathPattern
-		r = rr
-	}
-
+	r, route := i.routeLabel(r)
 	method := r.Method
 
 	inflight := i.inflightRequests.WithLabelValues(method, route)

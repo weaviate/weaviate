@@ -17,13 +17,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/test/docker"
-
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -80,7 +80,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	readSchemaRole := &models.Role{
 		Name: &readSchemaAndCreateDataRoleName,
 		Permissions: []*models.Permission{
-			{Action: &authorization.ReadTenants, Tenants: &models.PermissionTenants{Collection: &all}},
+			{Action: &authorization.ReadCollections, Collections: &models.PermissionCollections{Collection: &all}},
 			{Action: &createDataAction, Data: &models.PermissionData{Collection: &all}},
 		},
 	}
@@ -95,7 +95,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	createSchemaRole := &models.Role{
 		Name: &createSchemaRoleName,
 		Permissions: []*models.Permission{
-			{Action: &authorization.CreateTenants, Tenants: &models.PermissionTenants{Collection: &classNameNew}},
+			{Action: &authorization.CreateCollections, Collections: &models.PermissionCollections{Collection: &classNameNew}},
 		},
 	}
 
@@ -110,11 +110,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	defer helper.DeleteRole(t, adminKey, *createSchemaRole.Name)
 
 	// all tests need read schema
-	_, err = helper.Client(t).Authz.AssignRole(
-		authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{readSchemaAndCreateDataRoleName}}),
-		adminAuth,
-	)
-	require.NoError(t, err)
+	helper.AssignRoleToUser(t, adminKey, readSchemaAndCreateDataRoleName, customUser)
 
 	t.Run("Only read rights for schema", func(t *testing.T) {
 		// object which does NOT introduce a new prop => no failure
@@ -140,8 +136,8 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	})
 
 	t.Run("read and update rights for schema", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.AssignRole(
-			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{updateSchemaRoleName}}),
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{updateSchemaRoleName}}),
 			adminAuth,
 		)
 		require.NoError(t, err)
@@ -178,8 +174,8 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	})
 
 	t.Run("create rights for schema", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.AssignRole(
-			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{updateSchemaRoleName, createSchemaRoleName}}),
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(authz.AssignRoleToUserBody{Roles: []string{updateSchemaRoleName, createSchemaRoleName}}),
 			adminAuth,
 		)
 		require.NoError(t, err)

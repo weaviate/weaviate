@@ -129,6 +129,8 @@ func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	defer h.resetLock.Unlock()
 	h.Lock()
 	defer h.Unlock()
+	h.tombstoneLock.Lock()
+	defer h.tombstoneLock.Unlock()
 
 	empty = func() bool {
 		h.shardedNodeLocks.RLock(h.entryPointID)
@@ -153,6 +155,8 @@ func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (only
 	defer h.resetLock.Unlock()
 	h.Lock()
 	defer h.Unlock()
+	h.tombstoneLock.Lock()
+	defer h.tombstoneLock.Unlock()
 
 	onlyNode = func() bool {
 		h.shardedNodeLocks.RLockAll()
@@ -182,6 +186,7 @@ func (h *hnsw) resetUnlocked() error {
 	h.currentMaximumLayer = 0
 	h.initialInsertOnce = &sync.Once{}
 	h.nodes = make([]*vertex, cache.InitialSize)
+	h.tombstones = make(map[uint64]struct{})
 
 	return h.commitLog.Reset()
 }
@@ -465,7 +470,7 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 						return nil
 					}
 					h.shardedNodeLocks.RLock(deletedID)
-					if uint64(size) < deletedID || h.nodes[deletedID] == nil {
+					if deletedID >= uint64(size) || deletedID >= uint64(len(h.nodes)) || h.nodes[deletedID] == nil {
 						h.shardedNodeLocks.RUnlock(deletedID)
 						continue
 					}
@@ -540,6 +545,11 @@ func (h *hnsw) reassignNeighbor(
 
 	h.RLock()
 	h.shardedNodeLocks.RLock(neighbor)
+	if neighbor >= uint64(len(h.nodes)) {
+		h.shardedNodeLocks.RUnlock(neighbor)
+		h.RUnlock()
+		return true, nil
+	}
 	neighborNode := h.nodes[neighbor]
 	h.shardedNodeLocks.RUnlock(neighbor)
 	currentMaximumLayer := h.currentMaximumLayer
@@ -789,6 +799,19 @@ func (h *hnsw) hasTombstone(id uint64) bool {
 	defer h.tombstoneLock.RUnlock()
 	_, ok := h.tombstones[id]
 	return ok
+}
+
+// hasTombstones checks whether at least one node of the provided ids has a tombstone attached.
+func (h *hnsw) hasTombstones(ids []uint64) bool {
+	h.tombstoneLock.RLock()
+	defer h.tombstoneLock.RUnlock()
+
+	var has bool
+	for _, id := range ids {
+		_, ok := h.tombstones[id]
+		has = has || ok
+	}
+	return has
 }
 
 func (h *hnsw) addTombstone(ids ...uint64) error {

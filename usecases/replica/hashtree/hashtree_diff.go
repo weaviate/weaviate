@@ -60,7 +60,7 @@ func (ht *HashTree) DiffUsing(ht2 AggregatedHashTree, discriminant *Bitset, dige
 
 	discriminant.Reset().Set(0) // init comparison at root level
 
-	for l := 0; l < ht.Height(); l++ {
+	for l := 0; l <= ht.Height(); l++ {
 		_, err := ht.Level(l, discriminant, digests1)
 		if err != nil {
 			return err

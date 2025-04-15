@@ -122,16 +122,13 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) ObjectsIterator(shard ShardLik
 		return nil
 	}
 
-	propStrings := make([]string, 0, len(props))
-	propStringsList := make([][]string, 0, len(props))
+	propertyPaths := make([][]string, 0, len(props))
 	for prop := range props {
-		propStrings = append(propStrings, prop)
-		propStringsList = append(propStringsList, []string{prop})
+		propertyPaths = append(propertyPaths, []string{prop})
 	}
 
 	propsExtraction := &storobj.PropertyExtraction{
-		PropStrings:     propStrings,
-		PropStringsList: propStringsList,
+		PropertyPaths: propertyPaths,
 	}
 
 	objectsBucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
@@ -143,7 +140,7 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) ObjectsIterator(shard ShardLik
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 			obj, err := storobj.FromBinaryOptional(v, additional.Properties{}, propsExtraction)
 			if err != nil {
-				return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
+				return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 			}
 			if err := fn(obj); err != nil {
 				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
