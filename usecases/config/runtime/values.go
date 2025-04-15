@@ -12,16 +12,12 @@
 package runtime
 
 import (
-	"errors"
+	"fmt"
+	"strconv"
 	"sync/atomic"
 	"time"
-)
 
-const (
-	// These are currently supported runtime configs
-	MaximumAllowedCollectionCount = "maximum_allowed_collections_count"
-	AutoschemaEnabled             = "autoschema_enabled"
-	AsyncReplicationDisabled      = "async_replication_disabled"
+	"gopkg.in/yaml.v3"
 )
 
 // Type represents different types that is supported in runtime configs
@@ -43,7 +39,6 @@ func NewDynamicValue[T DynamicType](val T) *DynamicValue[T] {
 	dv := &DynamicValue[T]{
 		def: val,
 	}
-	dv.val.Store(val)
 	return dv
 }
 
@@ -59,17 +54,8 @@ func (vv *DynamicValue[T]) Get() T {
 }
 
 // Set is used by the config manager to update the dynamic value.
-
-// NOTE: Set accepts `any` so that config manager can use this API to maintain the `map` of
-// registered dynamic configs. Go needs concrete type in map, we cannot use
-// generic types like DynamicType or DynamicValue there. Hence `any`( ¯\_(ツ)_/¯)
-func (vv *DynamicValue[T]) SetValue(val any) error {
-	v, ok := val.(T)
-	if !ok {
-		return errors.New("mismatched type")
-	}
-
-	vv.val.Store(v)
+func (vv *DynamicValue[T]) SetValue(val T) error {
+	vv.val.Store(val)
 	return nil
 
 	// NOTE: doesn't need to set any default value here
@@ -79,4 +65,37 @@ func (vv *DynamicValue[T]) SetValue(val any) error {
 // SetDefault updates the `default` value for DynamicValue.
 func (vv *DynamicValue[T]) SetDefault(val T) {
 	vv.def = val
+}
+
+func (vv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
+	var zero T
+	switch any(zero).(type) {
+	case int:
+		i, err := strconv.Atoi(node.Value)
+		if err != nil {
+			return fmt.Errorf("invalid int: %w", err)
+		}
+		vv.val.Store(i)
+	case float64:
+		f, err := strconv.ParseFloat(node.Value, 64)
+		if err != nil {
+			return fmt.Errorf("invalid float: %w", err)
+		}
+		vv.val.Store(f)
+	case bool:
+		b, err := strconv.ParseBool(node.Value)
+		if err != nil {
+			return fmt.Errorf("invalid bool: %w", err)
+		}
+		vv.val.Store(b)
+	case time.Duration: // to parse time.Duration (e.g: 2m, 20s, etc)
+		d, err := time.ParseDuration(node.Value)
+		if err != nil {
+			return fmt.Errorf("invalid duration: %w", err)
+		}
+		vv.val.Store(d)
+	default:
+		return fmt.Errorf("unsupported type in runtime config: %T", zero)
+	}
+	return nil
 }
