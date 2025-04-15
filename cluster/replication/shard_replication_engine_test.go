@@ -784,9 +784,13 @@ func TestShardReplicationEngine(t *testing.T) {
 		mockTimer := &replicationMocks.TimeProvider{}
 		mockTimer.On("Now").Return(time.Now())
 
+		var producerWg sync.WaitGroup
+		producerWg.Add(1)
+
 		mockProducer := &replicationMocks.OpProducer{}
 		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
 			func(args mock.Arguments) {
+				defer producerWg.Done()
 				ctx := args.Get(0).(context.Context)
 				opsChan := args.Get(1).(chan<- replication.ShardReplicationOp)
 
@@ -865,6 +869,9 @@ func TestShardReplicationEngine(t *testing.T) {
 		case <-time.After(1 * time.Minute): // this is here just to prevent the test from running indefinitely for too long
 			t.Fatal("timeout waiting for operations to complete")
 		}
+
+		engine.Stop()
+		producerWg.Wait()
 
 		close(producedOpsChan)
 		close(consumedOpsChan)
