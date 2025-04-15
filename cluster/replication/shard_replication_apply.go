@@ -84,7 +84,7 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 
 	ops, ok := s.opsByNode[op.sourceShard.nodeId]
 	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op in ops by nodeId, this should not happen"))
+		err = multierror.Append(err, fmt.Errorf("could not find op in ops by node, this should not happen"))
 	}
 	opsReplace, ok := findAndDeleteOp(op.ID, ops)
 	if ok {

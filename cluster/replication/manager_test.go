@@ -91,7 +91,7 @@ func TestManager_Replicate(t *testing.T) {
 			expectedError: replication.ErrShardNotFound,
 		},
 		{
-			name: "source nodeId not found",
+			name: "source node not found",
 			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
 				return s.AddClass(
 					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
@@ -110,7 +110,7 @@ func TestManager_Replicate(t *testing.T) {
 			expectedError: replication.ErrNodeNotFound,
 		},
 		{
-			name: "target nodeId already has shard",
+			name: "target node already has shard",
 			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
 				return s.AddClass(
 					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
