@@ -24,12 +24,12 @@ func Test_FixedIntervalTicker(t *testing.T) {
 		interval := 10 * time.Millisecond
 		ticker := NewFixedTicker(10 * time.Millisecond)
 
-		assert.Len(t, ticker.C(), 0)
+		assertNoTick(t, ticker.C())
 
 		ticker.Start()
 		time.Sleep(2 * interval)
 
-		assert.Len(t, ticker.C(), 1)
+		assertTick(t, ticker.C())
 	})
 
 	t.Run("interval is fixed", func(t *testing.T) {
@@ -195,12 +195,12 @@ func Test_SeriesTicker(t *testing.T) {
 		intervals := []time.Duration{10 * time.Millisecond, 20 * time.Millisecond}
 		ticker := NewSeriesTicker(intervals)
 
-		assert.Len(t, ticker.C(), 0)
+		assertNoTick(t, ticker.C())
 
 		ticker.Start()
 		time.Sleep(2 * intervals[0])
 
-		assert.Len(t, ticker.C(), 1)
+		assertTick(t, ticker.C())
 	})
 
 	t.Run("interval is fixed between CycleExecuted calls, advances on false, resets on true", func(t *testing.T) {
@@ -373,12 +373,12 @@ func Test_LinearTicker(t *testing.T) {
 		steps := uint(2)
 		ticker := NewLinearTicker(minInterval, maxInterval, steps)
 
-		assert.Len(t, ticker.C(), 0)
+		assertNoTick(t, ticker.C())
 
 		ticker.Start()
 		time.Sleep(2 * minInterval)
 
-		assert.Len(t, ticker.C(), 1)
+		assertTick(t, ticker.C())
 	})
 
 	t.Run("interval is fixed between CycleExecuted calls, advances on false, resets on true", func(t *testing.T) {
@@ -574,12 +574,12 @@ func Test_ExpTicker(t *testing.T) {
 		steps := uint(2)
 		ticker := NewExpTicker(minInterval, maxInterval, base, steps)
 
-		assert.Len(t, ticker.C(), 0)
+		assertNoTick(t, ticker.C())
 
 		ticker.Start()
 		time.Sleep(2 * minInterval)
 
-		assert.Len(t, ticker.C(), 1)
+		assertTick(t, ticker.C())
 	})
 
 	t.Run("interval is fixed between CycleExecuted calls, advances on false, resets on true", func(t *testing.T) {
@@ -937,4 +937,20 @@ func assertTimeDiffEquals(t *testing.T, time1, time2 time.Time, expected time.Du
 	diff := time2.Sub(time1)
 	assert.GreaterOrEqual(t, diff, expected-tolerance)
 	assert.LessOrEqual(t, diff, expected+tolerance)
+}
+
+func assertTick(t *testing.T, tickCh <-chan time.Time) {
+	select {
+	case <-tickCh:
+	default:
+		assert.Fail(t, "should have tick")
+	}
+}
+
+func assertNoTick(t *testing.T, tickCh <-chan time.Time) {
+	select {
+	case <-tickCh:
+		assert.Fail(t, "should not have tick")
+	default:
+	}
 }
