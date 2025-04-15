@@ -645,15 +645,16 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					}()
 
 					opLogger := c.logger.WithFields(logrus.Fields{
-						"consumer":    c,
-						"op":          operation.ID,
-						"sourceShard": operation.sourceShard,
-						"targetShard": operation.targetShard,
-						"sourceNode":  operation.sourceShard.nodeId,
-						"targetNode":  operation.targetShard.nodeId,
+						"op":                operation.ID,
+						"source_node":       operation.sourceShard.nodeId,
+						"target_node":       operation.targetShard.nodeId,
+						"source_shard":      operation.sourceShard.shardId,
+						"target_shard":      operation.targetShard.shardId,
+						"source_collection": operation.sourceShard.collectionId,
+						"target_collection": operation.targetShard.collectionId,
 					})
 
-					opLogger.WithField("consumer", c).Info("worker processing replication operation")
+					opLogger.Info("worker processing replication operation")
 
 					// Start a replication operation with a timeout for completion to prevent replication operations
 					// from running indefinitely
@@ -694,12 +695,13 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 // Errors are logged and wrapped using the structured error group wrapper.
 func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint64, op ShardReplicationOp) error {
 	logger := c.logger.WithFields(logrus.Fields{
-		"consumer":    c,
-		"op":          op.ID,
-		"sourceShard": op.sourceShard.shardId,
-		"targetSHard": op.targetShard.shardId,
-		"sourceNode":  op.sourceShard.nodeId,
-		"targetNode":  op.targetShard.nodeId,
+		"op":                op.ID,
+		"source_node":       op.sourceShard.nodeId,
+		"target_node":       op.targetShard.nodeId,
+		"source_shard":      op.sourceShard.shardId,
+		"target_shard":      op.targetShard.shardId,
+		"source_collection": op.sourceShard.collectionId,
+		"target_collection": op.targetShard.collectionId,
 	})
 
 	startTime := c.timeProvider.Now()
@@ -712,27 +714,20 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 			}
 
 			if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.ID, api.HYDRATING); err != nil {
-				logger.WithError(err).WithField("consumer", c).Error("replication consumer failed to update replica status to 'HYDRATING'")
+				logger.WithError(err).Error("failed to update replica status to 'HYDRATING'")
 				return err
 			}
 
-			logger.WithField("consumer", c).Info("replication consumer starting replication copy operation")
+			logger.Info("starting replication copy operation")
 
 			if err := c.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
-				logger.WithFields(logrus.Fields{
-					"consumer":    c,
-					"op":          op,
-					"sourceShard": op.sourceShard.shardId,
-					"targetSHard": op.targetShard.shardId,
-					"sourceNode":  op.sourceShard.nodeId,
-					"targetNode":  op.targetShard.nodeId,
-				}).WithError(err).Error("replication consumer failure while copying replica shard")
+				logger.WithError(err).Error("failure while copying replica shard")
 
 				return err
 			}
 
 			if _, err := c.leaderClient.AddReplicaToShard(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.targetShard.nodeId); err != nil {
-				logger.WithError(err).WithField("consumer", c).Error("replication consumer failure while updating sharding state")
+				logger.WithError(err).Error("failure while updating sharding state")
 				return err
 			}
 
@@ -747,19 +742,18 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 
 func (c *CopyOpConsumer) logCompletedReplicationOp(workerId uint64, startTime time.Time, endTime time.Time, op ShardReplicationOp) {
 	duration := endTime.Sub(startTime)
-	hours := int(duration.Hours())
-	minutes := int(duration.Minutes()) % 60
 
 	c.logger.WithFields(logrus.Fields{
-		"worker":           workerId,
-		"op":               op.ID,
-		"duration":         fmt.Sprintf("%02d hours %02d minutes", hours, minutes),
-		"startTime":        startTime.Format(time.RFC1123),
-		"sourceNode":       op.sourceShard.nodeId,
-		"targetNode":       op.targetShard.nodeId,
-		"sourceShard":      op.sourceShard.shardId,
-		"targetShard":      op.targetShard.shardId,
-		"sourceCollection": op.sourceShard.collectionId,
-		"targetCollection": op.targetShard.collectionId,
-	}).Infof("Replication operation completed successfully")
+		"worker":            workerId,
+		"op":                op.ID,
+		"duration":          duration.String(),
+		"start_time":        startTime.Format(time.RFC1123),
+		"completed_since":   c.timeProvider.Now().Sub(endTime),
+		"source_node":       op.sourceShard.nodeId,
+		"target_node":       op.targetShard.nodeId,
+		"source_shard":      op.sourceShard.shardId,
+		"target_shard":      op.targetShard.shardId,
+		"source_collection": op.sourceShard.collectionId,
+		"target_collection": op.targetShard.collectionId,
+	}).Info("Replication operation completed successfully")
 }
