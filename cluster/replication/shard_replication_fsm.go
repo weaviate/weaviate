@@ -44,7 +44,7 @@ func NewShardReplicationOp(id uint64, sourceNode, targetNode, collectionId, shar
 type ShardReplicationFSM struct {
 	opsLock sync.RWMutex
 
-	// opsByNode stores the array of ShardReplicationOp for each "target" nodeId
+	// opsByNode stores the array of ShardReplicationOp for each "target" node
 	opsByNode map[string][]ShardReplicationOp
 	// opsByCollection stores the array of ShardReplicationOp for each collection
 	opsByCollection map[string][]ShardReplicationOp

@@ -137,7 +137,7 @@ func TestManager_Replicate(t *testing.T) {
 			reg := prometheus.NewPedanticRegistry()
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			schemaManager := schema.NewSchemaManager("test-nodeId", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
 			// TODO mock copier
 			manager := replication.NewManager(logrus.New(), schemaReader, nil, reg)
