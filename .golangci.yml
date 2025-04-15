@@ -277,6 +277,10 @@ linters:
         text: QF1001 # could apply De Morgan's law
       - linters:
           - staticcheck
+        path: usecases/modulecomponents/text2vecbase/batch_vectorizer_test.go
+        text: QF1001 # could apply De Morgan's law
+      - linters:
+          - staticcheck
         path: adapters/handlers/grpc/v1/models.go
         text: QF1008 # could remove embedded field <name> from selector
       - linters:
