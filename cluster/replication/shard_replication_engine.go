@@ -533,10 +533,6 @@ type CopyOpConsumer struct {
 	// It ensures that duplicate operations are not processed concurrently or more than once.
 	opTracker *OpTracker
 
-	// activeOpsCount keeps track of the number of ongoing replication operations.
-	// It is used to monitor and control concurrency.
-	activeOpsCount atomic.Int64
-
 	// timeProvider abstracts time operations, allowing for easier testing and mocking of time-related functions.
 	timeProvider TimeProvider
 
@@ -636,15 +632,12 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 				c.opTracker.AddOp(op.ID)
 
-				// We have acquired a token that allows a worker to run and synchronize execution with the replication engine
-				c.activeOpsCount.Add(1)
 				wg.Add(1)
 
 				go func(op ShardReplicationOp) {
 					defer func() {
 						<-c.tokens // Release token when completed
 						wg.Done()
-						c.activeOpsCount.Add(-1)
 					}()
 
 					opLogger := c.logger.WithFields(logrus.Fields{
@@ -681,11 +674,6 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			}
 		}
 	}
-}
-
-// GetActiveOpsCount returns the number of ongoing replication operations.
-func (c *CopyOpConsumer) GetActiveOpsCount() int64 {
-	return c.activeOpsCount.Load()
 }
 
 // processReplicationOp performs the full replication flow for a single operation.
