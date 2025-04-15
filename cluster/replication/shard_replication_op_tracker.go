@@ -6,78 +6,83 @@ import (
 )
 
 // OpTiming tracks the start and end times for a replication operation.
+// StartTime is set when an operation is first added to the tracker.
+// EndTime is set when an operation is marked as completed.
 type OpTiming struct {
 	StartTime time.Time
 	EndTime   time.Time
 }
 
-// OpTracker is responsible for tracking ongoing replication operations by their IDs and times.
+// OpTracker is responsible for tracking the lifecycle of replication operations.
+// It provides thread-safe tracking using a sync.Map of operation states using their
+// unique IDs and maintaining start and end timing information.
 type OpTracker struct {
-	ops          map[uint64]OpTiming
+	ops          sync.Map
 	timeProvider TimeProvider
-	mu           sync.RWMutex
 }
 
-// NewOpTracker creates a new OpTracker instance.
+// NewOpTracker creates a new OpTracker instance with the specified time provider.
+// The time provider allows for more testable code by enabling time manipulation in tests.
 func NewOpTracker(timeProvider TimeProvider) *OpTracker {
 	return &OpTracker{
-		ops:          make(map[uint64]OpTiming),
 		timeProvider: timeProvider,
 	}
 }
 
 // AddOp adds a new operation to the tracker, recording its start time.
+// If the operation is already being tracked, it preserves the original start time
+// to maintain accurate timing of the operation's lifecycle.
 func (t *OpTracker) AddOp(opId uint64) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if _, exists := t.ops[opId]; !exists {
-		t.ops[opId] = OpTiming{
-			StartTime: t.timeProvider.Now(),
-		}
-	}
+	// Use LoadOrStore to atomically check if the operation exists and add it if it doesn't.
+	t.ops.LoadOrStore(opId, OpTiming{
+		StartTime: t.timeProvider.Now(),
+	})
 }
 
-// CompleteOp marks the operation as completed and records its end time.
+// CompleteOp marks the operation as completed by recording its end time.
+// If the operation doesn't exist or is already completed, this method is a no-op.
 func (t *OpTracker) CompleteOp(opId uint64) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if timing, exists := t.ops[opId]; exists && timing.EndTime.IsZero() {
-		timing.EndTime = t.timeProvider.Now()
-		t.ops[opId] = timing
-	}
-}
-
-// IsOpInProgress checks if an operation is currently being processed (not yet completed).
-func (t *OpTracker) IsOpInProgress(opId uint64) bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	timing, exists := t.ops[opId]
-	return exists && timing.EndTime.IsZero()
-}
-
-// IsOpCompleted checks if an operation has been completed (has an end time).
-func (t *OpTracker) IsOpCompleted(opId uint64) bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	timing, exists := t.ops[opId]
-	return exists && !timing.EndTime.IsZero()
-}
-
-// CleanUpOp removes the operation from the osp being tracked.
-// Removing ops that are not completed yet (without EndTime) is allowed to make sure
-// that retrying failed ops is allowed.
-func (t *OpTracker) CleanUpOp(opId uint64) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	_, exists := t.ops[opId]
+	value, exists := t.ops.Load(opId)
 	if !exists {
 		return
 	}
 
-	delete(t.ops, opId)
+	timing := value.(OpTiming)
+	if timing.EndTime.IsZero() {
+		timing.EndTime = t.timeProvider.Now()
+		t.ops.Store(opId, timing)
+	}
+}
+
+// IsOpInProgress checks if an operation is currently in progress.
+// Returns true if the operation exists and has not been completed (no end time),
+// false otherwise.
+func (t *OpTracker) IsOpInProgress(opId uint64) bool {
+	value, exists := t.ops.Load(opId)
+	if !exists {
+		return false
+	}
+
+	timing := value.(OpTiming)
+	return timing.EndTime.IsZero()
+}
+
+// IsOpCompleted checks if an operation has been completed.
+// Returns true if the operation exists and has been completed (has an end time),
+// false otherwise.
+func (t *OpTracker) IsOpCompleted(opId uint64) bool {
+	value, exists := t.ops.Load(opId)
+	if !exists {
+		return false
+	}
+
+	timing := value.(OpTiming)
+	return !timing.EndTime.IsZero()
+}
+
+// CleanUpOp removes the operation from the tracker.
+// This allows operations to be retried if needed and supports the operation
+// retention policy. It's safe to call on operations that don't exist.
+func (t *OpTracker) CleanUpOp(opId uint64) {
+	t.ops.Delete(opId)
 }
