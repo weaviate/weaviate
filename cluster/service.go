@@ -112,11 +112,11 @@ func (c *Service) onFSMCaughtUp() {
 				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
 				replicationEngineCtx, replicationEngineCancel := context.WithCancel(context.Background())
 				c.replicationEngineCancel = replicationEngineCancel
-				go func() {
+				enterrors.GoWrapper(func() {
 					if err := c.replicationEngine.Start(replicationEngineCtx); err != nil {
 						c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
 					}
-				}()
+				}, c.logger)
 				return
 			}
 		}
