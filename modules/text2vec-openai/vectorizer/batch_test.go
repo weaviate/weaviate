@@ -131,3 +131,27 @@ func TestBatch(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkEncoderCache(b *testing.B) {
+	client := &fakeBatchClient{}
+	logger, _ := test.NewNullLogger()
+
+	v := text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second,
+			batch.Settings{MaxObjectsPerBatch: 100, MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int { return 500000 }, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true},
+			logger, "test"),
+		batch.ReturnBatchTokenizer(1, "", false),
+	)
+	deadline := time.Now().Add(10 * time.Second)
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ctx, cancl := context.WithDeadline(context.Background(), deadline)
+		vecs, errs := v.ObjectBatch(
+			ctx, []*models.Object{{Class: "Car"}}, []bool{false}, cfg,
+		)
+		cancl()
+		require.Len(b, errs, 0)
+		require.Len(b, vecs, 1)
+	}
+}
