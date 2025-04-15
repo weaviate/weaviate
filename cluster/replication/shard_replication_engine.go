@@ -634,6 +634,8 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 				wg.Add(1)
 
+				// Here we capture the op argument used by the func below as the enterrors.GoWrapper requires calling
+				// a function without arguments.
 				operation := op
 
 				enterrors.GoWrapper(func() {
