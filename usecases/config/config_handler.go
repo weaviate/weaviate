@@ -32,6 +32,7 @@ import (
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -91,8 +92,7 @@ type Flags struct {
 }
 
 type SchemaHandlerConfig struct {
-	MaximumAllowedCollectionsCount   int         `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
-	MaximumAllowedCollectionsCountFn func() *int `json:"-" yaml:"-"`
+	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 }
 
 type RuntimeOverrides struct {
@@ -240,12 +240,10 @@ func (c *Config) validateDefaultVectorDistanceMetric() error {
 }
 
 type AutoSchema struct {
-	Enabled   bool         `json:"enabled" yaml:"enabled"`
-	EnabledFn func() *bool `json:"-" yaml:"-"`
-
-	DefaultString string `json:"defaultString" yaml:"defaultString"`
-	DefaultNumber string `json:"defaultNumber" yaml:"defaultNumber"`
-	DefaultDate   string `json:"defaultDate" yaml:"defaultDate"`
+	Enabled       *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
+	DefaultString string                      `json:"defaultString" yaml:"defaultString"`
+	DefaultNumber string                      `json:"defaultNumber" yaml:"defaultNumber"`
+	DefaultDate   string                      `json:"defaultDate" yaml:"defaultDate"`
 }
 
 func (a AutoSchema) Validate() error {

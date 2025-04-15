@@ -263,6 +263,3 @@ func (tel *Telemeter) getCollectionsCount(context.Context) (int, error) {
 	}
 	return len(sch.Objects.Classes), nil
 }
-
-func (tel *Telemeter) getTenantsStatusCount(ctx context.Context) (map[string]int, error) {
-}

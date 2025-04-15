@@ -12,6 +12,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -27,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -39,15 +41,15 @@ var (
 
 // ConfigValue is anything whose value can be `settable` by the config manager.
 type ConfigValue interface {
-	Set(t any)
+	SetValue(t any) error
 }
 
 // ConfigValues represent dynamic config values that config manager manage.
 type ConfigValues map[string]ConfigValue
 
-// Parser takes care of unmarshaling a ConfigValues
-// from given raw bytes(e.g: YAML, JSON, etc).
-type Parser func([]byte) (ConfigValues, error)
+// // Parser takes care of unmarshaling a ConfigValues
+// // from given raw bytes(e.g: YAML, JSON, etc).
+// type Parser func([]byte) (ConfigValues, error)
 
 // ConfigManager takes care of periodically loading the config from
 // given filepath for every interval period.
@@ -57,7 +59,7 @@ type ConfigManager struct {
 	// interval is how often config manager trigger loading the config file.
 	interval time.Duration
 	// parse takes care of unmarshaling the config struct from a file
-	parse Parser
+	// parse Parser
 
 	// currentConfig is last successfully loaded config.
 	// ConfigManager keep using this config if there are any
@@ -78,7 +80,7 @@ type ConfigManager struct {
 
 func NewConfigManager(
 	filepath string,
-	parser Parser,
+	// parser Parser,
 	registered ConfigValues,
 	interval time.Duration,
 	log logrus.FieldLogger,
@@ -90,8 +92,8 @@ func NewConfigManager(
 	}
 
 	cm := &ConfigManager{
-		path:     filepath,
-		parse:    parser,
+		path: filepath,
+		// parse:    parser,
 		interval: interval,
 		log:      log,
 		lastLoadSuccess: promauto.With(r).NewGauge(prometheus.GaugeOpts{
@@ -174,7 +176,7 @@ func (cm *ConfigManager) loadConfig() error {
 }
 
 // updateConfig mutates the shared config
-func (cm *ConfigManager) updateConfig(newcfg ConfigValues, hash string) error {
+func (cm *ConfigManager) updateConfig(newcfg map[string]any, hash string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -182,6 +184,7 @@ func (cm *ConfigManager) updateConfig(newcfg ConfigValues, hash string) error {
 	// invariant2: `newcfg` can have subset of registered values.
 
 	unknown := make([]string, 0)
+	parseErrs := make([]error, 0)
 
 	for k := range newcfg {
 		_, ok := cm.registered[k]
@@ -195,11 +198,18 @@ func (cm *ConfigManager) updateConfig(newcfg ConfigValues, hash string) error {
 	}
 
 	for k, v := range newcfg {
-		cm.currentConfig[k].Set(v)
+		if err := cm.currentConfig[k].SetValue(v); err != nil {
+			parseErrs = append(parseErrs, err)
+		}
 	}
 
-	// cm.currentConfig = cfg
+	if len(parseErrs) > 0 {
+		return errors.Join(parseErrs...)
+	}
+
 	cm.currentHash = hash
+
+	return nil
 }
 
 // loop is a actor loop that runs forever till config manager is stopped.
@@ -228,18 +238,31 @@ func (cm *ConfigManager) loop(ctx context.Context) error {
 	}
 }
 
-// GetOverrides takes a config value and func to get it's runtime value.
-// It returns a value from func if available otherwise the passed in `val` if failing
-// to get value from the func().
-func GetOverrides[T any](val T, f func() *T) T {
-	if f == nil {
-		return val
-	}
-	x := f()
+func (cm *ConfigManager) parse(buf []byte) (map[string]any, error) {
+	var values map[string]any
 
-	if x == nil {
-		return val
+	dec := yaml.NewDecoder(bytes.NewReader(buf))
+	dec.SetStrict(true)
+
+	if err := dec.Decode(&values); err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
 	}
 
-	return *x
+	return values, nil
 }
+
+// // GetOverrides takes a config value and func to get it's runtime value.
+// // It returns a value from func if available otherwise the passed in `val` if failing
+// // to get value from the func().
+// func GetOverrides[T any](val T, f func() *T) T {
+// 	if f == nil {
+// 		return val
+// 	}
+// 	x := f()
+
+// 	if x == nil {
+// 		return val
+// 	}
+
+// 	return *x
+// }
