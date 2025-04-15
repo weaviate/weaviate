@@ -768,7 +768,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		VectorizerBatchLength: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "weaviate_vectorizer_requests_per_batch",
 			Help:    "Number of items in a batch",
-			Buckets: []float64{1, 2, 4,8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576},
+			Buckets: []float64{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608},
 		}, []string{"op", "api"}),
 		VectorizerRequestSize: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "weaviate_vectorizer_request_size_bytes",
@@ -783,8 +783,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		VectorizerRequestTokens: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "weaviate_vectorizer_request_tokens",
 			Help:    "Number of tokens in the request sent to OpenAI",
-			Buckets: []float64{1, 10, 50, 100, 500, 1000, 5000, 10000, 100000, 1000000},
-		}, []string{"op", "class"}),
+			Buckets: []float64{0, 1, 10, 50, 100, 500, 1000, 5000, 10000, 100000, 1000000},
+		}, []string{"inout", "api"}),
 		VectorizerRequestSingleCount: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "weaviate_vectorizer_request_single_count",
 			Help: "Number of single-item OpenAI requests",

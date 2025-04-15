@@ -212,6 +212,8 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		if resBody.Data[i].Error != nil {
 			openAIerror[i] = v.getError(res.StatusCode, requestID, resBody.Data[i].Error, config.IsAzure)
 		}
+		monitoring.GetMetrics().VectorizerRequestTokens.WithLabelValues("input", endpoint).Observe(float64(resBody.Usage.PromptTokens))
+		monitoring.GetMetrics().VectorizerRequestTokens.WithLabelValues("output", endpoint).Observe(float64(resBody.Usage.CompletionTokens))
 	}
 
 	return &modulecomponents.VectorizationResult[[]float32]{

@@ -74,9 +74,7 @@ func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.
 		return make([]T, len(objects)), make(map[int]error)
 	}
 
-	for i, obj := range objects {
-		monitoring.GetMetrics().VectorizerRequestTokens.WithLabelValues("batchvectorize", obj.Class).Observe(float64(tokenCounts[i]))
-	}
+	monitoring.GetMetrics().VectorizerBatchLength.WithLabelValues("vectorizeBatch", objects[0].Class).Observe(float64(len(objects)))
 
 	return v.batchVectorizer.SubmitBatchAndWait(ctx, cfg, skipObject, tokenCounts, texts)
 }
