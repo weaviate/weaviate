@@ -55,7 +55,7 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	var release func()
 	var readers []roaringsetrange.InnerReader
 	if b.keepSegmentsInMemory {
-		reader, releaseInt := b.disk.roaringSetRangeSegmentInMemory.Reader(b.bitmapBufPool)
+		reader, releaseInt := roaringsetrange.NewSegmentInMemoryReader(b.disk.roaringSetRangeSegmentInMemory, b.bitmapBufPool)
 		readers, release = []roaringsetrange.InnerReader{reader}, releaseInt
 	} else {
 		readers, release = b.disk.newRoaringSetRangeReaders()
