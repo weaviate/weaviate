@@ -14,10 +14,11 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"sync/atomic"
+
+	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -32,6 +33,7 @@ type commitLogger struct {
 	checksumWriter integrity.ChecksumWriter
 
 	bufNode *bytes.Buffer
+	tmpBuf  []byte
 
 	// e.g. when recovering from an existing log, we do not want to write into a
 	// new log again
@@ -103,6 +105,7 @@ func newCommitLogger(path string) (*commitLogger, error) {
 	out.checksumWriter = integrity.NewCRC32Writer(out.writer)
 
 	out.bufNode = bytes.NewBuffer(nil)
+	out.tmpBuf = make([]byte, byteops.Uint8Len+byteops.Uint8Len+byteops.Uint32Len)
 
 	return out, nil
 }
@@ -110,22 +113,16 @@ func newCommitLogger(path string) (*commitLogger, error) {
 func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
 
-	err := binary.Write(cl.checksumWriter, binary.LittleEndian, commitType)
+	rw := byteops.NewReadWriter(cl.tmpBuf)
+	rw.WriteByte(byte(commitType))
+	rw.WriteByte(CurrentCommitLogVersion)
+	rw.WriteUint32(uint32(len(nodeBytes)))
+
+	_, err := cl.checksumWriter.Write(rw.Buffer)
 	if err != nil {
 		return err
 	}
 
-	err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentCommitLogVersion)
-	if err != nil {
-		return err
-	}
-
-	err = binary.Write(cl.checksumWriter, binary.LittleEndian, uint32(len(nodeBytes)))
-	if err != nil {
-		return err
-	}
-
-	// write node
 	_, err = cl.checksumWriter.Write(nodeBytes)
 	if err != nil {
 		return err
