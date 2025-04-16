@@ -81,10 +81,13 @@ func verifyBucketRangeAgainstControl(t *testing.T, b *Bucket, control []*sroar.B
 	defer reader.Close()
 
 	for i, controlBM := range control {
-		actual, err := reader.Read(context.Background(), uint64(i), filters.OperatorEqual)
-		require.Nil(t, err)
+		func() {
+			actual, release, err := reader.Read(context.Background(), uint64(i), filters.OperatorEqual)
+			require.NoError(t, err)
+			defer release()
 
-		require.Equal(t, controlBM.ToArray(), actual.ToArray(), "i = %d", i)
+			require.Equal(t, controlBM.ToArray(), actual.ToArray(), "i = %d", i)
+		}()
 	}
 }
 
@@ -387,15 +390,18 @@ func compactionRoaringSetRangeStrategy(ctx context.Context, t *testing.T, opts [
 
 		var retrieved []kv
 		for k := uint64(0); k < maxKey; k++ {
-			bm, err := reader.Read(context.Background(), k, filters.OperatorEqual)
-			require.NoError(t, err)
+			func() {
+				bm, release, err := reader.Read(context.Background(), k, filters.OperatorEqual)
+				require.NoError(t, err)
+				defer release()
 
-			if !bm.IsEmpty() {
-				retrieved = append(retrieved, kv{
-					key:       k,
-					additions: bm.ToArray(),
-				})
-			}
+				if !bm.IsEmpty() {
+					retrieved = append(retrieved, kv{
+						key:       k,
+						additions: bm.ToArray(),
+					})
+				}
+			}()
 		}
 
 		assert.Equal(t, expected, retrieved)
@@ -423,15 +429,18 @@ func compactionRoaringSetRangeStrategy(ctx context.Context, t *testing.T, opts [
 
 		var retrieved []kv
 		for k := uint64(0); k < maxKey; k++ {
-			bm, err := reader.Read(context.Background(), k, filters.OperatorEqual)
-			require.NoError(t, err)
+			func() {
+				bm, release, err := reader.Read(context.Background(), k, filters.OperatorEqual)
+				require.NoError(t, err)
+				defer release()
 
-			if !bm.IsEmpty() {
-				retrieved = append(retrieved, kv{
-					key:       k,
-					additions: bm.ToArray(),
-				})
-			}
+				if !bm.IsEmpty() {
+					retrieved = append(retrieved, kv{
+						key:       k,
+						additions: bm.ToArray(),
+					})
+				}
+			}()
 		}
 
 		assert.Equal(t, expected, retrieved)
@@ -480,8 +489,9 @@ func compactionRoaringSetRangeStrategy_RemoveUnnecessary(ctx context.Context, t 
 		reader := bucket.ReaderRoaringSetRange()
 		defer reader.Close()
 
-		bm, err := reader.Read(context.Background(), key, filters.OperatorEqual)
+		bm, release, err := reader.Read(context.Background(), key, filters.OperatorEqual)
 		require.NoError(t, err)
+		defer release()
 
 		assert.Equal(t, []uint64{iterations - 1}, bm.ToArray())
 	})
@@ -498,8 +508,9 @@ func compactionRoaringSetRangeStrategy_RemoveUnnecessary(ctx context.Context, t 
 		reader := bucket.ReaderRoaringSetRange()
 		defer reader.Close()
 
-		bm, err := reader.Read(context.Background(), key, filters.OperatorEqual)
+		bm, release, err := reader.Read(context.Background(), key, filters.OperatorEqual)
 		require.NoError(t, err)
+		defer release()
 
 		assert.Equal(t, []uint64{iterations - 1}, bm.ToArray())
 	})
@@ -560,8 +571,9 @@ func compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations(ctx context.C
 				reader := bucket.ReaderRoaringSetRange()
 				defer reader.Close()
 
-				bm, err := reader.Read(context.Background(), key, filters.OperatorEqual)
+				bm, release, err := reader.Read(context.Background(), key, filters.OperatorEqual)
 				require.NoError(t, err)
+				defer release()
 
 				if segments == 5 {
 					assert.Equal(t, 0, bm.GetCardinality())
@@ -584,8 +596,9 @@ func compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations(ctx context.C
 				reader := bucket.ReaderRoaringSetRange()
 				defer reader.Close()
 
-				bm, err := reader.Read(context.Background(), key, filters.OperatorEqual)
+				bm, release, err := reader.Read(context.Background(), key, filters.OperatorEqual)
 				require.NoError(t, err)
+				defer release()
 
 				if segments == 5 {
 					assert.Equal(t, 0, bm.GetCardinality())
