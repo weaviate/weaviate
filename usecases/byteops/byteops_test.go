@@ -37,7 +37,7 @@ func TestReadAnWrite(t *testing.T) {
 	valuesByteArray := make([]byte, mustRandIntn(500))
 	rand.Read(valuesByteArray)
 
-	writeBuffer := make([]byte, 2*uint64Len+2*uint32Len+2*uint16Len+len(valuesByteArray))
+	writeBuffer := make([]byte, 2*Uint64Len+2*Uint32Len+2*Uint16Len+len(valuesByteArray))
 	byteOpsWrite := NewReadWriter(writeBuffer)
 
 	byteOpsWrite.WriteUint64(valuesNumbers[0])
