@@ -169,34 +169,6 @@ type PrometheusMetrics struct {
 	BatchVectorizeError          *prometheus.CounterVec
 }
 
-func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
-	r := promauto.With(reg)
-	return &TenantOffloadMetrics{
-		FetchedBytes: r.NewCounter(prometheus.CounterOpts{
-			Namespace: cfg.MetricsNamespace,
-			Name:      "tenant_offload_fetched_bytes_total",
-		}),
-		TransferredBytes: r.NewCounter(prometheus.CounterOpts{
-			Namespace: cfg.MetricsNamespace,
-			Name:      "tenant_offload_transferred_bytes_total",
-		}),
-		OpsDuration: r.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: cfg.MetricsNamespace,
-			Name:      "tenant_offload_operation_duration_seconds",
-			Buckets:   LatencyBuckets,
-		}, []string{"operation", "status"}), // status can be "success" or "failure"
-	}
-}
-
-type TenantOffloadMetrics struct {
-	// NOTE: These ops are not GET or PUT requests to object storage.
-	// these are one of the `download`, `upload` or `delete`. Because we use s5cmd to talk
-	// to object storage currently. Which supports these operations at high level.
-	FetchedBytes     prometheus.Counter
-	TransferredBytes prometheus.Counter
-	OpsDuration      *prometheus.HistogramVec
-}
-
 // NewHTPServerMetrics return the ServerMetrics that can be used in any of the grpc or http servers.
 func NewHTTPServerMetrics(namespace string, reg prometheus.Registerer) *HTTPServerMetrics {
 	r := promauto.With(reg)
