@@ -16,6 +16,8 @@ import (
 	"encoding/binary"
 	"math"
 
+	"github.com/weaviate/weaviate/usecases/byteops"
+
 	"github.com/pkg/errors"
 )
 
@@ -225,28 +227,19 @@ func (kv MapPair) Bytes() ([]byte, error) {
 	}
 	valueLen := uint16(len(kv.Value))
 
-	out := bytes.NewBuffer(nil)
+	data := make([]byte, byteops.Uint16Len+keyLen+byteops.Uint16Len+valueLen)
+	rw := byteops.NewReadWriter(data)
+	rw.WriteUint16(keyLen)
 
-	lenBuf := make([]byte, 2) // can be reused for both key and value len
-	binary.LittleEndian.PutUint16(lenBuf, keyLen)
-	if _, err := out.Write(lenBuf); err != nil {
-		return nil, errors.Wrap(err, "write map key length indicator")
+	if err := rw.CopyBytesToBuffer(kv.Key); err != nil {
+		return nil, err
+	}
+	rw.WriteUint16(valueLen)
+	if err := rw.CopyBytesToBuffer(kv.Value); err != nil {
+		return nil, err
 	}
 
-	if _, err := out.Write(kv.Key); err != nil {
-		return nil, errors.Wrap(err, "write map key")
-	}
-
-	binary.LittleEndian.PutUint16(lenBuf, valueLen)
-	if _, err := out.Write(lenBuf); err != nil {
-		return nil, errors.Wrap(err, "write map value length indicator")
-	}
-
-	if _, err := out.Write(kv.Value); err != nil {
-		return nil, errors.Wrap(err, "write map value")
-	}
-
-	return out.Bytes(), nil
+	return data, nil
 }
 
 func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
