@@ -47,7 +47,7 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), version)
 	require.NoError(t, err)
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 
 	startedTask := recvWithTimeout(t, h.provider.startedCh)
 	require.Equal(t, h.tasksNamespace, startedTask.Namespace)
@@ -59,14 +59,14 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.completedCh).ID)
 
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
 	// advance the clock just before expected clean up time to check whether it respects it
-	h.advanceClock(completedTaskTTL - h.clockAdvancedSoFar - time.Minute)
+	h.advanceClock(h.completedTaskTTL - h.clockAdvancedSoFar - time.Minute)
 
 	h.expectCleanUpTask(t, h.tasksNamespace, taskID, version)
-	h.advanceClock(schedulerTickDuration + time.Minute)
+	h.advanceClock(h.schedulerTickDuration + time.Minute)
 
 	require.Empty(t, h.manager.ListTasks())
 }
@@ -94,7 +94,7 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), version)
 	require.NoError(t, err)
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 
 	// local task launched
 	localTask := recvWithTimeout(t, h.provider.startedCh)
@@ -105,7 +105,7 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.completedCh).ID)
 
 	// local task completed
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
 	// however, task is not finished in the cluster yet
@@ -144,7 +144,7 @@ func TestTaskCancellation(t *testing.T) {
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), version)
 	require.NoError(t, err)
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.startedCh).ID)
 
@@ -156,7 +156,7 @@ func TestTaskCancellation(t *testing.T) {
 		CancelledAtUnixMillis: cancellationTime,
 	}))
 	require.NoError(t, err)
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.cancelledCh).ID)
 
@@ -189,7 +189,7 @@ func TestTaskFailureInAnotherNode(t *testing.T) {
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), version)
 	require.NoError(t, err)
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.startedCh).ID)
 
@@ -199,7 +199,7 @@ func TestTaskFailureInAnotherNode(t *testing.T) {
 	h.recordTaskCompletion(t, h.tasksNamespace, taskID, version, "other-node", &failureMessage)
 
 	// locally running task should be cancelled
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.cancelledCh).ID)
 	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
@@ -232,7 +232,7 @@ func TestTaskFailureInLocalNode(t *testing.T) {
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), version)
 	require.NoError(t, err)
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 
 	startedTask := recvWithTimeout(t, h.provider.startedCh)
 	require.Equal(t, taskID, startedTask.ID)
@@ -244,7 +244,7 @@ func TestTaskFailureInLocalNode(t *testing.T) {
 
 	recvWithTimeout(t, h.provider.failedCh)
 
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
 	tasks := h.manager.ListTasks()[h.tasksNamespace]
@@ -400,7 +400,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 	}), 12)
 	require.NoError(t, err)
 
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 	require.Equal(t, 3, h.scheduler.totalRunningTaskCount())
 
 	startedTasks := map[string]*testTask{}
@@ -430,7 +430,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
-	h.advanceClock(schedulerTickDuration)
+	h.advanceClock(h.schedulerTickDuration)
 
 	require.Zero(t, h.scheduler.totalRunningTaskCount())
 }
@@ -455,14 +455,16 @@ func toCmd[T any](t *testing.T, subCommand T) *cmd.ApplyRequest {
 }
 
 type testHarness struct {
-	localNodeID         string
-	clock               *clockwork.FakeClock
-	logger              logrus.FieldLogger
-	stateChanger        *mocks.TaskStatusChanger
-	provider            *testTaskProvider
-	tasksNamespace      string
-	nodesInTheCluster   int
-	registeredProviders map[string]Provider
+	localNodeID           string
+	tasksNamespace        string
+	nodesInTheCluster     int
+	completedTaskTTL      time.Duration
+	schedulerTickDuration time.Duration
+	clock                 *clockwork.FakeClock
+	logger                logrus.FieldLogger
+	stateChanger          *mocks.TaskStatusChanger
+	provider              *testTaskProvider
+	registeredProviders   map[string]Provider
 
 	manager   *Manager
 	scheduler *Scheduler
@@ -477,13 +479,15 @@ func newTestHarness(t *testing.T) *testHarness {
 	)
 
 	return &testHarness{
-		localNodeID:       "local-node",
-		tasksNamespace:    defaultNamespace,
-		nodesInTheCluster: 1,
-		clock:             clockwork.NewFakeClock(),
-		logger:            logrus.StandardLogger(),
-		stateChanger:      mocks.NewTaskStatusChanger(t),
-		provider:          defaultProvider,
+		localNodeID:           "local-node",
+		tasksNamespace:        defaultNamespace,
+		nodesInTheCluster:     1,
+		completedTaskTTL:      24 * time.Hour,
+		schedulerTickDuration: 30 * time.Second,
+		clock:                 clockwork.NewFakeClock(),
+		logger:                logrus.StandardLogger(),
+		stateChanger:          mocks.NewTaskStatusChanger(t),
+		provider:              defaultProvider,
 		registeredProviders: map[string]Provider{
 			defaultNamespace: defaultProvider,
 		},
@@ -491,13 +495,20 @@ func newTestHarness(t *testing.T) *testHarness {
 }
 
 func (h *testHarness) init(t *testing.T) *testHarness {
-	h.manager = NewManager(h.clock, h.logger)
+	h.manager = NewManager(ManagerParameters{
+		Clock:            h.clock,
+		Logger:           h.logger,
+		CompletedTaskTTL: h.completedTaskTTL,
+	})
+
 	h.scheduler = NewScheduler(SchedulerParams{
 		CompletionRecorder: h.stateChanger,
 		TasksLister:        h.manager,
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
 		LocalNode:          h.localNodeID,
+		CompletedTaskTTL:   h.completedTaskTTL,
+		TickDuration:       h.schedulerTickDuration,
 	})
 	return h
 }

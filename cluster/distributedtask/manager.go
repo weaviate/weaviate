@@ -25,8 +25,6 @@ import (
 
 // TODO: integrate into backups
 // TODO: unify error lib
-// TODO: move stuff to types
-// TODO: add tests for raft code?
 
 var (
 	// TODO: think through which errors can be ignored and remove these random ones
@@ -34,24 +32,31 @@ var (
 	ErrTaskIsNoLongerRunning = errors.New("task is no longer running")
 )
 
-const (
-	completedTaskTTL = time.Hour * 24 // TODO: config
-)
-
 type Manager struct {
 	mu    sync.Mutex
 	tasks map[string]map[string]*Task // namespace -> taskID -> Task
+
+	completedTaskTTL time.Duration
 
 	logger logrus.FieldLogger
 	clock  clockwork.Clock
 }
 
-func NewManager(clock clockwork.Clock, logger logrus.FieldLogger) *Manager {
+type ManagerParameters struct {
+	Clock  clockwork.Clock
+	Logger logrus.FieldLogger
+
+	CompletedTaskTTL time.Duration
+}
+
+func NewManager(params ManagerParameters) *Manager {
 	return &Manager{
 		tasks: make(map[string]map[string]*Task),
 
-		logger: logger,
-		clock:  clock,
+		completedTaskTTL: params.CompletedTaskTTL,
+
+		logger: params.Logger,
+		clock:  params.Clock,
 	}
 }
 
@@ -190,7 +195,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return errors.New("task is still running") // TODO: unify error messages
 	}
 
-	if m.clock.Since(task.FinishedAt) <= completedTaskTTL {
+	if m.clock.Since(task.FinishedAt) <= m.completedTaskTTL {
 		return errors.New("task is too fresh to clean up")
 	}
 

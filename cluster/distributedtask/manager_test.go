@@ -273,7 +273,7 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
 				Namespace:             namespace,
 				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * completedTaskTTL).UnixMilli(),
+				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * h.completedTaskTTL).UnixMilli(),
 			})
 
 			cleanUpCmd = toCmd(t, &cmd.CleanUpDistributedTaskRequest{
@@ -301,7 +301,7 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
 				Namespace:             namespace,
 				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * completedTaskTTL).UnixMilli(),
+				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * h.completedTaskTTL).UnixMilli(),
 			})
 
 			cleanUpCmd = toCmd(t, &cmd.CleanUpDistributedTaskRequest{
@@ -329,14 +329,14 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
 				Namespace:             namespace,
 				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * completedTaskTTL).UnixMilli(),
+				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * h.completedTaskTTL).UnixMilli(),
 			})
 
 			cancelCmd = toCmd(t, &cmd.CancelDistributedTaskRequest{
 				Namespace:             namespace,
 				Id:                    taskID,
 				Version:               version,
-				CancelledAtUnixMillis: h.clock.Now().Add(-completedTaskTTL).Add(time.Minute).UnixMilli(),
+				CancelledAtUnixMillis: h.clock.Now().Add(-h.completedTaskTTL).Add(time.Minute).UnixMilli(),
 			})
 
 			cleanUpCmd = toCmd(t, &cmd.CleanUpDistributedTaskRequest{

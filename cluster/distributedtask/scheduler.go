@@ -20,16 +20,19 @@ import (
 	"github.com/pkg/errors"
 )
 
-const (
-	schedulerTickDuration = 15 * time.Second
-)
-
 type Scheduler struct {
-	SchedulerParams
-
 	// is accessed only from background goroutine, therefore, no synchronization
 	mu           sync.Mutex // TODO: consider removing this once I add metrics, we can wait on those
 	runningTasks map[string]map[string]TaskHandle
+
+	providers          map[string]Provider // namespace -> Provider
+	completionRecorder TaskStatusChanger
+	tasksLister        TasksLister
+	clock              clockwork.Clock
+
+	localNode        string
+	completedTaskTTL time.Duration
+	tickDuration     time.Duration
 
 	stopCh chan struct{}
 }
@@ -40,7 +43,9 @@ type SchedulerParams struct {
 	Providers          map[string]Provider
 	Clock              clockwork.Clock
 
-	LocalNode string
+	LocalNode        string
+	CompletedTaskTTL time.Duration
+	TickDuration     time.Duration
 }
 
 // TODO: add observability
@@ -51,21 +56,30 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	}
 
 	return &Scheduler{
-		SchedulerParams: params,
-		runningTasks:    map[string]map[string]TaskHandle{},
-		stopCh:          make(chan struct{}),
+		runningTasks: map[string]map[string]TaskHandle{},
+
+		providers:          params.Providers,
+		completionRecorder: params.CompletionRecorder,
+		tasksLister:        params.TasksLister,
+		clock:              params.Clock,
+
+		localNode:        params.LocalNode,
+		completedTaskTTL: params.CompletedTaskTTL,
+		tickDuration:     params.TickDuration,
+
+		stopCh: make(chan struct{}),
 	}
 }
 
 func (s *Scheduler) Start() error {
-	tasksByNamespace := s.TasksLister.ListTasks()
+	tasksByNamespace := s.tasksLister.ListTasks()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for namespace, provider := range s.Providers {
+	for namespace, provider := range s.providers {
 		tasks := tasksByNamespace[namespace]
 
-		provider.SetCompletionRecorder(s.CompletionRecorder)
+		provider.SetCompletionRecorder(s.completionRecorder)
 
 		runnableTasks := s.filterRunnableTasks(tasks)
 
@@ -97,7 +111,7 @@ func (s *Scheduler) Start() error {
 
 func (s *Scheduler) filterRunnableTasks(tasks []*Task) map[TaskDescriptor]*Task {
 	return filterTasks(tasks, func(task *Task) bool {
-		return task.Status == TaskStatusStarted && task.FinishedNodes[s.LocalNode] == false
+		return task.Status == TaskStatusStarted && task.FinishedNodes[s.localNode] == false
 	})
 }
 
@@ -113,26 +127,26 @@ func filterTasks(tasks []*Task, predicate func(task *Task) bool) map[TaskDescrip
 }
 
 func (s *Scheduler) loop() {
-	ticker := s.Clock.NewTicker(schedulerTickDuration)
+	ticker := s.clock.NewTicker(s.tickDuration)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.Chan():
-			s.process()
+			s.tick()
 		case <-s.stopCh:
 			return
 		}
 	}
 }
 
-func (s *Scheduler) process() {
-	tasksByNamespace := s.TasksLister.ListTasks()
+func (s *Scheduler) tick() {
+	tasksByNamespace := s.tasksLister.ListTasks()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for namespace, provider := range s.Providers {
+	for namespace, provider := range s.providers {
 		tasks := tasksByNamespace[namespace]
 
 		// 1. collect tasks that are supposed to be running
@@ -154,7 +168,7 @@ func (s *Scheduler) process() {
 
 		// 2. collect tasks that should not be running
 		finishedTasks := filterTasks(tasks, func(task *Task) bool {
-			return task.Status != TaskStatusStarted || task.FinishedNodes[s.LocalNode] == true
+			return task.Status != TaskStatusStarted || task.FinishedNodes[s.localNode] == true
 		})
 
 		// compare that to tasks that are running, cancel them and remove from the list.
@@ -171,10 +185,10 @@ func (s *Scheduler) process() {
 
 		// 3. for tasks are not running for a long time, send a cleanup request
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
-			return task.Status != TaskStatusStarted && completedTaskTTL <= s.Clock.Since(task.FinishedAt)
+			return task.Status != TaskStatusStarted && s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
 		})
 		for _, task := range cleanableTasks {
-			err := s.CompletionRecorder.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
+			err := s.completionRecorder.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
 			if err != nil { // TODO: check the error
 				// TODO: log?
 				continue
