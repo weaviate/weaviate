@@ -13,7 +13,11 @@ package lsmkv
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
+	"hash/crc32"
 	"io"
+	"math/rand"
 	"os"
 	"path"
 	"testing"
@@ -334,6 +338,34 @@ func TestLoadWithChecksumErrorCases(t *testing.T) {
 		_, err = loadWithChecksum(path.Join(dirName, "my-file"), 17)
 		assert.NotNil(t, err)
 	})
+}
+
+func BenchmarkLoading(b *testing.B) {
+	for _, val := range []int{10, 100, 1000, 10000} {
+		b.Run(fmt.Sprintf("%d", val), func(b *testing.B) {
+			dirName := b.TempDir()
+			fName := path.Join(dirName, fmt.Sprintf("my-file-%d", val))
+			f, err := os.Create(fName)
+			require.Nil(b, err)
+			data := make([]byte, val)
+			for i := 0; i < len(data); i++ {
+				data[i] = byte(rand.Intn(100))
+			}
+			chmsum := crc32.ChecksumIEEE(data[4:])
+			binary.LittleEndian.PutUint32(data[:4], chmsum)
+			_, err = f.Write(data)
+			require.NoError(b, err)
+
+			require.NoError(b, f.Sync())
+			require.NoError(b, f.Close())
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				loadedData, err := loadWithChecksum(fName, len(data))
+				require.NoError(b, err)
+				require.Equal(b, loadedData, data[4:])
+			}
+		})
+	}
 }
 
 func TestBloom_OFF(t *testing.T) {
