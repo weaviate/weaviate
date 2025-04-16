@@ -343,15 +343,12 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 			StrategyMapCollection)
 	}
 
-	m.Lock()
-	defer m.Unlock()
-
 	valuesForCommitLog, err := pair.Bytes()
 	if err != nil {
 		return err
 	}
 
-	if err := m.commitlog.append(segmentCollectionNode{
+	newNode := segmentCollectionNode{
 		primaryKey: key,
 		values: []value{
 			{
@@ -359,7 +356,12 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 				tombstone: pair.Tombstone,
 			},
 		},
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.append(newNode); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
