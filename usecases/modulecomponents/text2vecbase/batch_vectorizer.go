@@ -15,8 +15,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/monitoring"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
