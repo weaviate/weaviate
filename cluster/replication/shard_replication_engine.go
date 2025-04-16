@@ -349,8 +349,9 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 			return ctx.Err()
 		case <-ticker.C:
 			// Here we get ALL operations for a certain node which the replication engine is responsible for running.
-			// We write all of them to a channel for the OpConsumer to consume them, but it is responsibility of the
-			// consumer keeping track of ongoing operations and avoid multiple copies of the same operation are executed.
+			// We write all of them to a channel for the OpConsumer to consume them. Replication operations already
+			// started will be detected by checking the existence of the shard on the target node before the right
+			// before starting the replication operation.
 			ops := p.allOpsForNode(p.nodeId)
 			if len(ops) > 0 {
 				p.logger.WithField("opCount", len(ops)).Debug("preparing op replication")
@@ -424,34 +425,6 @@ func (p RealTimeProvider) Now() time.Time {
 	return time.Now()
 }
 
-// RealTimer implements the Timer interface using the standard time package
-type RealTimer struct{}
-
-// AfterFunc waits for the duration to elapse and then calls f in its own goroutine
-func (t RealTimer) AfterFunc(d time.Duration, f func()) *time.Timer {
-	return time.AfterFunc(d, f)
-}
-
-// OpRetentionPolicy defines the interface for retention policies
-// that manage the lifecycle of completed operations in the consumer.
-// Retention policies are responsible for scheduling the cleanup of operations
-// once they are no longer needed and support implementation of a deduplication
-// mechanism that allows the replication engine to track already running or completed
-// replication operations
-type OpRetentionPolicy interface {
-	// ScheduleCleanUp schedules the removal of a completed operation after a certain period of time.
-	// It takes the operation ID as an argument.
-	ScheduleCleanUp(opId uint64)
-}
-
-// OpCleanUpCallback extends OpRetentionPolicy with the ability to register a callback handler
-// that will be invoked when an operation is scheduled for cleanup.
-type OpCleanUpCallback interface {
-	// RegisterOpCleanUpCallback allows a handler to be registered that will be called when an operation
-	// is ready for cleanup.
-	RegisterOpCleanUpCallback(handler OpCleanupHandler)
-}
-
 // Timer defines an interface for scheduling tasks with a delay.
 type Timer interface {
 	// AfterFunc waits for the specified duration to elapse and then calls the provided function
@@ -459,49 +432,9 @@ type Timer interface {
 	AfterFunc(duration time.Duration, fn func()) *time.Timer
 }
 
-// TTLOpRetentionPolicy is a retention policy that discards completed operations after a fixed TTL (time-to-live).
-// Once the TTL has passed the cleanup handler is invoked.
-type TTLOpRetentionPolicy struct {
-	ttl            time.Duration
-	timer          Timer
-	cleanUpHandler OpCleanupHandler
-}
-
-// OpCleanupHandler is a function type that is used to handle the cleanup of an operation once it's ready for removal.
-type OpCleanupHandler func(opId uint64)
-
-// NewTTLOpRetentionPolicy creates a new TTL-based operation retention policy.
-// The policy uses the provided TTL to define how long completed operations are retained
-// before they are discarded and the cleanup handler is invoked.
-func NewTTLOpRetentionPolicy(ttl time.Duration, timer Timer) *TTLOpRetentionPolicy {
-	return &TTLOpRetentionPolicy{
-		ttl:   ttl,
-		timer: timer,
-	}
-}
-
-// RegisterOpCleanUpCallback sets the callback function that will be invoked
-// when an operation is ready for cleanup after its TTL has expired.
-func (p *TTLOpRetentionPolicy) RegisterOpCleanUpCallback(opCleanUpHandler OpCleanupHandler) {
-	p.cleanUpHandler = opCleanUpHandler
-}
-
-// ScheduleCleanUp schedules the removal of a completed operation after the TTL has passed.
-// The operation is discarded, and the cleanup handler is called to handle the operation removal.
-func (p *TTLOpRetentionPolicy) ScheduleCleanUp(opId uint64) {
-	if p.cleanUpHandler == nil {
-		return
-	}
-	// After the TTL has expired, the cleanup handler is invoked to remove the operation.
-	p.timer.AfterFunc(p.ttl, func() {
-		p.cleanUpHandler(opId)
-	})
-}
-
 // CopyOpConsumer is an implementation of the OpConsumer interface that processes replication operations
 // by executing copy operations from a source shard to a target shard. It uses a ReplicaCopier to actually
-// carry out the copy operation. Moreover, it supports configurable backoff, timeout, concurrency limits, and
-// operation retention to track duplicates for long enough.
+// carry out the copy operation. Moreover, it supports configurable backoff, timeout and concurrency limits.
 type CopyOpConsumer struct {
 	// logger is used for structured logging throughout the consumer's lifecycle.
 	// It provides detailed logs for each replication operation and any errors encountered.
@@ -528,19 +461,11 @@ type CopyOpConsumer struct {
 	// It ensures that operations do not hang indefinitely and are retried or terminated after the timeout period.
 	opTimeout time.Duration
 
-	// opTracker is responsible for tracking the state of ongoing replication operations.
-	// It ensures that duplicate operations are not processed concurrently or more than once.
-	opTracker *OpTracker
-
 	// timeProvider abstracts time operations, allowing for easier testing and mocking of time-related functions.
 	timeProvider TimeProvider
 
 	// tokens controls the maximum number of concurrently running consumers
 	tokens chan struct{}
-
-	// opRetentionPolicy defines the policy for cleaning up completed replication operations.
-	// It is used to manage the lifecycle of completed operations, ensuring they are eventually discarded after a specified retention period.
-	opRetentionPolicy OpRetentionPolicy
 
 	// nodeId uniquely identifies the node on which this consumer instance is running.
 	nodeId string
@@ -559,34 +484,27 @@ func (c *CopyOpConsumer) String() string {
 // replication operations using a configurable worker pool.
 //
 // It uses a ReplicaCopier to perform the actual data copy.
-//
-// If no retention policy is set, a default TTL-based policy will be used.
 func NewCopyOpConsumer(
 	logger *logrus.Entry,
 	leaderClient types.FSMUpdater,
 	replicaCopier types.ReplicaCopier,
 	timeProvider TimeProvider,
 	nodeId string,
-	opTracker *OpTracker,
 	backoffPolicy backoff.BackOff,
-	retentionPolicy *TTLOpRetentionPolicy,
 	opTimeout time.Duration,
 	maxWorkers int,
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
-		logger:            logger,
-		leaderClient:      leaderClient,
-		replicaCopier:     replicaCopier,
-		backoffPolicy:     backoffPolicy,
-		opTimeout:         opTimeout,
-		maxWorkers:        maxWorkers,
-		nodeId:            nodeId,
-		opTracker:         opTracker,
-		timeProvider:      timeProvider,
-		opRetentionPolicy: retentionPolicy,
-		tokens:            make(chan struct{}, maxWorkers),
+		logger:        logger,
+		leaderClient:  leaderClient,
+		replicaCopier: replicaCopier,
+		backoffPolicy: backoffPolicy,
+		opTimeout:     opTimeout,
+		maxWorkers:    maxWorkers,
+		nodeId:        nodeId,
+		timeProvider:  timeProvider,
+		tokens:        make(chan struct{}, maxWorkers),
 	}
-	retentionPolicy.RegisterOpCleanUpCallback(c.opTracker.CleanUpOp)
 	return c
 }
 
@@ -624,21 +542,6 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			// allowing another worker to proceed. This ensures only a limited number of workers is concurrently
 			// running replication operations and avoids overloading the system.
 			case c.tokens <- struct{}{}:
-				if c.opTracker.IsOpInProgress(op.ID) || c.opTracker.IsOpCompleted(op.ID) {
-					c.logger.WithFields(logrus.Fields{
-						"op":                op.ID,
-						"source_node":       op.sourceShard.nodeId,
-						"target_node":       op.targetShard.nodeId,
-						"source_shard":      op.sourceShard.shardId,
-						"target_shard":      op.targetShard.shardId,
-						"source_collection": op.sourceShard.collectionId,
-						"target_collection": op.targetShard.collectionId,
-					}).Debug("operation in progress or already completed")
-					<-c.tokens // Release token if operation is already in progress or completed.
-					continue
-				}
-
-				c.opTracker.AddOp(op.ID)
 
 				wg.Add(1)
 
@@ -672,15 +575,8 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					err := c.processReplicationOp(opCtx, operation.ID, operation)
 					if err != nil && errors.Is(err, context.DeadlineExceeded) {
 						opLogger.WithError(err).Error("replication operation timed out")
-						// Remove the operation from tracking to allow retry
-						c.opTracker.CleanUpOp(operation.ID)
 					} else if err != nil {
 						opLogger.WithError(err).Error("replication operation failed")
-						// Remove the operation from tracking to allow retry
-						c.opTracker.CleanUpOp(operation.ID)
-					} else {
-						c.opTracker.CompleteOp(operation.ID)
-						c.opRetentionPolicy.ScheduleCleanUp(operation.ID)
 					}
 				}, c.logger)
 

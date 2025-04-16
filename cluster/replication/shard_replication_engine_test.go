@@ -586,7 +586,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		require.False(t, engine.IsRunning(), "engine should not be running before start")
 
 		// Run multiple start/stop cycles
-		cycles, err := randInt(5, 10)
+		cycles, err := randInt(t, 5, 10)
 		require.NoError(t, err, "unexpected error when generating rando value")
 
 		for cycle := 1; cycle <= cycles; cycle++ {
@@ -691,7 +691,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			}).Once().Return(context.Canceled)
 
 		logger, _ := logrustest.NewNullLogger()
-		randomOpBufferSize, err := randInt(16, 128)
+		randomOpBufferSize, err := randInt(t, 16, 128)
 		require.NoError(t, err, "error generating random operation buffer")
 		engine := replication.NewShardReplicationEngine(
 			logger,
@@ -731,46 +731,9 @@ func TestShardReplicationEngine(t *testing.T) {
 		mockConsumer.AssertExpectations(t)
 	})
 
-	t.Run("retention policy cleans up operations after TTL", func(t *testing.T) {
-		// GIVEN
-		mockTimer := &replicationMocks.Timer{}
-		testTTL := 2 * time.Minute
-		discardHandlerChan := make(chan uint64, 1)
-		testOpId, err := randInt(1000, 2000)
-		require.NoError(t, err, "error generating random operation ID")
-
-		mockTimer.On("AfterFunc", testTTL, mock.Anything).Run(
-			func(args mock.Arguments) {
-				afterFuncHandler := args.Get(1).(func())
-				// Execute immediately without waiting for TTL for testing purposes
-				afterFuncHandler()
-			}).Return(&time.Timer{})
-
-		// Create retention policy without handler
-		retentionPolicy := replication.NewTTLOpRetentionPolicy(
-			testTTL,
-			mockTimer,
-		)
-
-		retentionPolicy.RegisterOpCleanUpCallback(func(opId uint64) {
-			discardHandlerChan <- opId
-		})
-
-		// WHEN:
-		retentionPolicy.ScheduleCleanUp(uint64(testOpId))
-
-		// THEN
-		select {
-		case discardedOpID := <-discardHandlerChan:
-			require.Equal(t, uint64(testOpId), discardedOpID, "discard handler should be called with correct ID")
-		case <-time.After(100 * time.Millisecond): // Short timeout for test
-			t.Fatal("discard handler was not called")
-		}
-	})
-
 	t.Run("producer creates and consumer processes random operations", func(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
-		opsCount, err := randInt(20, 30)
+		opsCount, err := randInt(t, 20, 30)
 		require.NoError(t, err, "error generating random operation count")
 
 		producedOpsChan := make(chan replication.ShardReplicationOp, opsCount)
@@ -778,7 +741,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		completedOpsChan := make(chan uint64, opsCount)
 		doneChan := make(chan struct{})
 
-		opIds, err := randomOpIds(opsCount)
+		opIds, err := randomOpIds(t, opsCount)
 		require.NoError(t, err, "error generating operation IDs")
 
 		mockTimer := &replicationMocks.TimeProvider{}
@@ -795,7 +758,7 @@ func TestShardReplicationEngine(t *testing.T) {
 				opsChan := args.Get(1).(chan<- replication.ShardReplicationOp)
 
 				for _, opId := range opIds {
-					randomSleepTime, e := randInt(10, 50)
+					randomSleepTime, e := randInt(t, 10, 50)
 					require.NoErrorf(t, e, "error generating random sleep time")
 					time.Sleep(time.Millisecond * time.Duration(randomSleepTime))
 					op := replication.NewShardReplicationOp(opId, "node1", "node2", "TestCollection", "shard1")
@@ -825,7 +788,7 @@ func TestShardReplicationEngine(t *testing.T) {
 							return
 						}
 
-						randomSleepTime, e := randInt(10, 50)
+						randomSleepTime, e := randInt(t, 10, 50)
 						require.NoErrorf(t, e, "error generating random sleep time")
 						time.Sleep(time.Millisecond * time.Duration(randomSleepTime))
 
@@ -910,8 +873,9 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerRestartChan := make(chan struct{}, 1)
 		consumerStartedChan := make(chan struct{}, 1)
 
-		opId := uint64(randomInt(t, 1000, 2000))
-		expectedErr := errors.New(fmt.Sprintf("producer error after sending operation %d", opId))
+		opId, err := randInt(t, 1000, 2000)
+		require.NoErrorf(t, err, "error generating random op id")
+		expectedErr := errors.New(fmt.Sprintf("producer error after sending operation %d", uint64(opId)))
 
 		// First attempt - producer sends one operation then errors
 		mockProducer := &replicationMocks.OpProducer{}
@@ -922,7 +886,7 @@ func TestShardReplicationEngine(t *testing.T) {
 
 				producerStartedChan <- struct{}{}
 
-				op := replication.NewShardReplicationOp(opId, "node1", "node2", "collection1", "shard1")
+				op := replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "collection1", "shard1")
 				select {
 				case <-ctx.Done():
 					return
@@ -949,13 +913,19 @@ func TestShardReplicationEngine(t *testing.T) {
 				<-ctx.Done()
 			}).Return(context.Canceled).Twice()
 
+		randomBufferSize, err := randInt(t, 10, 20)
+		require.NoErrorf(t, err, "error generating random buffer size")
+
+		randomWorkers, err := randInt(t, 2, 5)
+		require.NoErrorf(t, err, "error generating random workers")
+
 		engine := replication.NewShardReplicationEngine(
 			logger,
 			"node1",
 			mockProducer,
 			mockConsumer,
-			randomInt(t, 10, 20),
-			randomInt(t, 2, 5),
+			randomBufferSize,
+			randomWorkers,
 			1*time.Minute,
 		)
 
@@ -1023,7 +993,8 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerRestartChan := make(chan struct{}, 1)
 		consumerRestartChan := make(chan struct{}, 1)
 
-		opId := uint64(randomInt(t, 1000, 2000))
+		opId, err := randInt(t, 1000, 2000)
+		require.NoErrorf(t, err, "error generating random op id")
 		expectedErr := errors.New(fmt.Sprintf("consumer error while processing operation %d", opId))
 
 		mockProducer := &replicationMocks.OpProducer{}
@@ -1036,7 +1007,7 @@ func TestShardReplicationEngine(t *testing.T) {
 
 				producerStartedChan <- struct{}{}
 
-				op := replication.NewShardReplicationOp(opId, "node1", "node2", "collection1", "shard1")
+				op := replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "collection1", "shard1")
 				select {
 				case <-ctx.Done():
 					return
@@ -1083,13 +1054,19 @@ func TestShardReplicationEngine(t *testing.T) {
 				<-ctx.Done()
 			}).Once().Return(context.Canceled)
 
+		randomBufferSize, err := randInt(t, 10, 20)
+		require.NoErrorf(t, err, "error generating random buffer size")
+
+		randomWorkers, err := randInt(t, 2, 5)
+		require.NoErrorf(t, err, "error generating random workers")
+
 		engine := replication.NewShardReplicationEngine(
 			logger,
 			"node1",
 			mockProducer,
 			mockConsumer,
-			randomInt(t, 10, 20),
-			randomInt(t, 2, 5),
+			randomBufferSize,
+			randomWorkers,
 			1*time.Minute,
 		)
 
@@ -1144,8 +1121,9 @@ func TestShardReplicationEngine(t *testing.T) {
 	})
 }
 
-func randomOpIds(count int) ([]uint64, error) {
-	startId, err := randInt(1000, 10000)
+func randomOpIds(t *testing.T, count int) ([]uint64, error) {
+	t.Helper()
+	startId, err := randInt(t, 1000, 10000)
 	if err != nil {
 		return nil, err
 	}
@@ -1161,7 +1139,8 @@ func randomOpIds(count int) ([]uint64, error) {
 	return opIds, nil
 }
 
-func randInt(min, max int) (int, error) {
+func randInt(t *testing.T, min, max int) (int, error) {
+	t.Helper()
 	var randValue [1]byte
 	_, err := rand.Read(randValue[:])
 	if err != nil {
