@@ -1,35 +1,51 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package distributedtask
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jonboulle/clockwork"
 	"github.com/pkg/errors"
 )
 
+const (
+	schedulerTickDuration = 15 * time.Second
+)
+
+type TasksLister interface {
+	ListTasks() map[string][]*Task
+}
+
+// TODO: probably split this as it currently feels awkward
 type TaskStatusChanger interface {
 	RecordDistributedTaskNodeCompletion(ctx context.Context, taskType, taskID string, version uint64) error
+	RecordDistributedTaskNodeFailed(ctx context.Context, taskType, taskID string, version uint64, errMsg string) error
 	CleanUpDistributedTask(ctx context.Context, taskType, taskID string, taskVersion uint64) error
 }
 
-type TaskListProvider interface {
-	TaskList(taskType string) ([]*Task, error)
-}
-
 type TaskHandle interface {
+	// Optional: if it is still running it should terminate, if not should be no-op
 	Terminate()
-}
-
-type Provider interface {
-	GetLocalTaskIDs() []TaskDescriptor
-	CleanupTask(desc TaskDescriptor) error
-	StartTask(task *Task) (TaskHandle, error)
 }
 
 type Scheduler struct {
 	SchedulerParams
 
+	// is accessed only from background goroutine, therefore, no synchronization
+	mu           sync.Mutex // TODO: consider removing this once I add metrics, we can wait on those
 	runningTasks map[string]map[string]TaskHandle
 
 	stopCh chan struct{}
@@ -37,12 +53,14 @@ type Scheduler struct {
 
 type SchedulerParams struct {
 	CompletionRecorder TaskStatusChanger
-	TasksManager       *Manager
+	TasksLister        TasksLister
 	Providers          map[string]Provider
 	Clock              clockwork.Clock
 
 	LocalNode string
 }
+
+// TODO: add observability
 
 func NewScheduler(params SchedulerParams) *Scheduler {
 	if params.Clock == nil {
@@ -51,28 +69,41 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 	return &Scheduler{
 		SchedulerParams: params,
+		runningTasks:    map[string]map[string]TaskHandle{},
+		stopCh:          make(chan struct{}),
 	}
 }
 
 func (s *Scheduler) Start() error {
+	tasksByType := s.TasksLister.ListTasks() // TODO: unify namespace and type
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for namespace, provider := range s.Providers {
-		activeTasks := s.tasksThatShouldBeRunning(namespace)
+		tasks := tasksByType[namespace]
+
+		provider.SetCompletionRecorder(s.CompletionRecorder)
+
+		runnableTasks := s.filterRunnableTasks(tasks)
 
 		localTaskDesc := provider.GetLocalTaskIDs()
 		for _, taskDesc := range localTaskDesc {
-			if _, ok := activeTasks[taskDesc]; ok {
-				handle, err := provider.StartTask(activeTasks[taskDesc])
-				if err != nil {
-					return errors.Wrapf(err, "provider %s start task %v", namespace, taskDesc)
-				}
-
-				s.runningTasks[namespace][taskDesc.ID] = handle
+			if _, ok := runnableTasks[taskDesc]; ok {
 				continue
 			}
 
 			if err := provider.CleanupTask(taskDesc); err != nil {
 				return errors.Wrapf(err, "provider %s cleanup task %v", namespace, taskDesc)
 			}
+		}
+
+		for desc, task := range runnableTasks {
+			handle, err := provider.StartTask(task)
+			if err != nil {
+				return errors.Wrapf(err, "provider %s start task %v", namespace, desc)
+			}
+
+			s.setRunningTaskHandle(namespace, desc.ID, handle)
 		}
 	}
 
@@ -81,39 +112,30 @@ func (s *Scheduler) Start() error {
 	return nil
 }
 
-func (s *Scheduler) tasksThatShouldBeRunning(namespace string) map[TaskDescriptor]*Task {
-	activeTasks := map[TaskDescriptor]*Task{}
-	for _, task := range s.TasksManager.tasks[namespace] {
-		if task.Status == TaskStatusStarted && !task.FinishedNodes[s.LocalNode] {
-			activeTasks[TaskDescriptor{
-				ID:      task.ID,
-				Version: task.Version,
-			}] = task
-		}
-	}
-	return activeTasks
+func (s *Scheduler) filterRunnableTasks(tasks []*Task) map[TaskDescriptor]*Task {
+	return filterTasks(tasks, func(task *Task) bool {
+		return task.Status == TaskStatusStarted && task.FinishedNodes[s.LocalNode] == false
+	})
 }
 
-func (s *Scheduler) finishedTasks(namespace string) map[TaskDescriptor]*Task {
-	// TODO: add implementation
-	//activeTasks := map[TaskDescriptor]*Task{}
-	//for _, task := range s.TasksManager.tasks[namespace] {
-	//	if task.Status == TaskStatusStarted && !task.FinishedNodes[s.LocalNode] {
-	//		activeTasks[TaskDescriptor{
-	//			ID:      task.ID,
-	//			Version: task.Version,
-	//		}] = task
-	//	}
-	//}
-	//return activeTasks
-	return nil
+func filterTasks(tasks []*Task, predicate func(task *Task) bool) map[TaskDescriptor]*Task {
+	filtered := map[TaskDescriptor]*Task{}
+	for _, task := range tasks {
+		if !predicate(task) {
+			continue
+		}
+		filtered[TaskDescriptor{ID: task.ID, Version: task.Version}] = task
+	}
+	return filtered
 }
 
 func (s *Scheduler) loop() {
-	ticker := time.NewTicker(time.Second)
+	ticker := s.Clock.NewTicker(schedulerTickDuration)
+	defer ticker.Stop()
+
 	for {
 		select {
-		case <-ticker.C:
+		case <-ticker.Chan():
 			s.process()
 		case <-s.stopCh:
 			return
@@ -122,9 +144,17 @@ func (s *Scheduler) loop() {
 }
 
 func (s *Scheduler) process() {
+	tasksByType := s.TasksLister.ListTasks() // TODO: unify namespace and type
+	fmt.Println("processing tasks...")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for namespace, provider := range s.Providers {
+		tasks := tasksByType[namespace]
+
 		// 1. collect tasks that are supposed to be running
-		activeTasks := s.tasksThatShouldBeRunning(namespace)
+		activeTasks := s.filterRunnableTasks(tasks)
 		// compare that to tasks that are already running and launch if anything is missing
 		for _, activeTask := range activeTasks {
 			if _, alreadyLaunched := s.runningTasks[namespace][activeTask.ID]; alreadyLaunched {
@@ -136,11 +166,15 @@ func (s *Scheduler) process() {
 				// TODO: think what to do here
 				continue
 			}
-			s.runningTasks[namespace][activeTask.ID] = handle
+
+			s.setRunningTaskHandle(namespace, activeTask.ID, handle)
 		}
 
 		// 2. collect tasks that should not be running
-		finishedTasks := s.finishedTasks(namespace)
+		finishedTasks := filterTasks(tasks, func(task *Task) bool {
+			return task.Status != TaskStatusStarted || task.FinishedNodes[s.LocalNode] == true
+		})
+
 		// compare that to tasks that are running, cancel them and remove from the list.
 		for _, finishedTask := range finishedTasks {
 			handle, ok := s.runningTasks[namespace][finishedTask.ID]
@@ -148,16 +182,43 @@ func (s *Scheduler) process() {
 				continue
 			}
 			handle.Terminate()
+			delete(s.runningTasks[namespace], finishedTask.ID)
 		}
 		// Cancelled task has a responsibility to clean up after itself in the same way as it would clean up
 		// if completed successfully
 
 		// 3. for tasks are not running for a long time, send a cleanup request
-		for _, finishedTask := range finishedTasks {
-			err := s.CompletionRecorder.CleanUpDistributedTask(context.Background(), namespace, finishedTask.ID, finishedTask.Version)
+		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
+			return task.Status != TaskStatusStarted && completedTaskTTL <= s.Clock.Since(task.FinishedAt)
+		})
+		for _, task := range cleanableTasks {
+			err := s.CompletionRecorder.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
 			if err != nil { // TODO: check the error
-
+				// TODO: log?
+				continue
 			}
 		}
 	}
+}
+
+func (s *Scheduler) setRunningTaskHandle(namespace string, taskID string, handle TaskHandle) {
+	if _, ok := s.runningTasks[namespace]; !ok {
+		s.runningTasks[namespace] = map[string]TaskHandle{}
+	}
+	s.runningTasks[namespace][taskID] = handle
+}
+
+func (s *Scheduler) Close() {
+	close(s.stopCh)
+}
+
+func (s *Scheduler) totalRunningTaskCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	count := 0
+	for _, tasks := range s.runningTasks {
+		count += len(tasks)
+	}
+	return count
 }

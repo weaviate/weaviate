@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package distributedtask
 
 import (
@@ -7,13 +18,24 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
+// TODO: unify error lib
+// TODO: check what happens in our raft implementation if we return an error
+// TODO: integrate into backups
+
 var (
+	// TODO: think through which errors can be ignored and remove these random ones
 	ErrTaskDoesNotExist      = errors.New("task does not exist")
 	ErrTaskIsNoLongerRunning = errors.New("task is no longer running")
+)
+
+const (
+	completedTaskTTL = time.Hour * 24 // TODO: config
 )
 
 type TaskStatus string
@@ -79,11 +101,17 @@ func (t *Task) Clone() *Task {
 type Manager struct {
 	mu    sync.Mutex
 	tasks map[string]map[string]*Task // taskID -> taskType -> Task
+
+	logger logrus.FieldLogger
+	clock  clockwork.Clock
 }
 
-func NewManager() *Manager {
+func NewManager(clock clockwork.Clock, logger logrus.FieldLogger) *Manager {
 	return &Manager{
 		tasks: make(map[string]map[string]*Task),
+
+		logger: logger,
+		clock:  clock,
 	}
 }
 
@@ -96,14 +124,17 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	task := m.findTaskWithLock(r.Type, r.Id)
 	if task != nil {
-		if task.Status != TaskStatusStarted {
+		if task.Status == TaskStatusStarted {
 			return fmt.Errorf("task %s/%s is already running with version %d", r.Type, r.Id, task.Version) // TODO: unify error messages
 		}
-	}
 
-	// TODO: check if a task with given version already exists
+		if seqNum <= task.Version {
+			return fmt.Errorf("task %s/%s is already finished with version %d", r.Type, r.Id, task.Version)
+		}
+	}
 
 	m.setTaskWithLock(&Task{
 		Type:           r.Type,
@@ -113,6 +144,12 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		StartedAt:      time.UnixMilli(r.SubmittedAtUnixMillis),
 		FinishedNodes:  map[string]bool{},
 	})
+
+	m.logger.WithFields(logrus.Fields{
+		"taskNamespace": r.Type,
+		"taskID":        r.Id,
+		"taskVersion":   seqNum,
+	}).Info("added task to the cluster")
 
 	return nil
 }
@@ -138,6 +175,14 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 	if r.Error != nil {
 		task.Status = TaskStatusFailed
 		task.Error = *r.Error
+		task.FinishedAt = time.UnixMilli(r.FinishedAtUnixMillis)
+
+		m.logger.WithFields(logrus.Fields{
+			"taskNamespace": r.Type,
+			"taskID":        r.Id,
+			"taskVersion":   task.Version,
+			"error":         *r.Error,
+		}).Info("task failed")
 		return nil
 	}
 
@@ -145,6 +190,12 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 	if len(task.FinishedNodes) == numberOfNodesInTheCluster {
 		task.Status = TaskStatusFinished
 		task.FinishedAt = time.UnixMilli(r.FinishedAtUnixMillis)
+
+		m.logger.WithFields(logrus.Fields{
+			"taskNamespace": r.Type,
+			"taskID":        r.Id,
+			"taskVersion":   task.Version,
+		}).Info("task completed")
 		return nil
 	}
 
@@ -172,6 +223,12 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	task.Status = TaskStatusCancelled
 	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
 
+	m.logger.WithFields(logrus.Fields{
+		"taskNamespace": r.Type,
+		"taskID":        r.Id,
+		"taskVersion":   task.Version,
+	}).Info("task cancelled")
+
 	return nil
 }
 
@@ -193,14 +250,40 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return errors.New("task is still running") // TODO: unify error messages
 	}
 
-	// TODO: constant
-	// TODO: fake clock
-	if time.Since(task.FinishedAt) < time.Hour*24 {
+	if m.clock.Since(task.FinishedAt) <= completedTaskTTL {
 		return errors.New("task is too fresh to clean up")
 	}
 
 	delete(m.tasks[task.Type], task.ID)
+
+	m.logger.WithFields(logrus.Fields{
+		"taskNamespace": r.Type,
+		"taskID":        r.Id,
+		"taskVersion":   task.Version,
+		"startedAt":     task.StartedAt.String(),
+	}).Info("task cleaned up")
+
 	return nil
+}
+
+func (m *Manager) ListTasks() map[string][]*Task {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	result := make(map[string][]*Task, len(m.tasks))
+
+	for namespace, tasks := range m.tasks {
+		if len(tasks) == 0 {
+			continue
+		}
+
+		result[namespace] = make([]*Task, 0, len(tasks))
+		for _, task := range tasks {
+			result[namespace] = append(result[namespace], task.Clone())
+		}
+	}
+
+	return result
 }
 
 func (m *Manager) findVersionedTaskWithLock(taskType, taskID string, taskVersion uint64) (*Task, error) {
