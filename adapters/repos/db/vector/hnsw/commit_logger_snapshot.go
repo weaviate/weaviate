@@ -49,6 +49,10 @@ func snapshotTimestamp(path string) (int64, error) {
 	return asTimeStamp(strings.TrimSuffix(filepath.Base(path), ".snapshot"))
 }
 
+func snapshotDirectory(rootPath, name string) string {
+	return fmt.Sprintf("%s/%s.hnsw.snapshot.d", rootPath, name)
+}
+
 // Creates a snapshot of the commit log and returns the deserialized state.
 // The snapshot is created from the last snapshot if any, or from the entire commit
 // log.
@@ -69,6 +73,11 @@ func (l *hnswCommitLogger) CreateOrLoadSnapshot() (*DeserializationResult, int64
 }
 
 func (l *hnswCommitLogger) createOrLoadSnapshot(load bool) (*DeserializationResult, int64, error) {
+	err := os.MkdirAll(snapshotDirectory(l.rootPath, l.id), 0o755)
+	if err != nil {
+		return nil, 0, errors.Wrapf(err, "create snapshot directory")
+	}
+
 	snapshot, from, immutableFiles, err := l.shouldSnapshot()
 	if err != nil {
 		return nil, 0, err
@@ -179,16 +188,21 @@ func (l *hnswCommitLogger) shouldSnapshot() (string, int64, []string, error) {
 }
 
 func (l *hnswCommitLogger) snapshotFileName(commitLogFileName string) string {
-	return strings.Replace(commitLogFileName, ".condensed", ".snapshot", 1)
+	return strings.Replace(strings.Replace(commitLogFileName, ".condensed", ".snapshot", 1), "hnsw.commitlog.d", "hnsw.snapshot.d", 1)
 }
 
 // read the directory and find the latest snapshot file
 func (l *hnswCommitLogger) getLastSnapshotName() (string, error) {
-	commitLogDir := commitLogDirectory(l.rootPath, l.id)
+	snapshotDir := snapshotDirectory(l.rootPath, l.id)
 
-	files, err := os.ReadDir(commitLogDir)
+	files, err := os.ReadDir(snapshotDir)
 	if err != nil {
-		return "", errors.Wrapf(err, "read snapshot directory %q", commitLogDir)
+		if errors.Is(err, os.ErrNotExist) {
+			// no snapshot directory, no snapshot
+			return "", nil
+		}
+
+		return "", errors.Wrapf(err, "read snapshot directory %q", snapshotDir)
 	}
 
 	for i := len(files) - 1; i >= 0; i-- {
@@ -199,7 +213,7 @@ func (l *hnswCommitLogger) getLastSnapshotName() (string, error) {
 
 		name := file.Name()
 		if strings.HasSuffix(name, ".snapshot") {
-			return filepath.Join(commitLogDir, name), nil
+			return filepath.Join(snapshotDir, name), nil
 		}
 	}
 
@@ -209,11 +223,11 @@ func (l *hnswCommitLogger) getLastSnapshotName() (string, error) {
 
 // cleanupSnapshots removes all snapshots, checkpoints and temporary files older than the given timestamp.
 func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
-	commitLogDir := commitLogDirectory(l.rootPath, l.id)
+	snapshotDir := snapshotDirectory(l.rootPath, l.id)
 
-	files, err := os.ReadDir(commitLogDir)
+	files, err := os.ReadDir(snapshotDir)
 	if err != nil {
-		return errors.Wrapf(err, "read snapshot directory %q", commitLogDir)
+		return errors.Wrapf(err, "read snapshot directory %q", snapshotDir)
 	}
 	for _, file := range files {
 		name := file.Name()
@@ -221,7 +235,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 		if strings.HasSuffix(name, ".snapshot.tmp") {
 			// a temporary snapshot file was found which means that a previous
 			// snapshoting process never completed, we can safely remove it.
-			err := os.Remove(filepath.Join(commitLogDir, name))
+			err := os.Remove(filepath.Join(snapshotDir, name))
 			if err != nil {
 				return errors.Wrapf(err, "remove tmp snapshot file %q", name)
 			}
@@ -235,7 +249,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 			}
 
 			if i < before {
-				err := os.Remove(filepath.Join(commitLogDir, name))
+				err := os.Remove(filepath.Join(snapshotDir, name))
 				if err != nil {
 					return errors.Wrapf(err, "remove snapshot file %q", name)
 				}
@@ -250,7 +264,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 			}
 
 			if i < before {
-				err := os.Remove(filepath.Join(commitLogDir, name))
+				err := os.Remove(filepath.Join(snapshotDir, name))
 				if err != nil {
 					return errors.Wrapf(err, "remove checkpoints file %q", name)
 				}
@@ -411,7 +425,7 @@ func (l *hnswCommitLogger) getImmutableCondensedFiles(fileNames []string) ([]str
 }
 
 func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) *DeserializationResult {
-	dir := commitLogDirectory(rootPath, name)
+	dir := snapshotDirectory(rootPath, name)
 
 	files, err := os.ReadDir(dir)
 	if err != nil {
