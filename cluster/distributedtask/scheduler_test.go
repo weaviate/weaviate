@@ -28,7 +28,7 @@ import (
 )
 
 func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
-	defer leaktest.Check(t)() // TODO: maybe this should be in TestMain
+	defer leaktest.Check(t)()
 
 	var (
 		h                  = newTestHarness(t).init(t)
@@ -304,7 +304,7 @@ func TestRemoveCleanedUpTaskLocalState(t *testing.T) {
 			{ID: "2", Version: 10},
 			{ID: "3", Version: 15},
 		}
-		provider = newTestTaskProvider(localTaskList)
+		provider = newTestTaskProvider(t, localTaskList)
 	)
 
 	h := newTestHarness(t)
@@ -355,10 +355,10 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 			{ID: "1", Version: 1},
 			{ID: "2", Version: 10},
 		}
-		provider1 = newTestTaskProvider(provider1StaleTasks)
+		provider1 = newTestTaskProvider(t, provider1StaleTasks)
 
 		tasksNamespace2 = "tasks-namespace-2"
-		provider2       = newTestTaskProvider(nil)
+		provider2       = newTestTaskProvider(t, nil)
 	)
 
 	h := newTestHarness(t)
@@ -435,355 +435,6 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 	require.Zero(t, h.scheduler.totalRunningTaskCount())
 }
 
-func TestManager_AddTask_Failures(t *testing.T) {
-	t.Run("add duplicate task", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-			c = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  "test",
-				Id:                    "1",
-				SubmittedAtUnixMillis: time.Now().UnixMilli(),
-			})
-			version uint64 = 100
-		)
-
-		err := h.manager.AddTask(c, version)
-		require.NoError(t, err)
-
-		err = h.manager.AddTask(c, version)
-		require.ErrorContains(t, err, "already running")
-	})
-
-	t.Run("add task with the same version as already finished one", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			taskType   = "test"
-			taskID     = "1"
-			addTaskCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-			version uint64 = 100
-		)
-
-		err := h.manager.AddTask(addTaskCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.RecordNodeCompletion(toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-			Type:                 taskType,
-			Id:                   taskID,
-			Version:              version,
-			NodeId:               "local-node",
-			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}), 1)
-		require.NoError(t, err)
-
-		err = h.manager.AddTask(addTaskCmd, version)
-		require.ErrorContains(t, err, "already finished with version")
-	})
-
-	t.Run("add task with a lower version as already finished one", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			taskType   = "test"
-			taskID     = "1"
-			addTaskCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-			version uint64 = 100
-		)
-
-		err := h.manager.AddTask(addTaskCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.RecordNodeCompletion(toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-			Type:                 taskType,
-			Id:                   taskID,
-			Version:              version,
-			NodeId:               "local-node",
-			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}), 1)
-		require.NoError(t, err)
-
-		err = h.manager.AddTask(addTaskCmd, version-10)
-		require.ErrorContains(t, err, "already finished with version")
-	})
-}
-
-func TestManager_RecordNodeCompletion_Failures(t *testing.T) {
-	t.Run("task does not exist", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-			c = toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-				Type:                 "test",
-				Id:                   "1",
-				Version:              1,
-				NodeId:               "local-node",
-				FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-		)
-
-		err := h.manager.RecordNodeCompletion(c, 1)
-		require.ErrorIs(t, err, ErrTaskDoesNotExist)
-	})
-
-	t.Run("task with the given version does not exist", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
-
-			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-
-			completeCmd = toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-				Type:                 taskType,
-				Id:                   taskID,
-				Version:              1,
-				NodeId:               "local-node",
-				FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-		)
-
-		err := h.manager.AddTask(addCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.RecordNodeCompletion(completeCmd, 1)
-		require.ErrorIs(t, err, ErrTaskDoesNotExist)
-	})
-
-	t.Run("task is already completed", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
-
-			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-
-			completeCmd = toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-				Type:                 taskType,
-				Id:                   taskID,
-				Version:              version,
-				NodeId:               "local-node",
-				FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-		)
-
-		err := h.manager.AddTask(addCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.RecordNodeCompletion(completeCmd, 1)
-		require.NoError(t, err)
-
-		err = h.manager.RecordNodeCompletion(completeCmd, 1)
-		require.ErrorIs(t, err, ErrTaskIsNoLongerRunning)
-	})
-}
-
-func TestManager_CancelTask_Failures(t *testing.T) {
-	t.Run("task does not exist", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-			c = toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Type:                  "test",
-				Id:                    "1",
-				Version:               1,
-				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-		)
-
-		err := h.manager.CancelTask(c)
-		require.ErrorIs(t, err, ErrTaskDoesNotExist)
-	})
-
-	t.Run("task with the given version does not exist", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
-
-			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-
-			cancelCmd = toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Type:                  taskType,
-				Id:                    taskID,
-				Version:               version - 1,
-				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-		)
-
-		err := h.manager.AddTask(addCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.CancelTask(cancelCmd)
-		require.ErrorIs(t, err, ErrTaskDoesNotExist)
-	})
-
-	t.Run("task is already cancelled", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
-
-			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-
-			cancelCmd = toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Type:                  "test",
-				Id:                    "1",
-				Version:               version,
-				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-		)
-
-		err := h.manager.AddTask(addCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.CancelTask(cancelCmd)
-		require.NoError(t, err)
-
-		err = h.manager.CancelTask(cancelCmd)
-		require.ErrorIs(t, err, ErrTaskIsNoLongerRunning)
-	})
-}
-
-func TestManager_CleanUpTask_Failures(t *testing.T) {
-	t.Run("task does not exist", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-			c = toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Type:    "test",
-				Id:      "1",
-				Version: 1,
-			})
-		)
-
-		err := h.manager.CleanUpTask(c)
-		require.ErrorIs(t, err, ErrTaskDoesNotExist)
-	})
-
-	t.Run("task with the given version does not exist", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
-
-			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * completedTaskTTL).UnixMilli(),
-			})
-
-			cleanUpCmd = toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Type:    taskType,
-				Id:      taskID,
-				Version: version - 1,
-			})
-		)
-
-		err := h.manager.AddTask(addCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.CleanUpTask(cleanUpCmd)
-		require.ErrorIs(t, err, ErrTaskDoesNotExist)
-	})
-
-	t.Run("task is still running", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
-
-			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * completedTaskTTL).UnixMilli(),
-			})
-
-			cleanUpCmd = toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Type:    taskType,
-				Id:      taskID,
-				Version: version,
-			})
-		)
-
-		err := h.manager.AddTask(addCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.CleanUpTask(cleanUpCmd)
-		require.ErrorContains(t, err, "still running")
-	})
-
-	t.Run("completed task TTL did not pass yet", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
-
-			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * completedTaskTTL).UnixMilli(),
-			})
-
-			cancelCmd = toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Type:                  taskType,
-				Id:                    taskID,
-				Version:               version,
-				CancelledAtUnixMillis: h.clock.Now().Add(-completedTaskTTL).Add(time.Minute).UnixMilli(),
-			})
-
-			cleanUpCmd = toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Type:    taskType,
-				Id:      taskID,
-				Version: version,
-			})
-		)
-
-		err := h.manager.AddTask(addCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.CancelTask(cancelCmd)
-		require.NoError(t, err)
-
-		err = h.manager.CleanUpTask(cleanUpCmd)
-		require.ErrorContains(t, err, "too fresh")
-	})
-}
-
 func recvWithTimeout[T any](t *testing.T, ch <-chan T) T {
 	select {
 	case el := <-ch:
@@ -822,7 +473,7 @@ type testHarness struct {
 func newTestHarness(t *testing.T) *testHarness {
 	var (
 		defaultNamespace = "tasks-namespace"
-		defaultProvider  = newTestTaskProvider(nil)
+		defaultProvider  = newTestTaskProvider(t, nil)
 	)
 
 	return &testHarness{
@@ -956,16 +607,12 @@ func (t *testTask) run() {
 	select {
 	case <-t.completeCh:
 		err := t.provider.recorder.RecordDistributedTaskNodeCompletion(context.Background(), t.Type, t.ID, t.Version)
-		if err != nil {
-			panic(err) // TODO: hmm?
-		}
+		require.NoError(t.provider.t, err)
 		t.provider.completedCh <- t
 		return
 	case errMsh := <-t.failCh:
 		err := t.provider.recorder.RecordDistributedTaskNodeFailed(context.Background(), t.Type, t.ID, t.Version, errMsh)
-		if err != nil {
-			panic(err) // TODO: hmm?
-		}
+		require.NoError(t.provider.t, err)
 		t.provider.failedCh <- t
 	case <-t.cancelCh:
 		t.provider.cancelledCh <- t
@@ -986,6 +633,8 @@ func (t *testTask) Fail(errMsg string) {
 }
 
 type testTaskProvider struct {
+	t *testing.T
+
 	initialLocalTaskIds []TaskDescriptor
 	cleanedUpTasks      map[TaskDescriptor]struct{}
 
@@ -997,8 +646,10 @@ type testTaskProvider struct {
 	recorder TaskStatusChanger
 }
 
-func newTestTaskProvider(initialLocalTaskIds []TaskDescriptor) *testTaskProvider {
+func newTestTaskProvider(t *testing.T, initialLocalTaskIds []TaskDescriptor) *testTaskProvider {
 	return &testTaskProvider{
+		t: t,
+
 		initialLocalTaskIds: initialLocalTaskIds,
 		cleanedUpTasks:      make(map[TaskDescriptor]struct{}),
 

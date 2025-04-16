@@ -109,6 +109,8 @@ message QueryRequest {
     TYPE_GET_USERS = 61;
     TYPE_USER_IDENTIFIER_EXISTS = 62;
     TYPE_GET_REPLICATION_DETAILS = 200;
+
+    TYPE_DISTRIBUTED_TASK_LIST = 300;
   }
 
   Type type = 1;
@@ -159,6 +161,46 @@ message DeleteTenantsRequest {
 message Tenant {
   string name = 1;
   string status = 2;
+}
+
+enum DistributedTaskStatus {
+  STARTED = 0;
+  FINISHED = 1;
+  CANCELLED = 2;
+  FAILED = 3;
+}
+
+// TODO: add comments
+message DistributedTaskDescriptor {
+  // ID is the identifier of the task in the namespace of Type.
+  string id = 1;
+
+  // Version is the version of the task with task ID.
+  // It is used to differentiate between multiple runs of the same task.
+  uint64 version = 2;
+}
+
+message DistributedTask {
+  // Namespace is the namespace of tasks which are tracked and executed separately.
+  string namespace = 1;
+
+  DistributedTaskDescriptor desc = 2;
+
+  bytes payload = 3;
+
+  DistributedTaskStatus status = 4;
+
+  uint64 startedAtMillis = 5;
+
+  uint64 finishedAtMillis = 6;
+  
+  optional string error = 7;
+
+  map<string, bool> finishedNodes = 8;
+}
+
+message ListDistributedTasksResponse {
+  repeated DistributedTask tasks = 1;
 }
 
 message AddDistributedTaskRequest {

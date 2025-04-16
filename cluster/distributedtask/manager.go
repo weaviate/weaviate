@@ -24,9 +24,10 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// TODO: unify error lib
-// TODO: check what happens in our raft implementation if we return an error
 // TODO: integrate into backups
+// TODO: unify error lib
+// TODO: move stuff to types
+// TODO: add tests for raft code?
 
 var (
 	// TODO: think through which errors can be ignored and remove these random ones
