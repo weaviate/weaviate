@@ -296,6 +296,6 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 			}
 			return nil, entlsmkv.NotFound
 		},
-		bitmapFactory: roaringset.NewBitmapFactory(func() uint64 { return maxDocID }),
+		bitmapFactory: roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxDocID }),
 	}
 }
