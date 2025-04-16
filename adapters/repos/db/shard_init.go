@@ -21,11 +21,13 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -33,7 +35,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (_ *Shard, err error) {
-	before := time.Now()
+	start := time.Now()
 
 	index.logger.WithFields(logrus.Fields{
 		"action": "init_shard",
@@ -57,8 +59,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		shut:         false,
 		shutdownLock: new(sync.RWMutex),
 
-		status: NewShardStatus(),
+		status: ShardStatus{Status: storagestate.StatusLoading},
 	}
+
+	index.metrics.shardsCount.WithLabelValues(storagestate.StatusLoading.String()).Inc()
 
 	defer func() {
 		p := recover()
@@ -90,12 +94,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 	}()
 
+	defer func() {
+		index.metrics.ObserveUpdateShardStatus(s.status.Status.String(), time.Since(start))
+	}()
+
 	s.activityTracker.Store(1) // initial state
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
 
-	defer s.metrics.ShardStartup(before)
+	defer index.metrics.ShardStartup(start)
 
 	_, err = os.Stat(s.path())
 	exists := false
@@ -154,9 +162,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s.NotifyReady()
 
 	if exists {
-		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(before))
+		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
 	} else {
-		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
+		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
 	}
 	return s, nil
 }
@@ -173,7 +181,7 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 }
 
 func (s *Shard) NotifyReady() {
-	s.initStatus()
+	s.UpdateStatus(storagestate.StatusReady.String())
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
