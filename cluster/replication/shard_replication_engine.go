@@ -447,7 +447,6 @@ type OpRetentionPolicy interface {
 // OpCleanUpCallback extends OpRetentionPolicy with the ability to register a callback handler
 // that will be invoked when an operation is scheduled for cleanup.
 type OpCleanUpCallback interface {
-	OpRetentionPolicy
 	// RegisterOpCleanUpCallback allows a handler to be registered that will be called when an operation
 	// is ready for cleanup.
 	RegisterOpCleanUpCallback(handler OpCleanupHandler)
