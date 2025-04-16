@@ -83,54 +83,70 @@ func (s *SegmentInMemory) MergeMemtable(memtable *Memtable) error {
 	return nil
 }
 
-func (s *SegmentInMemory) Reader() (reader InnerReader, release func()) {
-	// TODO aliszka:roaringrange optimize locking?
-	s.lock.RLock()
-	return newSegmentInMemoryReader(s.bitmaps), s.lock.RUnlock
+func (s *SegmentInMemory) Size() int {
+	size := 0
+	for i := range s.bitmaps {
+		size += s.bitmaps[i].LenInBytes()
+	}
+	return size
 }
 
 // -----------------------------------------------------------------------------
 
 type segmentInMemoryReader struct {
 	bitmaps rangeBitmaps
+	bufPool roaringset.BitmapBufPool
 }
 
-func newSegmentInMemoryReader(bitmaps rangeBitmaps) *segmentInMemoryReader {
-	return &segmentInMemoryReader{bitmaps: bitmaps}
+func NewSegmentInMemoryReader(s *SegmentInMemory, bufPool roaringset.BitmapBufPool,
+) (reader *segmentInMemoryReader, release func()) {
+	// TODO aliszka:roaringrange optimize locking?
+	s.lock.RLock()
+	return &segmentInMemoryReader{
+		bitmaps: s.bitmaps,
+		bufPool: bufPool,
+	}, s.lock.RUnlock
 }
 
 func (r *segmentInMemoryReader) Read(ctx context.Context, value uint64, operator filters.Operator,
-) (roaringset.BitmapLayer, error) {
+) (roaringset.BitmapLayer, func(), error) {
 	if err := ctx.Err(); err != nil {
-		return roaringset.BitmapLayer{}, err
+		return roaringset.BitmapLayer{}, noopRelease, err
 	}
 
 	switch operator {
 	case filters.OperatorEqual:
-		return r.readEqual(value), nil
+		bm, release := r.readEqual(value)
+		return bm, release, nil
 
 	case filters.OperatorNotEqual:
-		return r.readNotEqual(value), nil
+		bm, release := r.readNotEqual(value)
+		return bm, release, nil
 
 	case filters.OperatorLessThan:
-		return r.readLessThan(value), nil
+		bm, release := r.readLessThan(value)
+		return bm, release, nil
 
 	case filters.OperatorLessThanEqual:
-		return r.readLessThanEqual(value), nil
+		bm, release := r.readLessThanEqual(value)
+		return bm, release, nil
 
 	case filters.OperatorGreaterThan:
-		return r.readGreaterThan(value), nil
+		bm, release := r.readGreaterThan(value)
+		return bm, release, nil
 
 	case filters.OperatorGreaterThanEqual:
-		return r.readGreaterThanEqual(value), nil
+		bm, release := r.readGreaterThanEqual(value)
+		return bm, release, nil
 
 	default:
-		return roaringset.BitmapLayer{}, fmt.Errorf("operator %v not supported for segment-in-memory of strategy %q",
-			operator.Name(), "roaringsetrange") // TODO move strategies to separate package?
+		// TODO move strategies to separate package?
+		return roaringset.BitmapLayer{}, noopRelease,
+			fmt.Errorf("operator %v not supported for segment-in-memory of strategy %q", operator.Name(), "roaringsetrange")
 	}
 }
 
-func (r *segmentInMemoryReader) readEqual(value uint64) roaringset.BitmapLayer {
+func (r *segmentInMemoryReader) readEqual(value uint64) (roaringset.BitmapLayer, func()) {
 	if value == 0 {
 		return r.readLessThanEqual(value)
 	}
@@ -138,11 +154,11 @@ func (r *segmentInMemoryReader) readEqual(value uint64) roaringset.BitmapLayer {
 		return r.readGreaterThanEqual(value)
 	}
 
-	eq := r.mergeBetween(value, value+1)
-	return roaringset.BitmapLayer{Additions: eq}
+	eq, eqRelease := r.mergeBetween(value, value+1)
+	return roaringset.BitmapLayer{Additions: eq}, eqRelease
 }
 
-func (r *segmentInMemoryReader) readNotEqual(value uint64) roaringset.BitmapLayer {
+func (r *segmentInMemoryReader) readNotEqual(value uint64) (roaringset.BitmapLayer, func()) {
 	if value == 0 {
 		return r.readGreaterThan(value)
 	}
@@ -150,51 +166,60 @@ func (r *segmentInMemoryReader) readNotEqual(value uint64) roaringset.BitmapLaye
 		return r.readLessThan(value)
 	}
 
-	eq := r.mergeBetween(value, value+1)
-	neq := r.bitmaps[0].Clone().AndNotConc(eq, concurrency.SROAR_MERGE)
-	return roaringset.BitmapLayer{Additions: neq}
+	eq, eqRelease := r.mergeBetween(value, value+1)
+	defer eqRelease()
+
+	neq, neqRelease := r.bufPool.CloneToBuf(r.bitmaps[0])
+	neq.AndNotConc(eq, concurrency.SROAR_MERGE)
+	return roaringset.BitmapLayer{Additions: neq}, neqRelease
 }
 
-func (r *segmentInMemoryReader) readLessThan(value uint64) roaringset.BitmapLayer {
+func (r *segmentInMemoryReader) readLessThan(value uint64) (roaringset.BitmapLayer, func()) {
 	if value == 0 {
 		// no value is < 0
-		return roaringset.BitmapLayer{Additions: sroar.NewBitmap()}
+		return roaringset.BitmapLayer{Additions: sroar.NewBitmap()}, noopRelease
 	}
 
-	gte := r.mergeGreaterThanEqual(value)
-	lt := r.bitmaps[0].Clone().AndNotConc(gte, concurrency.SROAR_MERGE)
-	return roaringset.BitmapLayer{Additions: lt}
+	gte, gteRelease := r.mergeGreaterThanEqual(value)
+	defer gteRelease()
+
+	lt, ltRelease := r.bufPool.CloneToBuf(r.bitmaps[0])
+	lt.AndNotConc(gte, concurrency.SROAR_MERGE)
+	return roaringset.BitmapLayer{Additions: lt}, ltRelease
 }
 
-func (r *segmentInMemoryReader) readLessThanEqual(value uint64) roaringset.BitmapLayer {
+func (r *segmentInMemoryReader) readLessThanEqual(value uint64) (roaringset.BitmapLayer, func()) {
 	if value == math.MaxUint64 {
+		all, allRelease := r.bufPool.CloneToBuf(r.bitmaps[0])
 		// all values are <= max uint64
-		return roaringset.BitmapLayer{Additions: r.bitmaps[0].Clone()}
+		return roaringset.BitmapLayer{Additions: all}, allRelease
 	}
 
-	gte1 := r.mergeGreaterThanEqual(value + 1)
-	lte := r.bitmaps[0].Clone().AndNotConc(gte1, concurrency.SROAR_MERGE)
-	return roaringset.BitmapLayer{Additions: lte}
+	gte1, gte1Release := r.mergeGreaterThanEqual(value + 1)
+	defer gte1Release()
+
+	lte, lteRelease := r.bufPool.CloneToBuf(r.bitmaps[0])
+	lte.AndNotConc(gte1, concurrency.SROAR_MERGE)
+	return roaringset.BitmapLayer{Additions: lte}, lteRelease
 }
 
-func (r *segmentInMemoryReader) readGreaterThan(value uint64) roaringset.BitmapLayer {
+func (r *segmentInMemoryReader) readGreaterThan(value uint64) (roaringset.BitmapLayer, func()) {
 	if value == math.MaxUint64 {
 		// no value is > max uint64
-		return roaringset.BitmapLayer{Additions: sroar.NewBitmap()}
+		return roaringset.BitmapLayer{Additions: sroar.NewBitmap()}, noopRelease
 	}
 
-	gte1 := r.mergeGreaterThanEqual(value + 1)
-	return roaringset.BitmapLayer{Additions: gte1}
+	gte1, gte1Release := r.mergeGreaterThanEqual(value + 1)
+	return roaringset.BitmapLayer{Additions: gte1}, gte1Release
 }
 
-func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64) roaringset.BitmapLayer {
-	gte := r.mergeGreaterThanEqual(value)
-	return roaringset.BitmapLayer{Additions: gte}
+func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64) (roaringset.BitmapLayer, func()) {
+	gte, gteRelease := r.mergeGreaterThanEqual(value)
+	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }
 
-func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64) *sroar.Bitmap {
-	// TODO aliszka:roaringrange use buf pool
-	result := r.bitmaps[0].Clone()
+func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64) (*sroar.Bitmap, func()) {
+	result, release := r.bufPool.CloneToBuf(r.bitmaps[0])
 	ANDed := false
 
 	for bit := 1; bit < len(r.bitmaps); bit++ {
@@ -205,13 +230,13 @@ func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64) *sroar.Bitma
 			result.OrConc(r.bitmaps[bit], concurrency.SROAR_MERGE)
 		}
 	}
-	return result
+	return result, release
 }
 
-func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64) *sroar.Bitmap {
-	// TODO aliszka:roaringrange use buf pool
-	resultMin := r.bitmaps[0].Clone()
-	resultMax := r.bitmaps[0].Clone()
+func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64) (*sroar.Bitmap, func()) {
+	resultMin, releaseMin := r.bufPool.CloneToBuf(r.bitmaps[0])
+	resultMax, releaseMax := r.bufPool.CloneToBuf(r.bitmaps[0])
+	defer releaseMax()
 	ANDedMin := false
 	ANDedMax := false
 
@@ -233,9 +258,11 @@ func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64) *s
 		}
 	}
 
-	return resultMin.AndNotConc(resultMax, concurrency.SROAR_MERGE)
+	return resultMin.AndNotConc(resultMax, concurrency.SROAR_MERGE), releaseMin
 }
 
 // -----------------------------------------------------------------------------
 
 type rangeBitmaps [65]*sroar.Bitmap
+
+var noopRelease = func() {}

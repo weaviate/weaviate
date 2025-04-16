@@ -43,7 +43,7 @@ func (b *Bucket) RoaringSetRangeRemove(key uint64, values ...uint64) error {
 }
 
 type ReaderRoaringSetRange interface {
-	Read(ctx context.Context, value uint64, operator filters.Operator) (*sroar.Bitmap, error)
+	Read(ctx context.Context, value uint64, operator filters.Operator) (result *sroar.Bitmap, release func(), err error)
 	Close()
 }
 
@@ -55,7 +55,7 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	var release func()
 	var readers []roaringsetrange.InnerReader
 	if b.keepSegmentsInMemory {
-		reader, releaseInt := b.disk.roaringSetRangeSegmentInMemory.Reader()
+		reader, releaseInt := roaringsetrange.NewSegmentInMemoryReader(b.disk.roaringSetRangeSegmentInMemory, b.bitmapBufPool)
 		readers, release = []roaringsetrange.InnerReader{reader}, releaseInt
 	} else {
 		readers, release = b.disk.newRoaringSetRangeReaders()

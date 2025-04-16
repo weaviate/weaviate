@@ -145,6 +145,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 				lsmkv.WithUseBloomFilter(false),
 				lsmkv.WithCalcCountNetAdditions(false),
 				lsmkv.WithKeepSegmentsInMemory(s.index.Config.IndexRangeableInMemory),
+				lsmkv.WithBitmapBufPool(s.bitmapBufPool),
 			)...,
 		); err != nil {
 			return err
