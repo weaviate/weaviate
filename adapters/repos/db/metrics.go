@@ -146,7 +146,25 @@ func NewMetrics(
 	return m
 }
 
+func (m *Metrics) UpdateShardStatus(old, new string) {
+	if m.shardsCount == nil {
+		return
+	}
+
+	if old == "" {
+		m.shardsCount.WithLabelValues(new).Inc()
+		return
+	}
+
+	m.shardsCount.WithLabelValues(old).Dec()
+	m.shardsCount.WithLabelValues(new).Inc()
+}
+
 func (m *Metrics) ObserveUpdateShardStatus(status string, duration time.Duration) {
+	if m.shardStatusUpdateDurationsSeconds == nil {
+		return
+	}
+
 	m.shardStatusUpdateDurationsSeconds.With(prometheus.Labels{"status": status}).Observe(float64(duration.Seconds()))
 }
 

@@ -95,8 +95,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		return err
 	}
 
-	s.index.metrics.shardsCount.WithLabelValues(oldStatus.String()).Dec()
-	s.index.metrics.shardsCount.WithLabelValues(targetStatus.String()).Inc()
+	s.index.metrics.UpdateShardStatus(oldStatus.String(), targetStatus.String())
 
 	s.index.logger.
 		WithField("action", "update shard status").

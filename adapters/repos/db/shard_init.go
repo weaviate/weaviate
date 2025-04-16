@@ -62,7 +62,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		status: ShardStatus{Status: storagestate.StatusLoading},
 	}
 
-	index.metrics.shardsCount.WithLabelValues(storagestate.StatusLoading.String()).Inc()
+	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
 
 	defer func() {
 		p := recover()
