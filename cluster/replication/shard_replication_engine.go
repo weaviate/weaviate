@@ -229,9 +229,7 @@ func (e *ShardReplicationEngine) Stop() {
 	// Closing the stop channel notifies both the producer and consumer to shut down gracefully coordinating with the
 	// replication engine.
 	close(e.stopChan)
-	if e.cancel != nil {
-		e.cancel()
-	}
+	e.cancel()
 
 	// We use a timeout mechanism to wait for the replication engine to shut down and prevent it from running
 	// indefinitely.
