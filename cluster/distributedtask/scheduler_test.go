@@ -21,6 +21,7 @@ import (
 	"github.com/fortytw2/leaktest"
 	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -476,6 +477,7 @@ func newTestHarness(t *testing.T) *testHarness {
 	var (
 		defaultNamespace = "tasks-namespace"
 		defaultProvider  = newTestTaskProvider(t, nil)
+		logger, _        = logrustest.NewNullLogger()
 	)
 
 	return &testHarness{
@@ -485,7 +487,7 @@ func newTestHarness(t *testing.T) *testHarness {
 		completedTaskTTL:      24 * time.Hour,
 		schedulerTickDuration: 30 * time.Second,
 		clock:                 clockwork.NewFakeClock(),
-		logger:                logrus.StandardLogger(),
+		logger:                logger,
 		stateChanger:          mocks.NewTaskStatusChanger(t),
 		provider:              defaultProvider,
 		registeredProviders: map[string]Provider{
@@ -506,6 +508,7 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 		TasksLister:        h.manager,
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
+		Logger:             h.logger,
 		LocalNode:          h.localNodeID,
 		CompletedTaskTTL:   h.completedTaskTTL,
 		TickDuration:       h.schedulerTickDuration,

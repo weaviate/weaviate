@@ -18,10 +18,19 @@ import (
 
 	"github.com/jonboulle/clockwork"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
+// TODO: add an endpoint to purge a task if it causes problems?
+// TODO: expose the task list
+// TODO: add jitter to the scheduler
+// TODO: add observability
+
+// TODO: add comment on Scheduler and Manager
 type Scheduler struct {
-	// is accessed only from background goroutine, therefore, no synchronization
+	// is accessed only from background goroutine, therefore, no synchronization, TODO: so why there is a mutex, m? :D
 	mu           sync.Mutex // TODO: consider removing this once I add metrics, we can wait on those
 	runningTasks map[string]map[string]TaskHandle
 
@@ -34,6 +43,9 @@ type Scheduler struct {
 	completedTaskTTL time.Duration
 	tickDuration     time.Duration
 
+	logger        logrus.FieldLogger
+	sampledLogger *logrusext.Sampler
+
 	stopCh chan struct{}
 }
 
@@ -42,13 +54,13 @@ type SchedulerParams struct {
 	TasksLister        TasksLister
 	Providers          map[string]Provider
 	Clock              clockwork.Clock
+	Logger             logrus.FieldLogger
+	MetricsRegisterer  prometheus.Registerer
 
 	LocalNode        string
 	CompletedTaskTTL time.Duration
 	TickDuration     time.Duration
 }
-
-// TODO: add observability
 
 func NewScheduler(params SchedulerParams) *Scheduler {
 	if params.Clock == nil {
@@ -66,6 +78,9 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		localNode:        params.LocalNode,
 		completedTaskTTL: params.CompletedTaskTTL,
 		tickDuration:     params.TickDuration,
+
+		logger:        params.Logger,
+		sampledLogger: logrusext.NewSampler(params.Logger, 5, 5*params.TickDuration),
 
 		stopCh: make(chan struct{}),
 	}
@@ -90,8 +105,20 @@ func (s *Scheduler) Start() error {
 			}
 
 			if err := provider.CleanupTask(taskDesc); err != nil {
-				return errors.Wrapf(err, "provider %s cleanup task %v", namespace, taskDesc)
+				s.logger.WithFields(logrus.Fields{
+					"namespace":   namespace,
+					"taskID":      taskDesc.ID,
+					"taskVersion": taskDesc.Version,
+					"error":       err,
+				}).Error("failed to clean up local distributed task state")
+				continue
 			}
+
+			s.logger.WithFields(logrus.Fields{
+				"namespace":   namespace,
+				"taskID":      taskDesc.ID,
+				"taskVersion": taskDesc.Version,
+			}).Info("cleaned up local distributed task state")
 		}
 
 		for desc, task := range runnableTasks {
@@ -100,7 +127,12 @@ func (s *Scheduler) Start() error {
 				return errors.Wrapf(err, "provider %s start task %v", namespace, desc)
 			}
 
-			s.setRunningTaskHandle(namespace, desc.ID, handle)
+			s.setRunningTaskHandleWithLock(namespace, desc.ID, handle)
+			s.logger.WithFields(logrus.Fields{
+				"namespace":   namespace,
+				"taskID":      desc.ID,
+				"taskVersion": desc.Version,
+			}).Info("started distributed task execution")
 		}
 	}
 
@@ -149,9 +181,9 @@ func (s *Scheduler) tick() {
 	for namespace, provider := range s.providers {
 		tasks := tasksByNamespace[namespace]
 
-		// 1. collect tasks that are supposed to be running
+		// Phase #1: check all tasks that are supposed to be running
+		// and launch if they aren't.
 		activeTasks := s.filterRunnableTasks(tasks)
-		// compare that to tasks that are already running and launch if anything is missing
 		for _, activeTask := range activeTasks {
 			if _, alreadyLaunched := s.runningTasks[namespace][activeTask.ID]; alreadyLaunched {
 				continue
@@ -159,19 +191,30 @@ func (s *Scheduler) tick() {
 
 			handle, err := provider.StartTask(activeTask)
 			if err != nil {
-				// TODO: think what to do here
+				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
+					l.WithFields(logrus.Fields{
+						"namespace":   namespace,
+						"taskID":      activeTask.ID,
+						"taskVersion": activeTask.Version,
+						"error":       err,
+					}).Error("failed to start distributed task")
+				})
 				continue
 			}
 
-			s.setRunningTaskHandle(namespace, activeTask.ID, handle)
+			s.setRunningTaskHandleWithLock(namespace, activeTask.ID, handle)
+			s.logger.WithFields(logrus.Fields{
+				"namespace":   namespace,
+				"taskID":      activeTask.ID,
+				"taskVersion": activeTask.Version,
+			}).Info("started distributed task execution")
 		}
 
-		// 2. collect tasks that should not be running
+		// Phase #2: check all tasks that are not supposed to be running,
+		// and terminate them if they are.
 		finishedTasks := filterTasks(tasks, func(task *Task) bool {
 			return task.Status != TaskStatusStarted || task.FinishedNodes[s.localNode] == true
 		})
-
-		// compare that to tasks that are running, cancel them and remove from the list.
 		for _, finishedTask := range finishedTasks {
 			handle, ok := s.runningTasks[namespace][finishedTask.ID]
 			if !ok {
@@ -179,25 +222,43 @@ func (s *Scheduler) tick() {
 			}
 			handle.Terminate()
 			delete(s.runningTasks[namespace], finishedTask.ID)
-		}
-		// Cancelled task has a responsibility to clean up after itself in the same way as it would clean up
-		// if completed successfully
 
-		// 3. for tasks are not running for a long time, send a cleanup request
+			s.logger.WithFields(logrus.Fields{
+				"namespace":   namespace,
+				"taskID":      finishedTask.ID,
+				"taskVersion": finishedTask.Version,
+			}).Info("terminated distributed task execution")
+		}
+
+		// Phase #3: check all tasks that are already finished and if their TTL has passed, so we can
+		// clean them up.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			return task.Status != TaskStatusStarted && s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
 		})
 		for _, task := range cleanableTasks {
 			err := s.completionRecorder.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
-			if err != nil { // TODO: check the error
-				// TODO: log?
+			if err != nil {
+				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
+					l.WithFields(logrus.Fields{
+						"namespace":   namespace,
+						"taskID":      task.ID,
+						"taskVersion": task.Version,
+						"error":       err,
+					}).Error("failed to clean up distributed task")
+				})
 				continue
 			}
+
+			s.logger.WithFields(logrus.Fields{
+				"namespace":   namespace,
+				"taskID":      task.ID,
+				"taskVersion": task.Version,
+			}).Info("successfully submitted request to clean up distributed task")
 		}
 	}
 }
 
-func (s *Scheduler) setRunningTaskHandle(namespace string, taskID string, handle TaskHandle) {
+func (s *Scheduler) setRunningTaskHandleWithLock(namespace string, taskID string, handle TaskHandle) {
 	if _, ok := s.runningTasks[namespace]; !ok {
 		s.runningTasks[namespace] = map[string]TaskHandle{}
 	}

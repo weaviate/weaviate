@@ -60,10 +60,9 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 }
 
-// TODO: mention that this seqNum should be monotonically increasing
 func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	var r api.AddDistributedTaskRequest
-	if err := json.Unmarshal(c.SubCommand, &r); err != nil { // TODO: refactor into a generic method
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return errors.Wrap(err, "unmarshal add task request")
 	}
 
@@ -73,7 +72,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	task := m.findTaskWithLock(r.Namespace, r.Id)
 	if task != nil {
 		if task.Status == TaskStatusStarted {
-			return fmt.Errorf("task %s/%s is already running with version %d", r.Namespace, r.Id, task.Version) // TODO: unify error messages
+			return fmt.Errorf("task %s/%s is already running with version %d", r.Namespace, r.Id, task.Version)
 		}
 
 		if seqNum <= task.Version {
@@ -114,7 +113,7 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 	}
 
 	if task.Status != TaskStatusStarted {
-		return errors.Wrap(ErrTaskIsNoLongerRunning, "task is no longer running") // TODO: unify error messages
+		return errors.Wrap(ErrTaskIsNoLongerRunning, "task is no longer running")
 	}
 
 	if r.Error != nil {
@@ -162,7 +161,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	}
 
 	if task.Status != TaskStatusStarted {
-		return errors.Wrap(ErrTaskIsNoLongerRunning, "task is no longer running") // TODO: unify error messages
+		return errors.Wrap(ErrTaskIsNoLongerRunning, "task is no longer running")
 	}
 
 	task.Status = TaskStatusCancelled
@@ -192,7 +191,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	}
 
 	if task.Status == TaskStatusStarted {
-		return errors.New("task is still running") // TODO: unify error messages
+		return errors.New("task is still running")
 	}
 
 	if m.clock.Since(task.FinishedAt) <= m.completedTaskTTL {

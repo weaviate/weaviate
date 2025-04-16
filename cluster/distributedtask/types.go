@@ -30,6 +30,9 @@ type TaskStatusChanger interface {
 
 type TaskHandle interface {
 	// Optional: if it is still running it should terminate, if not should be no-op
+	// It can clean up the local state after receiving the signal. The state will be cleaned up
+	// by the provider during startup in case task was not able to.
+	// TODO: scheduler should not fail on clean up.
 	Terminate()
 }
 
