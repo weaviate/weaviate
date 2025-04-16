@@ -625,6 +625,15 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			// running replication operations and avoids overloading the system.
 			case c.tokens <- struct{}{}:
 				if c.opTracker.IsOpInProgress(op.ID) || c.opTracker.IsOpCompleted(op.ID) {
+					c.logger.WithFields(logrus.Fields{
+						"op":                op.ID,
+						"source_node":       op.sourceShard.nodeId,
+						"target_node":       op.targetShard.nodeId,
+						"source_shard":      op.sourceShard.shardId,
+						"target_shard":      op.targetShard.shardId,
+						"source_collection": op.sourceShard.collectionId,
+						"target_collection": op.targetShard.collectionId,
+					}).Debug("operation in progress or already completed")
 					<-c.tokens // Release token if operation is already in progress or completed.
 					continue
 				}
@@ -670,7 +679,6 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 						// Remove the operation from tracking to allow retry
 						c.opTracker.CleanUpOp(operation.ID)
 					} else {
-						opLogger.Info("replication operation completed successfully")
 						c.opTracker.CompleteOp(operation.ID)
 						c.opRetentionPolicy.ScheduleCleanUp(operation.ID)
 					}
