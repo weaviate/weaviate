@@ -17,6 +17,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 const (
@@ -113,30 +115,25 @@ func (h *Header) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
 }
 
 func ParseHeader(r io.Reader) (*Header, error) {
+	data := make([]byte, HeaderSize)
+
+	full, err := io.ReadFull(r, data)
+	if err != nil {
+		return nil, err
+	}
+	if full != HeaderSize {
+		return nil, fmt.Errorf("expected %d bytes, got %d", HeaderSize, full)
+	}
+	rw := byteops.NewReadWriter(data)
 	out := &Header{}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.Level); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.Version); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.SecondaryIndices); err != nil {
-		return nil, err
-	}
+	out.Level = rw.ReadUint16()
+	out.Version = rw.ReadUint16()
+	out.SecondaryIndices = rw.ReadUint16()
+	out.Strategy = Strategy(rw.ReadUint16())
+	out.IndexStart = rw.ReadUint64()
 
 	if out.Version > CurrentSegmentVersion {
 		return nil, fmt.Errorf("unsupported version %d", out.Version)
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.Strategy); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.IndexStart); err != nil {
-		return nil, err
 	}
 
 	return out, nil
