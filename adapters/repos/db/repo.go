@@ -222,6 +222,7 @@ type Config struct {
 	Replication                         replication.GlobalConfig
 	MaximumConcurrentShardLoads         int
 	CycleManagerRoutinesFactor          int
+	IndexRangeableInMemory              bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

@@ -66,16 +66,19 @@ func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []Bu
 			reader := b.ReaderRoaringSetRange()
 			defer reader.Close()
 
-			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
+			bm1, release1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release1()
 			assert.ElementsMatch(t, orig1, bm1.ToArray())
 
-			bm2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
+			bm2, release2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release2()
 			assert.ElementsMatch(t, orig2, bm2.ToArray())
 
-			bm3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
+			bm3, release3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release3()
 			assert.ElementsMatch(t, orig3, bm3.ToArray())
 		})
 
@@ -91,16 +94,19 @@ func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []Bu
 			reader := b.ReaderRoaringSetRange()
 			defer reader.Close()
 
-			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
+			bm1, release1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release1()
 			assert.ElementsMatch(t, []uint64{2}, bm1.ToArray()) // unchanged values
 
-			bm2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
+			bm2, release2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release2()
 			assert.ElementsMatch(t, []uint64{3, 4, 5, 7}, bm2.ToArray()) // extended with 5
 
-			bm3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
+			bm3, release3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release3()
 			assert.ElementsMatch(t, []uint64{6}, bm3.ToArray()) // fewer remain
 		})
 	})
@@ -132,16 +138,19 @@ func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []Bu
 			reader := b.ReaderRoaringSetRange()
 			defer reader.Close()
 
-			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
+			bm1, release1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release1()
 			assert.ElementsMatch(t, orig1, bm1.ToArray())
 
-			bm2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
+			bm2, release2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release2()
 			assert.ElementsMatch(t, orig2, bm2.ToArray())
 
-			bm3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
+			bm3, release3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release3()
 			assert.ElementsMatch(t, orig3, bm3.ToArray())
 		})
 
@@ -161,16 +170,19 @@ func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []Bu
 			reader := b.ReaderRoaringSetRange()
 			defer reader.Close()
 
-			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
+			bm1, release1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release1()
 			assert.ElementsMatch(t, []uint64{2}, bm1.ToArray()) // unchanged values
 
-			bm2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
+			bm2, release2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release2()
 			assert.ElementsMatch(t, []uint64{3, 4, 5, 7}, bm2.ToArray()) // extended with 5
 
-			bm3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
+			bm3, release3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release3()
 			assert.ElementsMatch(t, []uint64{6}, bm3.ToArray()) // fewer remain
 		})
 	})
