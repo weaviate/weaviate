@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -350,9 +351,16 @@ func loadWithChecksum(path string, lengthCheck int) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open file for reading: %w", err)
 	}
+	stats, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("get stats: %w", err)
+	}
 
-	buf := new(bytes.Buffer)
-	if _, err := buf.ReadFrom(f); err != nil {
+	fsize := stats.Size()
+	data := make([]byte, fsize)
+	full, err := io.ReadFull(f, data)
+
+	if err != nil || fsize != int64(full) {
 		// ignoring f.Close() error here, as we don't care about whether the file
 		// was flushed, the call is mainly intended to prevent a file descriptor
 		// leak.  We still want to return the original error below.
@@ -363,7 +371,6 @@ func loadWithChecksum(path string, lengthCheck int) ([]byte, error) {
 		return nil, fmt.Errorf("close bloom filter file: %w", err)
 	}
 
-	data := buf.Bytes()
 	if lengthCheck > 0 && len(data) != lengthCheck {
 		return nil, ErrInvalidChecksum
 	}
