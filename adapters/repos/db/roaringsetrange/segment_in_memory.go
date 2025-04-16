@@ -91,12 +91,6 @@ func (s *SegmentInMemory) Size() int {
 	return size
 }
 
-func (s *SegmentInMemory) Reader(bufPool roaringset.BitmapBufPool) (reader InnerReader, release func()) {
-	// TODO aliszka:roaringrange optimize locking?
-	s.lock.RLock()
-	return newSegmentInMemoryReader(s.bitmaps, bufPool), s.lock.RUnlock
-}
-
 // -----------------------------------------------------------------------------
 
 type segmentInMemoryReader struct {
@@ -104,11 +98,14 @@ type segmentInMemoryReader struct {
 	bufPool roaringset.BitmapBufPool
 }
 
-func newSegmentInMemoryReader(bitmaps rangeBitmaps, bufPool roaringset.BitmapBufPool) *segmentInMemoryReader {
+func NewSegmentInMemoryReader(s *SegmentInMemory, bufPool roaringset.BitmapBufPool,
+) (reader *segmentInMemoryReader, release func()) {
+	// TODO aliszka:roaringrange optimize locking?
+	s.lock.RLock()
 	return &segmentInMemoryReader{
-		bitmaps: bitmaps,
+		bitmaps: s.bitmaps,
 		bufPool: bufPool,
-	}
+	}, s.lock.RUnlock
 }
 
 func (r *segmentInMemoryReader) Read(ctx context.Context, value uint64, operator filters.Operator,
