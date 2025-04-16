@@ -13,7 +13,7 @@ func TestManager_AddTask_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 			c = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  "test",
+				Namespace:             "test",
 				Id:                    "1",
 				SubmittedAtUnixMillis: time.Now().UnixMilli(),
 			})
@@ -31,10 +31,10 @@ func TestManager_AddTask_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 
-			taskType   = "test"
+			namespace  = "test"
 			taskID     = "1"
 			addTaskCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
+				Namespace:             namespace,
 				Id:                    taskID,
 				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 			})
@@ -45,7 +45,7 @@ func TestManager_AddTask_Failures(t *testing.T) {
 		require.NoError(t, err)
 
 		err = h.manager.RecordNodeCompletion(toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-			Type:                 taskType,
+			Namespace:            namespace,
 			Id:                   taskID,
 			Version:              version,
 			NodeId:               "local-node",
@@ -61,10 +61,10 @@ func TestManager_AddTask_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 
-			taskType   = "test"
+			namespace  = "test"
 			taskID     = "1"
 			addTaskCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
+				Namespace:             namespace,
 				Id:                    taskID,
 				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 			})
@@ -75,7 +75,7 @@ func TestManager_AddTask_Failures(t *testing.T) {
 		require.NoError(t, err)
 
 		err = h.manager.RecordNodeCompletion(toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-			Type:                 taskType,
+			Namespace:            namespace,
 			Id:                   taskID,
 			Version:              version,
 			NodeId:               "local-node",
@@ -93,7 +93,7 @@ func TestManager_RecordNodeCompletion_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 			c = toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-				Type:                 "test",
+				Namespace:            "test",
 				Id:                   "1",
 				Version:              1,
 				NodeId:               "local-node",
@@ -109,18 +109,18 @@ func TestManager_RecordNodeCompletion_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
+			namespace        = "test"
+			taskID           = "1"
+			version   uint64 = 10
 
 			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
+				Namespace:             namespace,
 				Id:                    taskID,
 				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 			})
 
 			completeCmd = toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-				Type:                 taskType,
+				Namespace:            namespace,
 				Id:                   taskID,
 				Version:              1,
 				NodeId:               "local-node",
@@ -139,18 +139,18 @@ func TestManager_RecordNodeCompletion_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
+			namespace        = "test"
+			taskID           = "1"
+			version   uint64 = 10
 
 			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
+				Namespace:             namespace,
 				Id:                    taskID,
 				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 			})
 
 			completeCmd = toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-				Type:                 taskType,
+				Namespace:            namespace,
 				Id:                   taskID,
 				Version:              version,
 				NodeId:               "local-node",
@@ -174,7 +174,7 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 			c = toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Type:                  "test",
+				Namespace:             "test",
 				Id:                    "1",
 				Version:               1,
 				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
@@ -189,18 +189,18 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
+			namespace        = "test"
+			taskID           = "1"
+			version   uint64 = 10
 
 			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
+				Namespace:             namespace,
 				Id:                    taskID,
 				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 			})
 
 			cancelCmd = toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Type:                  taskType,
+				Namespace:             namespace,
 				Id:                    taskID,
 				Version:               version - 1,
 				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
@@ -218,18 +218,18 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
+			namespace        = "test"
+			taskID           = "1"
+			version   uint64 = 10
 
 			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
+				Namespace:             namespace,
 				Id:                    taskID,
 				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 			})
 
 			cancelCmd = toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Type:                  "test",
+				Namespace:             "test",
 				Id:                    "1",
 				Version:               version,
 				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
@@ -252,9 +252,9 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 			c = toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Type:    "test",
-				Id:      "1",
-				Version: 1,
+				Namespace: "test",
+				Id:        "1",
+				Version:   1,
 			})
 		)
 
@@ -266,20 +266,20 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
+			namespace        = "test"
+			taskID           = "1"
+			version   uint64 = 10
 
 			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
+				Namespace:             namespace,
 				Id:                    taskID,
 				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * completedTaskTTL).UnixMilli(),
 			})
 
 			cleanUpCmd = toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Type:    taskType,
-				Id:      taskID,
-				Version: version - 1,
+				Namespace: namespace,
+				Id:        taskID,
+				Version:   version - 1,
 			})
 		)
 
@@ -294,20 +294,20 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
+			namespace        = "test"
+			taskID           = "1"
+			version   uint64 = 10
 
 			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
+				Namespace:             namespace,
 				Id:                    taskID,
 				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * completedTaskTTL).UnixMilli(),
 			})
 
 			cleanUpCmd = toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Type:    taskType,
-				Id:      taskID,
-				Version: version,
+				Namespace: namespace,
+				Id:        taskID,
+				Version:   version,
 			})
 		)
 
@@ -322,27 +322,27 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 		var (
 			h = newTestHarness(t).init(t)
 
-			taskType        = "test"
-			taskID          = "1"
-			version  uint64 = 10
+			namespace        = "test"
+			taskID           = "1"
+			version   uint64 = 10
 
 			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Type:                  taskType,
+				Namespace:             namespace,
 				Id:                    taskID,
 				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * completedTaskTTL).UnixMilli(),
 			})
 
 			cancelCmd = toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Type:                  taskType,
+				Namespace:             namespace,
 				Id:                    taskID,
 				Version:               version,
 				CancelledAtUnixMillis: h.clock.Now().Add(-completedTaskTTL).Add(time.Minute).UnixMilli(),
 			})
 
 			cleanUpCmd = toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Type:    taskType,
-				Id:      taskID,
-				Version: version,
+				Namespace: namespace,
+				Id:        taskID,
+				Version:   version,
 			})
 		)
 

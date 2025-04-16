@@ -14,7 +14,6 @@ package distributedtask
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"sync"
 	"time"
 
@@ -39,69 +38,9 @@ const (
 	completedTaskTTL = time.Hour * 24 // TODO: config
 )
 
-type TaskStatus string
-
-const (
-	// TaskStatusStarted means that the task is still running on some of the nodes.
-	TaskStatusStarted TaskStatus = "STARTED"
-	// TaskStatusFinished means that the task was successfully executed by all nodes.
-	TaskStatusFinished TaskStatus = "FINISHED"
-	// TaskStatusCancelled means that the task was cancelled by user.
-	TaskStatusCancelled TaskStatus = "CANCELLED"
-	// TaskStatusFailed means that one of the nodes got a non-retryable error and all other nodes
-	// terminated the execution.
-	TaskStatusFailed TaskStatus = "FAILED"
-)
-
-func (t TaskStatus) String() string {
-	return string(t)
-}
-
-// TaskDescriptor is a struct identifying a task execution under a certain task type.
-type TaskDescriptor struct {
-	// ID is the identifier of the task in the namespace of Type.
-	ID string `json:"ID"`
-
-	// Version is the version of the task with task ID.
-	// It is used to differentiate between multiple runs of the same task.
-	Version uint64 `json:"version"`
-}
-
-type Task struct {
-	// Type is the namespace of distributed tasks.
-	Type string `json:"type"`
-
-	TaskDescriptor `json:",inline"`
-
-	// Payload is arbitrary data that is needed to execute a task of Type.
-	Payload []byte `json:"payload"`
-
-	// Status is the current status of the task.
-	Status TaskStatus `json:"status"`
-
-	// StartedAt is the time that a task was submitted to the cluster.
-	StartedAt time.Time `json:"startedAt"`
-
-	// FinishedAt is the time that task reached a terminal status.
-	// Additionally, it is used to schedule task clean up.
-	FinishedAt time.Time `json:"finishedAt"`
-
-	// Error is an optional field to store the error which moved the task to FAILED status.
-	Error string `json:"error,omitempty"`
-
-	// FinishedNodes is a map of nodeIDs that successfully finished the task.
-	FinishedNodes map[string]bool `json:"finishedNodes"`
-}
-
-func (t *Task) Clone() *Task {
-	clone := *t
-	clone.FinishedNodes = maps.Clone(t.FinishedNodes)
-	return &clone
-}
-
 type Manager struct {
 	mu    sync.Mutex
-	tasks map[string]map[string]*Task // taskID -> taskType -> Task
+	tasks map[string]map[string]*Task // namespace -> taskID -> Task
 
 	logger logrus.FieldLogger
 	clock  clockwork.Clock
@@ -126,19 +65,19 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	task := m.findTaskWithLock(r.Type, r.Id)
+	task := m.findTaskWithLock(r.Namespace, r.Id)
 	if task != nil {
 		if task.Status == TaskStatusStarted {
-			return fmt.Errorf("task %s/%s is already running with version %d", r.Type, r.Id, task.Version) // TODO: unify error messages
+			return fmt.Errorf("task %s/%s is already running with version %d", r.Namespace, r.Id, task.Version) // TODO: unify error messages
 		}
 
 		if seqNum <= task.Version {
-			return fmt.Errorf("task %s/%s is already finished with version %d", r.Type, r.Id, task.Version)
+			return fmt.Errorf("task %s/%s is already finished with version %d", r.Namespace, r.Id, task.Version)
 		}
 	}
 
 	m.setTaskWithLock(&Task{
-		Type:           r.Type,
+		Namespace:      r.Namespace,
 		TaskDescriptor: TaskDescriptor{ID: r.Id, Version: seqNum},
 		Payload:        r.Payload,
 		Status:         TaskStatusStarted,
@@ -147,7 +86,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	})
 
 	m.logger.WithFields(logrus.Fields{
-		"taskNamespace": r.Type,
+		"taskNamespace": r.Namespace,
 		"taskID":        r.Id,
 		"taskVersion":   seqNum,
 	}).Info("added task to the cluster")
@@ -164,7 +103,7 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	task, err := m.findVersionedTaskWithLock(r.Type, r.Id, r.Version)
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
 		return err
 	}
@@ -179,7 +118,7 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 		task.FinishedAt = time.UnixMilli(r.FinishedAtUnixMillis)
 
 		m.logger.WithFields(logrus.Fields{
-			"taskNamespace": r.Type,
+			"taskNamespace": r.Namespace,
 			"taskID":        r.Id,
 			"taskVersion":   task.Version,
 			"error":         *r.Error,
@@ -193,7 +132,7 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 		task.FinishedAt = time.UnixMilli(r.FinishedAtUnixMillis)
 
 		m.logger.WithFields(logrus.Fields{
-			"taskNamespace": r.Type,
+			"taskNamespace": r.Namespace,
 			"taskID":        r.Id,
 			"taskVersion":   task.Version,
 		}).Info("task completed")
@@ -212,7 +151,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	task, err := m.findVersionedTaskWithLock(r.Type, r.Id, r.Version)
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
 		return err
 	}
@@ -225,7 +164,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
 
 	m.logger.WithFields(logrus.Fields{
-		"taskNamespace": r.Type,
+		"taskNamespace": r.Namespace,
 		"taskID":        r.Id,
 		"taskVersion":   task.Version,
 	}).Info("task cancelled")
@@ -242,7 +181,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	task, err := m.findVersionedTaskWithLock(r.Type, r.Id, r.Version)
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
 		return err
 	}
@@ -255,10 +194,10 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return errors.New("task is too fresh to clean up")
 	}
 
-	delete(m.tasks[task.Type], task.ID)
+	delete(m.tasks[task.Namespace], task.ID)
 
 	m.logger.WithFields(logrus.Fields{
-		"taskNamespace": r.Type,
+		"taskNamespace": r.Namespace,
 		"taskID":        r.Id,
 		"taskVersion":   task.Version,
 		"startedAt":     task.StartedAt.String(),
@@ -287,21 +226,28 @@ func (m *Manager) ListTasks() map[string][]*Task {
 	return result
 }
 
-func (m *Manager) findVersionedTaskWithLock(taskType, taskID string, taskVersion uint64) (*Task, error) {
-	task := m.findTaskWithLock(taskType, taskID)
+func (m *Manager) GetTaskListPayload() ([]byte, error) {
+	resp := ListDistributedTasksResponse{
+		Tasks: m.ListTasks(),
+	}
+	return json.Marshal(&resp)
+}
+
+func (m *Manager) findVersionedTaskWithLock(namespace, taskID string, taskVersion uint64) (*Task, error) {
+	task := m.findTaskWithLock(namespace, taskID)
 	if task == nil {
-		return nil, errors.Wrapf(ErrTaskDoesNotExist, "taskType=%s, taskID=%s", taskType, taskID)
+		return nil, errors.Wrapf(ErrTaskDoesNotExist, "namespace=%s, taskID=%s", namespace, taskID)
 	}
 
 	if task.Version != taskVersion {
-		return nil, errors.Wrapf(ErrTaskDoesNotExist, "taskType=%s, taskID=%s, existingVersion=%d, reqVersion=%d", taskType, taskID, task.Version, taskVersion)
+		return nil, errors.Wrapf(ErrTaskDoesNotExist, "namespace=%s, taskID=%s, existingVersion=%d, reqVersion=%d", namespace, taskID, task.Version, taskVersion)
 	}
 
 	return task, nil
 }
 
-func (m *Manager) findTaskWithLock(taskType, taskID string) *Task {
-	tasksNamespace, ok := m.tasks[taskType]
+func (m *Manager) findTaskWithLock(namespace, taskID string) *Task {
+	tasksNamespace, ok := m.tasks[namespace]
 	if !ok {
 		return nil
 	}
@@ -315,9 +261,9 @@ func (m *Manager) findTaskWithLock(taskType, taskID string) *Task {
 }
 
 func (m *Manager) setTaskWithLock(task *Task) {
-	if _, ok := m.tasks[task.Type]; !ok {
-		m.tasks[task.Type] = make(map[string]*Task)
+	if _, ok := m.tasks[task.Namespace]; !ok {
+		m.tasks[task.Namespace] = make(map[string]*Task)
 	}
 
-	m.tasks[task.Type][task.ID] = task
+	m.tasks[task.Namespace][task.ID] = task
 }

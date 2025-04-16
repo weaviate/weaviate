@@ -1159,106 +1159,9 @@ func (x *Tenant) GetStatus() string {
 	return ""
 }
 
-type DistributedTask struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// namespace is the namespace of tasks which are tracked and executed separately.
-	Namespace     string          `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	FinishedNodes map[string]bool `protobuf:"bytes,8,rep,name=finishedNodes,proto3" json:"finishedNodes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DistributedTask) Reset() {
-	*x = DistributedTask{}
-	mi := &file_api_message_proto_msgTypes[16]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DistributedTask) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DistributedTask) ProtoMessage() {}
-
-func (x *DistributedTask) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[16]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DistributedTask.ProtoReflect.Descriptor instead.
-func (*DistributedTask) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{16}
-}
-
-func (x *DistributedTask) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
-}
-
-func (x *DistributedTask) GetFinishedNodes() map[string]bool {
-	if x != nil {
-		return x.FinishedNodes
-	}
-	return nil
-}
-
-type ListDistributedTasksResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tasks         []*DistributedTask     `protobuf:"bytes,1,rep,name=tasks,proto3" json:"tasks,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListDistributedTasksResponse) Reset() {
-	*x = ListDistributedTasksResponse{}
-	mi := &file_api_message_proto_msgTypes[17]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListDistributedTasksResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListDistributedTasksResponse) ProtoMessage() {}
-
-func (x *ListDistributedTasksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[17]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListDistributedTasksResponse.ProtoReflect.Descriptor instead.
-func (*ListDistributedTasksResponse) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{17}
-}
-
-func (x *ListDistributedTasksResponse) GetTasks() []*DistributedTask {
-	if x != nil {
-		return x.Tasks
-	}
-	return nil
-}
-
 type AddDistributedTaskRequest struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
-	Type                  string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	Namespace             string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Id                    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
 	Payload               []byte                 `protobuf:"bytes,4,opt,name=payload,proto3" json:"payload,omitempty"`
 	SubmittedAtUnixMillis int64                  `protobuf:"varint,5,opt,name=submittedAtUnixMillis,proto3" json:"submittedAtUnixMillis,omitempty"`
@@ -1268,7 +1171,7 @@ type AddDistributedTaskRequest struct {
 
 func (x *AddDistributedTaskRequest) Reset() {
 	*x = AddDistributedTaskRequest{}
-	mi := &file_api_message_proto_msgTypes[18]
+	mi := &file_api_message_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1280,7 +1183,7 @@ func (x *AddDistributedTaskRequest) String() string {
 func (*AddDistributedTaskRequest) ProtoMessage() {}
 
 func (x *AddDistributedTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[18]
+	mi := &file_api_message_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1293,12 +1196,12 @@ func (x *AddDistributedTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddDistributedTaskRequest.ProtoReflect.Descriptor instead.
 func (*AddDistributedTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{18}
+	return file_api_message_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *AddDistributedTaskRequest) GetType() string {
+func (x *AddDistributedTaskRequest) GetNamespace() string {
 	if x != nil {
-		return x.Type
+		return x.Namespace
 	}
 	return ""
 }
@@ -1326,7 +1229,7 @@ func (x *AddDistributedTaskRequest) GetSubmittedAtUnixMillis() int64 {
 
 type RecordDistributedTaskNodeCompletionRequest struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
-	Type                 string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	Namespace            string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Id                   string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
 	Version              uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
 	NodeId               string                 `protobuf:"bytes,4,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
@@ -1338,7 +1241,7 @@ type RecordDistributedTaskNodeCompletionRequest struct {
 
 func (x *RecordDistributedTaskNodeCompletionRequest) Reset() {
 	*x = RecordDistributedTaskNodeCompletionRequest{}
-	mi := &file_api_message_proto_msgTypes[19]
+	mi := &file_api_message_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1350,7 +1253,7 @@ func (x *RecordDistributedTaskNodeCompletionRequest) String() string {
 func (*RecordDistributedTaskNodeCompletionRequest) ProtoMessage() {}
 
 func (x *RecordDistributedTaskNodeCompletionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[19]
+	mi := &file_api_message_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1363,12 +1266,12 @@ func (x *RecordDistributedTaskNodeCompletionRequest) ProtoReflect() protoreflect
 
 // Deprecated: Use RecordDistributedTaskNodeCompletionRequest.ProtoReflect.Descriptor instead.
 func (*RecordDistributedTaskNodeCompletionRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{19}
+	return file_api_message_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *RecordDistributedTaskNodeCompletionRequest) GetType() string {
+func (x *RecordDistributedTaskNodeCompletionRequest) GetNamespace() string {
 	if x != nil {
-		return x.Type
+		return x.Namespace
 	}
 	return ""
 }
@@ -1410,7 +1313,7 @@ func (x *RecordDistributedTaskNodeCompletionRequest) GetFinishedAtUnixMillis() i
 
 type CancelDistributedTaskRequest struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
-	Type                  string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	Namespace             string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Id                    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
 	Version               uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
 	CancelledAtUnixMillis int64                  `protobuf:"varint,6,opt,name=cancelledAtUnixMillis,proto3" json:"cancelledAtUnixMillis,omitempty"`
@@ -1420,7 +1323,7 @@ type CancelDistributedTaskRequest struct {
 
 func (x *CancelDistributedTaskRequest) Reset() {
 	*x = CancelDistributedTaskRequest{}
-	mi := &file_api_message_proto_msgTypes[20]
+	mi := &file_api_message_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1432,7 +1335,7 @@ func (x *CancelDistributedTaskRequest) String() string {
 func (*CancelDistributedTaskRequest) ProtoMessage() {}
 
 func (x *CancelDistributedTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[20]
+	mi := &file_api_message_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1445,12 +1348,12 @@ func (x *CancelDistributedTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelDistributedTaskRequest.ProtoReflect.Descriptor instead.
 func (*CancelDistributedTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{20}
+	return file_api_message_proto_rawDescGZIP(), []int{18}
 }
 
-func (x *CancelDistributedTaskRequest) GetType() string {
+func (x *CancelDistributedTaskRequest) GetNamespace() string {
 	if x != nil {
-		return x.Type
+		return x.Namespace
 	}
 	return ""
 }
@@ -1478,7 +1381,7 @@ func (x *CancelDistributedTaskRequest) GetCancelledAtUnixMillis() int64 {
 
 type CleanUpDistributedTaskRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
 	Version       uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1487,7 +1390,7 @@ type CleanUpDistributedTaskRequest struct {
 
 func (x *CleanUpDistributedTaskRequest) Reset() {
 	*x = CleanUpDistributedTaskRequest{}
-	mi := &file_api_message_proto_msgTypes[21]
+	mi := &file_api_message_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1499,7 +1402,7 @@ func (x *CleanUpDistributedTaskRequest) String() string {
 func (*CleanUpDistributedTaskRequest) ProtoMessage() {}
 
 func (x *CleanUpDistributedTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[21]
+	mi := &file_api_message_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1512,12 +1415,12 @@ func (x *CleanUpDistributedTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanUpDistributedTaskRequest.ProtoReflect.Descriptor instead.
 func (*CleanUpDistributedTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{21}
+	return file_api_message_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *CleanUpDistributedTaskRequest) GetType() string {
+func (x *CleanUpDistributedTaskRequest) GetNamespace() string {
 	if x != nil {
-		return x.Type
+		return x.Namespace
 	}
 	return ""
 }
@@ -1648,35 +1551,27 @@ const file_api_message_proto_rawDesc = "" +
 	"\atenants\x18\x01 \x03(\tR\atenants\"4\n" +
 	"\x06Tenant\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"\xd6\x01\n" +
-	"\x0fDistributedTask\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12c\n" +
-	"\rfinishedNodes\x18\b \x03(\v2=.weaviate.internal.cluster.DistributedTask.FinishedNodesEntryR\rfinishedNodes\x1a@\n" +
-	"\x12FinishedNodesEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"`\n" +
-	"\x1cListDistributedTasksResponse\x12@\n" +
-	"\x05tasks\x18\x01 \x03(\v2*.weaviate.internal.cluster.DistributedTaskR\x05tasks\"\x8f\x01\n" +
-	"\x19AddDistributedTaskRequest\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x12\x0e\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"\x99\x01\n" +
+	"\x19AddDistributedTaskRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\apayload\x18\x04 \x01(\fR\apayload\x124\n" +
-	"\x15submittedAtUnixMillis\x18\x05 \x01(\x03R\x15submittedAtUnixMillis\"\xdc\x01\n" +
-	"*RecordDistributedTaskNodeCompletionRequest\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x12\x0e\n" +
+	"\x15submittedAtUnixMillis\x18\x05 \x01(\x03R\x15submittedAtUnixMillis\"\xe6\x01\n" +
+	"*RecordDistributedTaskNodeCompletionRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x17\n" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x19\n" +
 	"\x05error\x18\x05 \x01(\tH\x00R\x05error\x88\x01\x01\x122\n" +
 	"\x14finishedAtUnixMillis\x18\x06 \x01(\x03R\x14finishedAtUnixMillisB\b\n" +
-	"\x06_error\"\x92\x01\n" +
-	"\x1cCancelDistributedTaskRequest\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x12\x0e\n" +
+	"\x06_error\"\x9c\x01\n" +
+	"\x1cCancelDistributedTaskRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x124\n" +
-	"\x15cancelledAtUnixMillis\x18\x06 \x01(\x03R\x15cancelledAtUnixMillis\"]\n" +
-	"\x1dCleanUpDistributedTaskRequest\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x12\x0e\n" +
+	"\x15cancelledAtUnixMillis\x18\x06 \x01(\x03R\x15cancelledAtUnixMillis\"g\n" +
+	"\x1dCleanUpDistributedTaskRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion2\x8d\x04\n" +
 	"\x0eClusterService\x12k\n" +
@@ -1702,7 +1597,7 @@ func file_api_message_proto_rawDescGZIP() []byte {
 }
 
 var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_api_message_proto_goTypes = []any{
 	(ApplyRequest_Type)(0),                             // 0: weaviate.internal.cluster.ApplyRequest.Type
 	(QueryRequest_Type)(0),                             // 1: weaviate.internal.cluster.QueryRequest.Type
@@ -1724,13 +1619,10 @@ var file_api_message_proto_goTypes = []any{
 	(*TenantProcessRequest)(nil),                       // 17: weaviate.internal.cluster.TenantProcessRequest
 	(*DeleteTenantsRequest)(nil),                       // 18: weaviate.internal.cluster.DeleteTenantsRequest
 	(*Tenant)(nil),                                     // 19: weaviate.internal.cluster.Tenant
-	(*DistributedTask)(nil),                            // 20: weaviate.internal.cluster.DistributedTask
-	(*ListDistributedTasksResponse)(nil),               // 21: weaviate.internal.cluster.ListDistributedTasksResponse
-	(*AddDistributedTaskRequest)(nil),                  // 22: weaviate.internal.cluster.AddDistributedTaskRequest
-	(*RecordDistributedTaskNodeCompletionRequest)(nil), // 23: weaviate.internal.cluster.RecordDistributedTaskNodeCompletionRequest
-	(*CancelDistributedTaskRequest)(nil),               // 24: weaviate.internal.cluster.CancelDistributedTaskRequest
-	(*CleanUpDistributedTaskRequest)(nil),              // 25: weaviate.internal.cluster.CleanUpDistributedTaskRequest
-	nil,                                                // 26: weaviate.internal.cluster.DistributedTask.FinishedNodesEntry
+	(*AddDistributedTaskRequest)(nil),                  // 20: weaviate.internal.cluster.AddDistributedTaskRequest
+	(*RecordDistributedTaskNodeCompletionRequest)(nil), // 21: weaviate.internal.cluster.RecordDistributedTaskNodeCompletionRequest
+	(*CancelDistributedTaskRequest)(nil),               // 22: weaviate.internal.cluster.CancelDistributedTaskRequest
+	(*CleanUpDistributedTaskRequest)(nil),              // 23: weaviate.internal.cluster.CleanUpDistributedTaskRequest
 }
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
@@ -1741,23 +1633,21 @@ var file_api_message_proto_depIdxs = []int32{
 	19, // 5: weaviate.internal.cluster.TenantsProcess.tenant:type_name -> weaviate.internal.cluster.Tenant
 	3,  // 6: weaviate.internal.cluster.TenantProcessRequest.action:type_name -> weaviate.internal.cluster.TenantProcessRequest.Action
 	16, // 7: weaviate.internal.cluster.TenantProcessRequest.tenants_processes:type_name -> weaviate.internal.cluster.TenantsProcess
-	26, // 8: weaviate.internal.cluster.DistributedTask.finishedNodes:type_name -> weaviate.internal.cluster.DistributedTask.FinishedNodesEntry
-	20, // 9: weaviate.internal.cluster.ListDistributedTasksResponse.tasks:type_name -> weaviate.internal.cluster.DistributedTask
-	6,  // 10: weaviate.internal.cluster.ClusterService.RemovePeer:input_type -> weaviate.internal.cluster.RemovePeerRequest
-	4,  // 11: weaviate.internal.cluster.ClusterService.JoinPeer:input_type -> weaviate.internal.cluster.JoinPeerRequest
-	8,  // 12: weaviate.internal.cluster.ClusterService.NotifyPeer:input_type -> weaviate.internal.cluster.NotifyPeerRequest
-	10, // 13: weaviate.internal.cluster.ClusterService.Apply:input_type -> weaviate.internal.cluster.ApplyRequest
-	12, // 14: weaviate.internal.cluster.ClusterService.Query:input_type -> weaviate.internal.cluster.QueryRequest
-	7,  // 15: weaviate.internal.cluster.ClusterService.RemovePeer:output_type -> weaviate.internal.cluster.RemovePeerResponse
-	5,  // 16: weaviate.internal.cluster.ClusterService.JoinPeer:output_type -> weaviate.internal.cluster.JoinPeerResponse
-	9,  // 17: weaviate.internal.cluster.ClusterService.NotifyPeer:output_type -> weaviate.internal.cluster.NotifyPeerResponse
-	11, // 18: weaviate.internal.cluster.ClusterService.Apply:output_type -> weaviate.internal.cluster.ApplyResponse
-	13, // 19: weaviate.internal.cluster.ClusterService.Query:output_type -> weaviate.internal.cluster.QueryResponse
-	15, // [15:20] is the sub-list for method output_type
-	10, // [10:15] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	6,  // 8: weaviate.internal.cluster.ClusterService.RemovePeer:input_type -> weaviate.internal.cluster.RemovePeerRequest
+	4,  // 9: weaviate.internal.cluster.ClusterService.JoinPeer:input_type -> weaviate.internal.cluster.JoinPeerRequest
+	8,  // 10: weaviate.internal.cluster.ClusterService.NotifyPeer:input_type -> weaviate.internal.cluster.NotifyPeerRequest
+	10, // 11: weaviate.internal.cluster.ClusterService.Apply:input_type -> weaviate.internal.cluster.ApplyRequest
+	12, // 12: weaviate.internal.cluster.ClusterService.Query:input_type -> weaviate.internal.cluster.QueryRequest
+	7,  // 13: weaviate.internal.cluster.ClusterService.RemovePeer:output_type -> weaviate.internal.cluster.RemovePeerResponse
+	5,  // 14: weaviate.internal.cluster.ClusterService.JoinPeer:output_type -> weaviate.internal.cluster.JoinPeerResponse
+	9,  // 15: weaviate.internal.cluster.ClusterService.NotifyPeer:output_type -> weaviate.internal.cluster.NotifyPeerResponse
+	11, // 16: weaviate.internal.cluster.ClusterService.Apply:output_type -> weaviate.internal.cluster.ApplyResponse
+	13, // 17: weaviate.internal.cluster.ClusterService.Query:output_type -> weaviate.internal.cluster.QueryResponse
+	13, // [13:18] is the sub-list for method output_type
+	8,  // [8:13] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_api_message_proto_init() }
@@ -1765,14 +1655,14 @@ func file_api_message_proto_init() {
 	if File_api_message_proto != nil {
 		return
 	}
-	file_api_message_proto_msgTypes[19].OneofWrappers = []any{}
+	file_api_message_proto_msgTypes[17].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_message_proto_rawDesc), len(file_api_message_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   23,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

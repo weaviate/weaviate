@@ -9,7 +9,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string]*distributedtask.Task, error) {
+func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	command := &cmd.QueryRequest{
 		Type: cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_LIST,
 	}
@@ -18,7 +18,7 @@ func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string]*distribute
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	response := cmd.ListDistributedTasksResponse{}
+	response := distributedtask.ListDistributedTasksResponse{}
 	if err = json.Unmarshal(queryResp.Payload, &response); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}

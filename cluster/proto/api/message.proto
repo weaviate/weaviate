@@ -163,55 +163,15 @@ message Tenant {
   string status = 2;
 }
 
-enum DistributedTaskStatus {
-  STARTED = 0;
-  FINISHED = 1;
-  CANCELLED = 2;
-  FAILED = 3;
-}
-
-// TODO: add comments
-message DistributedTaskDescriptor {
-  // ID is the identifier of the task in the namespace of Type.
-  string id = 1;
-
-  // Version is the version of the task with task ID.
-  // It is used to differentiate between multiple runs of the same task.
-  uint64 version = 2;
-}
-
-message DistributedTask {
-  // Namespace is the namespace of tasks which are tracked and executed separately.
-  string namespace = 1;
-
-  DistributedTaskDescriptor desc = 2;
-
-  bytes payload = 3;
-
-  DistributedTaskStatus status = 4;
-
-  uint64 startedAtMillis = 5;
-
-  uint64 finishedAtMillis = 6;
-  
-  optional string error = 7;
-
-  map<string, bool> finishedNodes = 8;
-}
-
-message ListDistributedTasksResponse {
-  repeated DistributedTask tasks = 1;
-}
-
 message AddDistributedTaskRequest {
-  string type = 1;
+  string namespace = 1;
   string id = 2;
   bytes payload = 4;
   int64 submittedAtUnixMillis = 5;
 }
 
 message RecordDistributedTaskNodeCompletionRequest {
-  string type = 1;
+  string namespace = 1;
   string id = 2;
   uint64 version = 3;
   string node_id = 4;
@@ -220,14 +180,14 @@ message RecordDistributedTaskNodeCompletionRequest {
 }
 
 message CancelDistributedTaskRequest {
-  string type = 1;
+  string namespace = 1;
   string id = 2;
   uint64 version = 3;
   int64 cancelledAtUnixMillis = 6;
 }
 
 message CleanUpDistributedTaskRequest {
-  string type = 1;
+  string namespace = 1;
   string id = 2;
   uint64 version = 3;
 }

@@ -41,7 +41,7 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	defer h.scheduler.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Type:                  h.tasksNamespace,
+		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		Payload:               taskPayload,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
@@ -50,7 +50,7 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	h.advanceClock(schedulerTickDuration)
 
 	startedTask := recvWithTimeout(t, h.provider.startedCh)
-	require.Equal(t, h.tasksNamespace, startedTask.Type)
+	require.Equal(t, h.tasksNamespace, startedTask.Namespace)
 	require.Equal(t, taskID, startedTask.ID)
 	require.Equal(t, taskPayload, startedTask.Payload)
 
@@ -88,7 +88,7 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 	defer h.scheduler.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Type:                  h.tasksNamespace,
+		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		Payload:               taskPayload,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
@@ -139,7 +139,7 @@ func TestTaskCancellation(t *testing.T) {
 	defer h.scheduler.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Type:                  h.tasksNamespace,
+		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), version)
@@ -150,7 +150,7 @@ func TestTaskCancellation(t *testing.T) {
 
 	cancellationTime := h.clock.Now().UnixMilli()
 	err = h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-		Type:                  h.tasksNamespace,
+		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		Version:               version,
 		CancelledAtUnixMillis: cancellationTime,
@@ -162,7 +162,7 @@ func TestTaskCancellation(t *testing.T) {
 
 	tasks := h.manager.ListTasks()[h.tasksNamespace]
 	require.Len(t, tasks, 1)
-	require.Equal(t, h.tasksNamespace, tasks[0].Type)
+	require.Equal(t, h.tasksNamespace, tasks[0].Namespace)
 	require.Equal(t, taskID, tasks[0].ID)
 	require.Equal(t, version, tasks[0].Version)
 	require.Equal(t, TaskStatusCancelled, tasks[0].Status)
@@ -184,7 +184,7 @@ func TestTaskFailureInAnotherNode(t *testing.T) {
 	defer h.scheduler.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Type:                  h.tasksNamespace,
+		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), version)
@@ -205,7 +205,7 @@ func TestTaskFailureInAnotherNode(t *testing.T) {
 
 	tasks := h.manager.ListTasks()[h.tasksNamespace]
 	require.Len(t, tasks, 1)
-	require.Equal(t, h.tasksNamespace, tasks[0].Type)
+	require.Equal(t, h.tasksNamespace, tasks[0].Namespace)
 	require.Equal(t, taskID, tasks[0].ID)
 	require.Equal(t, version, tasks[0].Version)
 	require.Equal(t, TaskStatusFailed, tasks[0].Status)
@@ -227,7 +227,7 @@ func TestTaskFailureInLocalNode(t *testing.T) {
 	defer h.scheduler.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Type:                  h.tasksNamespace,
+		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), version)
@@ -249,7 +249,7 @@ func TestTaskFailureInLocalNode(t *testing.T) {
 
 	tasks := h.manager.ListTasks()[h.tasksNamespace]
 	require.Len(t, tasks, 1)
-	require.Equal(t, h.tasksNamespace, tasks[0].Type)
+	require.Equal(t, h.tasksNamespace, tasks[0].Namespace)
 	require.Equal(t, taskID, tasks[0].ID)
 	require.Equal(t, version, tasks[0].Version)
 	require.Equal(t, TaskStatusFailed, tasks[0].Status)
@@ -269,7 +269,7 @@ func TestTaskRecovery(t *testing.T) {
 	for i := range tasksCount {
 		taskID := fmt.Sprintf("%d", i)
 		err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-			Type:                  h.tasksNamespace,
+			Namespace:             h.tasksNamespace,
 			Id:                    taskID,
 			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 		}), 1)
@@ -316,7 +316,7 @@ func TestRemoveCleanedUpTaskLocalState(t *testing.T) {
 	// add one of the local tasks to the manager state before launching the scheduler
 	// to simulate that it was there before the restart
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Type:                  h.tasksNamespace,
+		Namespace:             h.tasksNamespace,
 		Id:                    "3",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), 15)
@@ -324,7 +324,7 @@ func TestRemoveCleanedUpTaskLocalState(t *testing.T) {
 
 	// add one new task
 	err = h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Type:                  h.tasksNamespace,
+		Namespace:             h.tasksNamespace,
 		Id:                    "4",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), 18)
@@ -380,21 +380,21 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 
 	// add some tasks for both providers
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Type:                  tasksNamespace1,
+		Namespace:             tasksNamespace1,
 		Id:                    "complete",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), 10)
 	require.NoError(t, err)
 
 	err = h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Type:                  tasksNamespace2,
+		Namespace:             tasksNamespace2,
 		Id:                    "fail",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), 11)
 	require.NoError(t, err)
 
 	err = h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Type:                  tasksNamespace1,
+		Namespace:             tasksNamespace1,
 		Id:                    "cancel",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), 12)
@@ -423,7 +423,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 	recvWithTimeout(t, provider2.failedCh)
 
 	err = h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-		Type:                  tasksNamespace1,
+		Namespace:             tasksNamespace1,
 		Id:                    "cancel",
 		Version:               12,
 		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
@@ -510,38 +510,38 @@ func (h *testHarness) advanceClock(duration time.Duration) {
 	time.Sleep(50 * time.Millisecond)
 }
 
-func (h *testHarness) expectRecordNodeTaskCompletion(t *testing.T, expectTaskType, expectTaskID string, expectTaskVersion uint64) {
+func (h *testHarness) expectRecordNodeTaskCompletion(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64) {
 	h.stateChanger.EXPECT().RecordDistributedTaskNodeCompletion(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, taskType, taskID string, taskVersion uint64) error {
-			require.Equal(t, expectTaskType, taskType)
+		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64) error {
+			require.Equal(t, expectNamespace, namespace)
 			require.Equal(t, expectTaskID, taskID)
 			require.Equal(t, expectTaskVersion, taskVersion)
 
-			h.completeTaskFromNode(t, taskType, taskID, taskVersion, h.localNodeID)
+			h.completeTaskFromNode(t, namespace, taskID, taskVersion, h.localNodeID)
 			return nil
 		})
 }
 
-func (h *testHarness) expectRecordNodeTaskFailure(t *testing.T, expectTaskType, expectTaskID string, expectTaskVersion uint64, expectErrMsg string) {
+func (h *testHarness) expectRecordNodeTaskFailure(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64, expectErrMsg string) {
 	h.stateChanger.EXPECT().RecordDistributedTaskNodeFailed(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, taskType, taskID string, taskVersion uint64, errMsg string) error {
-			require.Equal(t, expectTaskType, taskType)
+		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error {
+			require.Equal(t, expectNamespace, namespace)
 			require.Equal(t, expectTaskID, taskID)
 			require.Equal(t, expectTaskVersion, taskVersion)
 			require.Equal(t, expectErrMsg, errMsg)
 
-			h.recordTaskCompletion(t, taskType, taskID, taskVersion, h.localNodeID, &expectErrMsg)
+			h.recordTaskCompletion(t, namespace, taskID, taskVersion, h.localNodeID, &expectErrMsg)
 			return nil
 		})
 }
 
-func (h *testHarness) completeTaskFromNode(t *testing.T, taskType, taskID string, taskVersion uint64, node string) {
-	h.recordTaskCompletion(t, taskType, taskID, taskVersion, node, nil)
+func (h *testHarness) completeTaskFromNode(t *testing.T, namespace, taskID string, taskVersion uint64, node string) {
+	h.recordTaskCompletion(t, namespace, taskID, taskVersion, node, nil)
 }
 
-func (h *testHarness) recordTaskCompletion(t *testing.T, taskType, taskID string, taskVersion uint64, node string, errMsg *string) {
+func (h *testHarness) recordTaskCompletion(t *testing.T, namespace, taskID string, taskVersion uint64, node string, errMsg *string) {
 	c := toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-		Type:                 taskType,
+		Namespace:            namespace,
 		Id:                   taskID,
 		Version:              taskVersion,
 		NodeId:               node,
@@ -552,17 +552,17 @@ func (h *testHarness) recordTaskCompletion(t *testing.T, taskType, taskID string
 	require.NoError(t, h.manager.RecordNodeCompletion(c, h.nodesInTheCluster))
 }
 
-func (h *testHarness) expectCleanUpTask(t *testing.T, expectTaskType, expectTaskID string, expectTaskVersion uint64) {
+func (h *testHarness) expectCleanUpTask(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64) {
 	h.stateChanger.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, taskType, taskID string, taskVersion uint64) error {
-			require.Equal(t, expectTaskType, taskType)
+		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64) error {
+			require.Equal(t, expectNamespace, namespace)
 			require.Equal(t, expectTaskID, taskID)
 			require.Equal(t, expectTaskVersion, taskVersion)
 
 			err := h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Type:    taskType,
-				Id:      taskID,
-				Version: taskVersion,
+				Namespace: namespace,
+				Id:        taskID,
+				Version:   taskVersion,
 			}))
 			require.NoError(t, err)
 			return nil
@@ -606,12 +606,12 @@ func (t *testTask) run() {
 
 	select {
 	case <-t.completeCh:
-		err := t.provider.recorder.RecordDistributedTaskNodeCompletion(context.Background(), t.Type, t.ID, t.Version)
+		err := t.provider.recorder.RecordDistributedTaskNodeCompletion(context.Background(), t.Namespace, t.ID, t.Version)
 		require.NoError(t.provider.t, err)
 		t.provider.completedCh <- t
 		return
 	case errMsh := <-t.failCh:
-		err := t.provider.recorder.RecordDistributedTaskNodeFailed(context.Background(), t.Type, t.ID, t.Version, errMsh)
+		err := t.provider.recorder.RecordDistributedTaskNodeFailed(context.Background(), t.Namespace, t.ID, t.Version, errMsh)
 		require.NoError(t.provider.t, err)
 		t.provider.failedCh <- t
 	case <-t.cancelCh:

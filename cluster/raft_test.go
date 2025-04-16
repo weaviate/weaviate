@@ -359,7 +359,7 @@ func TestRaftClose(t *testing.T) {
 func TestRaftPanics(t *testing.T) {
 	m := NewMockStore(t, "Node-1", 9091)
 
-	// Assert Correct Response Type
+	// Assert Correct Response Namespace
 	ret := m.store.Apply(&raft.Log{Type: raft.LogNoop})
 	resp, ok := ret.(Response)
 	assert.True(t, ok)

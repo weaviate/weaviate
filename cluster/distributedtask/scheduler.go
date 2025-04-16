@@ -13,7 +13,6 @@ package distributedtask
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -24,22 +23,6 @@ import (
 const (
 	schedulerTickDuration = 15 * time.Second
 )
-
-type TasksLister interface {
-	ListTasks() map[string][]*Task
-}
-
-// TODO: probably split this as it currently feels awkward
-type TaskStatusChanger interface {
-	RecordDistributedTaskNodeCompletion(ctx context.Context, taskType, taskID string, version uint64) error
-	RecordDistributedTaskNodeFailed(ctx context.Context, taskType, taskID string, version uint64, errMsg string) error
-	CleanUpDistributedTask(ctx context.Context, taskType, taskID string, taskVersion uint64) error
-}
-
-type TaskHandle interface {
-	// Optional: if it is still running it should terminate, if not should be no-op
-	Terminate()
-}
 
 type Scheduler struct {
 	SchedulerParams
@@ -75,12 +58,12 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 }
 
 func (s *Scheduler) Start() error {
-	tasksByType := s.TasksLister.ListTasks() // TODO: unify namespace and type
+	tasksByNamespace := s.TasksLister.ListTasks()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for namespace, provider := range s.Providers {
-		tasks := tasksByType[namespace]
+		tasks := tasksByNamespace[namespace]
 
 		provider.SetCompletionRecorder(s.CompletionRecorder)
 
@@ -144,14 +127,13 @@ func (s *Scheduler) loop() {
 }
 
 func (s *Scheduler) process() {
-	tasksByType := s.TasksLister.ListTasks() // TODO: unify namespace and type
-	fmt.Println("processing tasks...")
+	tasksByNamespace := s.TasksLister.ListTasks()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for namespace, provider := range s.Providers {
-		tasks := tasksByType[namespace]
+		tasks := tasksByNamespace[namespace]
 
 		// 1. collect tasks that are supposed to be running
 		activeTasks := s.filterRunnableTasks(tasks)
