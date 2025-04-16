@@ -52,7 +52,14 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 
 	b.flushLock.RLock()
 
-	readers, releaseSegmentGroup := b.disk.newRoaringSetRangeReaders()
+	var release func()
+	var readers []roaringsetrange.InnerReader
+	if b.keepSegmentsInMemory {
+		reader, releaseInt := b.disk.roaringSetRangeSegmentInMemory.Reader()
+		readers, release = []roaringsetrange.InnerReader{reader}, releaseInt
+	} else {
+		readers, release = b.disk.newRoaringSetRangeReaders()
+	}
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two
@@ -63,7 +70,7 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	readers = append(readers, b.active.newRoaringSetRangeReader())
 
 	return roaringsetrange.NewCombinedReader(readers, func() {
-		releaseSegmentGroup()
+		release()
 		b.flushLock.RUnlock()
 	}, concurrency.SROAR_MERGE, b.logger)
 }
