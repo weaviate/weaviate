@@ -719,8 +719,8 @@ func TestShardReplicationEngine(t *testing.T) {
 
 		// THEN
 		require.True(t, engine.IsRunning(), "engine should be running after start")
-		require.Equal(t, randomOpBufferSize, engine.GetOpChannelCap(), "channel capacity should match the configured size")
-		require.Equal(t, 0, engine.GetOpChannelLen(), "channel length should be 0 when no ops are queued")
+		require.Equal(t, randomOpBufferSize, engine.OpChannelCap(), "channel capacity should match the configured size")
+		require.Equal(t, 0, engine.OpChannelLen(), "channel length should be 0 when no ops are queued")
 
 		engine.Stop()
 		wg.Wait()

@@ -259,18 +259,18 @@ func (e *ShardReplicationEngine) IsRunning() bool {
 	return e.isRunning.Load()
 }
 
-// GetOpChannelCap returns the capacity of the internal operation channel.
+// OpChannelCap returns the capacity of the internal operation channel.
 //
 // This reflects the total number of replication operations the channel can queue
 // before blocking the producer implementing a backpressure mechanism.
-func (e *ShardReplicationEngine) GetOpChannelCap() int {
+func (e *ShardReplicationEngine) OpChannelCap() int {
 	return cap(e.opsChan)
 }
 
-// GetOpChannelLen returns the current number of operations buffered in the internal channel.
+// OpChannelLen returns the current number of operations buffered in the internal channel.
 //
 // This can be used to monitor the backpressure between the producer and the consumer.
-func (e *ShardReplicationEngine) GetOpChannelLen() int {
+func (e *ShardReplicationEngine) OpChannelLen() int {
 	return len(e.opsChan)
 }
 
