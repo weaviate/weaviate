@@ -709,7 +709,7 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 	eg.Go(func() error {
 		return backoff.Retry(func() error {
 			if ctx.Err() != nil {
-				logger.WithError(ctx.Err()).Error("permanent error while processing replication operation, shutting down")
+				logger.WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
 				return backoff.Permanent(ctx.Err())
 			}
 
