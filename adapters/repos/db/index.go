@@ -656,6 +656,7 @@ type IndexConfig struct {
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
+	IndexRangeableInMemory              bool
 	MaxSegmentSize                      int64
 	HNSWMaxLogSize                      int64
 	HNSWWaitForCachePrefill             bool

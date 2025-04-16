@@ -295,6 +295,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
 	}
 
+	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
+		config.Persistence.IndexRangeableInMemory = true
+	}
+
 	if err := parseInt(
 		"HNSW_VISITED_LIST_POOL_MAX_SIZE",
 		func(size int) { config.HNSWVisitedListPoolMaxSize = size },
