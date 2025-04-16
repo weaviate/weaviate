@@ -78,7 +78,7 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 		realTimeProvider,
 		cfg.NodeSelector.LocalName(),
 		tracker,
-		backoff.NewConstantBackOff(5*time.Second),
+		backoff.WithMaxRetries(backoff.NewConstantBackOff(5*time.Second), 1),
 		retentionPolicy,
 		24*time.Hour,
 		5,
