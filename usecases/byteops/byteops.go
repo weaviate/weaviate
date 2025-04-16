@@ -36,7 +36,13 @@ func WithPosition(pos uint64) func(*ReadWriter) {
 	}
 }
 
-func NewReadWriter(buf []byte, opts ...func(writer *ReadWriter)) ReadWriter {
+func NewReadWriter(buf []byte) ReadWriter {
+	rw := ReadWriter{Buffer: buf}
+	return rw
+}
+
+// NewReadWriterWithOps escapes to heap even if no ops are given
+func NewReadWriterWithOps(buf []byte, opts ...func(writer *ReadWriter)) ReadWriter {
 	rw := ReadWriter{Buffer: buf}
 	for _, opt := range opts {
 		opt(&rw)
