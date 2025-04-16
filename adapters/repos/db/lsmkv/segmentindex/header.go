@@ -42,20 +42,20 @@ type Header struct {
 }
 
 func (h *Header) WriteTo(w io.Writer) (int64, error) {
-	if err := binary.Write(w, binary.LittleEndian, &h.Level); err != nil {
-		return -1, err
+	data := make([]byte, HeaderSize)
+	rw := byteops.NewReadWriter(data)
+	rw.WriteUint16(h.Level)
+	rw.WriteUint16(h.Version)
+	rw.WriteUint16(h.SecondaryIndices)
+	rw.WriteUint16(uint16(h.Strategy))
+	rw.WriteUint64(h.IndexStart)
+
+	write, err := w.Write(data)
+	if err != nil {
+		return 0, err
 	}
-	if err := binary.Write(w, binary.LittleEndian, &h.Version); err != nil {
-		return -1, err
-	}
-	if err := binary.Write(w, binary.LittleEndian, &h.SecondaryIndices); err != nil {
-		return -1, err
-	}
-	if err := binary.Write(w, binary.LittleEndian, h.Strategy); err != nil {
-		return -1, err
-	}
-	if err := binary.Write(w, binary.LittleEndian, &h.IndexStart); err != nil {
-		return -1, err
+	if write != HeaderSize {
+		return 0, fmt.Errorf("expected to write %d bytes, got %d", HeaderSize, write)
 	}
 
 	return int64(HeaderSize), nil
