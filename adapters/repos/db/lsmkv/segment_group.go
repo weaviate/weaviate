@@ -103,6 +103,11 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		return nil, err
 	}
 
+	fileNames := make(map[string]struct{}, len(list))
+	for _, file := range list {
+		fileNames[file.Name()] = struct{}{}
+	}
+
 	now := time.Now()
 	sg := &SegmentGroup{
 		segments:                 make([]*segment, len(list)),
@@ -129,6 +134,23 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 	segmentsAlreadyRecoveredFromCompaction := make(map[string]struct{})
 
+	remove := func(name string) error {
+		if err := os.Remove(filepath.Join(sg.dir, name)); err != nil {
+			return err
+		}
+		delete(fileNames, name)
+		return nil
+	}
+
+	rename := func(old, new string) error {
+		if err := os.Rename(old, new); err != nil {
+			return err
+		}
+		delete(fileNames, old)
+		fileNames[new] = struct{}{}
+		return nil
+	}
+
 	// Note: it's important to process first the compacted segments
 	// TODO: a single iteration may be possible
 
@@ -149,7 +171,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		if len(jointSegmentsIDs) == 1 {
 			// cleanup leftover, to be removed
-			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+			if err := remove(entry.Name()); err != nil {
 				return nil, fmt.Errorf("delete partially cleaned segment %q: %w", entry.Name(), err)
 			}
 			continue
@@ -169,18 +191,11 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		leftSegmentPath := filepath.Join(sg.dir, leftSegmentFilename)
 		rightSegmentPath := filepath.Join(sg.dir, rightSegmentFilename)
 
-		leftSegmentFound, err := fileExists(leftSegmentPath)
-		if err != nil {
-			return nil, fmt.Errorf("check for presence of segment %s: %w", leftSegmentFilename, err)
-		}
-
-		rightSegmentFound, err := fileExists(rightSegmentPath)
-		if err != nil {
-			return nil, fmt.Errorf("check for presence of segment %s: %w", rightSegmentFilename, err)
-		}
+		_, leftSegmentFound := fileNames[leftSegmentPath]
+		_, rightSegmentFound := fileNames[rightSegmentPath]
 
 		if leftSegmentFound && rightSegmentFound {
-			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+			if err := remove(entry.Name()); err != nil {
 				return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry.Name(), err)
 			}
 			continue
@@ -237,7 +252,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			}
 		}
 
-		if err := os.Rename(filepath.Join(sg.dir, entry.Name()), rightSegmentPath); err != nil {
+		if err := rename(filepath.Join(sg.dir, entry.Name()), rightSegmentPath); err != nil {
 			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry.Name(), rightSegmentFilename, err)
 		}
 
@@ -291,11 +306,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		// If yes, we must assume that the flush never finished, as otherwise the
 		// WAL would have been lsmkv.Deleted. Thus we must remove it.
 		walFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
-		ok, err := fileExists(filepath.Join(sg.dir, walFileName))
-		if err != nil {
-			return nil, fmt.Errorf("check for presence of wals for segment %s: %w",
-				entry.Name(), err)
-		}
+		_, ok := fileNames[filepath.Join(sg.dir, walFileName)]
 		if ok {
 			// the segment will be recovered from the WAL
 			err := os.Remove(filepath.Join(sg.dir, entry.Name()))
