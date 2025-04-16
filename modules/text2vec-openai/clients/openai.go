@@ -190,8 +190,11 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		return nil, nil, 0, errors.Wrap(err, "read response body")
 	}
 
-	monitoring.GetMetrics().VectorizerResponseSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(bodyBytes)))
-	monitoring.GetMetrics().VectorizerResponseStatus.WithLabelValues("text2vec", endpoint, strconv.Itoa(res.StatusCode)).Inc()
+	metrics := monitoring.GetMetrics()
+	vrs := metrics.VectorizerResponseSize
+	vrs.WithLabelValues("text2vec", endpoint).Observe(float64(len(bodyBytes)))
+	vrst := metrics.VectorizerResponseStatus
+	vrst.WithLabelValues("text2vec", endpoint, strconv.Itoa(res.StatusCode)).Inc()
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
@@ -212,8 +215,11 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		if resBody.Data[i].Error != nil {
 			openAIerror[i] = v.getError(res.StatusCode, requestID, resBody.Data[i].Error, config.IsAzure)
 		}
-		monitoring.GetMetrics().VectorizerRequestTokens.WithLabelValues("input", endpoint).Observe(float64(resBody.Usage.PromptTokens))
-		monitoring.GetMetrics().VectorizerRequestTokens.WithLabelValues("output", endpoint).Observe(float64(resBody.Usage.CompletionTokens))
+		if resBody.Usage != nil {
+			vrt := metrics.VectorizerRequestTokens
+			vrt.WithLabelValues("input", endpoint).Observe(float64(resBody.Usage.PromptTokens))
+			vrt.WithLabelValues("output", endpoint).Observe(float64(resBody.Usage.CompletionTokens))
+		}
 	}
 
 	return &modulecomponents.VectorizationResult{
