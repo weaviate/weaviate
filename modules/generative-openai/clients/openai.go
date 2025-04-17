@@ -94,6 +94,8 @@ func (v *openai) GenerateAllResults(ctx context.Context, properties []*modulecap
 }
 
 func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	monitoring.GetMetrics().ModuleExternalRequests.WithLabelValues("generate", "openai").Inc()
+	startTime := time.Now()
 	params := v.getParameters(cfg, options, imageProperties)
 	isAzure := config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID)
 	debugInformation := v.getDebugInformation(debug, prompt)
@@ -108,8 +110,6 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "generate input")
 	}
 
-	monitoring.GetMetrics().ModuleExternalRequests.WithLabelValues("generate", "openai").Inc()
-	startTime := time.Now()
 	defer func() {
 		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues("generate", oaiUrl).Observe(time.Since(startTime).Seconds())
 	}()
@@ -137,7 +137,12 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
+	if res != nil {
+		vrst := monitoring.GetMetrics().ModuleExternalResponseStatus
+		vrst.WithLabelValues("generate", oaiUrl, fmt.Sprintf("%v", res.StatusCode)).Inc()
+	}
 	if err != nil {
+		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("generate", "openai", "OpenAI API", fmt.Sprintf("%v", res.StatusCode)).Inc()
 		return nil, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()

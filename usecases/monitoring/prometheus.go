@@ -163,11 +163,11 @@ type PrometheusMetrics struct {
 	ModuleExternalRequestBatchCount  *prometheus.CounterVec
 	ModuleExternalRequestSize        *prometheus.HistogramVec
 	ModuleExternalResponseSize       *prometheus.HistogramVec
-	ModuleExternalResponseStatus         *prometheus.CounterVec
+	ModuleExternalResponseStatus     *prometheus.CounterVec
 	VectorizerRequestTokens          *prometheus.HistogramVec
 	ModuleExternalError              *prometheus.CounterVec
-	VectorizeError                   *prometheus.CounterVec
-	BatchVectorizeError              *prometheus.CounterVec
+	ModuleCallError                  *prometheus.CounterVec
+	ModuleBatchError                 *prometheus.CounterVec
 }
 
 // NewHTPServerMetrics return the ServerMetrics that can be used in any of the grpc or http servers.
@@ -829,17 +829,17 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "weaviate_module_error_total",
 			Help: "Number of OpenAI errors",
 		}, []string{"op", "module", "endpoint", "status_code"}),
-		VectorizeError: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "weaviate_vectorize_error_total",
-			Help: "Number of vectorizer errors",
+		ModuleCallError: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_module_call_error_total",
+			Help: "Number of module errors (related to external calls)",
 		}, []string{"module", "endpoint", "status_code"}),
 		ModuleExternalResponseStatus: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "weaviate_module_response_status_total",
-			Help: "Number of vectorizer response statuses",
+			Help: "Number of API response statuses",
 		}, []string{"op", "endpoint", "status"}),
-		BatchVectorizeError: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "weaviate_batch_vectorize_error_total",
-			Help: "Number of batch vectorization errors",
+		ModuleBatchError: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_module_batch_error_total",
+			Help: "Number of batch errors",
 		}, []string{"operation", "class_name"}),
 	}
 }

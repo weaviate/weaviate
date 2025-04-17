@@ -72,7 +72,6 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	startTime := time.Now()
 	metrics.ModuleExternalRequests.WithLabelValues("qna", "openai").Inc()
 
-
 	prompt := v.generatePrompt(text, question)
 
 	settings := config.NewClassSettings(cfg)
@@ -100,7 +99,6 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues("qna", oaiUrl).Observe(time.Since(startTime).Seconds())
 	}()
 
-
 	v.logger.WithField("URL", oaiUrl).Info("using OpenAI")
 
 	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
@@ -119,7 +117,14 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
+	if res != nil {
+		vrst := monitoring.GetMetrics().ModuleExternalResponseStatus
+		vrst.WithLabelValues("qna", oaiUrl, fmt.Sprintf("%v", res.StatusCode)).Inc()
+	}
 	if err != nil {
+		vrst := metrics.ModuleExternalResponseStatus
+		vrst.WithLabelValues("qna", oaiUrl, fmt.Sprintf("%v", res.StatusCode)).Inc()
+		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("qna", "openai", "OpenAI API", fmt.Sprintf("%v", res.StatusCode)).Inc()
 		return nil, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()

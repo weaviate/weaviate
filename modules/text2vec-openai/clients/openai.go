@@ -133,7 +133,7 @@ func (v *client) Vectorize(ctx context.Context, input []string,
 	config := v.getVectorizationConfig(cfg, "document")
 	a, b, c, err := v.vectorize(ctx, input, config.ModelString, config)
 	if err != nil {
-		monitoring.GetMetrics().VectorizeError.WithLabelValues("openai", "-", "-").Inc()
+		monitoring.GetMetrics().ModuleCallError.WithLabelValues("openai", "-", "-").Inc()
 	}
 	return a, b, c, err
 }
@@ -188,8 +188,12 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	metrics.ModuleExternalRequestSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(body)))
 
 	res, err := v.httpClient.Do(req)
+	if res != nil {
+		vrst := monitoring.GetMetrics().ModuleExternalResponseStatus
+		vrst.WithLabelValues("text2vec", endpoint, fmt.Sprintf("%v", res.StatusCode)).Inc()
+	}
 	if err != nil {
-		metrics.VectorizeError.WithLabelValues("openai", endpoint, fmt.Sprintf("%v", err)).Inc()
+		metrics.ModuleCallError.WithLabelValues("openai", endpoint, fmt.Sprintf("%v", err)).Inc()
 		return nil, nil, 0, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
@@ -202,8 +206,6 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 
 	vrs := metrics.ModuleExternalResponseSize
 	vrs.WithLabelValues("text2vec", endpoint).Observe(float64(len(bodyBytes)))
-	vrst := metrics.ModuleExternalResponseStatus
-	vrst.WithLabelValues("text2vec", endpoint, fmt.Sprintf("%v", res.StatusCode)).Inc()
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
