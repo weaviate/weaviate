@@ -163,7 +163,7 @@ type PrometheusMetrics struct {
 	ModuleExternalRequestBatchCount  *prometheus.CounterVec
 	ModuleExternalRequestSize        *prometheus.HistogramVec
 	ModuleExternalResponseSize       *prometheus.HistogramVec
-	VectorizerResponseStatus         *prometheus.CounterVec
+	ModuleExternalResponseStatus         *prometheus.CounterVec
 	VectorizerRequestTokens          *prometheus.HistogramVec
 	ModuleExternalError              *prometheus.CounterVec
 	VectorizeError                   *prometheus.CounterVec
@@ -833,8 +833,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "weaviate_vectorize_error_total",
 			Help: "Number of vectorizer errors",
 		}, []string{"module", "endpoint", "status_code"}),
-		VectorizerResponseStatus: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "weaviate_vectorizer_response_status_total",
+		ModuleExternalResponseStatus: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_module_response_status_total",
 			Help: "Number of vectorizer response statuses",
 		}, []string{"op", "endpoint", "status"}),
 		BatchVectorizeError: promauto.NewCounterVec(prometheus.CounterOpts{

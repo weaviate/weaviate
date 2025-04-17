@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/modules/qna-openai/config"
 	"github.com/weaviate/weaviate/modules/qna-openai/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
@@ -66,6 +67,12 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 }
 
 func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error) {
+
+	metrics := monitoring.GetMetrics()
+	startTime := time.Now()
+	metrics.ModuleExternalRequests.WithLabelValues("qna", "openai").Inc()
+
+
 	prompt := v.generatePrompt(text, question)
 
 	settings := config.NewClassSettings(cfg)
@@ -88,6 +95,12 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	if err != nil {
 		return nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
+
+	defer func() {
+		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues("qna", oaiUrl).Observe(time.Since(startTime).Seconds())
+	}()
+
+
 	v.logger.WithField("URL", oaiUrl).Info("using OpenAI")
 
 	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
@@ -121,6 +134,10 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
+
+	monitoring.GetMetrics().ModuleExternalResponseSize.WithLabelValues("generate", oaiUrl).Observe(float64(len(bodyBytes)))
+	vrst := monitoring.GetMetrics().ModuleExternalResponseStatus
+	vrst.WithLabelValues("qna", oaiUrl, fmt.Sprintf("%v", res.StatusCode)).Inc()
 
 	if res.StatusCode != 200 || resBody.Error != nil {
 		return nil, v.getError(res.StatusCode, requestID, resBody.Error, settings.IsAzure())
@@ -170,6 +187,7 @@ func (v *qna) getError(statusCode int, requestID string, resBodyError *openAIApi
 	if resBodyError != nil {
 		errorMsg = fmt.Sprintf("%s error: %v", errorMsg, resBodyError.Message)
 	}
+	monitoring.GetMetrics().ModuleExternalError.WithLabelValues("qna", "openai", endpoint, fmt.Sprintf("%v", statusCode)).Inc()
 	return errors.New(errorMsg)
 }
 

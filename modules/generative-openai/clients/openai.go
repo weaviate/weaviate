@@ -149,6 +149,8 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 
 	monitoring.GetMetrics().ModuleExternalResponseSize.WithLabelValues("generate", oaiUrl).Observe(float64(len(bodyBytes)))
+	vrst := monitoring.GetMetrics().ModuleExternalResponseStatus
+	vrst.WithLabelValues("generate", oaiUrl, fmt.Sprintf("%v", res.StatusCode)).Inc()
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
