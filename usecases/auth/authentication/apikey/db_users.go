@@ -48,7 +48,7 @@ type DBUsers interface {
 }
 
 type User struct {
-	sync.Mutex
+	sync.RWMutex
 	Id                 string
 	Active             bool
 	InternalIdentifier string
@@ -59,6 +59,7 @@ type User struct {
 
 type DBUser struct {
 	lock          *sync.RWMutex
+	weakHashLock  *sync.RWMutex
 	data          dbUserdata
 	memoryOnyData memoryOnlyData
 	path          string
@@ -117,6 +118,7 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 	dbUsers := &DBUser{
 		path:          fullpath,
 		lock:          &sync.RWMutex{},
+		weakHashLock:  &sync.RWMutex{},
 		data:          snapshot.Data,
 		memoryOnyData: memoryOnlyData{WeakKeyStorageById: make(map[string][sha256.Size]byte)},
 	}
@@ -269,7 +271,9 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
+	c.weakHashLock.RLock()
 	weakHash, ok := c.memoryOnyData.WeakKeyStorageById[userId]
+	c.weakHashLock.RUnlock()
 	if ok {
 		// use the secureHash as salt for the computation of the weaker in-memory
 		if err := c.validateWeakHash([]byte(key+secureHash), weakHash); err != nil {
@@ -319,9 +323,9 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 	// avoid concurrent writes to map
 	weakHash := sha256.Sum256(token)
 
-	c.data.Users[userId].Lock()
+	c.weakHashLock.Lock()
 	c.memoryOnyData.WeakKeyStorageById[userId] = weakHash
-	c.data.Users[userId].Unlock()
+	c.weakHashLock.Unlock()
 
 	return nil
 }
