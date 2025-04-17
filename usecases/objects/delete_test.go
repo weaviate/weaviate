@@ -80,6 +80,6 @@ func newDeleteDependency() (*Manager, *fakeVectorRepo) {
 		vectorRepo,
 		getFakeModulesProvider(),
 		new(fakeMetrics), nil,
-		NewAutoSchemaManager(new(fakeSchemaManager), vectorRepo, new(config.WeaviateConfig), logger, prometheus.DefaultRegisterer))
+		NewAutoSchemaManager(new(fakeSchemaManager), vectorRepo, new(config.WeaviateConfig), logger, prometheus.NewPedanticRegistry()))
 	return manager, vectorRepo
 }
