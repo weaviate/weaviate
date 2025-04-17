@@ -111,13 +111,13 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 	for {
 		select {
 		case <-ctx.Done():
-			c.logger.WithField("reason", ctx.Err()).Info("context canceled, shutting down consumer")
+			c.logger.WithFields(logrus.Fields{"consumer": c, "reason": ctx.Err()}).Info("context canceled, shutting down consumer")
 			wg.Wait() // Waiting for pending operations before terminating
 			return ctx.Err()
 
 		case op, ok := <-in:
 			if !ok {
-				c.logger.Info("operation channel closed, shutting down consumer")
+				c.logger.WithFields(logrus.Fields{"consumer": c}).Info("operation channel closed, shutting down consumer")
 				wg.Wait() // Waiting for pending operations before terminating
 				return nil
 			}
@@ -143,6 +143,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					}()
 
 					opLogger := c.logger.WithFields(logrus.Fields{
+						"consumer":          c,
 						"op":                operation.ID,
 						"source_node":       operation.sourceShard.nodeId,
 						"target_node":       operation.targetShard.nodeId,
@@ -185,6 +186,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 // Errors are logged and wrapped using the structured error group wrapper.
 func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint64, op ShardReplicationOp) error {
 	logger := c.logger.WithFields(logrus.Fields{
+		"consumer":          c,
 		"op":                op.ID,
 		"source_node":       op.sourceShard.nodeId,
 		"target_node":       op.targetShard.nodeId,
@@ -200,24 +202,24 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 	eg.Go(func() error {
 		return backoff.Retry(func() error {
 			if ctx.Err() != nil {
-				logger.WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
+				logger.WithField("consumer", c).WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
 				return backoff.Permanent(ctx.Err())
 			}
 
 			if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.ID, api.HYDRATING); err != nil {
-				logger.WithError(err).Error("failed to update replica status to 'HYDRATING'")
+				logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'HYDRATING'")
 				return err
 			}
 
-			logger.Info("starting replication copy operation")
+			logger.WithField("consumer", c).Info("starting replication copy operation")
 
 			if err := c.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
-				logger.WithError(err).Error("failure while copying replica shard")
+				logger.WithField("consumer", c).WithError(err).Error("failure while copying replica shard")
 				return err
 			}
 
 			if _, err := c.leaderClient.AddReplicaToShard(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.targetShard.nodeId); err != nil {
-				logger.WithError(err).Error("failure while updating sharding state")
+				logger.WithField("consumer", c).WithError(err).Error("failure while updating sharding state")
 				return err
 			}
 

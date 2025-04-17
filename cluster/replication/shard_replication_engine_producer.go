@@ -50,8 +50,21 @@ func NewFSMOpProducer(logger *logrus.Logger, fsm *ShardReplicationFSM, pollingIn
 }
 
 // Produce implements the OpProducer interface and starts producing operations for the given node.
+//
+// It uses a polling mechanism based on time.Ticker to periodically fetch all replication operations
+// that should be executed on the current node. These operations are then sent to the provided output
+// channel to be consumed by the OpConsumer.
+//
+// The function respects backpressure by using a bounded output channel. If the channel is full
+// (i.e., the consumer is slow or blocked), the producer blocks while trying to send operations.
+// While blocked, any additional ticks from the time.Ticker are dropped, as time.Ticker does not
+// buffer ticks. This means the polling interval is effectively paused while the system is under load.
+//
+// This behavior is intentional: the producer only generates new work when the system has capacity
+// to process it. Missing some ticks during backpressure is acceptable and avoids accumulating
+// unprocessed work or overloading the system.
 func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplicationOp) error {
-	p.logger.Info("starting replication engine FSM producer")
+	p.logger.WithField("producer", p).Info("starting replication engine FSM producer")
 
 	ticker := time.NewTicker(p.pollingInterval)
 	defer ticker.Stop()
@@ -59,22 +72,18 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 	for {
 		select {
 		case <-ctx.Done():
-			p.logger.WithFields(logrus.Fields{"producer": p}).Info("replication engine producer cancel request, stopping FSM producer")
+			p.logger.WithField("producer", p).Info("replication engine producer cancel request, stopping FSM producer")
 			return ctx.Err()
 		case <-ticker.C:
-			// Here we get ALL operations for a certain node which the replication engine is responsible for running.
-			// We write all of them to a channel for the OpConsumer to consume them. Replication operations already
-			// started will be detected by checking the existence of the shard on the target node before the right
-			// before starting the replication operation.
 			ops := p.allOpsForNode(p.nodeId)
 			if len(ops) > 0 {
-				p.logger.WithField("opCount", len(ops)).Debug("preparing op replication")
+				p.logger.WithFields(logrus.Fields{"producer": p, "number_of_ops": len(ops)}).Debug("preparing op replication")
 
 				for _, op := range ops {
 					select {
 					case <-ctx.Done():
 						return ctx.Err()
-					case out <- op: // Write operation to channel
+					case out <- op: // Write replication operation to channel.
 					}
 				}
 			}
