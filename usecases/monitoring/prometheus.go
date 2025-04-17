@@ -163,10 +163,10 @@ type PrometheusMetrics struct {
 	ModuleExternalRequestBatchCount  *prometheus.CounterVec
 	ModuleExternalRequestSize        *prometheus.HistogramVec
 	ModuleExternalResponseSize       *prometheus.HistogramVec
-	VectorizerResponseStatus     *prometheus.CounterVec
-	VectorizerRequestTokens      *prometheus.HistogramVec
+	VectorizerResponseStatus         *prometheus.CounterVec
+	VectorizerRequestTokens          *prometheus.HistogramVec
 	ModuleExternalError              *prometheus.CounterVec
-	BatchVectorizeError          *prometheus.CounterVec
+	BatchVectorizeError              *prometheus.CounterVec
 }
 
 // NewHTPServerMetrics return the ServerMetrics that can be used in any of the grpc or http servers.
