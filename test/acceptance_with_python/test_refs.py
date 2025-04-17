@@ -1,5 +1,7 @@
 import pytest
+
 import weaviate.classes as wvc
+from weaviate.collections.classes.internal import ReferenceToMulti
 
 from .conftest import CollectionFactory
 
@@ -39,7 +41,6 @@ def test_ref_with_cycle(collection_factory: CollectionFactory) -> None:
     assert ret[1].references["ref"].objects[0].properties["name"] == "A"
 
 
-@pytest.mark.skip(reason="DB-18")
 def test_ref_with_multiple_cycle(collection_factory: CollectionFactory) -> None:
     col = collection_factory(
         properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
@@ -51,8 +52,14 @@ def test_ref_with_multiple_cycle(collection_factory: CollectionFactory) -> None:
     # c => b => a => c
     # c => a => c
     a = col.data.insert(properties={"name": "A"})
-    b = col.data.insert(properties={"name": "B"}, references={"ref": a})
-    c = col.data.insert(properties={"name": "C"}, references={"ref": [b, a]})  # has two refs
+    b = col.data.insert(
+        properties={"name": "B"},
+        references={"ref": ReferenceToMulti(target_collection=col.name, uuids=[a])},
+    )
+    c = col.data.insert(
+        properties={"name": "C"},
+        references={"ref": ReferenceToMulti(target_collection=col.name, uuids=[b, a])},
+    )  # has two refs
     col.data.reference_add(from_uuid=a, from_property="ref", to=c)
 
     ret = col.query.fetch_objects(
