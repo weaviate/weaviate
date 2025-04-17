@@ -43,7 +43,7 @@ type DBUsers interface {
 	ActivateUser(userId string) error
 	DeactivateUser(userId string, revokeKey bool) error
 	GetUsers(userIds ...string) (map[string]*User, error)
-	RotateKey(userId, secureHash, oldIdentifier, newIdentifier string) error
+	RotateKey(userId, newApiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
 }
 
@@ -164,9 +164,13 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 	return c.storeToFile()
 }
 
-func (c *DBUser) RotateKey(userId, secureHash, oldIdentifier, newIdentifier string) error {
+func (c *DBUser) RotateKey(userId, newApiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+
+	if len(newApiKeyFirstLetters) > 3 {
+		return errors.New("api key first letters too long")
+	}
 
 	if _, ok := c.data.Users[userId]; !ok {
 		return fmt.Errorf("user %s does not exist", userId)
@@ -179,6 +183,7 @@ func (c *DBUser) RotateKey(userId, secureHash, oldIdentifier, newIdentifier stri
 		c.data.IdentifierToId[newIdentifier] = userId
 		c.data.Users[userId].InternalIdentifier = newIdentifier
 	}
+	c.data.Users[userId].ApiKeyFirstLetters = newApiKeyFirstLetters
 
 	c.data.SecureKeyStorageById[userId] = secureHash
 	delete(c.memoryOnyData.WeakKeyStorageById, userId)

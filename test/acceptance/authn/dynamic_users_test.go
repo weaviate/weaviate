@@ -29,16 +29,18 @@ func TestCreateUser(t *testing.T) {
 	adminUser := "admin-user"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
+	compose, err := docker.New().WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
+		WithRBAC().WithRbacAdmins(adminUser).
 		Start(ctx)
 	require.Nil(t, err)
-	helper.SetupClient(compose.GetWeaviate().URI())
 
 	defer func() {
 		helper.ResetClient()
 		require.NoError(t, compose.Terminate(ctx))
 		cancel()
 	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	userName := "CreateUserTestUser"
 
@@ -76,6 +78,9 @@ func TestCreateUser(t *testing.T) {
 		info := helper.GetInfoForOwnUser(t, oldKey)
 		require.Equal(t, userName, *info.Username)
 
+		user := helper.GetUser(t, userName, adminKey)
+		require.Equal(t, user.APIKeyFirstLetters, oldKey[:3])
+
 		// rotate key and test that old key is not working anymore
 		newKey := helper.RotateKey(t, userName, adminKey)
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(oldKey))
@@ -86,6 +91,9 @@ func TestCreateUser(t *testing.T) {
 
 		require.NotEqual(t, newKey, oldKey)
 		require.NotEqual(t, newKey[:10], oldKey[:10])
+
+		user = helper.GetUser(t, userName, adminKey)
+		require.Equal(t, user.APIKeyFirstLetters, newKey[:3])
 
 		helper.DeleteUser(t, userName, adminKey)
 	})

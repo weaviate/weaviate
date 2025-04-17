@@ -221,7 +221,7 @@ func (_m *DbUserAndRolesGetter) RevokeRolesForUser(userName string, roles ...str
 }
 
 // RotateKey provides a mock function with given fields: userId, secureHash, oldIdentifier, newIdentifier
-func (_m *DbUserAndRolesGetter) RotateKey(userId string, secureHash string, oldIdentifier string, newIdentifier string) error {
+func (_m *DbUserAndRolesGetter) RotateKey(userId string, apiKey string, secureHash string, oldIdentifier string, newIdentifier string) error {
 	ret := _m.Called(userId, secureHash, oldIdentifier, newIdentifier)
 
 	if len(ret) == 0 {
@@ -229,8 +229,8 @@ func (_m *DbUserAndRolesGetter) RotateKey(userId string, secureHash string, oldI
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string, string, string) error); ok {
-		r0 = rf(userId, secureHash, oldIdentifier, newIdentifier)
+	if rf, ok := ret.Get(0).(func(string, string, string, string, string) error); ok {
+		r0 = rf(userId, apiKey, secureHash, oldIdentifier, newIdentifier)
 	} else {
 		r0 = ret.Error(0)
 	}
