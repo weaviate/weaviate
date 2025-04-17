@@ -239,7 +239,7 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 // Note that the ops channel is closed in the Start method after waiting for both the producer and consumers to
 // terminate.
 func (e *ShardReplicationEngine) Stop() {
-	if !e.isRunning.CompareAndSwap(true, false) {
+	if !e.isRunning.Load() {
 		return
 	}
 
@@ -265,6 +265,8 @@ func (e *ShardReplicationEngine) Stop() {
 	case <-timeoutCtx.Done():
 		e.logger.WithField("engine", e).WithField("timeout", e.shutdownTimeout).Warn("replication engine shutdown timed out")
 	}
+
+	e.isRunning.Store(false)
 }
 
 // IsRunning reports whether the replication engine is currently running.
