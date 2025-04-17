@@ -790,11 +790,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}, []string{"tokenizer"}),
 		ModuleExternalRequests: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "weaviate_module_requests_total",
-			Help: "Number of OpenAI requests",
+			Help: "Number of module requests to external APIs",
 		}, []string{"op", "api"}),
 		ModuleExternalRequestDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "weaviate_module_request_duration_seconds",
-			Help:    "Duration of an individual request to OpenAI",
+			Help:    "Duration of an individual request to a module external API",
 			Buckets: LatencyBuckets,
 		}, []string{"op", "api"}),
 		ModuleExternalBatchLength: promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -804,26 +804,26 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}, []string{"op", "api"}),
 		ModuleExternalRequestSize: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "weaviate_module_request_size_bytes",
-			Help:    "Size (in bytes) of the request sent to OpenAI",
+			Help:    "Size (in bytes) of the request sent to an external API",
 			Buckets: []float64{256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608},
 		}, []string{"op", "api"}),
 		ModuleExternalResponseSize: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "weaviate_module_response_size_bytes",
-			Help:    "Size (in bytes) of the response received from OpenAI",
+			Help:    "Size (in bytes) of the response received from an external API",
 			Buckets: []float64{256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608},
 		}, []string{"op", "api"}),
 		VectorizerRequestTokens: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "weaviate_vectorizer_request_tokens",
-			Help:    "Number of tokens in the request sent to OpenAI",
+			Help:    "Number of tokens in the request sent to an external vectorizer",
 			Buckets: []float64{0, 1, 10, 50, 100, 500, 1000, 5000, 10000, 100000, 1000000},
 		}, []string{"inout", "api"}),
 		ModuleExternalRequestSingleCount: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "weaviate_module_request_single_count",
-			Help: "Number of single-item OpenAI requests",
+			Help: "Number of single-item external API requests",
 		}, []string{"op", "api"}),
 		ModuleExternalRequestBatchCount: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "weaviate_module_request_batch_count",
-			Help: "Number of batched OpenAI requests",
+			Help: "Number of batched module requests",
 		}, []string{"op", "api"}),
 		ModuleExternalError: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "weaviate_module_error_total",
@@ -831,11 +831,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}, []string{"op", "module", "endpoint", "status_code"}),
 		VectorizeError: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "weaviate_vectorize_error_total",
-			Help: "Number of OpenAI errors",
+			Help: "Number of vectorizer errors",
 		}, []string{"module", "endpoint", "status_code"}),
 		VectorizerResponseStatus: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "weaviate_vectorizer_response_status_total",
-			Help: "Number of OpenAI response statuses",
+			Help: "Number of vectorizer response statuses",
 		}, []string{"op", "endpoint", "status"}),
 		BatchVectorizeError: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "weaviate_batch_vectorize_error_total",
