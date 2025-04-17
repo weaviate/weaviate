@@ -271,7 +271,7 @@ func (v *client) getError(statusCode int, requestID string, resBodyError *openAI
 	if resBodyError != nil {
 		errorMsg = fmt.Sprintf("%s error: %v", errorMsg, resBodyError.Message)
 	}
-	monitoring.GetMetrics().ModuleExternalError.WithLabelValues("text2vec", endpoint, errorMsg).Inc()
+	monitoring.GetMetrics().ModuleExternalError.WithLabelValues("text2vec", endpoint, errorMsg, fmt.Sprintf("%v", statusCode)).Inc()
 	return errors.New(errorMsg)
 }
 
