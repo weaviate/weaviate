@@ -53,6 +53,36 @@ func TestDynUserConcurrency(t *testing.T) {
 	require.Equal(t, len(userNames), len(users))
 }
 
+func TestConcurrentValidate(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+	userId := "id"
+
+	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
+
+	randomKey, _, err := keys.DecodeApiKey(apiKey)
+	require.NoError(t, err)
+	start := time.Now()
+	wg := sync.WaitGroup{}
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			_, err := dynUsers.ValidateAndExtract(randomKey, identifier)
+			require.NoError(t, err)
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	users, err := dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+	user := users[userId]
+	require.Less(t, start, user.LastUsedAt)
+}
+
 func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)

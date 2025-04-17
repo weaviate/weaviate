@@ -17,10 +17,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -31,10 +34,11 @@ import (
 )
 
 const (
-	SnapshotVersion   = 0
-	FileName          = "users.json"
-	UserNameMaxLength = 128
-	UserNameRegexCore = `[A-Za-z][-_0-9A-Za-z@.]{0,128}`
+	SnapshotVersion      = 0
+	FileName             = "users.json"
+	UserNameMaxLength    = 128
+	UserNameRegexCore    = `[A-Za-z][-_0-9A-Za-z@.]{0,128}`
+	ShardedLockCacheSize = 100
 )
 
 type DBUsers interface {
@@ -57,10 +61,11 @@ type User struct {
 }
 
 type DBUser struct {
-	lock          *sync.RWMutex
-	data          dbUserdata
-	memoryOnyData memoryOnlyData
-	path          string
+	lock            *sync.RWMutex
+	sharedLockCache *common.ShardedLocks
+	data            dbUserdata
+	memoryOnyData   memoryOnlyData
+	path            string
 }
 
 type DBUserSnapshot struct {
@@ -112,11 +117,13 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 	if snapshot.Data.UserKeyRevoked == nil {
 		snapshot.Data.UserKeyRevoked = make(map[string]struct{})
 	}
+
 	dbUsers := &DBUser{
-		path:          fullpath,
-		lock:          &sync.RWMutex{},
-		data:          snapshot.Data,
-		memoryOnyData: memoryOnlyData{WeakKeyStorageById: make(map[string][sha256.Size]byte)},
+		path:            fullpath,
+		lock:            &sync.RWMutex{},
+		data:            snapshot.Data,
+		memoryOnyData:   memoryOnlyData{WeakKeyStorageById: make(map[string][sha256.Size]byte)},
+		sharedLockCache: common.NewShardedLocks(ShardedLockCacheSize),
 	}
 
 	// we save every change to file after a request is done, EXCEPT the lastUsedAt time as we do not want to write to a
@@ -244,8 +251,8 @@ func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) 
 }
 
 func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
 	for userID, lastUsed := range users {
 		if c.data.Users[userID].LastUsedAt.Before(lastUsed) {
@@ -286,7 +293,10 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		return nil, fmt.Errorf("key is revoked")
 	}
 
+	lockId := hashToShardedLocks(weakHash)
+	c.sharedLockCache.Lock(lockId)
 	c.data.Users[userId].LastUsedAt = time.Now()
+	c.sharedLockCache.Unlock(lockId)
 
 	return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
 }
@@ -309,7 +319,13 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 		return fmt.Errorf("invalid token")
 	}
 	token := []byte(key + secureHash)
-	c.memoryOnyData.WeakKeyStorageById[userId] = sha256.Sum256(token)
+	// avoid concurrent writes to map
+	weakHash := sha256.Sum256(token)
+
+	lockId := hashToShardedLocks(weakHash)
+	c.sharedLockCache.Lock(lockId)
+	defer c.sharedLockCache.Unlock(lockId)
+	c.memoryOnyData.WeakKeyStorageById[userId] = weakHash
 
 	return nil
 }
@@ -413,4 +429,11 @@ func ReadFile(filename string) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+func hashToShardedLocks(hash [32]byte) uint64 {
+	intValue := new(big.Int)
+	intValue.SetBytes(hash[:8])
+
+	return uint64(intValue.Int64())
 }
