@@ -135,7 +135,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	segmentsAlreadyRecoveredFromCompaction := make(map[string]struct{})
 
 	remove := func(name string) error {
-		if err := os.Remove(filepath.Join(sg.dir, name)); err != nil {
+		if err := os.Remove(name); err != nil {
 			return err
 		}
 		delete(fileNames, name)
@@ -171,7 +171,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		if len(jointSegmentsIDs) == 1 {
 			// cleanup leftover, to be removed
-			if err := remove(entry.Name()); err != nil {
+			if err := remove(filepath.Join(sg.dir, entry.Name())); err != nil {
 				return nil, fmt.Errorf("delete partially cleaned segment %q: %w", entry.Name(), err)
 			}
 			continue
@@ -195,7 +195,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		_, rightSegmentFound := fileNames[rightSegmentPath]
 
 		if leftSegmentFound && rightSegmentFound {
-			if err := remove(entry.Name()); err != nil {
+			if err := remove(filepath.Join(sg.dir, entry.Name())); err != nil {
 				return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry.Name(), err)
 			}
 			continue
@@ -252,7 +252,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			}
 		}
 
-		if err := rename(filepath.Join(sg.dir, entry.Name()), rightSegmentPath); err != nil {
+		if err := rename(entry.Name(), rightSegmentPath); err != nil {
 			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry.Name(), rightSegmentFilename, err)
 		}
 
@@ -279,7 +279,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	for _, entry := range list {
 		if filepath.Ext(entry.Name()) == DeleteMarkerSuffix {
 			// marked for deletion, but never actually deleted. Delete now.
-			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+			if err := remove(filepath.Join(sg.dir, entry.Name())); err != nil {
 				// don't abort if the delete fails, we can still continue (albeit
 				// without freeing disk space that should have been freed)
 				sg.logger.WithError(err).WithFields(logrus.Fields{
@@ -309,7 +309,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		_, ok := fileNames[filepath.Join(sg.dir, walFileName)]
 		if ok {
 			// the segment will be recovered from the WAL
-			err := os.Remove(filepath.Join(sg.dir, entry.Name()))
+			err := remove(filepath.Join(sg.dir, entry.Name()))
 			if err != nil {
 				return nil, fmt.Errorf("delete partially written segment %s: %w", entry.Name(), err)
 			}
