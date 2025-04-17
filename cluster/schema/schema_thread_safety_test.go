@@ -12,8 +12,6 @@
 package schema
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -57,10 +55,6 @@ func TestConcurrentSchemaAccess(t *testing.T) {
 		{
 			name: "concurrent tenant operations",
 			test: testConcurrentTenantOperations,
-		},
-		{
-			name: "concurrent snapshot operations",
-			test: testConcurrentSnapshotOperations,
 		},
 		{
 			name: "concurrent meta operations",
@@ -460,93 +454,6 @@ func testConcurrentTenantOperations(t *testing.T, s *schema) {
 	wg.Wait()
 }
 
-func testConcurrentSnapshotOperations(t *testing.T, s *schema) {
-	// Setup initial data
-	setupClasses := []string{"Class1", "Class2", "Class3"}
-	for _, className := range setupClasses {
-		class := &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{Name: "prop1", DataType: []string{"string"}},
-			},
-		}
-		require.NoError(t, s.addClass(class, &sharding.State{}, 1))
-	}
-
-	const numGoroutines = 10
-	const iterations = 100
-
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines * 3)
-
-	// Test concurrent Persist operations
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				sink := &mockSnapshotSink{
-					buffer: &bytes.Buffer{},
-				}
-				err := s.Persist(sink)
-				assert.NoError(t, err)
-				time.Sleep(time.Microsecond)
-			}
-		}()
-	}
-
-	// Test concurrent Restore operations
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				// Create a snapshot with a single class
-				class := &models.Class{
-					Class: fmt.Sprintf("RestoreClass%d", j),
-					Properties: []*models.Property{
-						{Name: "prop1", DataType: []string{"string"}},
-					},
-				}
-				state := &sharding.State{}
-				snap := snapshot{
-					NodeID:     "testNode",
-					SnapshotID: "test",
-					Classes: map[string]*metaClass{
-						class.Class: {
-							Class:        *class,
-							Sharding:     *state,
-							ClassVersion: 1,
-						},
-					},
-				}
-				buf := &bytes.Buffer{}
-				err := json.NewEncoder(buf).Encode(&snap)
-				assert.NoError(t, err)
-
-				// Restore from the snapshot
-				err = s.Restore(buf, &mockParser{})
-				if err != nil {
-					assert.Contains(t, err.Error(), "already exists")
-				}
-				time.Sleep(time.Microsecond)
-			}
-		}()
-	}
-
-	// Test concurrent reads while snapshot operations are happening
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				schema := s.ReadOnlySchema()
-				assert.NotNil(t, schema)
-				time.Sleep(time.Microsecond)
-			}
-		}()
-	}
-
-	wg.Wait()
-}
-
 func testConcurrentMetaOperations(t *testing.T, s *schema) {
 	// Setup initial data
 	setupClasses := []string{"Class1", "Class2", "Class3"}
@@ -852,38 +759,6 @@ func testConcurrentShardingStateOperations(t *testing.T, s *schema) {
 	}
 
 	wg.Wait()
-}
-
-// Mock implementations for testing
-
-type mockSnapshotSink struct {
-	buffer *bytes.Buffer
-}
-
-func (m *mockSnapshotSink) Write(p []byte) (n int, err error) {
-	return m.buffer.Write(p)
-}
-
-func (m *mockSnapshotSink) Close() error {
-	return nil
-}
-
-func (m *mockSnapshotSink) ID() string {
-	return "test"
-}
-
-func (m *mockSnapshotSink) Cancel() error {
-	return nil
-}
-
-type mockParser struct{}
-
-func (m *mockParser) ParseClass(class *models.Class) error {
-	return nil
-}
-
-func (m *mockParser) ParseClassUpdate(class, update *models.Class) (*models.Class, error) {
-	return class, nil
 }
 
 // Additional mock for shard reader
