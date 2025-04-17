@@ -67,7 +67,6 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 }
 
 func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error) {
-
 	metrics := monitoring.GetMetrics()
 	startTime := time.Now()
 	metrics.ModuleExternalRequests.WithLabelValues("qna", "openai").Inc()
