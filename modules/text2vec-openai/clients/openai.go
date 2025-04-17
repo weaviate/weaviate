@@ -131,7 +131,11 @@ func (v *client) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg, "document")
-	return v.vectorize(ctx, input, config.ModelString, config)
+	a, b, c, err := v.vectorize(ctx, input, config.ModelString, config)
+	if err != nil {
+		monitoring.GetMetrics().VectorizeError.WithLabelValues("openai", "-","-").Inc()
+	}
+	return a, b, c, err
 }
 
 func (v *client) VectorizeQuery(ctx context.Context, input []string,
@@ -139,10 +143,14 @@ func (v *client) VectorizeQuery(ctx context.Context, input []string,
 ) (*modulecomponents.VectorizationResult, error) {
 	config := v.getVectorizationConfig(cfg, "query")
 	res, _, _, err := v.vectorize(ctx, input, config.ModelString, config)
+	if err != nil {
+		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("openai", "-","-").Inc()
+	}
 	return res, err
 }
 
 func (v *client) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+	metrics := monitoring.GetMetrics()
 	startTime := time.Now()
 
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure, config.Dimensions))
@@ -174,12 +182,13 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	}
 	req.Header.Add("Content-Type", "application/json")
 
-	monitoring.GetMetrics().ModuleExternalRequestSingleCount.WithLabelValues("text2vec", endpoint).Inc()
+	metrics.ModuleExternalRequestSingleCount.WithLabelValues("text2vec", endpoint).Inc()
 
-	monitoring.GetMetrics().ModuleExternalRequestSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(body)))
+	metrics.ModuleExternalRequestSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(body)))
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
+		metrics.VectorizeError.WithLabelValues("openai", endpoint, fmt.Sprintf("%v", err)).Inc()
 		return nil, nil, 0, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
@@ -190,11 +199,11 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		return nil, nil, 0, errors.Wrap(err, "read response body")
 	}
 
-	metrics := monitoring.GetMetrics()
+
 	vrs := metrics.ModuleExternalResponseSize
 	vrs.WithLabelValues("text2vec", endpoint).Observe(float64(len(bodyBytes)))
 	vrst := metrics.VectorizerResponseStatus
-	vrst.WithLabelValues("text2vec", endpoint, strconv.Itoa(res.StatusCode)).Inc()
+	vrst.WithLabelValues("text2vec", endpoint, fmt.Sprintf("%v", res.StatusCode)).Inc()
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
