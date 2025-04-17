@@ -85,7 +85,7 @@ func NewCopyOpConsumer(
 	maxWorkers int,
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
-		logger:        logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId}),
+		logger:        logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),
 		leaderClient:  leaderClient,
 		replicaCopier: replicaCopier,
 		backoffPolicy: backoffPolicy,
@@ -101,7 +101,7 @@ func NewCopyOpConsumer(
 // Consume processes replication operations from the input channel, ensuring that only a limited number of consumers
 // are active concurrently based on the maxWorkers value.
 func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplicationOp) error {
-	c.logger.WithFields(logrus.Fields{"workers": c.maxWorkers}).Info("starting replication operation consumer")
+	c.logger.Info("starting replication operation consumer")
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
