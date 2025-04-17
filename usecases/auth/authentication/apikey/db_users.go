@@ -248,12 +248,16 @@ func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) 
 }
 
 func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	// RLock is fine here, we only want to avoid that c.data.Users is being changed. LastUsed has its own
+	// locking mechanism
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 
 	for userID, lastUsed := range users {
 		if c.data.Users[userID].LastUsedAt.Before(lastUsed) {
+			c.data.Users[userID].Lock()
 			c.data.Users[userID].LastUsedAt = lastUsed
+			c.data.Users[userID].Unlock()
 		}
 	}
 }
