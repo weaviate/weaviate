@@ -151,12 +151,10 @@ func (m *Metrics) UpdateShardStatus(old, new string) {
 		return
 	}
 
-	if old == "" {
-		m.shardsCount.WithLabelValues(new).Inc()
-		return
+	if old != "" {
+		m.shardsCount.WithLabelValues(old).Dec()
 	}
 
-	m.shardsCount.WithLabelValues(old).Dec()
 	m.shardsCount.WithLabelValues(new).Inc()
 }
 
