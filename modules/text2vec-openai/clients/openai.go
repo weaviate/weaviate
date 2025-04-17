@@ -152,6 +152,9 @@ func (v *client) VectorizeQuery(ctx context.Context, input []string,
 func (v *client) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	metrics := monitoring.GetMetrics()
 	startTime := time.Now()
+	metrics.ModuleExternalRequests.WithLabelValues("generate", "openai").Inc()
+
+
 
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure, config.Dimensions))
 	if err != nil {
@@ -163,8 +166,9 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		return nil, nil, 0, errors.Wrap(err, "join OpenAI API host and path")
 	}
 
+
 	defer func() {
-		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues("text2vec", "vectorize").Observe(time.Since(startTime).Seconds())
+		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues("openai", endpoint).Observe(time.Since(startTime).Seconds())
 	}()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
@@ -269,6 +273,7 @@ func (v *client) getError(statusCode int, requestID string, resBodyError *openAI
 	if resBodyError != nil {
 		errorMsg = fmt.Sprintf("%s error: %v", errorMsg, resBodyError.Message)
 	}
+	monitoring.GetMetrics().ModuleExternalError.WithLabelValues("openai", endpoint, errorMsg).Inc()
 	return errors.New(errorMsg)
 }
 
