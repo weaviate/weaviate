@@ -8,3 +8,18 @@ packages:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
     interfaces:
       BucketCreator:
+  github.com/weaviate/weaviate/entities/modulecapabilities:
+    interfaces:
+      BackupBackend:
+  github.com/weaviate/weaviate/usecases/backup:
+    interfaces:
+      BackupBackendProvider:
+      NodeResolver:
+      Selector:
+  github.com/weaviate/weaviate/usecases/schema:
+    interfaces:
+      SchemaGetter:
+  github.com/weaviate/weaviate/usecases/auth/authorization:
+    interfaces:
+      Controller:
+      Authorizer:
