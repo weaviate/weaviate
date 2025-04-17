@@ -175,7 +175,6 @@ func TestRBACSnapshotRecovery(t *testing.T) {
 			checksum1 := getPolicyChecksum(t, compose.GetWeaviate().Container())
 			checksum2 := getPolicyChecksum(t, compose.GetWeaviateNode2().Container())
 			checksum3 := getPolicyChecksum(t, compose.GetWeaviateNode3().Container())
-
 			// All checksums should match
 			return checksum1 != "" && checksum2 != "" && checksum3 != "" &&
 				checksum1 == checksum2 && checksum1 == checksum3
@@ -184,10 +183,11 @@ func TestRBACSnapshotRecovery(t *testing.T) {
 }
 
 func getPolicyChecksum(t *testing.T, container testcontainers.Container) string {
-	// Run md5sum command on the policy.csv file
-	cmd := exec.Command("docker", "exec", container.GetContainerID(), "md5sum", "data/raft/rbac/policy.csv")
+	// Run sort | md5sum on the policy file directly in the container
+	cmd := exec.Command("docker", "exec", container.GetContainerID(), "sh", "-c", "sort data/raft/rbac/policy.csv | md5sum")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		t.Logf("Failed to get policy checksum: %v", err)
 		return ""
 	}
 
