@@ -40,9 +40,9 @@ func (p *FSMOpProducer) String() string {
 // how often the FSM is queried for replication operations.
 //
 // Additional configuration can be applied using optional FSMProducerOption functions.
-func NewFSMOpProducer(logger *logrus.Entry, fsm *ShardReplicationFSM, pollingInterval time.Duration, nodeId string) *FSMOpProducer {
+func NewFSMOpProducer(logger *logrus.Logger, fsm *ShardReplicationFSM, pollingInterval time.Duration, nodeId string) *FSMOpProducer {
 	return &FSMOpProducer{
-		logger:          logger,
+		logger:          logger.WithFields(logrus.Fields{"component": "replication_producer", "action": replicationEngineLogAction, "node": nodeId}),
 		fsm:             fsm,
 		pollingInterval: pollingInterval,
 		nodeId:          nodeId,
@@ -51,7 +51,7 @@ func NewFSMOpProducer(logger *logrus.Entry, fsm *ShardReplicationFSM, pollingInt
 
 // Produce implements the OpProducer interface and starts producing operations for the given node.
 func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplicationOp) error {
-	p.logger.WithFields(logrus.Fields{"node": p.nodeId, "pollingInterval": p.pollingInterval}).Info("starting replication engine FSM producer")
+	p.logger.WithFields(logrus.Fields{"pollingInterval": p.pollingInterval}).Info("starting replication engine FSM producer")
 
 	ticker := time.NewTicker(p.pollingInterval)
 	defer ticker.Stop()

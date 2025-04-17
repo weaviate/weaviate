@@ -68,14 +68,14 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 	fsm := NewFSM(cfg, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
 	fsmOpProducer := replication.NewFSMOpProducer(
-		cfg.Logger.WithFields(logrus.Fields{"component": "replication_engine_producer", "node": cfg.NodeSelector.LocalName()}),
+		cfg.Logger,
 		fsm.replicationManager.GetReplicationFSM(),
 		replicationEngineMaxWorkers*time.Second,
 		cfg.NodeSelector.LocalName(),
 	)
 	realTimeProvider := replication.RealTimeProvider{}
 	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
-		cfg.Logger.WithField("component", "replication_engine_consumer").WithField("node", cfg.NodeSelector.LocalName()),
+		cfg.Logger,
 		raft,
 		cfg.ReplicaCopier,
 		realTimeProvider,
