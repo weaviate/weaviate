@@ -31,6 +31,7 @@ func NewSegmentReader(cursor *GaplessSegmentCursor) *SegmentReader {
 	return NewSegmentReaderConcurrent(cursor, 1)
 }
 
+// TODO aliszka:roaringrange add buf pool?
 func NewSegmentReaderConcurrent(cursor *GaplessSegmentCursor, concurrency int) *SegmentReader {
 	return &SegmentReader{
 		cursor:      cursor,
@@ -39,33 +40,40 @@ func NewSegmentReaderConcurrent(cursor *GaplessSegmentCursor, concurrency int) *
 }
 
 func (r *SegmentReader) Read(ctx context.Context, value uint64, operator filters.Operator,
-) (roaringset.BitmapLayer, error) {
+) (roaringset.BitmapLayer, func(), error) {
 	if err := ctx.Err(); err != nil {
-		return roaringset.BitmapLayer{}, err
+		return roaringset.BitmapLayer{}, noopRelease, err
 	}
 
 	switch operator {
 	case filters.OperatorEqual:
-		return r.readEqual(ctx, value)
+		bm, err := r.readEqual(ctx, value)
+		return bm, noopRelease, err
 
 	case filters.OperatorNotEqual:
-		return r.readNotEqual(ctx, value)
+		bm, err := r.readNotEqual(ctx, value)
+		return bm, noopRelease, err
 
 	case filters.OperatorLessThan:
-		return r.readLessThan(ctx, value)
+		bm, err := r.readLessThan(ctx, value)
+		return bm, noopRelease, err
 
 	case filters.OperatorLessThanEqual:
-		return r.readLessThanEqual(ctx, value)
+		bm, err := r.readLessThanEqual(ctx, value)
+		return bm, noopRelease, err
 
 	case filters.OperatorGreaterThan:
-		return r.readGreaterThan(ctx, value)
+		bm, err := r.readGreaterThan(ctx, value)
+		return bm, noopRelease, err
 
 	case filters.OperatorGreaterThanEqual:
-		return r.readGreaterThanEqual(ctx, value)
+		bm, err := r.readGreaterThanEqual(ctx, value)
+		return bm, noopRelease, err
 
 	default:
-		return roaringset.BitmapLayer{}, fmt.Errorf("operator %v not supported for segments of strategy %q",
-			operator.Name(), "roaringsetrange") // TODO move strategies to separate package?
+		// TODO move strategies to separate package?
+		return roaringset.BitmapLayer{}, noopRelease,
+			fmt.Errorf("operator %v not supported for segments of strategy %q", operator.Name(), "roaringsetrange")
 	}
 }
 
