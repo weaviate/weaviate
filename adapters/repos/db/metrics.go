@@ -12,6 +12,7 @@
 package db
 
 import (
+	"errors"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -129,13 +130,15 @@ func NewMetrics(
 
 	// Try to register metrics, reuse existing ones if already registered
 	if err := prom.Registerer.Register(shardsCount); err != nil {
-		if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
+		var are prometheus.AlreadyRegisteredError
+		if errors.As(err, &are) {
 			shardsCount = are.ExistingCollector.(*prometheus.GaugeVec)
 		}
 	}
 
 	if err := prom.Registerer.Register(shardStatusUpdateDurationsSeconds); err != nil {
-		if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
+		var are prometheus.AlreadyRegisteredError
+		if errors.As(err, &are) {
 			shardStatusUpdateDurationsSeconds = are.ExistingCollector.(*prometheus.HistogramVec)
 		}
 	}
