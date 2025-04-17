@@ -89,7 +89,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "weaviate_vectorizer_request_duration_seconds_bucket",
+          "expr": "weaviate_module_request_duration_seconds_bucket",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "legendFormat": "{{le}}",
@@ -98,7 +98,7 @@
           "useBackend": false
         }
       ],
-      "title": "Request duration",
+      "title": "External Request duration",
       "type": "heatmap"
     },
     {
@@ -154,7 +154,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "rate(weaviate_vectorizer_response_status_total[$__rate_interval])",
+          "expr": "rate(weaviate_module_response_status_total[$__rate_interval])",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "{{status}}",
@@ -254,18 +254,18 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "changes(weaviate_batch_vectorize_error_total[$__interval])",
+          "expr": "changes(weaviate_module_call_error_total[$__interval])",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
           "instant": false,
-          "legendFormat": "{{class_name}}, {{instance}}",
+          "legendFormat": "{{module}}, {{status_code}}",
           "range": true,
           "refId": "C",
           "useBackend": false
         }
       ],
-      "title": "Errors",
+      "title": "Single error rate",
       "type": "timeseries"
     },
     {
@@ -335,7 +335,7 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "weaviate_vectorizer_request_duration_seconds_bucket",
+          "expr": "weaviate_module_request_duration_seconds_bucket",
           "format": "heatmap",
           "fullMetaSearch": false,
           "hide": false,
@@ -347,195 +347,8 @@
           "useBackend": false
         }
       ],
-      "title": "Vectoriser Request Duration",
+      "title": "Module External Request Duration",
       "type": "bargauge"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "aeiuom414581sa"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            }
-          },
-          "mappings": []
-        },
-        "overrides": [
-          {
-            "__systemRef": "hideSeriesFrom",
-            "matcher": {
-              "id": "byNames",
-              "options": {
-                "mode": "exclude",
-                "names": [
-                  "1.0",
-                  "10.0",
-                  "100.0",
-                  "1000.0",
-                  "10000.0",
-                  "100000.0",
-                  "50.0",
-                  "500.0",
-                  "5000.0"
-                ],
-                "prefix": "All except:",
-                "readOnly": true
-              }
-            },
-            "properties": [
-              {
-                "id": "custom.hideFrom",
-                "value": {
-                  "legend": true,
-                  "tooltip": true,
-                  "viz": true
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 6,
-        "x": 0,
-        "y": 12
-      },
-      "id": 9,
-      "options": {
-        "displayLabels": [
-          "name"
-        ],
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true,
-          "values": []
-        },
-        "pieType": "donut",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "11.6.0-pre",
-      "repeat": "inout",
-      "repeatDirection": "h",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "aeiuom414581sa"
-          },
-          "disableTextWrap": false,
-          "editorMode": "builder",
-          "expr": "weaviate_vectorizer_request_tokens_bucket{inout=\"input\"}",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "{{le}}",
-          "range": true,
-          "refId": "B",
-          "useBackend": false
-        }
-      ],
-      "title": "Tokens per request",
-      "type": "piechart"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "aeiuom414581sa"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            }
-          },
-          "mappings": [],
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 6,
-        "x": 6,
-        "y": 12
-      },
-      "id": 11,
-      "options": {
-        "displayLabels": [
-          "name"
-        ],
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "pieType": "donut",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "11.6.0-pre",
-      "repeat": "inout",
-      "repeatDirection": "h",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "aeiuom414581sa"
-          },
-          "disableTextWrap": false,
-          "editorMode": "builder",
-          "expr": "weaviate_vectorizer_request_tokens_bucket{inout=\"output\"}",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "{{le}}",
-          "range": true,
-          "refId": "B",
-          "useBackend": false
-        }
-      ],
-      "title": "Tokens per response",
-      "type": "piechart"
     },
     {
       "datasource": {
@@ -561,7 +374,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 21
+        "y": 12
       },
       "id": 8,
       "options": {
@@ -614,7 +427,7 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "weaviate_vectorizer_request_size_bytes_bucket",
+          "expr": "weaviate_module_request_size_bytes_bucket",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -631,7 +444,7 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "weaviate_vectorizer_response_size_bytes_bucket",
+          "expr": "weaviate_module_response_size_bytes_bucket",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -642,7 +455,94 @@
           "useBackend": false
         }
       ],
-      "title": "Vectoriser Traffic Size",
+      "title": "Module External Traffic Size",
+      "type": "heatmap"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aeiuom414581sa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 7,
+      "options": {
+        "calculate": false,
+        "cellGap": 1,
+        "color": {
+          "exponent": 0.5,
+          "fill": "dark-orange",
+          "mode": "scheme",
+          "reverse": false,
+          "scale": "exponential",
+          "scheme": "Rainbow",
+          "steps": 128
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "le": 1e-9
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "tooltip": {
+          "mode": "single",
+          "showColorScale": false,
+          "yHistogram": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "reverse": false,
+          "unit": "bytes"
+        }
+      },
+      "pluginVersion": "11.6.0-pre",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aeiuom414581sa"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "exemplar": false,
+          "expr": "weaviate_module_requests_per_batch_bucket",
+          "format": "time_series",
+          "fullMetaSearch": false,
+          "hide": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "{{le}}",
+          "range": true,
+          "refId": "B",
+          "useBackend": false
+        }
+      ],
+      "title": "Module Batch Size",
       "type": "heatmap"
     },
     {
@@ -733,7 +633,7 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "weaviate_vectorizer_requests_total",
+          "expr": "weaviate_module_requests_total",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "{{__name__}}, {{api}}",
@@ -778,93 +678,6 @@
       ],
       "title": "Requests",
       "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "aeiuom414581sa"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "scaleDistribution": {
-              "type": "linear"
-            }
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 29
-      },
-      "id": 7,
-      "options": {
-        "calculate": false,
-        "cellGap": 1,
-        "color": {
-          "exponent": 0.5,
-          "fill": "dark-orange",
-          "mode": "scheme",
-          "reverse": false,
-          "scale": "exponential",
-          "scheme": "Rainbow",
-          "steps": 128
-        },
-        "exemplars": {
-          "color": "rgba(255,0,255,0.7)"
-        },
-        "filterValues": {
-          "le": 1e-9
-        },
-        "legend": {
-          "show": true
-        },
-        "rowsFrame": {
-          "layout": "auto"
-        },
-        "tooltip": {
-          "mode": "single",
-          "showColorScale": false,
-          "yHistogram": false
-        },
-        "yAxis": {
-          "axisPlacement": "left",
-          "reverse": false,
-          "unit": "bytes"
-        }
-      },
-      "pluginVersion": "11.6.0-pre",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "aeiuom414581sa"
-          },
-          "disableTextWrap": false,
-          "editorMode": "builder",
-          "exemplar": false,
-          "expr": "weaviate_vectorizer_requests_per_batch_bucket",
-          "format": "time_series",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "{{le}}",
-          "range": true,
-          "refId": "B",
-          "useBackend": false
-        }
-      ],
-      "title": "Vectoriser Batch Size",
-      "type": "heatmap"
     },
     {
       "datasource": {
@@ -962,8 +775,195 @@
           "useBackend": false
         }
       ],
-      "title": "Batch vectoriser errors",
+      "title": "Module batch errors",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aeiuom414581sa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": [],
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "id": 11,
+      "options": {
+        "displayLabels": [
+          "name"
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "pieType": "donut",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.6.0-pre",
+      "repeat": "inout",
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aeiuom414581sa"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "expr": "weaviate_vectorizer_request_tokens_bucket{inout=\"output\"}",
+          "fullMetaSearch": false,
+          "hide": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "{{le}}",
+          "range": true,
+          "refId": "B",
+          "useBackend": false
+        }
+      ],
+      "title": "Tokens per response",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aeiuom414581sa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "1.0",
+                  "10.0",
+                  "100.0",
+                  "1000.0",
+                  "10000.0",
+                  "100000.0",
+                  "50.0",
+                  "500.0",
+                  "5000.0"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 47
+      },
+      "id": 9,
+      "options": {
+        "displayLabels": [
+          "name"
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "values": []
+        },
+        "pieType": "donut",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.6.0-pre",
+      "repeat": "inout",
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aeiuom414581sa"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "expr": "weaviate_vectorizer_request_tokens_bucket{inout=\"input\"}",
+          "fullMetaSearch": false,
+          "hide": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "{{le}}",
+          "range": true,
+          "refId": "B",
+          "useBackend": false
+        }
+      ],
+      "title": "Tokens per request",
+      "type": "piechart"
     }
   ],
   "preload": false,
@@ -994,5 +994,5 @@
   "timezone": "browser",
   "title": "Vectoriser",
   "uid": "eeiuydg9slibka",
-  "version": 65
+  "version": 83
 }
