@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -78,7 +79,7 @@ type Manager struct {
 	vectorRepo        VectorRepo
 	timeSource        timeSource
 	modulesProvider   ModulesProvider
-	autoSchemaManager *autoSchemaManager
+	autoSchemaManager *AutoSchemaManager
 	metrics           objectsMetrics
 	allocChecker      *memwatch.Monitor
 }
@@ -161,6 +162,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorization.Authorizer, vectorRepo VectorRepo,
 	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker *memwatch.Monitor,
+	autoSchemaManager *AutoSchemaManager,
 ) *Manager {
 	if allocChecker == nil {
 		allocChecker = memwatch.NewDummyMonitor()
@@ -175,7 +177,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		vectorRepo:        vectorRepo,
 		timeSource:        defaultTimeSource{},
 		modulesProvider:   modulesProvider,
-		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
+		autoSchemaManager: autoSchemaManager,
 		metrics:           metrics,
 		allocChecker:      allocChecker,
 	}

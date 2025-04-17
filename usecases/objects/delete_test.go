@@ -17,9 +17,11 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -77,6 +79,7 @@ func newDeleteDependency() (*Manager, *fakeVectorRepo) {
 		mocks.NewMockAuthorizer(),
 		vectorRepo,
 		getFakeModulesProvider(),
-		new(fakeMetrics), nil)
+		new(fakeMetrics), nil,
+		NewAutoSchemaManager(new(fakeSchemaManager), vectorRepo, new(config.WeaviateConfig), logger, prometheus.DefaultRegisterer))
 	return manager, vectorRepo
 }

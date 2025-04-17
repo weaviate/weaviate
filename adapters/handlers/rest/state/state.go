@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
@@ -72,6 +73,7 @@ type State struct {
 	BackupManager      *backup.Handler
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
+	AutoSchemaManager  *objects.AutoSchemaManager
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelFunc
 	MemWatch           *memwatch.Monitor
