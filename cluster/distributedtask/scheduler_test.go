@@ -498,7 +498,8 @@ type testHarness struct {
 	schedulerTickDuration time.Duration
 	clock                 *clockwork.FakeClock
 	logger                logrus.FieldLogger
-	stateChanger          *mocks.TaskStatusChanger
+	completionRecorder    *mocks.TaskCompletionRecorder
+	cleaner               *mocks.TaskCleaner
 	provider              *testTaskProvider
 	registeredProviders   map[string]Provider
 
@@ -523,7 +524,8 @@ func newTestHarness(t *testing.T) *testHarness {
 		schedulerTickDuration: 30 * time.Second,
 		clock:                 clockwork.NewFakeClock(),
 		logger:                logger,
-		stateChanger:          mocks.NewTaskStatusChanger(t),
+		completionRecorder:    mocks.NewTaskCompletionRecorder(t),
+		cleaner:               mocks.NewTaskCleaner(t),
 		provider:              defaultProvider,
 		registeredProviders: map[string]Provider{
 			defaultNamespace: defaultProvider,
@@ -539,7 +541,7 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 	})
 
 	h.scheduler = NewScheduler(SchedulerParams{
-		CompletionRecorder: h.stateChanger,
+		CompletionRecorder: h.completionRecorder,
 		TasksLister:        h.manager,
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
@@ -560,7 +562,7 @@ func (h *testHarness) advanceClock(duration time.Duration) {
 }
 
 func (h *testHarness) expectRecordNodeTaskCompletion(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64) {
-	h.stateChanger.EXPECT().RecordDistributedTaskNodeCompletion(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	h.completionRecorder.EXPECT().RecordDistributedTaskNodeCompletion(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64) error {
 			require.Equal(t, expectNamespace, namespace)
 			require.Equal(t, expectTaskID, taskID)
@@ -572,7 +574,7 @@ func (h *testHarness) expectRecordNodeTaskCompletion(t *testing.T, expectNamespa
 }
 
 func (h *testHarness) expectRecordNodeTaskFailure(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64, expectErrMsg string) {
-	h.stateChanger.EXPECT().RecordDistributedTaskNodeFailed(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	h.completionRecorder.EXPECT().RecordDistributedTaskNodeFailed(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error {
 			require.Equal(t, expectNamespace, namespace)
 			require.Equal(t, expectTaskID, taskID)
@@ -602,7 +604,7 @@ func (h *testHarness) recordTaskCompletion(t *testing.T, namespace, taskID strin
 }
 
 func (h *testHarness) expectCleanUpTask(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64) {
-	h.stateChanger.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64) error {
 			require.Equal(t, expectNamespace, namespace)
 			require.Equal(t, expectTaskID, taskID)
@@ -693,7 +695,7 @@ type testTaskProvider struct {
 	cancelledCh chan *testTask
 	cleanedUpCh chan TaskDescriptor
 
-	recorder TaskStatusChanger
+	recorder TaskCompletionRecorder
 }
 
 func newTestTaskProvider(t *testing.T, initialLocalTaskIds []TaskDescriptor) *testTaskProvider {
@@ -711,7 +713,7 @@ func newTestTaskProvider(t *testing.T, initialLocalTaskIds []TaskDescriptor) *te
 	}
 }
 
-func (p *testTaskProvider) SetCompletionRecorder(recorder TaskStatusChanger) {
+func (p *testTaskProvider) SetCompletionRecorder(recorder TaskCompletionRecorder) {
 	p.recorder = recorder
 }
 

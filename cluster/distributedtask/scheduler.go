@@ -25,8 +25,8 @@ import (
 )
 
 // TODO: expose the task list
-// TODO: add jitter to the scheduler
-// TODO: add observability
+// TODO: try to integrate stuff to see if we are not missing anything
+// TODO: document the main flow and ideas
 
 // TODO: add comment on Scheduler and Manager
 type Scheduler struct {
@@ -34,8 +34,9 @@ type Scheduler struct {
 	runningTasks map[string]map[string]TaskHandle
 
 	providers          map[string]Provider // namespace -> Provider
-	completionRecorder TaskStatusChanger
+	completionRecorder TaskCompletionRecorder
 	tasksLister        TasksLister
+	taskCleaner        TaskCleaner
 	clock              clockwork.Clock
 
 	localNode        string
@@ -51,7 +52,7 @@ type Scheduler struct {
 }
 
 type SchedulerParams struct {
-	CompletionRecorder TaskStatusChanger
+	CompletionRecorder TaskCompletionRecorder
 	TasksLister        TasksLister
 	Providers          map[string]Provider
 	Clock              clockwork.Clock
@@ -64,9 +65,7 @@ type SchedulerParams struct {
 }
 
 func NewScheduler(params SchedulerParams) *Scheduler {
-	var (
-		metricsRegisterer = promauto.With(params.MetricsRegisterer)
-	)
+	metricsRegisterer := promauto.With(params.MetricsRegisterer)
 
 	return &Scheduler{
 		runningTasks: map[string]map[string]TaskHandle{},
@@ -254,7 +253,7 @@ func (s *Scheduler) tick() {
 			return task.Status != TaskStatusStarted && s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
 		})
 		for _, task := range cleanableTasks {
-			err := s.completionRecorder.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
+			err := s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
 			if err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 					l.WithFields(logrus.Fields{

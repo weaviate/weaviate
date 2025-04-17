@@ -17,4 +17,5 @@ packages:
       Authorizer:
   github.com/weaviate/weaviate/cluster/distributedtask:
     interfaces:
-      TaskStatusChanger:
+      TaskCleaner:
+      TaskCompletionRecorder:

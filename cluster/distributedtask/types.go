@@ -21,11 +21,13 @@ type TasksLister interface {
 	ListTasks() map[string][]*Task
 }
 
-// TODO: probably split this as it currently feels awkward
-type TaskStatusChanger interface {
+type TaskCleaner interface {
+	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+}
+
+type TaskCompletionRecorder interface {
 	RecordDistributedTaskNodeCompletion(ctx context.Context, namespace, taskID string, version uint64) error
 	RecordDistributedTaskNodeFailed(ctx context.Context, namespace, taskID string, version uint64, errMsg string) error
-	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
 
 type TaskHandle interface {
@@ -40,7 +42,7 @@ type Provider interface {
 	GetLocalTasks() []TaskDescriptor
 	CleanupTask(desc TaskDescriptor) error
 	StartTask(task *Task) (TaskHandle, error)
-	SetCompletionRecorder(recorder TaskStatusChanger)
+	SetCompletionRecorder(recorder TaskCompletionRecorder)
 }
 
 type TaskStatus string
