@@ -268,6 +268,8 @@ func TestSuspendAfterDelete(t *testing.T) {
 
 	require.Error(t, dynUsers.DeactivateUser(userId, false))
 	require.Error(t, dynUsers.ActivateUser(userId))
+	require.Error(t, dynUsers.RotateKey(userId, "", "", ""))
+	require.Error(t, dynUsers.ActivateUser(userId))
 }
 
 func TestLastUsedTime(t *testing.T) {

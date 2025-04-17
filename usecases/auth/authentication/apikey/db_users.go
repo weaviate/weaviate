@@ -168,6 +168,10 @@ func (c *DBUser) RotateKey(userId, secureHash, oldIdentifier, newIdentifier stri
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	if _, ok := c.data.Users[userId]; !ok {
+		return fmt.Errorf("user %s does not exist", userId)
+	}
+
 	// replay of old raft commands can have these be ""
 	if oldIdentifier != "" && newIdentifier != "" {
 		c.data.IdToIdentifier[userId] = newIdentifier
