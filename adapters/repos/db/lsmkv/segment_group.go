@@ -252,7 +252,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			}
 		}
 
-		if err := rename(entry.Name(), rightSegmentPath); err != nil {
+		if err := rename(filepath.Join(sg.dir, entry.Name()), rightSegmentPath); err != nil {
 			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry.Name(), rightSegmentFilename, err)
 		}
 
