@@ -37,7 +37,7 @@ type TaskHandle interface {
 }
 
 type Provider interface {
-	GetLocalTaskIDs() []TaskDescriptor
+	GetLocalTasks() []TaskDescriptor
 	CleanupTask(desc TaskDescriptor) error
 	StartTask(task *Task) (TaskHandle, error)
 	SetCompletionRecorder(recorder TaskStatusChanger)

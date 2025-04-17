@@ -19,19 +19,18 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
-// TODO: add an endpoint to purge a task if it causes problems?
 // TODO: expose the task list
 // TODO: add jitter to the scheduler
 // TODO: add observability
 
 // TODO: add comment on Scheduler and Manager
 type Scheduler struct {
-	// is accessed only from background goroutine, therefore, no synchronization, TODO: so why there is a mutex, m? :D
-	mu           sync.Mutex // TODO: consider removing this once I add metrics, we can wait on those
+	mu           sync.Mutex
 	runningTasks map[string]map[string]TaskHandle
 
 	providers          map[string]Provider // namespace -> Provider
@@ -45,6 +44,8 @@ type Scheduler struct {
 
 	logger        logrus.FieldLogger
 	sampledLogger *logrusext.Sampler
+
+	tasksRunning *prometheus.GaugeVec
 
 	stopCh chan struct{}
 }
@@ -63,9 +64,9 @@ type SchedulerParams struct {
 }
 
 func NewScheduler(params SchedulerParams) *Scheduler {
-	if params.Clock == nil {
-		params.Clock = clockwork.NewRealClock()
-	}
+	var (
+		metricsRegisterer = promauto.With(params.MetricsRegisterer)
+	)
 
 	return &Scheduler{
 		runningTasks: map[string]map[string]TaskHandle{},
@@ -82,25 +83,30 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		logger:        params.Logger,
 		sampledLogger: logrusext.NewSampler(params.Logger, 5, 5*params.TickDuration),
 
+		tasksRunning: metricsRegisterer.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "weaviate_distributed_tasks_running",
+			Help: "Number of active distributed tasks running per namespace",
+		}, []string{"namespace"}),
+
 		stopCh: make(chan struct{}),
 	}
 }
 
 func (s *Scheduler) Start() error {
-	tasksByNamespace := s.tasksLister.ListTasks()
+	tasksByNamespace := toTaskMap(s.tasksLister.ListTasks())
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for namespace, provider := range s.providers {
-		tasks := tasksByNamespace[namespace]
-
 		provider.SetCompletionRecorder(s.completionRecorder)
 
-		runnableTasks := s.filterRunnableTasks(tasks)
-
-		localTaskDesc := provider.GetLocalTaskIDs()
+		var (
+			tasks         = tasksByNamespace[namespace]
+			startedTasks  = s.filterStartedTasks(tasks)
+			localTaskDesc = provider.GetLocalTasks()
+		)
 		for _, taskDesc := range localTaskDesc {
-			if _, ok := runnableTasks[taskDesc]; ok {
+			if _, ok := startedTasks[taskDesc]; ok {
 				continue
 			}
 
@@ -121,7 +127,7 @@ func (s *Scheduler) Start() error {
 			}).Info("cleaned up local distributed task state")
 		}
 
-		for desc, task := range runnableTasks {
+		for desc, task := range startedTasks {
 			handle, err := provider.StartTask(task)
 			if err != nil {
 				return errors.Wrapf(err, "provider %s start task %v", namespace, desc)
@@ -134,6 +140,10 @@ func (s *Scheduler) Start() error {
 				"taskVersion": desc.Version,
 			}).Info("started distributed task execution")
 		}
+
+		s.tasksRunning.
+			WithLabelValues(namespace).
+			Set(float64(len(startedTasks)))
 	}
 
 	go s.loop()
@@ -141,19 +151,23 @@ func (s *Scheduler) Start() error {
 	return nil
 }
 
-func (s *Scheduler) filterRunnableTasks(tasks []*Task) map[TaskDescriptor]*Task {
+func (s *Scheduler) filterStartedTasks(tasks map[TaskDescriptor]*Task) map[TaskDescriptor]*Task {
 	return filterTasks(tasks, func(task *Task) bool {
 		return task.Status == TaskStatusStarted && task.FinishedNodes[s.localNode] == false
 	})
 }
 
-func filterTasks(tasks []*Task, predicate func(task *Task) bool) map[TaskDescriptor]*Task {
-	filtered := map[TaskDescriptor]*Task{}
+func filterTasks(tasks map[TaskDescriptor]*Task, predicate func(task *Task) bool) map[TaskDescriptor]*Task {
+	filtered := make(map[TaskDescriptor]*Task, len(tasks))
 	for _, task := range tasks {
 		if !predicate(task) {
 			continue
 		}
-		filtered[TaskDescriptor{ID: task.ID, Version: task.Version}] = task
+
+		filtered[TaskDescriptor{
+			ID:      task.ID,
+			Version: task.Version,
+		}] = task
 	}
 	return filtered
 }
@@ -173,7 +187,7 @@ func (s *Scheduler) loop() {
 }
 
 func (s *Scheduler) tick() {
-	tasksByNamespace := s.tasksLister.ListTasks()
+	tasksByNamespace := toTaskMap(s.tasksLister.ListTasks())
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -183,8 +197,8 @@ func (s *Scheduler) tick() {
 
 		// Phase #1: check all tasks that are supposed to be running
 		// and launch if they aren't.
-		activeTasks := s.filterRunnableTasks(tasks)
-		for _, activeTask := range activeTasks {
+		startedTasks := s.filterStartedTasks(tasks)
+		for _, activeTask := range startedTasks {
 			if _, alreadyLaunched := s.runningTasks[namespace][activeTask.ID]; alreadyLaunched {
 				continue
 			}
@@ -209,6 +223,10 @@ func (s *Scheduler) tick() {
 				"taskVersion": activeTask.Version,
 			}).Info("started distributed task execution")
 		}
+
+		s.tasksRunning.
+			WithLabelValues(namespace).
+			Set(float64(len(startedTasks)))
 
 		// Phase #2: check all tasks that are not supposed to be running,
 		// and terminate them if they are.
@@ -255,7 +273,38 @@ func (s *Scheduler) tick() {
 				"taskVersion": task.Version,
 			}).Info("successfully submitted request to clean up distributed task")
 		}
+
+		// Phase #4: check tasks that can be cleaned up locally
+		localTasks := provider.GetLocalTasks()
+		for _, desc := range localTasks {
+			if _, ok := tasks[desc]; ok {
+				// task still present in the list
+				continue
+			}
+
+			if err := provider.CleanupTask(desc); err != nil {
+				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
+					l.WithFields(logrus.Fields{
+						"namespace":   namespace,
+						"taskID":      desc.ID,
+						"taskVersion": desc.Version,
+						"error":       err,
+					}).Error("failed to clean up local distributed task state")
+				})
+			}
+		}
 	}
+}
+
+func toTaskMap(tasksByNamespace map[string][]*Task) map[string]map[TaskDescriptor]*Task {
+	result := make(map[string]map[TaskDescriptor]*Task, len(tasksByNamespace))
+	for namespace, tasks := range tasksByNamespace {
+		result[namespace] = make(map[TaskDescriptor]*Task, len(tasks))
+		for _, task := range tasks {
+			result[namespace][task.TaskDescriptor] = task
+		}
+	}
+	return result
 }
 
 func (s *Scheduler) setRunningTaskHandleWithLock(namespace string, taskID string, handle TaskHandle) {

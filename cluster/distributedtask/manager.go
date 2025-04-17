@@ -215,7 +215,6 @@ func (m *Manager) ListTasks() map[string][]*Task {
 	defer m.mu.Unlock()
 
 	result := make(map[string][]*Task, len(m.tasks))
-
 	for namespace, tasks := range m.tasks {
 		if len(tasks) == 0 {
 			continue
@@ -226,7 +225,6 @@ func (m *Manager) ListTasks() map[string][]*Task {
 			result[namespace] = append(result[namespace], task.Clone())
 		}
 	}
-
 	return result
 }
 

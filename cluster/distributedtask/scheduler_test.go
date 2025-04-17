@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -296,7 +297,7 @@ func TestTaskRecovery(t *testing.T) {
 	}
 }
 
-func TestRemoveCleanedUpTaskLocalState(t *testing.T) {
+func TestRemoveCleanedUpTaskLocalStateOnStartup(t *testing.T) {
 	defer leaktest.Check(t)()
 
 	var (
@@ -335,9 +336,10 @@ func TestRemoveCleanedUpTaskLocalState(t *testing.T) {
 	defer h.scheduler.Close()
 
 	// make sure only tasks are not running cleaned up
-	require.Len(t, provider.cleanedUpTasks, 2)
-	require.Contains(t, provider.cleanedUpTasks, localTaskList[0])
-	require.Contains(t, provider.cleanedUpTasks, localTaskList[1])
+	cleanedUpTasks := collectChToSet(t, 2, provider.cleanedUpCh)
+	require.Len(t, cleanedUpTasks, 2)
+	require.Contains(t, cleanedUpTasks, localTaskList[0])
+	require.Contains(t, cleanedUpTasks, localTaskList[1])
 
 	expectStartedTasks := map[string]struct{}{"3": {}, "4": {}}
 	for range len(expectStartedTasks) {
@@ -345,6 +347,38 @@ func TestRemoveCleanedUpTaskLocalState(t *testing.T) {
 		require.Contains(t, expectStartedTasks, startedTask.ID)
 		startedTask.Terminate()
 	}
+}
+
+func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "1",
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}), 1)
+	require.NoError(t, err)
+
+	h.advanceClock(h.schedulerTickDuration)
+
+	startedTask := recvWithTimeout(t, h.provider.startedCh)
+
+	h.expectRecordNodeTaskCompletion(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
+	startedTask.Complete()
+
+	recvWithTimeout(t, h.provider.completedCh)
+
+	h.expectCleanUpTask(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
+	h.advanceClock(h.completedTaskTTL)
+
+	h.advanceClock(h.schedulerTickDuration)
+	cleanedDesc := recvWithTimeout(t, h.provider.cleanedUpCh)
+	require.Equal(t, startedTask.TaskDescriptor, cleanedDesc)
 }
 
 func TestMultiNamespaceMultiTasks(t *testing.T) {
@@ -373,11 +407,12 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 	defer h.scheduler.Close()
 
 	// cleanup tasks for one of the providers
-	require.Len(t, provider1.cleanedUpTasks, 2)
-	require.Contains(t, provider1.cleanedUpTasks, provider1StaleTasks[0])
-	require.Contains(t, provider1.cleanedUpTasks, provider1StaleTasks[1])
+	cleanedUpTasks := collectChToSet(t, 2, provider1.cleanedUpCh)
+	require.Len(t, cleanedUpTasks, 2)
+	require.Contains(t, cleanedUpTasks, provider1StaleTasks[0])
+	require.Contains(t, cleanedUpTasks, provider1StaleTasks[1])
 
-	require.Len(t, provider2.cleanedUpTasks, 0)
+	require.Len(t, provider2.cleanedUpCh, 0)
 
 	// add some tasks for both providers
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -649,13 +684,14 @@ func (t *testTask) Fail(errMsg string) {
 type testTaskProvider struct {
 	t *testing.T
 
-	initialLocalTaskIds []TaskDescriptor
-	cleanedUpTasks      map[TaskDescriptor]struct{}
+	mu           sync.Mutex
+	localTaskIds []TaskDescriptor
 
 	startedCh   chan *testTask
 	completedCh chan *testTask
 	failedCh    chan *testTask
 	cancelledCh chan *testTask
+	cleanedUpCh chan TaskDescriptor
 
 	recorder TaskStatusChanger
 }
@@ -664,14 +700,14 @@ func newTestTaskProvider(t *testing.T, initialLocalTaskIds []TaskDescriptor) *te
 	return &testTaskProvider{
 		t: t,
 
-		initialLocalTaskIds: initialLocalTaskIds,
-		cleanedUpTasks:      make(map[TaskDescriptor]struct{}),
+		localTaskIds: initialLocalTaskIds,
 
 		// give the channels plenty of space to avoid blocking test
 		startedCh:   make(chan *testTask, 100),
 		completedCh: make(chan *testTask, 100),
 		failedCh:    make(chan *testTask, 100),
 		cancelledCh: make(chan *testTask, 100),
+		cleanedUpCh: make(chan TaskDescriptor, 100),
 	}
 }
 
@@ -679,15 +715,30 @@ func (p *testTaskProvider) SetCompletionRecorder(recorder TaskStatusChanger) {
 	p.recorder = recorder
 }
 
-func (p *testTaskProvider) GetLocalTaskIDs() []TaskDescriptor {
-	return p.initialLocalTaskIds
+func (p *testTaskProvider) GetLocalTasks() []TaskDescriptor {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.localTaskIds
 }
 
 func (p *testTaskProvider) CleanupTask(desc TaskDescriptor) error {
-	p.cleanedUpTasks[desc] = struct{}{}
+	p.cleanedUpCh <- desc
 	return nil
 }
 
 func (p *testTaskProvider) StartTask(task *Task) (TaskHandle, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.localTaskIds = append(p.localTaskIds, task.TaskDescriptor)
 	return newTestTask(task, p), nil
+}
+
+func collectChToSet[T comparable](t *testing.T, expectCount int, ch chan T) map[T]struct{} {
+	cleanedUpTasks := map[T]struct{}{}
+	for range expectCount {
+		cleanedUpTasks[recvWithTimeout(t, ch)] = struct{}{}
+	}
+	return cleanedUpTasks
 }
