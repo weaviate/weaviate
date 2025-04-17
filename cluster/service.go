@@ -29,6 +29,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+const (
+	// TODO: consider exposing these as settings
+	replicationEngineMaxWorkers      = 5
+	shardReplicationEngineBufferSize = 16
+	replicationEngineShutdownTimeout = 10 * time.Minute
+	replicationOperationTimeout      = 24 * time.Hour
+)
+
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
 // the key functionalities of the distributed consensus protocol.
 type Service struct {
@@ -62,7 +70,7 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 	fsmOpProducer := replication.NewFSMOpProducer(
 		cfg.Logger.WithFields(logrus.Fields{"component": "replication_engine_producer", "node": cfg.NodeSelector.LocalName()}),
 		fsm.replicationManager.GetReplicationFSM(),
-		5*time.Second,
+		replicationEngineMaxWorkers*time.Second,
 		cfg.NodeSelector.LocalName(),
 	)
 	realTimeProvider := replication.RealTimeProvider{}
@@ -73,10 +81,10 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 		realTimeProvider,
 		cfg.NodeSelector.LocalName(),
 		&backoff.StopBackOff{},
-		24*time.Hour,
-		5,
+		replicationOperationTimeout,
+		replicationEngineMaxWorkers,
 	)
-	replicationEngine := replication.NewShardReplicationEngine(cfg.Logger, cfg.NodeSelector.LocalName(), fsmOpProducer, replicaCopyOpConsumer, 16, 5, 10*time.Minute)
+	replicationEngine := replication.NewShardReplicationEngine(cfg.Logger, cfg.NodeSelector.LocalName(), fsmOpProducer, replicaCopyOpConsumer, shardReplicationEngineBufferSize, replicationEngineMaxWorkers, replicationEngineShutdownTimeout)
 	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{
