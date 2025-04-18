@@ -48,7 +48,7 @@ func testMixedVectorsAggregate(host string) func(t *testing.T) {
 		require.NoError(t, err)
 
 		testAllObjectsIndexed(t, client, class.Class)
-		for _, targetVector := range []string{"", modelsext.DefaultNamedVectorName, contextionary} {
+		for _, targetVector := range []string{"", modelsext.DefaultNamedVectorName, model2vec} {
 			t.Run(fmt.Sprintf("vector=%q", targetVector), func(t *testing.T) {
 				no := &graphql.NearObjectArgumentBuilder{}
 				no = no.WithID(id1).WithCertainty(0.9)
