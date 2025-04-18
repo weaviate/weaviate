@@ -11,7 +11,10 @@
 
 package diskio
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 func FileExists(file string) (bool, error) {
 	_, err := os.Stat(file)
@@ -25,11 +28,20 @@ func FileExists(file string) (bool, error) {
 }
 
 func Fsync(path string) error {
-	f, err := os.Open(path)
+	tmpFile := filepath.Join(path, ".sync.tmp")
+	if err := os.WriteFile(tmpFile, []byte{}, 0o66); err != nil {
+		return err
+	}
+	defer os.Remove(tmpFile)
+
+	file, err := os.OpenFile(tmpFile, os.O_RDWR, 0o666)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer file.Close()
 
-	return f.Sync()
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	return nil
 }
