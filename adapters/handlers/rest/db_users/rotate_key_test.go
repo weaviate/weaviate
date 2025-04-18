@@ -22,18 +22,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-	authzMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 func TestSuccessRotate(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user"}}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 	dynUser.On("RotateKey", "user", mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -66,9 +64,9 @@ func TestRotateInternalServerError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authzMocks.NewAuthorizer(t)
+			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
-			dynUser := mocks.NewDbUserAndRolesGetter(t)
+			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(tt.GetUserReturnValue, tt.GetUserReturnErr)
 			if tt.GetUserReturnErr == nil {
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
@@ -89,9 +87,9 @@ func TestRotateInternalServerError(t *testing.T) {
 
 func TestRotateNotFound(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
@@ -106,10 +104,10 @@ func TestRotateNotFound(t *testing.T) {
 
 func TestRotateForbidden(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(errors.New("some error"))
 
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -123,10 +121,10 @@ func TestRotateForbidden(t *testing.T) {
 
 func TestRotateUnprocessableEntity(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -142,11 +140,11 @@ func TestRotateUnprocessableEntity(t *testing.T) {
 
 func TestRotateNoDynamic(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
-		dbUsers:       mocks.NewDbUserAndRolesGetter(t),
+		dbUsers:       NewMockDbUserAndRolesGetter(t),
 		authorizer:    authorizer,
 		dbUserEnabled: false,
 	}
