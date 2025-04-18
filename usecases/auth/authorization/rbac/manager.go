@@ -12,6 +12,8 @@
 package rbac
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -234,6 +236,72 @@ func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
 	}
+	return nil
+}
+
+// Snapshot is the RBAC state to be used for RAFT snapshots
+type snapshot struct {
+	Policy         [][]string `json:"roles_policies"`
+	GroupingPolicy [][]string `json:"grouping_policies"`
+}
+
+func (m *manager) Snapshot() ([]byte, error) {
+	if m.casbin == nil {
+		return nil, nil
+	}
+
+	policy, err := m.casbin.GetPolicy()
+	if err != nil {
+		return nil, err
+	}
+	groupingPolicy, err := m.casbin.GetGroupingPolicy()
+	if err != nil {
+		return nil, err
+	}
+
+	// Use a buffer to stream the JSON encoding
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{Policy: policy, GroupingPolicy: groupingPolicy}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (m *manager) Restore(b []byte) error {
+	if m.casbin == nil {
+		return nil
+	}
+
+	snapshot := snapshot{}
+	if err := json.Unmarshal(b, &snapshot); err != nil {
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+
+	// we need to clear the policies before adding the new ones
+	m.casbin.ClearPolicy()
+
+	// TODO : migration has to be done here if needed
+	_, err := m.casbin.AddPolicies(snapshot.Policy)
+	if err != nil {
+		return fmt.Errorf("add policies: %w", err)
+	}
+
+	// TODO : migration has to be done here if needed
+	_, err = m.casbin.AddGroupingPolicies(snapshot.GroupingPolicy)
+	if err != nil {
+		return fmt.Errorf("add grouping policies: %w", err)
+	}
+
+	// Save the policies to ensure they are persisted
+	if err := m.casbin.SavePolicy(); err != nil {
+		return fmt.Errorf("save policies: %w", err)
+	}
+
+	// Load the policies to ensure they are in memory
+	if err := m.casbin.LoadPolicy(); err != nil {
+		return fmt.Errorf("load policies: %w", err)
+	}
+
 	return nil
 }
 

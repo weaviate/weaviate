@@ -495,7 +495,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		EnableFQDNResolver:     appState.ServerConfig.Config.Raft.EnableFQDNResolver,
 		FQDNResolverTLD:        appState.ServerConfig.Config.Raft.FQDNResolverTLD,
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
-		AuthzController:        appState.AuthzController,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -504,7 +503,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 	}
 
-	appState.ClusterService = rCluster.New(rConfig, appState.GRPCServerMetrics)
+	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.AuthzSnapshotter, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 
 	executor := schema.NewExecutor(migrator,

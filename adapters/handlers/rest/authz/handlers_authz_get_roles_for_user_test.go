@@ -22,12 +22,11 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 func TestGetRolesForUserSuccess(t *testing.T) {
-	authorizer := mocks.NewAuthorizer(t)
-	controller := mocks.NewController(t)
+	authorizer := authorization.NewMockAuthorizer(t)
+	controller := authorization.NewMockController(t)
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "user1"}
@@ -123,8 +122,8 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := authorization.NewMockController(t)
 			logger, _ := test.NewNullLogger()
 
 			returnedPolices := map[string][]authorization.Policy{
@@ -183,8 +182,8 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := authorization.NewMockController(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
