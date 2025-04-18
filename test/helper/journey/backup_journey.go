@@ -115,7 +115,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			assert.Contains(t1, resp.Payload.Path, overrideBucket)
 			assert.Contains(t1, resp.Payload.Path, overridePath)
 
-			assert.True(t1, ("STARTED" == *resp.Payload.Status) || ("SUCCESS" == *resp.Payload.Status))
+			assert.True(t1, (*resp.Payload.Status == "STARTED") || (*resp.Payload.Status == "SUCCESS"))
 		}, 120*time.Second, 1000*time.Millisecond)
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
