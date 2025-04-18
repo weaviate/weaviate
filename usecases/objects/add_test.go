@@ -18,10 +18,12 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -76,7 +78,8 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vectorRepo, modulesProvider, metrics, nil)
+			vectorRepo, modulesProvider, metrics, nil,
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	reset := func() {
@@ -271,7 +274,8 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		modulesProvider = getFakeModulesProvider()
 		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vectorRepo, modulesProvider, metrics, nil)
+			vectorRepo, modulesProvider, metrics, nil,
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -384,7 +388,8 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
-			authorizer, vectorRepo, modulesProvider, metrics, nil)
+			authorizer, vectorRepo, modulesProvider, metrics, nil,
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	t.Run("overriding the vector by explicitly specifying it", func(t *testing.T) {
@@ -445,7 +450,8 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
-			authorizer, vectorRepo, modulesProvider, metrics, nil)
+			authorizer, vectorRepo, modulesProvider, metrics, nil,
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
 	reset()
 	ctx := context.Background()
@@ -501,7 +507,8 @@ func Test_AddObjectWithUUIDProps(t *testing.T) {
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
-			authorizer, vectorRepo, modulesProvider, metrics, nil)
+			authorizer, vectorRepo, modulesProvider, metrics, nil,
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
 	reset()
 	ctx := context.Background()

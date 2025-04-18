@@ -19,9 +19,11 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -181,7 +183,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 				vectorRepo := &fakeVectorRepo{}
 				manager := NewManager(locks, schemaManager,
 					cfg, logger, authorizer,
-					vectorRepo, getFakeModulesProvider(), nil, nil)
+					vectorRepo, getFakeModulesProvider(), nil, nil,
+					NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, _ := callFuncByName(manager, test.methodName, args...)
@@ -277,7 +280,9 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			authorizer.SetErr(errors.New("just a test fake"))
 			vectorRepo := &fakeVectorRepo{}
 			modulesProvider := getFakeModulesProvider()
-			manager := NewBatchManager(vectorRepo, modulesProvider, locks, schemaManager, cfg, logger, authorizer, nil)
+
+			manager := NewBatchManager(vectorRepo, modulesProvider, locks, schemaManager, cfg, logger, authorizer, nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
