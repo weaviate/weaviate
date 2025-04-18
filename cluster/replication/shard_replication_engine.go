@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
+
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
@@ -126,6 +128,8 @@ type ShardReplicationEngine struct {
 	// If the engine takes longer than this timeout to shut down, a warning is logged, and the process is forcibly stopped.
 	// This ensures that the system doesn't hang indefinitely during shutdown.
 	shutdownTimeout time.Duration
+
+	engineCallbacks *metrics.EngineCallbacks
 }
 
 // NewShardReplicationEngine creates a new replication engine
@@ -137,6 +141,7 @@ func NewShardReplicationEngine(
 	opBufferSize int,
 	maxWorkers int,
 	shutdownTimeout time.Duration,
+	engineCallbacks *metrics.EngineCallbacks,
 ) *ShardReplicationEngine {
 	return &ShardReplicationEngine{
 		nodeId:          nodeId,
@@ -147,6 +152,7 @@ func NewShardReplicationEngine(
 		maxWorkers:      maxWorkers,
 		shutdownTimeout: shutdownTimeout,
 		stopChan:        make(chan struct{}),
+		engineCallbacks: engineCallbacks,
 	}
 }
 
@@ -164,6 +170,7 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 		e.logger.Warnf("replication engine already running: %v", e)
 		return nil
 	}
+	e.engineCallbacks.OnEngineStart(e.nodeId)
 
 	// Channels are creating while starting the replication engine to allow start/stop.
 	e.opsChan = make(chan ShardReplicationOp, e.opBufferSize)
@@ -181,6 +188,8 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 	e.wg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer e.wg.Done()
+		defer e.engineCallbacks.OnProducerStop(e.nodeId)
+		e.engineCallbacks.OnProducerStart(e.nodeId)
 		e.logger.WithField("producer", e.producer).Info("starting replication engine producer")
 		err := e.producer.Produce(engineCtx, e.opsChan)
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -194,6 +203,8 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 	e.wg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer e.wg.Done()
+		defer e.engineCallbacks.OnConsumerStop(e.nodeId)
+		e.engineCallbacks.OnConsumerStart(e.nodeId)
 		e.logger.WithField("consumer", e.consumer).Info("starting replication engine consumer")
 		err := e.consumer.Consume(engineCtx, e.opsChan)
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -267,6 +278,7 @@ func (e *ShardReplicationEngine) Stop() {
 	}
 
 	e.isRunning.Store(false)
+	e.engineCallbacks.OnEngineStop(e.nodeId)
 }
 
 // IsRunning reports whether the replication engine is currently running.

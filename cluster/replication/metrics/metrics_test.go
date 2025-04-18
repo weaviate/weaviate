@@ -247,3 +247,130 @@ func TestMetricsCollection(t *testing.T) {
 		assert.Equal(t, float64(0), failedByNode[node2])
 	})
 }
+
+func TestEngineCallbacks(t *testing.T) {
+	t.Run("default callbacks should be no-op", func(t *testing.T) {
+		callbacks := metrics.NewEngineCallbacksBuilder().Build()
+		callbacks.OnEngineStart("node1")
+		callbacks.OnEngineStop("node1")
+		callbacks.OnProducerStart("node1")
+		callbacks.OnProducerStop("node1")
+		callbacks.OnConsumerStart("node1")
+		callbacks.OnConsumerStop("node1")
+	})
+
+	t.Run("custom callbacks should be called with correct parameters", func(t *testing.T) {
+		var (
+			engineStartedNode, engineStoppedNode                             string
+			producerStartedNode, producerStoppedNode                         string
+			consumerStartedNode, consumerStoppedNode                         string
+			engineStartedCallbacksCounter, engineStoppedCallbacksCounter     int
+			producerStartedCallbacksCounter, producerStoppedCallbacksCounter int
+			consumerStartedCallbacksCounter, consumerStoppedCallbacksCounter int
+		)
+
+		callbacks := metrics.NewEngineCallbacksBuilder().
+			WithEngineStartCallback(func(node string) {
+				engineStartedNode = node
+				engineStartedCallbacksCounter++
+			}).
+			WithEngineStopCallback(func(node string) {
+				engineStoppedNode = node
+				engineStoppedCallbacksCounter++
+			}).
+			WithProducerStartCallback(func(node string) {
+				producerStartedNode = node
+				producerStartedCallbacksCounter++
+			}).
+			WithProducerStopCallback(func(node string) {
+				producerStoppedNode = node
+				producerStoppedCallbacksCounter++
+			}).
+			WithConsumerStartCallback(func(node string) {
+				consumerStartedNode = node
+				consumerStartedCallbacksCounter++
+			}).
+			WithConsumerStopCallback(func(node string) {
+				consumerStoppedNode = node
+				consumerStoppedCallbacksCounter++
+			}).
+			Build()
+
+		node := "node-test"
+		callbacks.OnEngineStart(node)
+		callbacks.OnEngineStop(node)
+		callbacks.OnProducerStart(node)
+		callbacks.OnProducerStop(node)
+		callbacks.OnConsumerStart(node)
+		callbacks.OnConsumerStop(node)
+
+		require.Equal(t, node, engineStartedNode, "invalid node in engine start callback")
+		require.Equal(t, node, engineStoppedNode, "invalid node in engine stop callback")
+		require.Equal(t, node, producerStartedNode, "invalid node in producer start callback")
+		require.Equal(t, node, producerStoppedNode, "invalid node in producer stop callback")
+		require.Equal(t, node, consumerStartedNode, "invalid node in consumer start callback")
+		require.Equal(t, node, consumerStoppedNode, "invalid node in consumer stop callback")
+		require.Equal(t, 1, engineStartedCallbacksCounter, "invalid engine started callback counter")
+		require.Equal(t, 1, engineStoppedCallbacksCounter, "invalid engine stop callback counter")
+		require.Equal(t, 1, producerStartedCallbacksCounter, "invalid producer start callback counter")
+		require.Equal(t, 1, producerStoppedCallbacksCounter, "invalid producer stop callback counter")
+		require.Equal(t, 1, consumerStartedCallbacksCounter, "invalid consumer start callback counter")
+		require.Equal(t, 1, consumerStoppedCallbacksCounter, "invalid consumer stop callback counter")
+	})
+}
+
+func TestEngineMetricsCollection(t *testing.T) {
+	t.Run("engine lifecycle metrics are tracked correctly", func(t *testing.T) {
+		// GIVEN
+		reg := prometheus.NewPedanticRegistry()
+		callbacks := metrics.NewReplicationEngineCallbackMetrics(reg)
+		node := "node1"
+
+		// WHEN
+		callbacks.OnEngineStart(node)
+		callbacks.OnProducerStart(node)
+		callbacks.OnConsumerStart(node)
+		afterStartMetricFamilies, err := reg.Gather()
+
+		// THEN
+		require.NoError(t, err)
+		afterStartMetrics := collectMetrics(afterStartMetricFamilies, node)
+		require.Equal(t, float64(1), afterStartMetrics["engine"], "invalid engine running status")
+		require.Equal(t, float64(1), afterStartMetrics["producer"], "invalid producer running status")
+		require.Equal(t, float64(1), afterStartMetrics["consumer"], "invalid consumer running status")
+
+		// WHEN
+		callbacks.OnProducerStop(node)
+		callbacks.OnConsumerStop(node)
+		callbacks.OnEngineStop(node)
+		afterStopMetricFamilies, err := reg.Gather()
+
+		// THEN
+		require.NoError(t, err)
+		afterStopMetrics := collectMetrics(afterStopMetricFamilies, node)
+		require.Equal(t, float64(0), afterStopMetrics["engine"], "invalid engine running status")
+		require.Equal(t, float64(0), afterStopMetrics["producer"], "invalid producer running status")
+		require.Equal(t, float64(0), afterStopMetrics["consumer"], "invalid consumer running status")
+	})
+}
+
+func collectMetrics(metricFamilies []*io_prometheus_client.MetricFamily, node string) map[string]float64 {
+	values := make(map[string]float64)
+	for _, mf := range metricFamilies {
+		for _, m := range mf.GetMetric() {
+			for _, label := range m.GetLabel() {
+				if label.GetName() == "node" && label.GetValue() == node {
+					switch mf.GetName() {
+					case "weaviate_replication_engine_running_status":
+						values["engine"] = m.GetGauge().GetValue()
+					case "weaviate_replication_engine_producer_running_status":
+						values["producer"] = m.GetGauge().GetValue()
+					case "weaviate_replication_engine_consumer_running_status":
+						values["consumer"] = m.GetGauge().GetValue()
+					}
+				}
+			}
+		}
+	}
+	return values
+}

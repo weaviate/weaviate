@@ -165,3 +165,154 @@ func NewReplicationCallbackMetrics(reg prometheus.Registerer) *OpCallbacks {
 		}).
 		Build()
 }
+
+// EngineCallbacks contains a set of callback functions that are invoked
+// during the lifecycle of the replication engine and its internal components.
+//
+// These callbacks allow external systems to react to state transitions in the
+// engine, producer, and consumer.
+type EngineCallbacks struct {
+	onEngineStart   func(node string)
+	onEngineStop    func(node string)
+	onProducerStart func(node string)
+	onProducerStop  func(node string)
+	onConsumerStart func(node string)
+	onConsumerStop  func(node string)
+}
+
+// EngineCallbacksBuilder helps construct an EngineCallbacks instance
+// by allowing selective customization of lifecycle hooks.
+//
+// All callbacks default to no-ops unless explicitly overridden.
+type EngineCallbacksBuilder struct {
+	callbacks EngineCallbacks
+}
+
+// NewEngineCallbacksBuilder initializes a new EngineCallbacksBuilder with
+// default no-op functions for all lifecycle callbacks.
+func NewEngineCallbacksBuilder() *EngineCallbacksBuilder {
+	return &EngineCallbacksBuilder{
+		callbacks: EngineCallbacks{
+			onEngineStart:   func(node string) {},
+			onEngineStop:    func(node string) {},
+			onProducerStart: func(node string) {},
+			onProducerStop:  func(node string) {},
+			onConsumerStart: func(node string) {},
+			onConsumerStop:  func(node string) {},
+		},
+	}
+}
+
+// WithEngineStartCallback sets the callback to be executed when the replication engine starts.
+func (b *EngineCallbacksBuilder) WithEngineStartCallback(callback func(node string)) *EngineCallbacksBuilder {
+	b.callbacks.onEngineStart = callback
+	return b
+}
+
+// WithEngineStopCallback sets the callback to be executed when the replication engine stops.
+func (b *EngineCallbacksBuilder) WithEngineStopCallback(callback func(node string)) *EngineCallbacksBuilder {
+	b.callbacks.onEngineStop = callback
+	return b
+}
+
+// WithProducerStartCallback sets the callback to be executed when the replication engine's producer starts.
+func (b *EngineCallbacksBuilder) WithProducerStartCallback(callback func(node string)) *EngineCallbacksBuilder {
+	b.callbacks.onProducerStart = callback
+	return b
+}
+
+// WithProducerStopCallback sets the callback to be executed when the replication engine's producer stops.
+func (b *EngineCallbacksBuilder) WithProducerStopCallback(callback func(node string)) *EngineCallbacksBuilder {
+	b.callbacks.onProducerStop = callback
+	return b
+}
+
+// WithConsumerStartCallback sets the callback to be executed when the replication engine's consumer starts.
+func (b *EngineCallbacksBuilder) WithConsumerStartCallback(callback func(node string)) *EngineCallbacksBuilder {
+	b.callbacks.onConsumerStart = callback
+	return b
+}
+
+// WithConsumerStopCallback sets the callback to be executed when the replication engine's consumer stops.
+func (b *EngineCallbacksBuilder) WithConsumerStopCallback(callback func(node string)) *EngineCallbacksBuilder {
+	b.callbacks.onConsumerStop = callback
+	return b
+}
+
+// Build finalizes the builder and returns the EngineCallbacks instance.
+func (b *EngineCallbacksBuilder) Build() *EngineCallbacks {
+	return &b.callbacks
+}
+
+// OnEngineStart invokes the configured callback for when the engine starts.
+func (m *EngineCallbacks) OnEngineStart(node string) {
+	m.onEngineStart(node)
+}
+
+// OnEngineStop invokes the configured callback for when the engine stops.
+func (m *EngineCallbacks) OnEngineStop(node string) {
+	m.onEngineStop(node)
+}
+
+// OnProducerStart invokes the configured callback for when the producer starts.
+func (m *EngineCallbacks) OnProducerStart(node string) {
+	m.onProducerStart(node)
+}
+
+// OnProducerStop invokes the configured callback for when the producer stops.
+func (m *EngineCallbacks) OnProducerStop(node string) {
+	m.onProducerStop(node)
+}
+
+// OnConsumerStart invokes the configured callback for when the consumer starts.
+func (m *EngineCallbacks) OnConsumerStart(node string) {
+	m.onConsumerStart(node)
+}
+
+// OnConsumerStop invokes the configured callback for when the consumer stops.
+func (m *EngineCallbacks) OnConsumerStop(node string) {
+	m.onConsumerStop(node)
+}
+
+// NewReplicationEngineCallbackMetrics creates and registers Prometheus metrics
+// to track the lifecycle status of the replication engine and its internal components.
+//
+// It returns an EngineCallbacks instance that updates the following metrics:
+// - weaviate_replication_engine_running_status (GaugeVec)
+// - weaviate_replication_engine_producer_running_status (GaugeVec)
+// - weaviate_replication_engine_consumer_running_status (GaugeVec)
+//
+// All metrics are labeled by node and reflect the current running state:
+// - 1 = running
+// - 0 = not running
+//
+// This provides visibility into whether the engine, producer, or consumer
+// is currently active on a per-node basis.
+func NewReplicationEngineCallbackMetrics(reg prometheus.Registerer) *EngineCallbacks {
+	engineRunning := promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "weaviate",
+		Name:      "replication_engine_running_status",
+		Help:      "The Replication engine running status (0: not running, 1: running)",
+	}, []string{"node"})
+
+	producerRunning := promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "weaviate",
+		Name:      "replication_engine_producer_running_status",
+		Help:      "The replication engine producer running status (0: not running, 1: running)",
+	}, []string{"node"})
+
+	consumerRunning := promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "weaviate",
+		Name:      "replication_engine_consumer_running_status",
+		Help:      "The replication engine consumer running status (0: not running, 1: running)",
+	}, []string{"node"})
+
+	return NewEngineCallbacksBuilder().
+		WithEngineStartCallback(func(node string) { engineRunning.WithLabelValues(node).Set(1) }).
+		WithEngineStopCallback(func(node string) { engineRunning.WithLabelValues(node).Set(0) }).
+		WithProducerStartCallback(func(node string) { producerRunning.WithLabelValues(node).Set(1) }).
+		WithProducerStopCallback(func(node string) { producerRunning.WithLabelValues(node).Set(0) }).
+		WithConsumerStartCallback(func(node string) { consumerRunning.WithLabelValues(node).Set(1) }).
+		WithConsumerStopCallback(func(node string) { consumerRunning.WithLabelValues(node).Set(0) }).
+		Build()
+}

@@ -69,20 +69,20 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		metricsCallbacks := metrics.NewOpCallbacksBuilder().
 			WithOpPendingCallback(func(node string) {
-				assert.Equal(t, "node2", node)
+				require.Equal(t, "node2", node, "invalid node in pending op callback")
 				pendingCallbacksCounter++
 			}).
 			WithOpStartCallback(func(node string) {
-				assert.Equal(t, "node2", node)
+				require.Equal(t, "node2", node, "invalid node in start op callback")
 				startedCallbacksCounter++
 			}).
 			WithOpCompleteCallback(func(node string) {
-				assert.Equal(t, "node2", node)
+				require.Equal(t, "node2", node, "invalid node in complete op callback")
 				completedCallbacksCounter++
 				completionWg.Done()
 			}).
 			WithOpFailedCallback(func(node string) {
-				assert.Equal(t, "node2", node)
+				require.Equal(t, "node2", node, "invalid node in failed op callback")
 				failedCallbacksCounter++
 				t.Error("Failed callback should not be called for successful operation")
 			}).Build()
