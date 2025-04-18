@@ -144,7 +144,7 @@ func (v *client) VectorizeQuery(ctx context.Context, input []string,
 	config := v.getVectorizationConfig(cfg, "query")
 	res, _, _, err := v.vectorize(ctx, input, config.ModelString, config)
 	if err != nil {
-		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("text2vec", "openai", "-", "-" ).Inc()
+		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("text2vec", "openai", "-", "-").Inc()
 	}
 	return res, err
 }

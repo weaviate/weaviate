@@ -444,8 +444,6 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
-
-
 func TestGetApiKeyFromContext(t *testing.T) {
 	t.Run("value from context", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"key-from-ctx"})
@@ -485,8 +483,6 @@ func TestGetOpenAIOrganization(t *testing.T) {
 		assert.Equal(t, "default-org", c.getOpenAIOrganization(ctx))
 	})
 }
-
-
 
 func TestGetEmbeddingsRequest(t *testing.T) {
 	t.Run("Azure true omits model", func(t *testing.T) {
@@ -562,5 +558,3 @@ func TestOpenAIApiErrorDecode(t *testing.T) {
 		})
 	}
 }
-
-
