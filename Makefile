@@ -95,3 +95,8 @@ debug: ## Connect local weaviate server via delv for debugging
 
 banner: ## Add Weaviate banner with license details
 	./tools/gen-code-from-swagger.sh
+
+.PHONY: mocks
+mocks:
+	docker run --rm -v $(PWD):/src -w /src vektra/mockery:v2.53.2
+	$(MAKE) banner
