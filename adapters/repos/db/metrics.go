@@ -12,10 +12,12 @@
 package db
 
 import (
+	"errors"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -34,6 +36,9 @@ type Metrics struct {
 	filteredVectorSort    prometheus.Observer
 	grouped               bool
 	baseMetrics           *monitoring.PrometheusMetrics
+
+	shardsCount                       *prometheus.GaugeVec
+	shardStatusUpdateDurationsSeconds *prometheus.HistogramVec
 }
 
 func NewMetrics(
@@ -106,7 +111,62 @@ func NewMetrics(
 		"operation":  "sort",
 	})
 
+	if prom.Registerer == nil {
+		prom.Registerer = prometheus.DefaultRegisterer
+	}
+
+	// TODO: This is a temporary solution to avoid duplicating metrics registered
+	// in the index package. it shall be removed once the index package metric is refactored
+	// and to bring the metrics to the db package.
+	shardsCount := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "weaviate_index_shards_total",
+		Help: "Total number of shards per index status",
+	}, []string{"status"}) // status: READONLY, INDEXING, LOADING, READY, SHUTDOWN
+
+	shardStatusUpdateDurationsSeconds := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "weaviate_index_shard_status_update_duration_seconds",
+		Help: "Time taken to update shard status in seconds",
+	}, []string{"status"}) // status: READONLY, INDEXING, LOADING, READY, SHUTDOWN
+
+	// Try to register metrics, reuse existing ones if already registered
+	if err := prom.Registerer.Register(shardsCount); err != nil {
+		var are prometheus.AlreadyRegisteredError
+		if errors.As(err, &are) {
+			shardsCount = are.ExistingCollector.(*prometheus.GaugeVec)
+		}
+	}
+
+	if err := prom.Registerer.Register(shardStatusUpdateDurationsSeconds); err != nil {
+		var are prometheus.AlreadyRegisteredError
+		if errors.As(err, &are) {
+			shardStatusUpdateDurationsSeconds = are.ExistingCollector.(*prometheus.HistogramVec)
+		}
+	}
+
+	m.shardsCount = shardsCount
+	m.shardStatusUpdateDurationsSeconds = shardStatusUpdateDurationsSeconds
+
 	return m
+}
+
+func (m *Metrics) UpdateShardStatus(old, new string) {
+	if m.shardsCount == nil {
+		return
+	}
+
+	if old != "" {
+		m.shardsCount.WithLabelValues(old).Dec()
+	}
+
+	m.shardsCount.WithLabelValues(new).Inc()
+}
+
+func (m *Metrics) ObserveUpdateShardStatus(status string, duration time.Duration) {
+	if m.shardStatusUpdateDurationsSeconds == nil {
+		return
+	}
+
+	m.shardStatusUpdateDurationsSeconds.With(prometheus.Labels{"status": status}).Observe(float64(duration.Seconds()))
 }
 
 func (m *Metrics) DeleteShardLabels(class, shard string) {
