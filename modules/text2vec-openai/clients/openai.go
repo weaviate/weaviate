@@ -131,11 +131,11 @@ func (v *client) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg, "document")
-	a, b, c, err := v.vectorize(ctx, input, config.ModelString, config)
+	res, rateLimits, totalTokens, err := v.vectorize(ctx, input, config.ModelString, config)
 	if err != nil {
 		monitoring.GetMetrics().ModuleCallError.WithLabelValues("openai", "-", "-").Inc()
 	}
-	return a, b, c, err
+	return res, rateLimits, totalTokens, err
 }
 
 func (v *client) VectorizeQuery(ctx context.Context, input []string,
