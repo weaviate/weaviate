@@ -80,11 +80,11 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 
 	status, ok := m.replicationFSM.opsStatus[op]
 	if !ok {
-		return nil, fmt.Errorf("unable to retrieve replication operation '%d' status", op.id)
+		return nil, fmt.Errorf("unable to retrieve replication operation '%d' status", op.ID)
 	}
 
 	response := cmd.ReplicationDetailsResponse{
-		Id:           op.id,
+		Id:           op.ID,
 		ShardId:      op.sourceShard.shardId,
 		Collection:   op.sourceShard.collectionId,
 		SourceNodeId: op.sourceShard.nodeId,
@@ -94,7 +94,7 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 
 	payload, err := json.Marshal(response)
 	if err != nil {
-		return nil, fmt.Errorf("could not marshal query response for replication operation '%d': %w", op.id, err)
+		return nil, fmt.Errorf("could not marshal query response for replication operation '%d': %w", op.ID, err)
 	}
 
 	return payload, nil
