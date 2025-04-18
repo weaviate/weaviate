@@ -1,7 +1,9 @@
 import json
+
 import httpx
-from weaviate.classes.config import Configure, VectorDistances
+
 import weaviate
+from weaviate.classes.config import Configure, VectorDistances
 
 
 def test_stats_hnsw() -> None:
@@ -60,6 +62,8 @@ def test_stats_hnsw() -> None:
         "compressionStats",
         "compressionType",
     ] == keywords
+
+    flat_index = client.collections.delete("flatIndex")
 
     # Flat index
     flat_index = client.collections.create(
