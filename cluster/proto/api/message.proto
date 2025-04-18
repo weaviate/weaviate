@@ -72,6 +72,11 @@ message ApplyRequest {
     TYPE_REPLICATION_REPLICATE_ABORT = 202;
     TYPE_REPLICATION_REPLICA_DISABLE = 210;
     TYPE_REPLICATION_REPLICA_DELETE = 211;
+
+    TYPE_DISTRIBUTED_TASK_ADD = 300;
+    TYPE_DISTRIBUTED_TASK_CANCEL = 301;
+    TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED = 302;
+    TYPE_DISTRIBUTED_TASK_CLEAN_UP = 303;
   }
   Type type = 1;
   string class = 2;
@@ -104,6 +109,8 @@ message QueryRequest {
     TYPE_GET_USERS = 61;
     TYPE_USER_IDENTIFIER_EXISTS = 62;
     TYPE_GET_REPLICATION_DETAILS = 200;
+
+    TYPE_DISTRIBUTED_TASK_LIST = 300;
   }
 
   Type type = 1;
@@ -154,4 +161,33 @@ message DeleteTenantsRequest {
 message Tenant {
   string name = 1;
   string status = 2;
+}
+
+message AddDistributedTaskRequest {
+  string namespace = 1;
+  string id = 2;
+  bytes payload = 4;
+  int64 submittedAtUnixMillis = 5;
+}
+
+message RecordDistributedTaskNodeCompletionRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string node_id = 4;
+  optional string error = 5;
+  int64 finishedAtUnixMillis = 6;
+}
+
+message CancelDistributedTaskRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  int64 cancelledAtUnixMillis = 6;
+}
+
+message CleanUpDistributedTaskRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
 }

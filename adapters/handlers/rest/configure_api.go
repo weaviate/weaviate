@@ -27,10 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-
-	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
-
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	armonmetrics "github.com/armon/go-metrics"
 	armonprometheus "github.com/armon/go-metrics/prometheus"
@@ -45,12 +41,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"google.golang.org/grpc"
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -127,6 +125,7 @@ import (
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
@@ -514,6 +513,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		DynamicUserController:  appState.APIKey.Dynamic,
 		ReplicaCopier:          replicaCopier,
 		AuthNConfig:            appState.ServerConfig.Config.Authentication,
+		DistributedTasks:       appState.ServerConfig.Config.DistributedTasks,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -675,6 +675,32 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
 		migrator.RecountProperties(ctx)
 	}
+
+	scheduler := distributedtask.NewScheduler(distributedtask.SchedulerParams{
+		CompletionRecorder: appState.ClusterService.Raft,
+		TasksLister:        appState.ClusterService.Raft,
+		Providers:          map[string]distributedtask.Provider{},
+		Logger:             appState.Logger,
+		MetricsRegisterer:  appState.Metrics.Registerer,
+		LocalNode:          appState.Cluster.LocalName(),
+		TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+
+		// Using a single global value for now to keep it simple. If there is a need
+		// this can be changed to provide a value per provider.
+		CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+	})
+	enterrors.GoWrapper(func() {
+		<-storeReadyCtx.Done()
+		if !errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
+			return
+		}
+		if err = scheduler.Start(ctx); err != nil {
+			appState.Logger.WithFields(logrus.Fields{
+				"action": "startup",
+				"error":  err,
+			}).Error("failed to start distributed task scheduler")
+		}
+	}, appState.Logger)
 
 	return appState
 }
@@ -843,6 +869,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
+
+		appState.DistributedTaskScheduler.Close()
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()

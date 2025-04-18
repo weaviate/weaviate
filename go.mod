@@ -22,6 +22,7 @@ require (
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/fatih/camelcase v1.0.0
 	github.com/felixge/httpsnoop v1.0.4
+	github.com/fortytw2/leaktest v1.3.0
 	github.com/getsentry/sentry-go v0.30.0
 	github.com/go-ego/gse v0.80.3
 	github.com/go-jose/go-jose/v4 v4.0.5
@@ -46,6 +47,7 @@ require (
 	github.com/ikawaha/kagome/v2 v2.10.0
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
+	github.com/jonboulle/clockwork v0.5.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.2.0
 	github.com/launchdarkly/go-server-sdk/v7 v7.8.0
 	github.com/minio/minio-go/v7 v7.0.84

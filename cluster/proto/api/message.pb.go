@@ -9,11 +9,12 @@
 package api
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -26,34 +27,38 @@ const (
 type ApplyRequest_Type int32
 
 const (
-	ApplyRequest_TYPE_UNSPECIFIED                        ApplyRequest_Type = 0
-	ApplyRequest_TYPE_ADD_CLASS                          ApplyRequest_Type = 1
-	ApplyRequest_TYPE_UPDATE_CLASS                       ApplyRequest_Type = 2
-	ApplyRequest_TYPE_DELETE_CLASS                       ApplyRequest_Type = 3
-	ApplyRequest_TYPE_RESTORE_CLASS                      ApplyRequest_Type = 4
-	ApplyRequest_TYPE_ADD_PROPERTY                       ApplyRequest_Type = 5
-	ApplyRequest_TYPE_UPDATE_SHARD_STATUS                ApplyRequest_Type = 10
-	ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD               ApplyRequest_Type = 11
-	ApplyRequest_TYPE_ADD_TENANT                         ApplyRequest_Type = 16
-	ApplyRequest_TYPE_UPDATE_TENANT                      ApplyRequest_Type = 17
-	ApplyRequest_TYPE_DELETE_TENANT                      ApplyRequest_Type = 18
-	ApplyRequest_TYPE_TENANT_PROCESS                     ApplyRequest_Type = 19
-	ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS           ApplyRequest_Type = 60
-	ApplyRequest_TYPE_DELETE_ROLES                       ApplyRequest_Type = 61
-	ApplyRequest_TYPE_REMOVE_PERMISSIONS                 ApplyRequest_Type = 62
-	ApplyRequest_TYPE_ADD_ROLES_FOR_USER                 ApplyRequest_Type = 63
-	ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER              ApplyRequest_Type = 64
-	ApplyRequest_TYPE_UPSERT_USER                        ApplyRequest_Type = 80
-	ApplyRequest_TYPE_DELETE_USER                        ApplyRequest_Type = 81
-	ApplyRequest_TYPE_ROTATE_USER_API_KEY                ApplyRequest_Type = 82
-	ApplyRequest_TYPE_SUSPEND_USER                       ApplyRequest_Type = 83
-	ApplyRequest_TYPE_ACTIVATE_USER                      ApplyRequest_Type = 84
-	ApplyRequest_TYPE_STORE_SCHEMA_V1                    ApplyRequest_Type = 99
-	ApplyRequest_TYPE_REPLICATION_REPLICATE              ApplyRequest_Type = 200
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE ApplyRequest_Type = 201
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_ABORT        ApplyRequest_Type = 202
-	ApplyRequest_TYPE_REPLICATION_REPLICA_DISABLE        ApplyRequest_Type = 210
-	ApplyRequest_TYPE_REPLICATION_REPLICA_DELETE         ApplyRequest_Type = 211
+	ApplyRequest_TYPE_UNSPECIFIED                            ApplyRequest_Type = 0
+	ApplyRequest_TYPE_ADD_CLASS                              ApplyRequest_Type = 1
+	ApplyRequest_TYPE_UPDATE_CLASS                           ApplyRequest_Type = 2
+	ApplyRequest_TYPE_DELETE_CLASS                           ApplyRequest_Type = 3
+	ApplyRequest_TYPE_RESTORE_CLASS                          ApplyRequest_Type = 4
+	ApplyRequest_TYPE_ADD_PROPERTY                           ApplyRequest_Type = 5
+	ApplyRequest_TYPE_UPDATE_SHARD_STATUS                    ApplyRequest_Type = 10
+	ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD                   ApplyRequest_Type = 11
+	ApplyRequest_TYPE_ADD_TENANT                             ApplyRequest_Type = 16
+	ApplyRequest_TYPE_UPDATE_TENANT                          ApplyRequest_Type = 17
+	ApplyRequest_TYPE_DELETE_TENANT                          ApplyRequest_Type = 18
+	ApplyRequest_TYPE_TENANT_PROCESS                         ApplyRequest_Type = 19
+	ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS               ApplyRequest_Type = 60
+	ApplyRequest_TYPE_DELETE_ROLES                           ApplyRequest_Type = 61
+	ApplyRequest_TYPE_REMOVE_PERMISSIONS                     ApplyRequest_Type = 62
+	ApplyRequest_TYPE_ADD_ROLES_FOR_USER                     ApplyRequest_Type = 63
+	ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER                  ApplyRequest_Type = 64
+	ApplyRequest_TYPE_UPSERT_USER                            ApplyRequest_Type = 80
+	ApplyRequest_TYPE_DELETE_USER                            ApplyRequest_Type = 81
+	ApplyRequest_TYPE_ROTATE_USER_API_KEY                    ApplyRequest_Type = 82
+	ApplyRequest_TYPE_SUSPEND_USER                           ApplyRequest_Type = 83
+	ApplyRequest_TYPE_ACTIVATE_USER                          ApplyRequest_Type = 84
+	ApplyRequest_TYPE_STORE_SCHEMA_V1                        ApplyRequest_Type = 99
+	ApplyRequest_TYPE_REPLICATION_REPLICATE                  ApplyRequest_Type = 200
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE     ApplyRequest_Type = 201
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_ABORT            ApplyRequest_Type = 202
+	ApplyRequest_TYPE_REPLICATION_REPLICA_DISABLE            ApplyRequest_Type = 210
+	ApplyRequest_TYPE_REPLICATION_REPLICA_DELETE             ApplyRequest_Type = 211
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD                   ApplyRequest_Type = 300
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL                ApplyRequest_Type = 301
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED ApplyRequest_Type = 302
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP              ApplyRequest_Type = 303
 )
 
 // Enum value maps for ApplyRequest_Type.
@@ -87,36 +92,44 @@ var (
 		202: "TYPE_REPLICATION_REPLICATE_ABORT",
 		210: "TYPE_REPLICATION_REPLICA_DISABLE",
 		211: "TYPE_REPLICATION_REPLICA_DELETE",
+		300: "TYPE_DISTRIBUTED_TASK_ADD",
+		301: "TYPE_DISTRIBUTED_TASK_CANCEL",
+		302: "TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED",
+		303: "TYPE_DISTRIBUTED_TASK_CLEAN_UP",
 	}
 	ApplyRequest_Type_value = map[string]int32{
-		"TYPE_UNSPECIFIED":                        0,
-		"TYPE_ADD_CLASS":                          1,
-		"TYPE_UPDATE_CLASS":                       2,
-		"TYPE_DELETE_CLASS":                       3,
-		"TYPE_RESTORE_CLASS":                      4,
-		"TYPE_ADD_PROPERTY":                       5,
-		"TYPE_UPDATE_SHARD_STATUS":                10,
-		"TYPE_ADD_REPLICA_TO_SHARD":               11,
-		"TYPE_ADD_TENANT":                         16,
-		"TYPE_UPDATE_TENANT":                      17,
-		"TYPE_DELETE_TENANT":                      18,
-		"TYPE_TENANT_PROCESS":                     19,
-		"TYPE_UPSERT_ROLES_PERMISSIONS":           60,
-		"TYPE_DELETE_ROLES":                       61,
-		"TYPE_REMOVE_PERMISSIONS":                 62,
-		"TYPE_ADD_ROLES_FOR_USER":                 63,
-		"TYPE_REVOKE_ROLES_FOR_USER":              64,
-		"TYPE_UPSERT_USER":                        80,
-		"TYPE_DELETE_USER":                        81,
-		"TYPE_ROTATE_USER_API_KEY":                82,
-		"TYPE_SUSPEND_USER":                       83,
-		"TYPE_ACTIVATE_USER":                      84,
-		"TYPE_STORE_SCHEMA_V1":                    99,
-		"TYPE_REPLICATION_REPLICATE":              200,
-		"TYPE_REPLICATION_REPLICATE_UPDATE_STATE": 201,
-		"TYPE_REPLICATION_REPLICATE_ABORT":        202,
-		"TYPE_REPLICATION_REPLICA_DISABLE":        210,
-		"TYPE_REPLICATION_REPLICA_DELETE":         211,
+		"TYPE_UNSPECIFIED":                            0,
+		"TYPE_ADD_CLASS":                              1,
+		"TYPE_UPDATE_CLASS":                           2,
+		"TYPE_DELETE_CLASS":                           3,
+		"TYPE_RESTORE_CLASS":                          4,
+		"TYPE_ADD_PROPERTY":                           5,
+		"TYPE_UPDATE_SHARD_STATUS":                    10,
+		"TYPE_ADD_REPLICA_TO_SHARD":                   11,
+		"TYPE_ADD_TENANT":                             16,
+		"TYPE_UPDATE_TENANT":                          17,
+		"TYPE_DELETE_TENANT":                          18,
+		"TYPE_TENANT_PROCESS":                         19,
+		"TYPE_UPSERT_ROLES_PERMISSIONS":               60,
+		"TYPE_DELETE_ROLES":                           61,
+		"TYPE_REMOVE_PERMISSIONS":                     62,
+		"TYPE_ADD_ROLES_FOR_USER":                     63,
+		"TYPE_REVOKE_ROLES_FOR_USER":                  64,
+		"TYPE_UPSERT_USER":                            80,
+		"TYPE_DELETE_USER":                            81,
+		"TYPE_ROTATE_USER_API_KEY":                    82,
+		"TYPE_SUSPEND_USER":                           83,
+		"TYPE_ACTIVATE_USER":                          84,
+		"TYPE_STORE_SCHEMA_V1":                        99,
+		"TYPE_REPLICATION_REPLICATE":                  200,
+		"TYPE_REPLICATION_REPLICATE_UPDATE_STATE":     201,
+		"TYPE_REPLICATION_REPLICATE_ABORT":            202,
+		"TYPE_REPLICATION_REPLICA_DISABLE":            210,
+		"TYPE_REPLICATION_REPLICA_DELETE":             211,
+		"TYPE_DISTRIBUTED_TASK_ADD":                   300,
+		"TYPE_DISTRIBUTED_TASK_CANCEL":                301,
+		"TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED": 302,
+		"TYPE_DISTRIBUTED_TASK_CLEAN_UP":              303,
 	}
 )
 
@@ -166,6 +179,7 @@ const (
 	QueryRequest_TYPE_GET_USERS               QueryRequest_Type = 61
 	QueryRequest_TYPE_USER_IDENTIFIER_EXISTS  QueryRequest_Type = 62
 	QueryRequest_TYPE_GET_REPLICATION_DETAILS QueryRequest_Type = 200
+	QueryRequest_TYPE_DISTRIBUTED_TASK_LIST   QueryRequest_Type = 300
 )
 
 // Enum value maps for QueryRequest_Type.
@@ -187,6 +201,7 @@ var (
 		61:  "TYPE_GET_USERS",
 		62:  "TYPE_USER_IDENTIFIER_EXISTS",
 		200: "TYPE_GET_REPLICATION_DETAILS",
+		300: "TYPE_DISTRIBUTED_TASK_LIST",
 	}
 	QueryRequest_Type_value = map[string]int32{
 		"TYPE_UNSPECIFIED":             0,
@@ -205,6 +220,7 @@ var (
 		"TYPE_GET_USERS":               61,
 		"TYPE_USER_IDENTIFIER_EXISTS":  62,
 		"TYPE_GET_REPLICATION_DETAILS": 200,
+		"TYPE_DISTRIBUTED_TASK_LIST":   300,
 	}
 )
 
@@ -1144,6 +1160,286 @@ func (x *Tenant) GetStatus() string {
 	return ""
 }
 
+type AddDistributedTaskRequest struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Namespace             string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id                    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Payload               []byte                 `protobuf:"bytes,4,opt,name=payload,proto3" json:"payload,omitempty"`
+	SubmittedAtUnixMillis int64                  `protobuf:"varint,5,opt,name=submittedAtUnixMillis,proto3" json:"submittedAtUnixMillis,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *AddDistributedTaskRequest) Reset() {
+	*x = AddDistributedTaskRequest{}
+	mi := &file_api_message_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddDistributedTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddDistributedTaskRequest) ProtoMessage() {}
+
+func (x *AddDistributedTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddDistributedTaskRequest.ProtoReflect.Descriptor instead.
+func (*AddDistributedTaskRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *AddDistributedTaskRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *AddDistributedTaskRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AddDistributedTaskRequest) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *AddDistributedTaskRequest) GetSubmittedAtUnixMillis() int64 {
+	if x != nil {
+		return x.SubmittedAtUnixMillis
+	}
+	return 0
+}
+
+type RecordDistributedTaskNodeCompletionRequest struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Namespace            string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id                   string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version              uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	NodeId               string                 `protobuf:"bytes,4,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Error                *string                `protobuf:"bytes,5,opt,name=error,proto3,oneof" json:"error,omitempty"`
+	FinishedAtUnixMillis int64                  `protobuf:"varint,6,opt,name=finishedAtUnixMillis,proto3" json:"finishedAtUnixMillis,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *RecordDistributedTaskNodeCompletionRequest) Reset() {
+	*x = RecordDistributedTaskNodeCompletionRequest{}
+	mi := &file_api_message_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordDistributedTaskNodeCompletionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordDistributedTaskNodeCompletionRequest) ProtoMessage() {}
+
+func (x *RecordDistributedTaskNodeCompletionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordDistributedTaskNodeCompletionRequest.ProtoReflect.Descriptor instead.
+func (*RecordDistributedTaskNodeCompletionRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *RecordDistributedTaskNodeCompletionRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskNodeCompletionRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskNodeCompletionRequest) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *RecordDistributedTaskNodeCompletionRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskNodeCompletionRequest) GetError() string {
+	if x != nil && x.Error != nil {
+		return *x.Error
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskNodeCompletionRequest) GetFinishedAtUnixMillis() int64 {
+	if x != nil {
+		return x.FinishedAtUnixMillis
+	}
+	return 0
+}
+
+type CancelDistributedTaskRequest struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Namespace             string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id                    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version               uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	CancelledAtUnixMillis int64                  `protobuf:"varint,6,opt,name=cancelledAtUnixMillis,proto3" json:"cancelledAtUnixMillis,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *CancelDistributedTaskRequest) Reset() {
+	*x = CancelDistributedTaskRequest{}
+	mi := &file_api_message_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelDistributedTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelDistributedTaskRequest) ProtoMessage() {}
+
+func (x *CancelDistributedTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelDistributedTaskRequest.ProtoReflect.Descriptor instead.
+func (*CancelDistributedTaskRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *CancelDistributedTaskRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *CancelDistributedTaskRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *CancelDistributedTaskRequest) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *CancelDistributedTaskRequest) GetCancelledAtUnixMillis() int64 {
+	if x != nil {
+		return x.CancelledAtUnixMillis
+	}
+	return 0
+}
+
+type CleanUpDistributedTaskRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version       uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CleanUpDistributedTaskRequest) Reset() {
+	*x = CleanUpDistributedTaskRequest{}
+	mi := &file_api_message_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CleanUpDistributedTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CleanUpDistributedTaskRequest) ProtoMessage() {}
+
+func (x *CleanUpDistributedTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CleanUpDistributedTaskRequest.ProtoReflect.Descriptor instead.
+func (*CleanUpDistributedTaskRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *CleanUpDistributedTaskRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *CleanUpDistributedTaskRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *CleanUpDistributedTaskRequest) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
 var File_api_message_proto protoreflect.FileDescriptor
 
 const file_api_message_proto_rawDesc = "" +
@@ -1162,13 +1458,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xb6\a\n" +
+	"\x12NotifyPeerResponse\"\xd0\b\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\x92\x06\n" +
+	"subCommand\"\xac\a\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -1198,14 +1494,18 @@ const file_api_message_proto_rawDesc = "" +
 	"'TYPE_REPLICATION_REPLICATE_UPDATE_STATE\x10\xc9\x01\x12%\n" +
 	" TYPE_REPLICATION_REPLICATE_ABORT\x10\xca\x01\x12%\n" +
 	" TYPE_REPLICATION_REPLICA_DISABLE\x10\xd2\x01\x12$\n" +
-	"\x1fTYPE_REPLICATION_REPLICA_DELETE\x10\xd3\x01\"A\n" +
+	"\x1fTYPE_REPLICATION_REPLICA_DELETE\x10\xd3\x01\x12\x1e\n" +
+	"\x19TYPE_DISTRIBUTED_TASK_ADD\x10\xac\x02\x12!\n" +
+	"\x1cTYPE_DISTRIBUTED_TASK_CANCEL\x10\xad\x02\x120\n" +
+	"+TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED\x10\xae\x02\x12#\n" +
+	"\x1eTYPE_DISTRIBUTED_TASK_CLEAN_UP\x10\xaf\x02\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
-	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xa1\x04\n" +
+	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xc2\x04\n" +
 	"\fQueryRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.QueryRequest.TypeR\x04type\x12\x1f\n" +
 	"\vsub_command\x18\x02 \x01(\fR\n" +
-	"subCommand\"\xad\x03\n" +
+	"subCommand\"\xce\x03\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10TYPE_GET_CLASSES\x10\x01\x12\x13\n" +
@@ -1222,7 +1522,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\x17TYPE_GET_USERS_FOR_ROLE\x10!\x12\x12\n" +
 	"\x0eTYPE_GET_USERS\x10=\x12\x1f\n" +
 	"\x1bTYPE_USER_IDENTIFIER_EXISTS\x10>\x12!\n" +
-	"\x1cTYPE_GET_REPLICATION_DETAILS\x10\xc8\x01\")\n" +
+	"\x1cTYPE_GET_REPLICATION_DETAILS\x10\xc8\x01\x12\x1f\n" +
+	"\x1aTYPE_DISTRIBUTED_TASK_LIST\x10\xac\x02\")\n" +
 	"\rQueryResponse\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\"u\n" +
 	"\x11AddTenantsRequest\x12#\n" +
@@ -1251,7 +1552,29 @@ const file_api_message_proto_rawDesc = "" +
 	"\atenants\x18\x01 \x03(\tR\atenants\"4\n" +
 	"\x06Tenant\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status2\x8d\x04\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"\x99\x01\n" +
+	"\x19AddDistributedTaskRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\apayload\x18\x04 \x01(\fR\apayload\x124\n" +
+	"\x15submittedAtUnixMillis\x18\x05 \x01(\x03R\x15submittedAtUnixMillis\"\xe6\x01\n" +
+	"*RecordDistributedTaskNodeCompletionRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x17\n" +
+	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x19\n" +
+	"\x05error\x18\x05 \x01(\tH\x00R\x05error\x88\x01\x01\x122\n" +
+	"\x14finishedAtUnixMillis\x18\x06 \x01(\x03R\x14finishedAtUnixMillisB\b\n" +
+	"\x06_error\"\x9c\x01\n" +
+	"\x1cCancelDistributedTaskRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x124\n" +
+	"\x15cancelledAtUnixMillis\x18\x06 \x01(\x03R\x15cancelledAtUnixMillis\"g\n" +
+	"\x1dCleanUpDistributedTaskRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion2\x8d\x04\n" +
 	"\x0eClusterService\x12k\n" +
 	"\n" +
 	"RemovePeer\x12,.weaviate.internal.cluster.RemovePeerRequest\x1a-.weaviate.internal.cluster.RemovePeerResponse\"\x00\x12e\n" +
@@ -1274,30 +1597,37 @@ func file_api_message_proto_rawDescGZIP() []byte {
 	return file_api_message_proto_rawDescData
 }
 
-var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
-var file_api_message_proto_goTypes = []any{
-	(ApplyRequest_Type)(0),           // 0: weaviate.internal.cluster.ApplyRequest.Type
-	(QueryRequest_Type)(0),           // 1: weaviate.internal.cluster.QueryRequest.Type
-	(TenantsProcess_Op)(0),           // 2: weaviate.internal.cluster.TenantsProcess.Op
-	(TenantProcessRequest_Action)(0), // 3: weaviate.internal.cluster.TenantProcessRequest.Action
-	(*JoinPeerRequest)(nil),          // 4: weaviate.internal.cluster.JoinPeerRequest
-	(*JoinPeerResponse)(nil),         // 5: weaviate.internal.cluster.JoinPeerResponse
-	(*RemovePeerRequest)(nil),        // 6: weaviate.internal.cluster.RemovePeerRequest
-	(*RemovePeerResponse)(nil),       // 7: weaviate.internal.cluster.RemovePeerResponse
-	(*NotifyPeerRequest)(nil),        // 8: weaviate.internal.cluster.NotifyPeerRequest
-	(*NotifyPeerResponse)(nil),       // 9: weaviate.internal.cluster.NotifyPeerResponse
-	(*ApplyRequest)(nil),             // 10: weaviate.internal.cluster.ApplyRequest
-	(*ApplyResponse)(nil),            // 11: weaviate.internal.cluster.ApplyResponse
-	(*QueryRequest)(nil),             // 12: weaviate.internal.cluster.QueryRequest
-	(*QueryResponse)(nil),            // 13: weaviate.internal.cluster.QueryResponse
-	(*AddTenantsRequest)(nil),        // 14: weaviate.internal.cluster.AddTenantsRequest
-	(*UpdateTenantsRequest)(nil),     // 15: weaviate.internal.cluster.UpdateTenantsRequest
-	(*TenantsProcess)(nil),           // 16: weaviate.internal.cluster.TenantsProcess
-	(*TenantProcessRequest)(nil),     // 17: weaviate.internal.cluster.TenantProcessRequest
-	(*DeleteTenantsRequest)(nil),     // 18: weaviate.internal.cluster.DeleteTenantsRequest
-	(*Tenant)(nil),                   // 19: weaviate.internal.cluster.Tenant
-}
+var (
+	file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+	file_api_message_proto_msgTypes  = make([]protoimpl.MessageInfo, 20)
+	file_api_message_proto_goTypes   = []any{
+		(ApplyRequest_Type)(0),                             // 0: weaviate.internal.cluster.ApplyRequest.Type
+		(QueryRequest_Type)(0),                             // 1: weaviate.internal.cluster.QueryRequest.Type
+		(TenantsProcess_Op)(0),                             // 2: weaviate.internal.cluster.TenantsProcess.Op
+		(TenantProcessRequest_Action)(0),                   // 3: weaviate.internal.cluster.TenantProcessRequest.Action
+		(*JoinPeerRequest)(nil),                            // 4: weaviate.internal.cluster.JoinPeerRequest
+		(*JoinPeerResponse)(nil),                           // 5: weaviate.internal.cluster.JoinPeerResponse
+		(*RemovePeerRequest)(nil),                          // 6: weaviate.internal.cluster.RemovePeerRequest
+		(*RemovePeerResponse)(nil),                         // 7: weaviate.internal.cluster.RemovePeerResponse
+		(*NotifyPeerRequest)(nil),                          // 8: weaviate.internal.cluster.NotifyPeerRequest
+		(*NotifyPeerResponse)(nil),                         // 9: weaviate.internal.cluster.NotifyPeerResponse
+		(*ApplyRequest)(nil),                               // 10: weaviate.internal.cluster.ApplyRequest
+		(*ApplyResponse)(nil),                              // 11: weaviate.internal.cluster.ApplyResponse
+		(*QueryRequest)(nil),                               // 12: weaviate.internal.cluster.QueryRequest
+		(*QueryResponse)(nil),                              // 13: weaviate.internal.cluster.QueryResponse
+		(*AddTenantsRequest)(nil),                          // 14: weaviate.internal.cluster.AddTenantsRequest
+		(*UpdateTenantsRequest)(nil),                       // 15: weaviate.internal.cluster.UpdateTenantsRequest
+		(*TenantsProcess)(nil),                             // 16: weaviate.internal.cluster.TenantsProcess
+		(*TenantProcessRequest)(nil),                       // 17: weaviate.internal.cluster.TenantProcessRequest
+		(*DeleteTenantsRequest)(nil),                       // 18: weaviate.internal.cluster.DeleteTenantsRequest
+		(*Tenant)(nil),                                     // 19: weaviate.internal.cluster.Tenant
+		(*AddDistributedTaskRequest)(nil),                  // 20: weaviate.internal.cluster.AddDistributedTaskRequest
+		(*RecordDistributedTaskNodeCompletionRequest)(nil), // 21: weaviate.internal.cluster.RecordDistributedTaskNodeCompletionRequest
+		(*CancelDistributedTaskRequest)(nil),               // 22: weaviate.internal.cluster.CancelDistributedTaskRequest
+		(*CleanUpDistributedTaskRequest)(nil),              // 23: weaviate.internal.cluster.CleanUpDistributedTaskRequest
+	}
+)
+
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
 	1,  // 1: weaviate.internal.cluster.QueryRequest.type:type_name -> weaviate.internal.cluster.QueryRequest.Type
@@ -1329,13 +1659,14 @@ func file_api_message_proto_init() {
 	if File_api_message_proto != nil {
 		return
 	}
+	file_api_message_proto_msgTypes[17].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_message_proto_rawDesc), len(file_api_message_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   16,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
