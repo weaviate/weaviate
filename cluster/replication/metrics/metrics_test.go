@@ -138,7 +138,7 @@ func TestMetricsCollection(t *testing.T) {
 	t.Run("metrics should track operations correctly", func(t *testing.T) {
 		// GIVEN
 		reg := prometheus.NewPedanticRegistry()
-		callbacks := metrics.NewReplicationCallbackMetrics(reg)
+		callbacks := metrics.NewReplicationOpCallbackMetrics(reg)
 		node := "test-node"
 
 		// Process first operation completing successfully
@@ -177,7 +177,7 @@ func TestMetricsCollection(t *testing.T) {
 	t.Run("metrics should be tracked separately for different nodes", func(t *testing.T) {
 		// GIVEN
 		reg := prometheus.NewPedanticRegistry()
-		callbacks := metrics.NewReplicationCallbackMetrics(reg)
+		callbacks := metrics.NewReplicationOpCallbackMetrics(reg)
 		node1 := "node-1"
 		node2 := "node-2"
 

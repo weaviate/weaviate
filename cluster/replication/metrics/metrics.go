@@ -97,7 +97,7 @@ func (m *OpCallbacks) OnOpFailed(node string) {
 	m.onOpFailed(node)
 }
 
-// NewReplicationCallbackMetrics creates and registers Prometheus metrics for tracking
+// NewReplicationOpCallbackMetrics creates and registers Prometheus metrics for tracking
 // replication operations and returns an OpCallbacks instance configured to update those metrics.
 //
 // The following metrics are registered with the provided registerer:
@@ -107,7 +107,7 @@ func (m *OpCallbacks) OnOpFailed(node string) {
 // - weaviate_replication_failed_operations (CounterVec)
 //
 // All metrics are labeled by node and automatically updated through the callback lifecycle.
-func NewReplicationCallbackMetrics(reg prometheus.Registerer) *OpCallbacks {
+func NewReplicationOpCallbackMetrics(reg prometheus.Registerer) *OpCallbacks {
 	pendingOps := promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "weaviate",
 		Name:      "replication_pending_operations",

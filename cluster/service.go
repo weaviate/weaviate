@@ -85,7 +85,7 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 		&backoff.StopBackOff{},
 		replicationOperationTimeout,
 		replicationEngineMaxWorkers,
-		metrics.NewReplicationCallbackMetrics(prometheus.DefaultRegisterer),
+		metrics.NewReplicationOpCallbackMetrics(prometheus.DefaultRegisterer),
 	)
 	replicationEngine := replication.NewShardReplicationEngine(
 		cfg.Logger,
