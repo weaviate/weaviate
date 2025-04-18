@@ -18,13 +18,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	io_prometheus_client "github.com/prometheus/client_model/go"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOpCallbacks(t *testing.T) {
 	t.Run("default callbacks should be no-op", func(t *testing.T) {
-		callbacks := metrics.NewOpCallbacksBuilder().Build()
+		callbacks := metrics.NewEngineOpCallbacksBuilder().Build()
 		callbacks.OnOpPending("node1")
 		callbacks.OnOpStart("node1")
 		callbacks.OnOpComplete("node1")
@@ -40,7 +39,7 @@ func TestOpCallbacks(t *testing.T) {
 			failedNode   string
 		)
 
-		callbacks := metrics.NewOpCallbacksBuilder().
+		callbacks := metrics.NewEngineOpCallbacksBuilder().
 			WithOpPendingCallback(func(node string) {
 				pendingNode = node
 			}).
@@ -63,16 +62,16 @@ func TestOpCallbacks(t *testing.T) {
 		callbacks.OnOpFailed(expectedNode)
 
 		// THEN
-		assert.Equal(t, expectedNode, pendingNode)
-		assert.Equal(t, expectedNode, startNode)
-		assert.Equal(t, expectedNode, completeNode)
-		assert.Equal(t, expectedNode, failedNode)
+		require.Equal(t, expectedNode, pendingNode, "invalid pending callback node")
+		require.Equal(t, expectedNode, startNode, "invalid start callback node")
+		require.Equal(t, expectedNode, completeNode, "invalid complete callback node")
+		require.Equal(t, expectedNode, failedNode, "invalid failed callback node")
 	})
 
 	t.Run("only op pending", func(t *testing.T) {
 		// GIVEN
 		pendingCalled := false
-		callbacks := metrics.NewOpCallbacksBuilder().
+		callbacks := metrics.NewEngineOpCallbacksBuilder().
 			WithOpPendingCallback(func(node string) {
 				pendingCalled = true
 			}).
@@ -82,13 +81,13 @@ func TestOpCallbacks(t *testing.T) {
 		callbacks.OnOpPending("node1")
 
 		// THEN
-		assert.True(t, pendingCalled)
+		require.True(t, pendingCalled, "expected pending callback to be called")
 	})
 
 	t.Run("only op start", func(t *testing.T) {
 		// GIVEN
 		startCalled := false
-		callbacks := metrics.NewOpCallbacksBuilder().
+		callbacks := metrics.NewEngineOpCallbacksBuilder().
 			WithOpStartCallback(func(node string) {
 				startCalled = true
 			}).
@@ -98,13 +97,13 @@ func TestOpCallbacks(t *testing.T) {
 		callbacks.OnOpStart("node1")
 
 		// THEN
-		assert.True(t, startCalled)
+		require.True(t, startCalled, "expected start callback to be called")
 	})
 
 	t.Run("only op complete", func(t *testing.T) {
 		// GIVEN
 		completeCalled := false
-		callbacks := metrics.NewOpCallbacksBuilder().
+		callbacks := metrics.NewEngineOpCallbacksBuilder().
 			WithOpCompleteCallback(func(node string) {
 				completeCalled = true
 			}).
@@ -114,13 +113,13 @@ func TestOpCallbacks(t *testing.T) {
 		callbacks.OnOpComplete("node1")
 
 		// THEN
-		assert.True(t, completeCalled)
+		require.True(t, completeCalled, "expected complete callback to be called")
 	})
 
 	t.Run("only op failed", func(t *testing.T) {
 		// GIVEN
 		failedCalled := false
-		callbacks := metrics.NewOpCallbacksBuilder().
+		callbacks := metrics.NewEngineOpCallbacksBuilder().
 			WithOpFailedCallback(func(node string) {
 				failedCalled = true
 			}).
@@ -130,7 +129,7 @@ func TestOpCallbacks(t *testing.T) {
 		callbacks.OnOpFailed("node1")
 
 		// THEN
-		assert.True(t, failedCalled)
+		require.True(t, failedCalled, "expected failed callback to be called")
 	})
 }
 
@@ -162,16 +161,16 @@ func TestMetricsCollection(t *testing.T) {
 		metricFamilies, err := reg.Gather()
 		require.NoError(t, err)
 
-		metrics := make(map[string]*io_prometheus_client.MetricFamily)
+		metricsByName := make(map[string]*io_prometheus_client.MetricFamily)
 		for _, mf := range metricFamilies {
-			metrics[mf.GetName()] = mf
+			metricsByName[mf.GetName()] = mf
 		}
 
 		// THEN
-		assert.Equal(t, float64(1), metrics["weaviate_replication_pending_operations"].GetMetric()[0].GetGauge().GetValue())
-		assert.Equal(t, float64(1), metrics["weaviate_replication_ongoing_operations"].GetMetric()[0].GetGauge().GetValue())
-		assert.Equal(t, float64(1), metrics["weaviate_replication_complete_operations"].GetMetric()[0].GetCounter().GetValue())
-		assert.Equal(t, float64(1), metrics["weaviate_replication_failed_operations"].GetMetric()[0].GetCounter().GetValue())
+		require.Equal(t, float64(1), metricsByName["weaviate_replication_pending_operations"].GetMetric()[0].GetGauge().GetValue())
+		require.Equal(t, float64(1), metricsByName["weaviate_replication_ongoing_operations"].GetMetric()[0].GetGauge().GetValue())
+		require.Equal(t, float64(1), metricsByName["weaviate_replication_complete_operations"].GetMetric()[0].GetCounter().GetValue())
+		require.Equal(t, float64(1), metricsByName["weaviate_replication_failed_operations"].GetMetric()[0].GetCounter().GetValue())
 	})
 
 	t.Run("metrics should be tracked separately for different nodes", func(t *testing.T) {
@@ -235,16 +234,16 @@ func TestMetricsCollection(t *testing.T) {
 		}
 
 		// THEN (for node1)
-		assert.Equal(t, float64(0), pendingByNode[node1])
-		assert.Equal(t, float64(0), ongoingByNode[node1])
-		assert.Equal(t, float64(1), completeByNode[node1])
-		assert.Equal(t, float64(1), failedByNode[node1])
+		require.Equal(t, float64(0), pendingByNode[node1], "invalid pending callback node")
+		require.Equal(t, float64(0), ongoingByNode[node1], "invalid ongoing callback node")
+		require.Equal(t, float64(1), completeByNode[node1], "invalid complete callback node")
+		require.Equal(t, float64(1), failedByNode[node1], "invalid failed callback node")
 
 		// THEN (for node2)
-		assert.Equal(t, float64(1), pendingByNode[node2])
-		assert.Equal(t, float64(0), ongoingByNode[node2])
-		assert.Equal(t, float64(2), completeByNode[node2])
-		assert.Equal(t, float64(0), failedByNode[node2])
+		require.Equal(t, float64(1), pendingByNode[node2], "invalid pending callback node")
+		require.Equal(t, float64(0), ongoingByNode[node2], "invalid ongoing callback node")
+		require.Equal(t, float64(2), completeByNode[node2], "invalid complete callback node")
+		require.Equal(t, float64(0), failedByNode[node2], "invalid failed callback node")
 	})
 }
 

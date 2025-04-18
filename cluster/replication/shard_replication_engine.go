@@ -129,7 +129,7 @@ type ShardReplicationEngine struct {
 	// This ensures that the system doesn't hang indefinitely during shutdown.
 	shutdownTimeout time.Duration
 
-	engineCallbacks *metrics.EngineCallbacks
+	engineMetricCallbacks *metrics.EngineMetricCallbacks
 }
 
 // NewShardReplicationEngine creates a new replication engine
@@ -141,18 +141,18 @@ func NewShardReplicationEngine(
 	opBufferSize int,
 	maxWorkers int,
 	shutdownTimeout time.Duration,
-	engineCallbacks *metrics.EngineCallbacks,
+	engineMetricCallbacks *metrics.EngineMetricCallbacks,
 ) *ShardReplicationEngine {
 	return &ShardReplicationEngine{
-		nodeId:          nodeId,
-		logger:          logger.WithFields(logrus.Fields{"action": replicationEngineLogAction, "node": nodeId}),
-		producer:        producer,
-		consumer:        consumer,
-		opBufferSize:    opBufferSize,
-		maxWorkers:      maxWorkers,
-		shutdownTimeout: shutdownTimeout,
-		stopChan:        make(chan struct{}),
-		engineCallbacks: engineCallbacks,
+		nodeId:                nodeId,
+		logger:                logger.WithFields(logrus.Fields{"action": replicationEngineLogAction, "node": nodeId}),
+		producer:              producer,
+		consumer:              consumer,
+		opBufferSize:          opBufferSize,
+		maxWorkers:            maxWorkers,
+		shutdownTimeout:       shutdownTimeout,
+		stopChan:              make(chan struct{}),
+		engineMetricCallbacks: engineMetricCallbacks,
 	}
 }
 
@@ -170,7 +170,7 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 		e.logger.Warnf("replication engine already running: %v", e)
 		return nil
 	}
-	e.engineCallbacks.OnEngineStart(e.nodeId)
+	e.engineMetricCallbacks.OnEngineStart(e.nodeId)
 
 	// Channels are creating while starting the replication engine to allow start/stop.
 	e.opsChan = make(chan ShardReplicationOp, e.opBufferSize)
@@ -188,8 +188,8 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 	e.wg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer e.wg.Done()
-		defer e.engineCallbacks.OnProducerStop(e.nodeId)
-		e.engineCallbacks.OnProducerStart(e.nodeId)
+		defer e.engineMetricCallbacks.OnProducerStop(e.nodeId)
+		e.engineMetricCallbacks.OnProducerStart(e.nodeId)
 		e.logger.WithField("producer", e.producer).Info("starting replication engine producer")
 		err := e.producer.Produce(engineCtx, e.opsChan)
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -203,8 +203,8 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 	e.wg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer e.wg.Done()
-		defer e.engineCallbacks.OnConsumerStop(e.nodeId)
-		e.engineCallbacks.OnConsumerStart(e.nodeId)
+		defer e.engineMetricCallbacks.OnConsumerStop(e.nodeId)
+		e.engineMetricCallbacks.OnConsumerStart(e.nodeId)
 		e.logger.WithField("consumer", e.consumer).Info("starting replication engine consumer")
 		err := e.consumer.Consume(engineCtx, e.opsChan)
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -278,7 +278,7 @@ func (e *ShardReplicationEngine) Stop() {
 	}
 
 	e.isRunning.Store(false)
-	e.engineCallbacks.OnEngineStop(e.nodeId)
+	e.engineMetricCallbacks.OnEngineStop(e.nodeId)
 }
 
 // IsRunning reports whether the replication engine is currently running.

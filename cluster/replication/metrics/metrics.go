@@ -16,26 +16,26 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// OpCallbacks contains a set of callback functions that are invoked
+// EngineOpCallbacks contains a set of callback functions that are invoked
 // on different stages of a replication operation's lifecycle.
-type OpCallbacks struct {
+type EngineOpCallbacks struct {
 	onOpPending  func(node string)
 	onOpStart    func(node string)
 	onOpComplete func(node string)
 	onOpFailed   func(node string)
 }
 
-// OpCallbacksBuilder helps construct an OpCallbacks instance with
+// EngineOpCallbacksBuilder helps construct an EngineOpCallbacks instance with
 // custom behavior for each stage of a replication operation.
-type OpCallbacksBuilder struct {
-	callbacks OpCallbacks
+type EngineOpCallbacksBuilder struct {
+	callbacks EngineOpCallbacks
 }
 
-// NewOpCallbacksBuilder initializes a new OpCallbacksBuilder with
+// NewEngineOpCallbacksBuilder initializes a new EngineOpCallbacksBuilder with
 // no-op default callbacks.
-func NewOpCallbacksBuilder() *OpCallbacksBuilder {
-	return &OpCallbacksBuilder{
-		callbacks: OpCallbacks{
+func NewEngineOpCallbacksBuilder() *EngineOpCallbacksBuilder {
+	return &EngineOpCallbacksBuilder{
+		callbacks: EngineOpCallbacks{
 			onOpPending:  func(node string) {},
 			onOpStart:    func(node string) {},
 			onOpComplete: func(node string) {},
@@ -46,59 +46,59 @@ func NewOpCallbacksBuilder() *OpCallbacksBuilder {
 
 // WithOpPendingCallback sets a callback to be executed when a replication
 // operation becomes pending for the given node.
-func (b *OpCallbacksBuilder) WithOpPendingCallback(callback func(node string)) *OpCallbacksBuilder {
+func (b *EngineOpCallbacksBuilder) WithOpPendingCallback(callback func(node string)) *EngineOpCallbacksBuilder {
 	b.callbacks.onOpPending = callback
 	return b
 }
 
 // WithOpStartCallback sets a callback to be executed when a replication
 // operation starts processing for the given node.
-func (b *OpCallbacksBuilder) WithOpStartCallback(callback func(node string)) *OpCallbacksBuilder {
+func (b *EngineOpCallbacksBuilder) WithOpStartCallback(callback func(node string)) *EngineOpCallbacksBuilder {
 	b.callbacks.onOpStart = callback
 	return b
 }
 
 // WithOpCompleteCallback sets a callback to be executed when a replication
 // operation completes successfully for the given node.
-func (b *OpCallbacksBuilder) WithOpCompleteCallback(callback func(node string)) *OpCallbacksBuilder {
+func (b *EngineOpCallbacksBuilder) WithOpCompleteCallback(callback func(node string)) *EngineOpCallbacksBuilder {
 	b.callbacks.onOpComplete = callback
 	return b
 }
 
 // WithOpFailedCallback sets a callback to be executed when a replication
 // operation fails for the given node.
-func (b *OpCallbacksBuilder) WithOpFailedCallback(callback func(node string)) *OpCallbacksBuilder {
+func (b *EngineOpCallbacksBuilder) WithOpFailedCallback(callback func(node string)) *EngineOpCallbacksBuilder {
 	b.callbacks.onOpFailed = callback
 	return b
 }
 
-// Build finalizes the configuration and returns the OpCallbacks instance.
-func (b *OpCallbacksBuilder) Build() *OpCallbacks {
+// Build finalizes the configuration and returns the EngineOpCallbacks instance.
+func (b *EngineOpCallbacksBuilder) Build() *EngineOpCallbacks {
 	return &b.callbacks
 }
 
 // OnOpPending invokes the configured callback for when a replication operation becomes pending.
-func (m *OpCallbacks) OnOpPending(node string) {
+func (m *EngineOpCallbacks) OnOpPending(node string) {
 	m.onOpPending(node)
 }
 
 // OnOpStart invokes the configured callback for when a replication operation starts.
-func (m *OpCallbacks) OnOpStart(node string) {
+func (m *EngineOpCallbacks) OnOpStart(node string) {
 	m.onOpStart(node)
 }
 
 // OnOpComplete invokes the configured callback for when a replication operation completes successfully.
-func (m *OpCallbacks) OnOpComplete(node string) {
+func (m *EngineOpCallbacks) OnOpComplete(node string) {
 	m.onOpComplete(node)
 }
 
 // OnOpFailed invokes the configured callback for when a replication operation fails.
-func (m *OpCallbacks) OnOpFailed(node string) {
+func (m *EngineOpCallbacks) OnOpFailed(node string) {
 	m.onOpFailed(node)
 }
 
 // NewReplicationOpCallbackMetrics creates and registers Prometheus metrics for tracking
-// replication operations and returns an OpCallbacks instance configured to update those metrics.
+// replication operations and returns an EngineOpCallbacks instance configured to update those metrics.
 //
 // The following metrics are registered with the provided registerer:
 // - weaviate_replication_pending_operations (GaugeVec)
@@ -107,7 +107,7 @@ func (m *OpCallbacks) OnOpFailed(node string) {
 // - weaviate_replication_failed_operations (CounterVec)
 //
 // All metrics are labeled by node and automatically updated through the callback lifecycle.
-func NewReplicationOpCallbackMetrics(reg prometheus.Registerer) *OpCallbacks {
+func NewReplicationOpCallbackMetrics(reg prometheus.Registerer) *EngineOpCallbacks {
 	pendingOps := promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "weaviate",
 		Name:      "replication_pending_operations",
@@ -147,7 +147,7 @@ func NewReplicationOpCallbackMetrics(reg prometheus.Registerer) *OpCallbacks {
 	//
 	// This ensures that gauges (`pending`, `ongoing`) reflect the current state,
 	// while counters (`complete`, `failed`) accumulate totals over time.
-	return NewOpCallbacksBuilder().
+	return NewEngineOpCallbacksBuilder().
 		WithOpPendingCallback(func(node string) {
 			pendingOps.WithLabelValues(node).Inc()
 		}).
@@ -166,12 +166,12 @@ func NewReplicationOpCallbackMetrics(reg prometheus.Registerer) *OpCallbacks {
 		Build()
 }
 
-// EngineCallbacks contains a set of callback functions that are invoked
+// EngineMetricCallbacks contains a set of callback functions that are invoked
 // during the lifecycle of the replication engine and its internal components.
 //
 // These callbacks allow external systems to react to state transitions in the
 // engine, producer, and consumer.
-type EngineCallbacks struct {
+type EngineMetricCallbacks struct {
 	onEngineStart   func(node string)
 	onEngineStop    func(node string)
 	onProducerStart func(node string)
@@ -180,19 +180,19 @@ type EngineCallbacks struct {
 	onConsumerStop  func(node string)
 }
 
-// EngineCallbacksBuilder helps construct an EngineCallbacks instance
+// EngineMetricCallbacksBuilder helps construct an EngineMetricCallbacks instance
 // by allowing selective customization of lifecycle hooks.
 //
 // All callbacks default to no-ops unless explicitly overridden.
-type EngineCallbacksBuilder struct {
-	callbacks EngineCallbacks
+type EngineMetricCallbacksBuilder struct {
+	callbacks EngineMetricCallbacks
 }
 
-// NewEngineCallbacksBuilder initializes a new EngineCallbacksBuilder with
+// NewEngineCallbacksBuilder initializes a new EngineMetricCallbacksBuilder with
 // default no-op functions for all lifecycle callbacks.
-func NewEngineCallbacksBuilder() *EngineCallbacksBuilder {
-	return &EngineCallbacksBuilder{
-		callbacks: EngineCallbacks{
+func NewEngineCallbacksBuilder() *EngineMetricCallbacksBuilder {
+	return &EngineMetricCallbacksBuilder{
+		callbacks: EngineMetricCallbacks{
 			onEngineStart:   func(node string) {},
 			onEngineStop:    func(node string) {},
 			onProducerStart: func(node string) {},
@@ -204,80 +204,80 @@ func NewEngineCallbacksBuilder() *EngineCallbacksBuilder {
 }
 
 // WithEngineStartCallback sets the callback to be executed when the replication engine starts.
-func (b *EngineCallbacksBuilder) WithEngineStartCallback(callback func(node string)) *EngineCallbacksBuilder {
+func (b *EngineMetricCallbacksBuilder) WithEngineStartCallback(callback func(node string)) *EngineMetricCallbacksBuilder {
 	b.callbacks.onEngineStart = callback
 	return b
 }
 
 // WithEngineStopCallback sets the callback to be executed when the replication engine stops.
-func (b *EngineCallbacksBuilder) WithEngineStopCallback(callback func(node string)) *EngineCallbacksBuilder {
+func (b *EngineMetricCallbacksBuilder) WithEngineStopCallback(callback func(node string)) *EngineMetricCallbacksBuilder {
 	b.callbacks.onEngineStop = callback
 	return b
 }
 
 // WithProducerStartCallback sets the callback to be executed when the replication engine's producer starts.
-func (b *EngineCallbacksBuilder) WithProducerStartCallback(callback func(node string)) *EngineCallbacksBuilder {
+func (b *EngineMetricCallbacksBuilder) WithProducerStartCallback(callback func(node string)) *EngineMetricCallbacksBuilder {
 	b.callbacks.onProducerStart = callback
 	return b
 }
 
 // WithProducerStopCallback sets the callback to be executed when the replication engine's producer stops.
-func (b *EngineCallbacksBuilder) WithProducerStopCallback(callback func(node string)) *EngineCallbacksBuilder {
+func (b *EngineMetricCallbacksBuilder) WithProducerStopCallback(callback func(node string)) *EngineMetricCallbacksBuilder {
 	b.callbacks.onProducerStop = callback
 	return b
 }
 
 // WithConsumerStartCallback sets the callback to be executed when the replication engine's consumer starts.
-func (b *EngineCallbacksBuilder) WithConsumerStartCallback(callback func(node string)) *EngineCallbacksBuilder {
+func (b *EngineMetricCallbacksBuilder) WithConsumerStartCallback(callback func(node string)) *EngineMetricCallbacksBuilder {
 	b.callbacks.onConsumerStart = callback
 	return b
 }
 
 // WithConsumerStopCallback sets the callback to be executed when the replication engine's consumer stops.
-func (b *EngineCallbacksBuilder) WithConsumerStopCallback(callback func(node string)) *EngineCallbacksBuilder {
+func (b *EngineMetricCallbacksBuilder) WithConsumerStopCallback(callback func(node string)) *EngineMetricCallbacksBuilder {
 	b.callbacks.onConsumerStop = callback
 	return b
 }
 
-// Build finalizes the builder and returns the EngineCallbacks instance.
-func (b *EngineCallbacksBuilder) Build() *EngineCallbacks {
+// Build finalizes the builder and returns the EngineMetricCallbacks instance.
+func (b *EngineMetricCallbacksBuilder) Build() *EngineMetricCallbacks {
 	return &b.callbacks
 }
 
 // OnEngineStart invokes the configured callback for when the engine starts.
-func (m *EngineCallbacks) OnEngineStart(node string) {
+func (m *EngineMetricCallbacks) OnEngineStart(node string) {
 	m.onEngineStart(node)
 }
 
 // OnEngineStop invokes the configured callback for when the engine stops.
-func (m *EngineCallbacks) OnEngineStop(node string) {
+func (m *EngineMetricCallbacks) OnEngineStop(node string) {
 	m.onEngineStop(node)
 }
 
 // OnProducerStart invokes the configured callback for when the producer starts.
-func (m *EngineCallbacks) OnProducerStart(node string) {
+func (m *EngineMetricCallbacks) OnProducerStart(node string) {
 	m.onProducerStart(node)
 }
 
 // OnProducerStop invokes the configured callback for when the producer stops.
-func (m *EngineCallbacks) OnProducerStop(node string) {
+func (m *EngineMetricCallbacks) OnProducerStop(node string) {
 	m.onProducerStop(node)
 }
 
 // OnConsumerStart invokes the configured callback for when the consumer starts.
-func (m *EngineCallbacks) OnConsumerStart(node string) {
+func (m *EngineMetricCallbacks) OnConsumerStart(node string) {
 	m.onConsumerStart(node)
 }
 
 // OnConsumerStop invokes the configured callback for when the consumer stops.
-func (m *EngineCallbacks) OnConsumerStop(node string) {
+func (m *EngineMetricCallbacks) OnConsumerStop(node string) {
 	m.onConsumerStop(node)
 }
 
 // NewReplicationEngineCallbackMetrics creates and registers Prometheus metrics
 // to track the lifecycle status of the replication engine and its internal components.
 //
-// It returns an EngineCallbacks instance that updates the following metrics:
+// It returns an EngineMetricCallbacks instance that updates the following metrics:
 // - weaviate_replication_engine_running_status (GaugeVec)
 // - weaviate_replication_engine_producer_running_status (GaugeVec)
 // - weaviate_replication_engine_consumer_running_status (GaugeVec)
@@ -288,7 +288,7 @@ func (m *EngineCallbacks) OnConsumerStop(node string) {
 //
 // This provides visibility into whether the engine, producer, or consumer
 // is currently active on a per-node basis.
-func NewReplicationEngineCallbackMetrics(reg prometheus.Registerer) *EngineCallbacks {
+func NewReplicationEngineCallbackMetrics(reg prometheus.Registerer) *EngineMetricCallbacks {
 	engineRunning := promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "weaviate",
 		Name:      "replication_engine_running_status",

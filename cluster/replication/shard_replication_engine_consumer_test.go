@@ -67,7 +67,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		)
 		completionWg.Add(1)
 
-		metricsCallbacks := metrics.NewOpCallbacksBuilder().
+		metricsCallbacks := metrics.NewEngineOpCallbacksBuilder().
 			WithOpPendingCallback(func(node string) {
 				require.Equal(t, "node2", node, "invalid node in pending op callback")
 				pendingCallbacksCounter++
@@ -165,7 +165,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		)
 		completionWg.Add(1)
 
-		metricsCallbacks := metrics.NewOpCallbacksBuilder().
+		metricsCallbacks := metrics.NewEngineOpCallbacksBuilder().
 			WithOpPendingCallback(func(node string) {
 				assert.Equal(t, "node2", node)
 				pendingCallbacksCounter++
@@ -264,7 +264,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		)
 		completionWg.Add(randomNumberOfOps)
 
-		metricsCallbacks := metrics.NewOpCallbacksBuilder().
+		metricsCallbacks := metrics.NewEngineOpCallbacksBuilder().
 			WithOpPendingCallback(func(node string) {
 				mutex.Lock()
 				pendingCount++
