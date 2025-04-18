@@ -135,7 +135,7 @@ func TestOpCallbacks(t *testing.T) {
 func TestMetricsCollection(t *testing.T) {
 	t.Run("metrics should track operations correctly", func(t *testing.T) {
 		// GIVEN
-		reg := prometheus.NewRegistry()
+		reg := prometheus.NewPedanticRegistry()
 		callbacks := NewReplicationCallbackMetrics(reg)
 		node := "test-node"
 
@@ -174,7 +174,7 @@ func TestMetricsCollection(t *testing.T) {
 
 	t.Run("metrics should be tracked separately for different nodes", func(t *testing.T) {
 		// GIVEN
-		reg := prometheus.NewRegistry()
+		reg := prometheus.NewPedanticRegistry()
 		callbacks := NewReplicationCallbackMetrics(reg)
 		node1 := "node-1"
 		node2 := "node-2"
