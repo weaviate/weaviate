@@ -53,6 +53,50 @@ func TestDynUserConcurrency(t *testing.T) {
 	require.Equal(t, len(userNames), len(users))
 }
 
+func TestConcurrentValidate(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+	userId1 := "id"
+	userId2 := "id2"
+
+	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+
+	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", time.Now()))
+
+	apiKey2, hash2, identifier2, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+
+	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", time.Now()))
+
+	randomKey, _, err := keys.DecodeApiKey(apiKey)
+	require.NoError(t, err)
+	randomKey2, _, err := keys.DecodeApiKey(apiKey2)
+	require.NoError(t, err)
+	start := time.Now()
+	wg := sync.WaitGroup{}
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func() {
+			_, err := dynUsers.ValidateAndExtract(randomKey, identifier)
+			require.NoError(t, err)
+			wg.Done()
+		}()
+
+		go func() {
+			_, err := dynUsers.ValidateAndExtract(randomKey2, identifier2)
+			require.NoError(t, err)
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	users, err := dynUsers.GetUsers(userId1)
+	require.NoError(t, err)
+	user := users[userId1]
+	require.Less(t, start, user.LastUsedAt)
+}
+
 func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
@@ -223,6 +267,8 @@ func TestSuspendAfterDelete(t *testing.T) {
 	require.NoError(t, dynUsers.DeleteUser(userId))
 
 	require.Error(t, dynUsers.DeactivateUser(userId, false))
+	require.Error(t, dynUsers.ActivateUser(userId))
+	require.Error(t, dynUsers.RotateKey(userId, "", "", ""))
 	require.Error(t, dynUsers.ActivateUser(userId))
 }
 
