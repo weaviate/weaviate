@@ -58,11 +58,11 @@ type User struct {
 }
 
 type DBUser struct {
-	lock          *sync.RWMutex
-	weakHashLock  *sync.RWMutex
-	data          dbUserdata
-	memoryOnyData memoryOnlyData
-	path          string
+	lock           *sync.RWMutex
+	weakHashLock   *sync.RWMutex
+	data           dbUserdata
+	memoryOnlyData memoryOnlyData
+	path           string
 }
 
 type DBUserSnapshot struct {
@@ -116,11 +116,11 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 	}
 
 	dbUsers := &DBUser{
-		path:          fullpath,
-		lock:          &sync.RWMutex{},
-		weakHashLock:  &sync.RWMutex{},
-		data:          snapshot.Data,
-		memoryOnyData: memoryOnlyData{WeakKeyStorageById: make(map[string][sha256.Size]byte)},
+		path:           fullpath,
+		lock:           &sync.RWMutex{},
+		weakHashLock:   &sync.RWMutex{},
+		data:           snapshot.Data,
+		memoryOnlyData: memoryOnlyData{WeakKeyStorageById: make(map[string][sha256.Size]byte)},
 	}
 
 	// we save every change to file after a request is done, EXCEPT the lastUsedAt time as we do not want to write to a
@@ -181,7 +181,7 @@ func (c *DBUser) RotateKey(userId, secureHash, oldIdentifier, newIdentifier stri
 	}
 
 	c.data.SecureKeyStorageById[userId] = secureHash
-	delete(c.memoryOnyData.WeakKeyStorageById, userId)
+	delete(c.memoryOnlyData.WeakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
 	return c.storeToFile()
 }
@@ -194,7 +194,7 @@ func (c *DBUser) DeleteUser(userId string) error {
 	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
 	delete(c.data.IdToIdentifier, userId)
 	delete(c.data.Users, userId)
-	delete(c.memoryOnyData.WeakKeyStorageById, userId)
+	delete(c.memoryOnlyData.WeakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
 	return c.storeToFile()
 }
@@ -280,7 +280,7 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		return nil, fmt.Errorf("invalid token")
 	}
 	c.weakHashLock.RLock()
-	weakHash, ok := c.memoryOnyData.WeakKeyStorageById[userId]
+	weakHash, ok := c.memoryOnlyData.WeakKeyStorageById[userId]
 	c.weakHashLock.RUnlock()
 	if ok {
 		// use the secureHash as salt for the computation of the weaker in-memory
@@ -332,7 +332,7 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 	weakHash := sha256.Sum256(token)
 
 	c.weakHashLock.Lock()
-	c.memoryOnyData.WeakKeyStorageById[userId] = weakHash
+	c.memoryOnlyData.WeakKeyStorageById[userId] = weakHash
 	c.weakHashLock.Unlock()
 
 	return nil
