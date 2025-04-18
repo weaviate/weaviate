@@ -108,7 +108,7 @@ func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName st
 		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 		assert.Nil(t, err)
 		assert.Nil(t, client.Bucket(bucketName).Create(ctx, projectID, nil))
-	}, 5*time.Second, 500*time.Millisecond)
+	}, 10*time.Second, 500*time.Millisecond)
 }
 
 func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
