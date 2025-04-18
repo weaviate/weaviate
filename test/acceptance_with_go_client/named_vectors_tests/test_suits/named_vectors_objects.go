@@ -137,7 +137,7 @@ func testCreateObject(host string) func(t *testing.T) {
 				nearText := client.GraphQL().NearTextArgBuilder().
 					WithTargetVectors(c11y).
 					WithConcepts([]string{"book"}).
-					WithCertainty(0.9)
+					WithCertainty(0.8)
 
 				res, err := client.GraphQL().Get().
 					WithClassName(className).
