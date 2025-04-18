@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -70,6 +72,8 @@ type CopyOpConsumer struct {
 
 	// nodeId uniquely identifies the node on which this consumer instance is running.
 	nodeId string
+
+	opCallbacks *metrics.OpCallbacks
 }
 
 // String returns a string representation of the CopyOpConsumer,
@@ -94,6 +98,7 @@ func NewCopyOpConsumer(
 	backoffPolicy backoff.BackOff,
 	opTimeout time.Duration,
 	maxWorkers int,
+	opCallbacks *metrics.OpCallbacks,
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
 		logger:        logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),
@@ -105,6 +110,7 @@ func NewCopyOpConsumer(
 		nodeId:        nodeId,
 		timeProvider:  timeProvider,
 		tokens:        make(chan struct{}, maxWorkers),
+		opCallbacks:   opCallbacks,
 	}
 	return c
 }
@@ -133,6 +139,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 				return nil
 			}
 
+			c.opCallbacks.OnOpPending(c.nodeId)
 			select {
 			// The 'tokens' channel limits the number of concurrent workers (`maxWorkers`).
 			// Each worker acquires a token before processing an operation. If no tokens are available,
@@ -142,6 +149,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			case c.tokens <- struct{}{}:
 
 				wg.Add(1)
+				c.opCallbacks.OnOpStart(c.nodeId)
 
 				// Here we capture the op argument used by the func below as the enterrors.GoWrapper requires calling
 				// a function without arguments.
@@ -173,9 +181,13 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 					err := c.processReplicationOp(opCtx, operation.ID, operation)
 					if err != nil && errors.Is(err, context.DeadlineExceeded) {
+						c.opCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation timed out")
 					} else if err != nil {
+						c.opCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation failed")
+					} else {
+						c.opCallbacks.OnOpComplete(c.nodeId)
 					}
 				}, c.logger)
 

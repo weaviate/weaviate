@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
@@ -83,6 +85,7 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 		&backoff.StopBackOff{},
 		replicationOperationTimeout,
 		replicationEngineMaxWorkers,
+		metrics.NewReplicationCallbackMetrics(prometheus.DefaultRegisterer),
 	)
 	replicationEngine := replication.NewShardReplicationEngine(cfg.Logger, cfg.NodeSelector.LocalName(), fsmOpProducer, replicaCopyOpConsumer, shardReplicationEngineBufferSize, replicationEngineMaxWorkers, replicationEngineShutdownTimeout)
 	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
