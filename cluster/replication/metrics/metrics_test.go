@@ -9,10 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package metrics
+package metrics_test
 
 import (
 	"testing"
+
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
 
 	"github.com/prometheus/client_golang/prometheus"
 	io_prometheus_client "github.com/prometheus/client_model/go"
@@ -22,7 +24,7 @@ import (
 
 func TestOpCallbacks(t *testing.T) {
 	t.Run("default callbacks should be no-op", func(t *testing.T) {
-		callbacks := NewOpCallbacksBuilder().Build()
+		callbacks := metrics.NewOpCallbacksBuilder().Build()
 		callbacks.OnOpPending("node1")
 		callbacks.OnOpStart("node1")
 		callbacks.OnOpComplete("node1")
@@ -38,7 +40,7 @@ func TestOpCallbacks(t *testing.T) {
 			failedNode   string
 		)
 
-		callbacks := NewOpCallbacksBuilder().
+		callbacks := metrics.NewOpCallbacksBuilder().
 			WithOpPendingCallback(func(node string) {
 				pendingNode = node
 			}).
@@ -70,7 +72,7 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("only op pending", func(t *testing.T) {
 		// GIVEN
 		pendingCalled := false
-		callbacks := NewOpCallbacksBuilder().
+		callbacks := metrics.NewOpCallbacksBuilder().
 			WithOpPendingCallback(func(node string) {
 				pendingCalled = true
 			}).
@@ -86,7 +88,7 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("only op start", func(t *testing.T) {
 		// GIVEN
 		startCalled := false
-		callbacks := NewOpCallbacksBuilder().
+		callbacks := metrics.NewOpCallbacksBuilder().
 			WithOpStartCallback(func(node string) {
 				startCalled = true
 			}).
@@ -102,7 +104,7 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("only op complete", func(t *testing.T) {
 		// GIVEN
 		completeCalled := false
-		callbacks := NewOpCallbacksBuilder().
+		callbacks := metrics.NewOpCallbacksBuilder().
 			WithOpCompleteCallback(func(node string) {
 				completeCalled = true
 			}).
@@ -118,7 +120,7 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("only op failed", func(t *testing.T) {
 		// GIVEN
 		failedCalled := false
-		callbacks := NewOpCallbacksBuilder().
+		callbacks := metrics.NewOpCallbacksBuilder().
 			WithOpFailedCallback(func(node string) {
 				failedCalled = true
 			}).
@@ -136,7 +138,7 @@ func TestMetricsCollection(t *testing.T) {
 	t.Run("metrics should track operations correctly", func(t *testing.T) {
 		// GIVEN
 		reg := prometheus.NewPedanticRegistry()
-		callbacks := NewReplicationCallbackMetrics(reg)
+		callbacks := metrics.NewReplicationCallbackMetrics(reg)
 		node := "test-node"
 
 		// Process first operation completing successfully
@@ -175,7 +177,7 @@ func TestMetricsCollection(t *testing.T) {
 	t.Run("metrics should be tracked separately for different nodes", func(t *testing.T) {
 		// GIVEN
 		reg := prometheus.NewPedanticRegistry()
-		callbacks := NewReplicationCallbackMetrics(reg)
+		callbacks := metrics.NewReplicationCallbackMetrics(reg)
 		node1 := "node-1"
 		node2 := "node-2"
 
