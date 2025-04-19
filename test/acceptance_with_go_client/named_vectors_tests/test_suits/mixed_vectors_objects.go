@@ -76,22 +76,22 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 			obj := objWrappers[0]
 			require.NotNil(t, obj)
 
-			assert.Len(t, obj.Vector, 300)
+			assert.Len(t, obj.Vector, 512)
 
 			require.Len(t, obj.Vectors, 3)
 			assert.Equal(t, []float32(obj.Vector), obj.Vectors["contextionary"].([]float32))
-			assert.Len(t, obj.Vectors["contextionary_with_class_name"], 300)
-			assert.Len(t, obj.Vectors["transformers"], 384)
+			assert.Len(t, obj.Vectors["contextionary_with_class_name"], 512)
+			assert.Len(t, obj.Vectors["transformers"], 256)
 
 			// as these vectors were made using different module parameters, they should be different
-			assert.NotEqual(t, obj.Vector, obj.Vectors["contextionary_with_class_name"], 300)
+			assert.NotEqual(t, obj.Vector, obj.Vectors["contextionary_with_class_name"], 512)
 		})
 
 		t.Run("GraphQL get vectors", func(t *testing.T) {
 			resultVectors := getVectors(t, client, class.Class, id1, "", transformers)
 			require.Len(t, resultVectors, 2)
-			require.Len(t, resultVectors[""], 300)
-			require.Len(t, resultVectors[transformers], 384)
+			require.Len(t, resultVectors[""], 512)
+			require.Len(t, resultVectors[transformers], 256)
 		})
 
 		for _, targetVector := range []string{"", modelsext.DefaultNamedVectorName, contextionary} {
@@ -99,7 +99,7 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 				t.Run("nearText search", func(t *testing.T) {
 					nearText := client.GraphQL().NearTextArgBuilder().
 						WithConcepts([]string{"book"}).
-						WithCertainty(0.9)
+						WithCertainty(0.8)
 
 					if targetVector != "" {
 						nearText = nearText.WithTargetVectors(targetVector)
@@ -131,7 +131,7 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 				t.Run("nearVector search", func(t *testing.T) {
 					vectors := getVectors(t, client, class.Class, id1, contextionary)
 					require.Len(t, vectors, 1)
-					require.Len(t, vectors[contextionary], 300)
+					require.Len(t, vectors[contextionary], 512)
 					obj1C11YVector := vectors[contextionary].([]float32)
 
 					nearVector := client.GraphQL().NearVectorArgBuilder().
@@ -255,7 +255,7 @@ func testMixedVectorsBatchBYOV(host string) func(t *testing.T) {
 			require.Len(t, vectors, 3)
 			require.Equal(t, []float32(obj.Vector), vectors[""].([]float32))
 			require.Equal(t, []float32(obj.Vector), vectors[contextionary].([]float32))
-			require.Len(t, vectors[transformers], 384)
+			require.Len(t, vectors[transformers], 256)
 		}
 	}
 }

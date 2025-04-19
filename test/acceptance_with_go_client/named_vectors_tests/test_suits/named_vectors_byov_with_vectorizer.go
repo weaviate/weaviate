@@ -52,7 +52,7 @@ func testCreateSchemaWithVectorizerAndBYOV(host string) func(t *testing.T) {
 			VectorConfig: map[string]models.VectorConfig{
 				"byov": {
 					Vectorizer: map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
+						"text2vec-model2vec": map[string]interface{}{
 							"vectorizeClassName": false,
 						},
 					},
@@ -60,7 +60,7 @@ func testCreateSchemaWithVectorizerAndBYOV(host string) func(t *testing.T) {
 				},
 				"generate": {
 					Vectorizer: map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
+						"text2vec-model2vec": map[string]interface{}{
 							"vectorizeClassName": false,
 						},
 					},
@@ -87,7 +87,7 @@ func testCreateSchemaWithVectorizerAndBYOV(host string) func(t *testing.T) {
 			Do(ctx)
 		require.NoError(t, err)
 		require.Len(t, objWithoutVector, 1)
-		require.Len(t, objWithoutVector[0].Vectors["byov"], 300)
+		require.Len(t, objWithoutVector[0].Vectors["byov"], 512)
 
 		// add an object with the same vector but different properties
 		_, err = client.Data().Creator().
