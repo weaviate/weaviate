@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -134,7 +133,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		h.logger.WithField("error", err).Error("could not query the collections count")
 	}
 
-	limit := runtime.GetOverrides(h.schemaConfig.MaximumAllowedCollectionsCount, h.schemaConfig.MaximumAllowedCollectionsCountFn)
+	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 
 	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
 		return nil, 0, fmt.Errorf(

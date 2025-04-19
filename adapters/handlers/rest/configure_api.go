@@ -406,9 +406,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
 		Replication: replication.GlobalConfig{
-			MinimumFactor:              1,
-			AsyncReplicationDisabled:   appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
-			AsyncReplicationDisabledFn: appState.ServerConfig.Config.Replication.AsyncReplicationDisabledFn,
+			MinimumFactor:            1,
+			AsyncReplicationDisabled: appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
 		},
 		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
@@ -1691,12 +1690,21 @@ func (m membership) LeaderID() string {
 	return id
 }
 
+// initRuntimeOverrides assumes, Configs from envs are loaded before
+// initializing runtime overrides.
 func initRuntimeOverrides(appState *state.State) {
 	// Enable runtime config manager
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
+
+		// Runtimeconfig manager takes of keeping the `registered` config values upto date
+		registered := make(configRuntime.ConfigValues)
+		registered[configRuntime.MaximumAllowedCollectionCount] = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
+		registered[configRuntime.AsyncReplicationDisabled] = appState.ServerConfig.Config.AutoSchema.Enabled
+		registered[configRuntime.AutoschemaEnabled] = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
+
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
-			config.ParseYaml,
+			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
 			prometheus.DefaultRegisterer)
@@ -1715,9 +1723,5 @@ func initRuntimeOverrides(appState *state.State) {
 					Fatal("runtime config manager stopped")
 			}
 		}, appState.Logger)
-		rc := config.NewWeaviateRuntimeConfig(cm)
-		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCountFn = rc.GetMaximumAllowedCollectionsCount
-		appState.ServerConfig.Config.AutoSchema.EnabledFn = rc.GetAutoSchemaEnabled
-		appState.ServerConfig.Config.Replication.AsyncReplicationDisabledFn = rc.GetAsyncReplicationDisabled
 	}
 }
