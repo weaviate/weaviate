@@ -18,22 +18,20 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	authzMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestDeleteSuccess(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetRolesForUser", "user", models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
 	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", models.UserTypeInputDb), "role").Return(nil)
 	dynUser.On("DeleteUser", "user").Return(nil)
@@ -52,10 +50,10 @@ func TestDeleteSuccess(t *testing.T) {
 
 func TestDeleteForbidden(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(errors.New("some error"))
 
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -69,10 +67,10 @@ func TestDeleteForbidden(t *testing.T) {
 
 func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -88,10 +86,10 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 
 func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user-root")[0]).Return(nil)
 
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -106,11 +104,11 @@ func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
 
 func TestDeleteNoDynamic(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
-		dbUsers:       mocks.NewDbUserAndRolesGetter(t),
+		dbUsers:       NewMockDbUserAndRolesGetter(t),
 		authorizer:    authorizer,
 		dbUserEnabled: false,
 	}

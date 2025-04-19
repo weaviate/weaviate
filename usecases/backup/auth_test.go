@@ -23,13 +23,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
-	cmocks "github.com/weaviate/weaviate/entities/modulecapabilities/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authZMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	bmocks "github.com/weaviate/weaviate/usecases/backup/mocks"
 )
 
 // A component-test like test suite that makes sure that every available UC is
@@ -108,16 +106,16 @@ func Test_Authorization(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
-				authorizer := authZMocks.NewAuthorizer(t)
-				selector := bmocks.NewSelector(t)
-				backupProvider := bmocks.NewBackupBackendProvider(t)
-				nodeResolver := bmocks.NewNodeResolver(t)
-				modulecapabilities := cmocks.NewBackupBackend(t)
+				authorizer := authorization.NewMockAuthorizer(t)
+				selector := NewMockSelector(t)
+				backupProvider := NewMockBackupBackendProvider(t)
+				nodeResolver := NewMockNodeResolver(t)
+				modcapabilities := modulecapabilities.NewMockBackupBackend(t)
 
-				backupProvider.On("BackupBackend", mock.Anything).Return(modulecapabilities, nil).Maybe()
+				backupProvider.On("BackupBackend", mock.Anything).Return(modcapabilities, nil).Maybe()
 
-				modulecapabilities.On("IsExternal").Return(false).Maybe()
-				modulecapabilities.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/").Maybe()
+				modcapabilities.On("IsExternal").Return(false).Maybe()
+				modcapabilities.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/").Maybe()
 
 				d, err := json.Marshal(backup.DistributedBackupDescriptor{
 					StartedAt: time.Now(),
@@ -145,10 +143,10 @@ func Test_Authorization(t *testing.T) {
 					notFound = nil
 				}
 
-				modulecapabilities.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(d, notFound).Maybe()
-				modulecapabilities.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+				modcapabilities.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(d, notFound).Maybe()
+				modcapabilities.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-				modulecapabilities.On("Initialize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+				modcapabilities.On("Initialize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 				nodeResolver.On("NodeCount").Return(1).Maybe()
 				nodeResolver.On("LeaderID").Return("node-0").Maybe()

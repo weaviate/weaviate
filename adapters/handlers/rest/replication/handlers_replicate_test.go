@@ -19,12 +19,9 @@ import (
 	"strconv"
 	"testing"
 
-	authorizationMocks "github.com/weaviate/weaviate/mocks/usecases/auth/authorization"
-
-	replicationMocks "github.com/weaviate/weaviate/mocks/cluster/replication/types"
-
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -35,10 +32,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*replicationHandler, *authorizationMocks.Authorizer, *replicationMocks.Manager) {
+func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*replicationHandler, *authorization.MockAuthorizer, *types.MockManager) {
 	t.Helper()
-	mockAuthorizer := new(authorizationMocks.Authorizer)
-	mockReplicationManager := new(replicationMocks.Manager)
+	mockAuthorizer := authorization.NewMockAuthorizer(t)
+	mockReplicationManager := types.NewMockManager(t)
 
 	handler := &replicationHandler{
 		authorizer:         mockAuthorizer,

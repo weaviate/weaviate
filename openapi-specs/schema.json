@@ -244,7 +244,7 @@
             "delete_data",
 
             "read_nodes",
-          
+
             "create_roles",
             "read_roles",
             "update_roles",

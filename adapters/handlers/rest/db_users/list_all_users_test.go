@@ -21,19 +21,17 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/clients"
-	schemaMocks "github.com/weaviate/weaviate/usecases/schema/mocks"
+	"github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authzMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -60,9 +58,9 @@ func TestSuccessListAll(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authzMocks.NewAuthorizer(t)
+			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
-			dynUser := mocks.NewDbUserAndRolesGetter(t)
+			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers").Return(map[string]*apikey.User{dbUser: {Id: dbUser}}, nil)
 			dynUser.On("GetRolesForUser", dbUser, models.UserTypeInputDb).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
@@ -162,10 +160,10 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			principal := &models.Principal{Username: "non-root"}
-			authorizer := authzMocks.NewAuthorizer(t)
+			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.READ, authorization.Users()[0]).Return(nil)
-			dynUser := mocks.NewDbUserAndRolesGetter(t)
-			schemaGetter := schemaMocks.NewSchemaGetter(t)
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			schemaGetter := schema.NewMockSchemaGetter(t)
 
 			usersRet := make(map[string]*apikey.User)
 			for _, user := range tt.userIds {
@@ -212,9 +210,9 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 
 func TestSuccessListForbidden(t *testing.T) {
 	principal := &models.Principal{Username: "not-root"}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.READ, mock.Anything).Return(errors.New("some error"))
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers").Return(map[string]*apikey.User{"test": {Id: "test"}}, nil)
 
 	log, _ := test.NewNullLogger()
@@ -235,10 +233,10 @@ func TestSuccessListForbidden(t *testing.T) {
 
 func TestListNoDynamic(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 
 	h := dynUserHandler{
-		dbUsers:       mocks.NewDbUserAndRolesGetter(t),
+		dbUsers:       NewMockDbUserAndRolesGetter(t),
 		authorizer:    authorizer,
 		dbUserEnabled: false,
 	}

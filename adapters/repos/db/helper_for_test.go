@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -260,6 +261,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 			QueryMaximumResults: maxResults,
 			ReplicationFactor:   1,
 		},
+		metrics:                NewMetrics(logger, nil, class.Class, ""),
 		partitioningEnabled:    shardState.PartitioningEnabled,
 		invertedIndexConfig:    iic,
 		vectorIndexUserConfig:  vic,
