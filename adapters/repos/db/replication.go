@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -321,11 +322,49 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 	return i.initLocalShard(ctx, shardName)
 }
 
-// IncomingPauseAndListFiles pauses the background processes of the specified shard
-// and returns a list of files that can be used to get the shard data at the time the pause was requested.
+// IncomingPauseFileActivity pauses the background processes of the specified shard.
 // You should explicitly call resumeMaintenanceCycles to resume the background processes after you don't
 // need the returned files to stay immutable anymore.
-func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
+func (i *Index) IncomingPauseFileActivity(ctx context.Context,
+	shardName string,
+) error {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("shard %q could not be found locally", shardName)
+	}
+	defer release()
+
+	err = localShard.HaltForTransfer(ctx, false)
+	if err != nil {
+		return fmt.Errorf("shard %q could not be halted for transfer: %w", shardName, err)
+	}
+
+	return nil
+}
+
+// IncomingResumeFileActivity resumes the background processes of the specified shard.
+func (i *Index) IncomingResumeFileActivity(ctx context.Context,
+	shardName string,
+) error {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("shard %q could not be found locally", shardName)
+	}
+	defer release()
+
+	err = localShard.resumeMaintenanceCycles(ctx)
+	if err != nil {
+		return fmt.Errorf("shard %q could not be resumed after transfer: %w", shardName, err)
+	}
+
+	return nil
+}
+
+// IncomingListFiles returns a list of files that can be used to get the
+// shard data at the time the pause was requested.
+// You should explicitly call resumeMaintenanceCycles to resume the background processes after you don't
+// need the returned files to stay immutable anymore.
+func (i *Index) IncomingListFiles(ctx context.Context,
 	shardName string,
 ) ([]string, error) {
 	localShard, release, err := i.getOrInitShard(ctx, shardName)
@@ -333,11 +372,6 @@ func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
 		return nil, fmt.Errorf("shard %q could not be found locally", shardName)
 	}
 	defer release()
-
-	err = localShard.HaltForTransfer(ctx, false)
-	if err != nil {
-		return nil, fmt.Errorf("shard %q could not be halted for transfer: %w", shardName, err)
-	}
 
 	sd := backup.ShardDescriptor{Name: shardName}
 	if err := localShard.ListBackupFiles(ctx, &sd); err != nil {
@@ -352,6 +386,20 @@ func (i *Index) IncomingPauseAndListFiles(ctx context.Context,
 	files = append(files, sd.Files...)
 
 	return files, nil
+}
+
+// IncomingGetFileMetadata returns file metadata at the given path in the specified shards's root
+// directory.
+func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relativeFilePath string) (file.FileMetadata, error) {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return file.FileMetadata{}, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+	defer release()
+
+	finalPath := filepath.Join(localShard.Index().Config.RootPath, relativeFilePath)
+
+	return file.GetFileMetadata(finalPath)
 }
 
 // IncomingGetFile returns a reader for the file at the given path in the specified shard's root

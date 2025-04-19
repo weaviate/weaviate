@@ -13,6 +13,7 @@ package copier
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/integrity"
 )
 
 // Copier for shard replicas, can copy a shard replica from one node to another.
@@ -55,30 +57,75 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", srcNodeId)
 	}
-	relativeFilePaths, err := c.remoteIndex.PauseAndListFiles(ctx, sourceNodeHostname, collectionName, shardName)
+
+	err := c.remoteIndex.PauseFileActivity(ctx, sourceNodeHostname, collectionName, shardName)
 	if err != nil {
 		return err
 	}
+	defer c.remoteIndex.ResumeFileActivity(ctx, sourceNodeHostname, collectionName, shardName)
+
+	relativeFilePaths, err := c.remoteIndex.ListFiles(ctx, sourceNodeHostname, collectionName, shardName)
+	if err != nil {
+		return err
+	}
+
 	for _, relativeFilePath := range relativeFilePaths {
+		md, err := c.remoteIndex.GetFileMetadata(ctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
+		if err != nil {
+			return err
+		}
+
+		finalLocalPath := filepath.Join(c.rootDataPath, relativeFilePath)
+
+		_, checksum, err := integrity.CRC32(finalLocalPath)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		} else if checksum == md.CRC32 {
+			// local file matches remote one, no need to download it
+			continue
+		}
+
 		reader, err := c.remoteIndex.GetFile(ctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
 		if err != nil {
 			return err
 		}
 		defer reader.Close()
 
-		finalPath := filepath.Join(c.rootDataPath, relativeFilePath)
-		dir := path.Dir(finalPath)
+		dir := path.Dir(finalLocalPath)
 		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 			return fmt.Errorf("create parent folder for %s: %w", relativeFilePath, err)
 		}
 
-		f, err := os.Create(finalPath)
-		if err != nil {
-			return fmt.Errorf("open file %q for writing: %w", relativeFilePath, err)
-		}
+		err = func() error {
+			f, err := os.Create(finalLocalPath)
+			if err != nil {
+				return fmt.Errorf("open file %q for writing: %w", relativeFilePath, err)
+			}
+			defer f.Close()
 
-		defer f.Close()
-		_, err = io.Copy(f, reader)
+			_, err = io.Copy(f, reader)
+			if err != nil {
+				return err
+			}
+
+			err = f.Sync()
+			if err != nil {
+				return fmt.Errorf("fsyncing file %q for writing: %w", relativeFilePath, err)
+			}
+
+			_, checksum, err = integrity.CRC32(finalLocalPath)
+			if err != nil {
+				return err
+			}
+
+			if checksum != md.CRC32 {
+				return fmt.Errorf("checksum validation of file %q failed", relativeFilePath)
+			}
+
+			return nil
+		}()
 		if err != nil {
 			return err
 		}

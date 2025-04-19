@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/file"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -64,7 +65,26 @@ type indicesPayloads struct {
 	UpdateShardsStatusResults updateShardsStatusResultsPayload
 	ShardFiles                shardFilesPayload
 	IncreaseReplicationFactor increaseReplicationFactorPayload
+	ShardFileMetadataResults  shardFileMetadataResultsPayload
 	ShardFilesResults         shardFilesResultsPayload
+}
+
+type shardFileMetadataResultsPayload struct{}
+
+func (p shardFileMetadataResultsPayload) MIME() string {
+	return "application/vnd.weaviate.shardfilemetadataresults+json"
+}
+
+func (p shardFileMetadataResultsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p shardFileMetadataResultsPayload) Unmarshal(in []byte) (file.FileMetadata, error) {
+	var md file.FileMetadata
+	if err := json.Unmarshal(in, &md); err != nil {
+		return file.FileMetadata{}, fmt.Errorf("unmarshal shard file metadata: %w", err)
+	}
+	return md, nil
 }
 
 type shardFilesResultsPayload struct{}

@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -263,8 +264,22 @@ func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	return nil
 }
 
-func (f *fakeRemoteClient) PauseAndListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error) {
+func (f *fakeRemoteClient) PauseFileActivity(ctx context.Context, hostName, indexName, shardName string) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) ListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error) {
 	return nil, nil
+}
+
+func (f *fakeRemoteClient) GetFileMetadata(ctx context.Context, hostName, indexName, shardName,
+	fileName string,
+) (file.FileMetadata, error) {
+	return file.FileMetadata{}, nil
 }
 
 func (f *fakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, shardName,
