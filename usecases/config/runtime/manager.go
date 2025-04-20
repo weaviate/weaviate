@@ -50,6 +50,7 @@ type ConfigValues map[string]ConfigValue
 type Parser[T any] func([]byte) (*T, error)
 
 // Updater try to update `source` config with newly `parsed` config.
+// TODO(kavi): We may not need `error` return value.
 type Updater[T any] func(source, parsed *T) error
 
 // ConfigManager takes care of periodically loading the config from
