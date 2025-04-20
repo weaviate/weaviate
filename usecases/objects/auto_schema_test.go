@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -43,7 +44,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 
 	autoSchemaEnabledFields := fields{
 		config: config.AutoSchema{
-			Enabled: true,
+			Enabled: runtime.NewDynamicValue(true),
 		},
 	}
 
@@ -58,7 +59,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "fail determining type of nested array (1)",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultString: schema.DataTypeText.String(),
 				},
 			},
@@ -71,7 +72,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "fail determining type of nested array (2)",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultString: schema.DataTypeText.String(),
 				},
 			},
@@ -84,7 +85,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "fail determining type of mixed elements in array",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultString: schema.DataTypeText.String(),
 				},
 			},
@@ -97,7 +98,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "fail determining type of mixed refs and objects (1)",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -112,7 +113,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "fail determining type of mixed refs and objects (2)",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -127,7 +128,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine text",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultString: schema.DataTypeText.String(),
 				},
 			},
@@ -140,7 +141,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine text (implicit)",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -152,7 +153,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine date",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:     true,
+					Enabled:     runtime.NewDynamicValue(true),
 					DefaultDate: "date",
 				},
 			},
@@ -165,7 +166,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine uuid (1)",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -177,7 +178,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine uuid (2)",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -189,7 +190,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine int",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultNumber: "int",
 				},
 			},
@@ -202,7 +203,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine number",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultNumber: "number",
 				},
 			},
@@ -215,7 +216,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine boolean",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultNumber: "number",
 				},
 			},
@@ -228,7 +229,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine geoCoordinates",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -243,7 +244,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine phoneNumber",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -257,7 +258,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine phoneNumber (2)",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -272,7 +273,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine cross reference",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -286,7 +287,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine cross references",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -301,7 +302,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine text array",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultString: schema.DataTypeText.String(),
 				},
 			},
@@ -314,7 +315,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine text array (implicit)",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -326,7 +327,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine int array",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultNumber: "int",
 				},
 			},
@@ -339,7 +340,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine number array",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultNumber: "number",
 				},
 			},
@@ -352,7 +353,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine boolean array",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -364,7 +365,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine date array",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:     true,
+					Enabled:     runtime.NewDynamicValue(true),
 					DefaultDate: "date",
 				},
 			},
@@ -377,7 +378,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine uuid array (1)",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -392,7 +393,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine uuid array (2)",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -407,7 +408,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine mixed string arrays, string first",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -422,7 +423,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine mixed string/UUID arrays, string later",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -437,7 +438,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "determine mixed string/date arrays, string later",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue(true),
 				},
 			},
 			args: args{
@@ -452,7 +453,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "[deprecated string] determine string",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultString: schema.DataTypeString.String(),
 				},
 			},
@@ -465,7 +466,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			name: "[deprecated string] determine string array",
 			fields: fields{
 				config: config.AutoSchema{
-					Enabled:       true,
+					Enabled:       runtime.NewDynamicValue(true),
 					DefaultString: schema.DataTypeString.String(),
 				},
 			},
@@ -596,7 +597,7 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
 		config: config.AutoSchema{
-			Enabled:       true,
+			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
 			DefaultNumber: "number",
 			DefaultDate:   "date",
@@ -624,7 +625,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
 		config: config.AutoSchema{
-			Enabled:       true,
+			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
 			DefaultNumber: "number",
 			DefaultDate:   "date",
@@ -700,7 +701,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
 		config: config.AutoSchema{
-			Enabled:       true,
+			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
 			DefaultNumber: "int",
 			DefaultDate:   "date",
@@ -1279,7 +1280,7 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 		schemaManager: &fakeSchemaManager{},
 		vectorRepo:    &fakeVectorRepo{},
 		config: config.AutoSchema{
-			Enabled:       true,
+			Enabled:       runtime.NewDynamicValue(true),
 			DefaultNumber: schema.DataTypeNumber.String(),
 			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   schema.DataTypeDate.String(),
@@ -1641,7 +1642,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 		schemaManager: schemaManager,
 		vectorRepo:    &fakeVectorRepo{},
 		config: config.AutoSchema{
-			Enabled:       true,
+			Enabled:       runtime.NewDynamicValue(true),
 			DefaultNumber: schema.DataTypeNumber.String(),
 			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   schema.DataTypeDate.String(),
