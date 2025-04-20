@@ -25,7 +25,9 @@ type DynamicType interface {
 	int | float64 | bool | time.Duration
 }
 
-// Value represents any runtime config value.
+// Value represents any runtime config value. It's zero value is
+// fully usable.
+// If you want zero value with different `default`, use `NewDynamicValue` constructor.
 type DynamicValue[T DynamicType] struct {
 	// val is the dynamically chaning value.
 	val atomic.Value
@@ -35,11 +37,10 @@ type DynamicValue[T DynamicType] struct {
 
 // NewDynamicValue returns an instance of DynamicValue as passed in type
 // with passed in value as default.
-func NewDynamicValue[T DynamicType](val T) *DynamicValue[T] {
-	dv := &DynamicValue[T]{
+func NewDynamicValue[T DynamicType](val T) DynamicValue[T] {
+	return DynamicValue[T]{
 		def: val,
 	}
-	return dv
 }
 
 // Get returns a current value for the given config. It can either be dynamic value or default

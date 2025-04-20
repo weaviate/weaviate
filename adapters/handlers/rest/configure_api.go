@@ -1683,9 +1683,9 @@ func initRuntimeOverrides(appState *state.State) {
 
 		// Runtimeconfig manager takes of keeping the `registered` config values upto date
 		registered := &config.WeaviateRuntimeConfig{}
-		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
-		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.AutoSchema.Enabled
-		registered.AutoschemaEnabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
+		registered.MaximumAllowedCollectionsCount = &appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
+		registered.AsyncReplicationDisabled = &appState.ServerConfig.Config.AutoSchema.Enabled
+		registered.AutoschemaEnabled = &appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,

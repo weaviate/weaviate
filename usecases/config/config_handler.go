@@ -92,7 +92,7 @@ type Flags struct {
 }
 
 type SchemaHandlerConfig struct {
-	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	MaximumAllowedCollectionsCount runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 }
 
 type RuntimeOverrides struct {
@@ -240,10 +240,10 @@ func (c *Config) validateDefaultVectorDistanceMetric() error {
 }
 
 type AutoSchema struct {
-	Enabled       *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
-	DefaultString string                      `json:"defaultString" yaml:"defaultString"`
-	DefaultNumber string                      `json:"defaultNumber" yaml:"defaultNumber"`
-	DefaultDate   string                      `json:"defaultDate" yaml:"defaultDate"`
+	Enabled       runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
+	DefaultString string                     `json:"defaultString" yaml:"defaultString"`
+	DefaultNumber string                     `json:"defaultNumber" yaml:"defaultNumber"`
+	DefaultDate   string                     `json:"defaultDate" yaml:"defaultDate"`
 }
 
 func (a AutoSchema) Validate() error {

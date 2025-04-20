@@ -54,7 +54,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.NoError(t, err)
-	handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+	handler.schemaConfig.MaximumAllowedCollectionsCount.SetDefault(-1)
 	handler.parser.experimentBackwardsCompatibleNamedVectorsEnabled = true
 	return &handler, schemaManager
 }
