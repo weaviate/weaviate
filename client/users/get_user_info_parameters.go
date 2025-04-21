@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewGetUserInfoParams creates a new GetUserInfoParams object,
@@ -72,6 +73,12 @@ GetUserInfoParams contains all the parameters to send to the API endpoint
 */
 type GetUserInfoParams struct {
 
+	/* IncludeLastUsedTime.
+
+	   Whether to include the last used time of the given user
+	*/
+	IncludeLastUsedTime *bool
+
 	/* UserID.
 
 	   user id
@@ -95,7 +102,18 @@ func (o *GetUserInfoParams) WithDefaults() *GetUserInfoParams {
 //
 // All values with no default are reset to their zero value.
 func (o *GetUserInfoParams) SetDefaults() {
-	// no default values defined for this parameter
+	var (
+		includeLastUsedTimeDefault = bool(false)
+	)
+
+	val := GetUserInfoParams{
+		IncludeLastUsedTime: &includeLastUsedTimeDefault,
+	}
+
+	val.timeout = o.timeout
+	val.Context = o.Context
+	val.HTTPClient = o.HTTPClient
+	*o = val
 }
 
 // WithTimeout adds the timeout to the get user info params
@@ -131,6 +149,17 @@ func (o *GetUserInfoParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithIncludeLastUsedTime adds the includeLastUsedTime to the get user info params
+func (o *GetUserInfoParams) WithIncludeLastUsedTime(includeLastUsedTime *bool) *GetUserInfoParams {
+	o.SetIncludeLastUsedTime(includeLastUsedTime)
+	return o
+}
+
+// SetIncludeLastUsedTime adds the includeLastUsedTime to the get user info params
+func (o *GetUserInfoParams) SetIncludeLastUsedTime(includeLastUsedTime *bool) {
+	o.IncludeLastUsedTime = includeLastUsedTime
+}
+
 // WithUserID adds the userID to the get user info params
 func (o *GetUserInfoParams) WithUserID(userID string) *GetUserInfoParams {
 	o.SetUserID(userID)
@@ -149,6 +178,23 @@ func (o *GetUserInfoParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		return err
 	}
 	var res []error
+
+	if o.IncludeLastUsedTime != nil {
+
+		// query param includeLastUsedTime
+		var qrIncludeLastUsedTime bool
+
+		if o.IncludeLastUsedTime != nil {
+			qrIncludeLastUsedTime = *o.IncludeLastUsedTime
+		}
+		qIncludeLastUsedTime := swag.FormatBool(qrIncludeLastUsedTime)
+		if qIncludeLastUsedTime != "" {
+
+			if err := r.SetQueryParam("includeLastUsedTime", qIncludeLastUsedTime); err != nil {
+				return err
+			}
+		}
+	}
 
 	// path param user_id
 	if err := r.SetPathParam("user_id", o.UserID); err != nil {

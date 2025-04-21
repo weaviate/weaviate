@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
@@ -380,6 +382,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SeparateObjectsCompactions:          appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
 		MaxSegmentSize:                      appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
 		CycleManagerRoutinesFactor:          appState.ServerConfig.Config.Persistence.LSMCycleManagerRoutinesFactor,
+		IndexRangeableInMemory:              appState.ServerConfig.Config.Persistence.IndexRangeableInMemory,
 		HNSWMaxLogSize:                      appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
 		HNSWWaitForCachePrefill:             appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		HNSWFlatSearchConcurrency:           appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
@@ -487,6 +490,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		ElectionTimeout:        appState.ServerConfig.Config.Raft.ElectionTimeout,
 		SnapshotInterval:       appState.ServerConfig.Config.Raft.SnapshotInterval,
 		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
+		TrailingLogs:           appState.ServerConfig.Config.Raft.TrailingLogs,
 		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
 		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
 		EnableOneNodeRecovery:  appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
@@ -512,7 +516,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 	}
 
-	appState.ClusterService = rCluster.New(rConfig, appState.GRPCServerMetrics)
+	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.AuthzSnapshotter, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 
 	executor := schema.NewExecutor(migrator,
@@ -680,11 +684,12 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 			cfg.ReindexMapToBlockmaxConfig.SwapBuckets,
 			cfg.ReindexMapToBlockmaxConfig.UnswapBuckets,
 			cfg.ReindexMapToBlockmaxConfig.TidyBuckets,
+			cfg.ReindexMapToBlockmaxConfig.ReloadShards,
 			cfg.ReindexMapToBlockmaxConfig.Rollback,
+			cfg.ReindexMapToBlockmaxConfig.ConditionalStart,
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds),
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.PauseDurationSeconds),
-			concurrency,
-			appState.SchemaManager,
+			concurrency, cfg.ReindexMapToBlockmaxConfig.Selected, appState.SchemaManager,
 		))
 	}
 
@@ -768,7 +773,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger)
 
-	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, appState.Logger)
+	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
+	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -844,6 +850,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown").
+				Errorf("failed to gracefully shutdown")
+		}
+
+		if err := appState.APIKey.Dynamic.Close(); err != nil {
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown db users").
 				Errorf("failed to gracefully shutdown")
 		}
 	}
@@ -922,6 +935,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
+	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	if err = configureAuthorizer(appState); err != nil {
 		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
@@ -1563,6 +1577,7 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
+
 	if authConfig.BasicAuth.Enabled() {
 		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
 	}

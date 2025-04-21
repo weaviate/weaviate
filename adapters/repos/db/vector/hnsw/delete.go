@@ -470,7 +470,7 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 						return nil
 					}
 					h.shardedNodeLocks.RLock(deletedID)
-					if uint64(size) < deletedID || h.nodes[deletedID] == nil {
+					if deletedID >= uint64(size) || deletedID >= uint64(len(h.nodes)) || h.nodes[deletedID] == nil {
 						h.shardedNodeLocks.RUnlock(deletedID)
 						continue
 					}
@@ -545,6 +545,11 @@ func (h *hnsw) reassignNeighbor(
 
 	h.RLock()
 	h.shardedNodeLocks.RLock(neighbor)
+	if neighbor >= uint64(len(h.nodes)) {
+		h.shardedNodeLocks.RUnlock(neighbor)
+		h.RUnlock()
+		return true, nil
+	}
 	neighborNode := h.nodes[neighbor]
 	h.shardedNodeLocks.RUnlock(neighbor)
 	currentMaximumLayer := h.currentMaximumLayer

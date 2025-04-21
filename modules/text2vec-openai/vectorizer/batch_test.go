@@ -85,7 +85,7 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "next batch, will be aborted due to context deadline"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "has error again"}},
-		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{3: fmt.Errorf("context deadline exceeded or cancelled"), 5: fmt.Errorf("context deadline exceeded or cancelled")}},
+		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{3: fmt.Errorf("context deadline exceeded"), 5: fmt.Errorf("context deadline exceeded")}},
 		{name: "azure limit without total Limit", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "azure_tokens 20"}}, // set azure limit without total Limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long"}},
@@ -129,5 +129,29 @@ func TestBatch(t *testing.T) {
 			}
 			cancl()
 		})
+	}
+}
+
+func BenchmarkEncoderCache(b *testing.B) {
+	client := &fakeBatchClient{}
+	logger, _ := test.NewNullLogger()
+
+	v := text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second,
+			batch.Settings{MaxObjectsPerBatch: 100, MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int { return 500000 }, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true},
+			logger, "test"),
+		batch.ReturnBatchTokenizer(1, "", false),
+	)
+	deadline := time.Now().Add(10 * time.Second)
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ctx, cancl := context.WithDeadline(context.Background(), deadline)
+		vecs, errs := v.ObjectBatch(
+			ctx, []*models.Object{{Class: "Car"}}, []bool{false}, cfg,
+		)
+		cancl()
+		require.Len(b, errs, 0)
+		require.Len(b, vecs, 1)
 	}
 }

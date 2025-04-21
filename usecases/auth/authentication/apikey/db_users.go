@@ -22,14 +22,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/alexedwards/argon2id"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 const (
-	SnapshotVersion = 0
-	FileName        = "users.json"
+	SnapshotVersion   = 0
+	FileName          = "users.json"
+	UserNameMaxLength = 128
+	UserNameRegexCore = `[A-Za-z][-_0-9A-Za-z@.]{0,128}`
 )
 
 type DBUsers interface {
@@ -48,13 +53,14 @@ type User struct {
 	InternalIdentifier string
 	ApiKeyFirstLetters string
 	CreatedAt          time.Time
+	LastUsedAt         time.Time
 }
 
 type DBUser struct {
-	lock          *sync.RWMutex
-	data          dbUserdata
-	memoryOnyData memoryOnlyData
-	path          string
+	lock           *sync.RWMutex
+	data           dbUserdata
+	memoryOnlyData memoryOnlyData
+	path           string
 }
 
 type DBUserSnapshot struct {
@@ -74,7 +80,7 @@ type memoryOnlyData struct {
 	WeakKeyStorageById map[string][sha256.Size]byte
 }
 
-func NewDBUser(path string) (*DBUser, error) {
+func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, error) {
 	fullpath := fmt.Sprintf("%s/raft/db_users/", path)
 	err := createStorage(fullpath + FileName)
 	if err != nil {
@@ -106,13 +112,37 @@ func NewDBUser(path string) (*DBUser, error) {
 	if snapshot.Data.UserKeyRevoked == nil {
 		snapshot.Data.UserKeyRevoked = make(map[string]struct{})
 	}
+	dbUsers := &DBUser{
+		path:           fullpath,
+		lock:           &sync.RWMutex{},
+		data:           snapshot.Data,
+		memoryOnlyData: memoryOnlyData{WeakKeyStorageById: make(map[string][sha256.Size]byte)},
+	}
 
-	return &DBUser{
-		path:          fullpath,
-		lock:          &sync.RWMutex{},
-		data:          snapshot.Data,
-		memoryOnyData: memoryOnlyData{WeakKeyStorageById: make(map[string][sha256.Size]byte)},
-	}, nil
+	// we save every change to file after a request is done, EXCEPT the lastUsedAt time as we do not want to write to a
+	// file with every request.
+	// This information is not terribly important (besides WCD UX), so it does not matter much if we very rarely loose
+	// some information here. This info will also be written on shutdown so the only loss of information occurs with
+	// OOM or similar.
+	if enabled {
+		enterrors.GoWrapper(func() {
+			ticker := time.NewTicker(1 * time.Minute)
+			for range ticker.C {
+				func() {
+					dbUsers.lock.RLock()
+					defer dbUsers.lock.RUnlock()
+					err := dbUsers.storeToFile()
+					if err != nil {
+						logger.WithField("action", "db_users_write_to_file").
+							WithField("error", err).
+							Warn("db users file not written")
+					}
+				}()
+			}
+		}, logger)
+	}
+
+	return dbUsers, nil
 }
 
 func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error {
@@ -143,7 +173,7 @@ func (c *DBUser) RotateKey(userId, secureHash, oldIdentifier, newIdentifier stri
 	}
 
 	c.data.SecureKeyStorageById[userId] = secureHash
-	delete(c.memoryOnyData.WeakKeyStorageById, userId)
+	delete(c.memoryOnlyData.WeakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
 	return c.storeToFile()
 }
@@ -156,7 +186,7 @@ func (c *DBUser) DeleteUser(userId string) error {
 	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
 	delete(c.data.IdToIdentifier, userId)
 	delete(c.data.Users, userId)
-	delete(c.memoryOnyData.WeakKeyStorageById, userId)
+	delete(c.memoryOnlyData.WeakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
 	return c.storeToFile()
 }
@@ -213,6 +243,17 @@ func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) 
 	return ok, nil
 }
 
+func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	for userID, lastUsed := range users {
+		if c.data.Users[userID].LastUsedAt.Before(lastUsed) {
+			c.data.Users[userID].LastUsedAt = lastUsed
+		}
+	}
+}
+
 func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -226,7 +267,7 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
-	weakHash, ok := c.memoryOnyData.WeakKeyStorageById[userId]
+	weakHash, ok := c.memoryOnlyData.WeakKeyStorageById[userId]
 	if ok {
 		// use the secureHash as salt for the computation of the weaker in-memory
 		if err := c.validateWeakHash([]byte(key+secureHash), weakHash); err != nil {
@@ -244,6 +285,8 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	if _, ok := c.data.UserKeyRevoked[userId]; ok {
 		return nil, fmt.Errorf("key is revoked")
 	}
+
+	c.data.Users[userId].LastUsedAt = time.Now()
 
 	return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
 }
@@ -266,7 +309,7 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 		return fmt.Errorf("invalid token")
 	}
 	token := []byte(key + secureHash)
-	c.memoryOnyData.WeakKeyStorageById[userId] = sha256.Sum256(token)
+	c.memoryOnlyData.WeakKeyStorageById[userId] = sha256.Sum256(token)
 
 	return nil
 }
@@ -320,6 +363,12 @@ func (c *DBUser) storeToFile() error {
 
 	// Atomically rename the temp file to the target filename to not leave garbage when it crashes
 	return os.Rename(tempFilename, c.path+"/"+FileName)
+}
+
+func (c *DBUser) Close() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.storeToFile()
 }
 
 func createStorage(filePath string) error {

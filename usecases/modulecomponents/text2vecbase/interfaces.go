@@ -46,6 +46,7 @@ type BatchVectorizer[T dto.Embedding] struct {
 	objectVectorizer *objectsvectorizer.ObjectVectorizer
 	batchVectorizer  *batch.Batch[T]
 	tokenizerFunc    batch.TokenizerFuncType
+	encoderCache     *batch.EncoderCache
 }
 
 type BatchClient[T dto.Embedding] interface {

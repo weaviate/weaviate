@@ -22,24 +22,22 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/config"
-
-	"github.com/weaviate/weaviate/cluster/dynusers"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-
-	"github.com/prometheus/client_golang/prometheus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/dynusers"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -101,6 +99,12 @@ type Config struct {
 	// here is the initial setting used. This can be tuned during operation using
 	// ReloadConfig.
 	SnapshotInterval time.Duration
+
+	// TrailingLogs controls how many logs we leave after a snapshot. This is used
+	// so that we can quickly replay logs on a follower instead of being forced to
+	// send an entire snapshot. The value passed here is the initial setting used.
+	// This can be tuned during operation using ReloadConfig.
+	TrailingLogs uint64
 
 	// Cluster bootstrap related settings
 
@@ -204,7 +208,7 @@ type Store struct {
 	lastAppliedIndex atomic.Uint64
 }
 
-func NewFSM(cfg Config, reg prometheus.Registerer) Store {
+func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 
 	return Store{
@@ -219,7 +223,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
 		}),
 		schemaManager:  schemaManager,
-		authZManager:   rbacRaft.NewManager(cfg.AuthzController, cfg.AuthNConfig, cfg.Logger),
+		authZManager:   rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager: dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
 	}
 }
@@ -621,6 +625,9 @@ func (st *Store) raftConfig() *raft.Config {
 	if st.cfg.SnapshotThreshold > 0 {
 		cfg.SnapshotThreshold = st.cfg.SnapshotThreshold
 	}
+	if st.cfg.TrailingLogs > 0 {
+		cfg.TrailingLogs = st.cfg.TrailingLogs
+	}
 
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
 	cfg.LogLevel = st.cfg.Logger.GetLevel().String()
@@ -749,6 +756,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 		applyTimeout:  st.applyTimeout,
 		snapshotStore: st.snapshotStore,
 		schemaManager: st.schemaManager,
+		authZManager:  st.authZManager,
 		logStore:      st.logStore,
 		logCache:      st.logCache,
 	}, st.logCache,

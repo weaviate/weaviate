@@ -991,7 +991,7 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 	clear(resultProperties)
 
 	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-	rw := byteops.NewReadWriter(data, byteops.WithPosition(startPos))
+	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(startPos))
 	// get the length of the vector, each element is a float32 (4 bytes)
 	vectorLength := uint64(rw.ReadUint16())
 	rw.MoveBufferPositionForward(vectorLength * 4)
@@ -1116,7 +1116,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 	ko.MarshallerVersion = version
 
-	rw := byteops.NewReadWriter(data, byteops.WithPosition(1))
+	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(1))
 	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // kind-byte
 
@@ -1280,7 +1280,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 
 	if targetVector != "" {
 		startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-		rw := byteops.NewReadWriter(in, byteops.WithPosition(startPos))
+		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(startPos))
 
 		vectorLength := uint64(rw.ReadUint16())
 		rw.MoveBufferPositionForward(vectorLength * 4)
@@ -1394,7 +1394,7 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	var multiVectors map[string][][]float32
 
 	if len(in) > pos {
-		rw := byteops.NewReadWriter(in, byteops.WithPosition(uint64(pos)))
+		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(uint64(pos)))
 		mv, err := unmarshalMultiVectors(&rw, map[string]interface{}{targetVector: nil})
 		if err != nil {
 			return nil, errors.Errorf("unable to unmarshal multivector for target vector: %s", targetVector)
