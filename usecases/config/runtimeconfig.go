@@ -23,7 +23,7 @@ import (
 )
 
 // WeaviateRuntimeConfig is the collection all the supported configs that is
-// managed dynamically and can be overriden during runtime.
+// managed dynamically and can be overridden during runtime.
 type WeaviateRuntimeConfig struct {
 	MaximumAllowedCollectionsCount *runtime.DynamicValue[int]  `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 	AutoschemaEnabled              *runtime.DynamicValue[bool] `json:"autoschema_enabled" yaml:"autoschema_enabled"`
@@ -91,7 +91,7 @@ But this approach has two serious drawbacks
     consumers.
 
 With this reflection method, we avoided that extra step from the consumer. This reflection approach is "logically" same as above implementation.
-See runtimeconfig_test.go for more examples.
+See "runtimeconfig_test.go" for more examples.
 */
 func updateRuntimeConfig(source, parsed reflect.Value) {
 	// Basically we do following
