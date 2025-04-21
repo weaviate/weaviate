@@ -60,7 +60,7 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
 
-		UpdateRuntimeConfig(reg, parsed)
+		require.NoError(t, UpdateRuntimeConfig(reg, parsed))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
@@ -95,7 +95,7 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, 0, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file.
 
-		UpdateRuntimeConfig(reg, parsed)
+		require.NoError(t, UpdateRuntimeConfig(reg, parsed))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
@@ -112,7 +112,7 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, 13, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file, should return default value.
 
-		UpdateRuntimeConfig(reg, parsed)
+		require.NoError(t, UpdateRuntimeConfig(reg, parsed))
 
 		// after update.
 		assert.Equal(t, false, autoSchema.Get())
@@ -122,77 +122,4 @@ maximum_allowed_collections_count: 13`)
 		colCount.SetDefault(20)             // changing the default.
 		assert.Equal(t, 20, colCount.Get()) // this should still return `default` value
 	})
-
-	// should reflect changes on registered configs
-	// should prioritize default and old value if new value is nil
 }
-
-// func TestRuntimeConfig(t *testing.T) {
-// 	cm := &mockManager{c: &WeaviateRuntimeConfig{}}
-// 	rm := NewWeaviateRuntimeConfig(cm)
-
-// 	t.Run("setting explicitly value for auto schema enabled", func(t *testing.T) {
-// 		b := true
-
-// 		cm.c.AutoSchemaEnabled = &b
-// 		val := rm.GetAutoSchemaEnabled()
-// 		require.NotNil(t, val)
-// 		require.Equal(t, true, *val)
-
-// 		b = false
-// 		cm.c.AutoSchemaEnabled = &b
-// 		val = rm.GetAutoSchemaEnabled()
-// 		require.NotNil(t, val)
-// 		require.Equal(t, false, *val)
-// 	})
-
-// 	t.Run("auto schema not being set should return nil", func(t *testing.T) {
-// 		cm.c.AutoSchemaEnabled = nil
-// 		val := rm.GetAutoSchemaEnabled()
-// 		require.Nil(t, val)
-// 	})
-
-// 	t.Run("auto schema not being set should return nil", func(t *testing.T) {
-// 		cm.c.AutoSchemaEnabled = nil
-// 		val := rm.GetAutoSchemaEnabled()
-// 		require.Nil(t, val)
-// 	})
-
-// 	t.Run("maximum collection limit not being set should return nil", func(t *testing.T) {
-// 		cm.c.MaximumAllowedCollectionsCount = nil
-// 		val := rm.GetMaximumAllowedCollectionsCount()
-// 		require.Nil(t, val)
-// 	})
-
-// 	t.Run("async replicsation disabled not being set should return nil", func(t *testing.T) {
-// 		cm.c.AsyncReplicationDisabled = nil
-// 		val := rm.GetAsyncReplicationDisabled()
-// 		require.Nil(t, val)
-// 	})
-// }
-
-// func TestParseYaml(t *testing.T) {
-// 	t.Run("empty bytes shouldn't return error", func(t *testing.T) {
-// 		b := []byte("")
-// 		v, err := ParseYaml(b)
-// 		require.NoError(t, err)
-// 		require.NotNil(t, v)
-// 	})
-// 	t.Run("strict parsing should fail for non-existing field", func(t *testing.T) {
-// 		val := `
-// maximum_allowed_collections_count: 5
-// `
-// 		b := []byte(val)
-// 		v, err := ParseYaml(b)
-// 		require.NoError(t, err)
-// 		require.NotNil(t, v)
-
-// 		val = `
-// maximum_allowed_collections_count: 5
-// non_exist_filed: 78
-// `
-// 		b = []byte(val)
-// 		_, err = ParseYaml(b)
-// 		require.Error(t, err)
-// 	})
-// }
