@@ -31,7 +31,7 @@ func TestParseRuntimeConfig(t *testing.T) {
 
 		buf = []byte(`autoschema_enbaled: false`) // note: typo.
 		cfg, err = ParseRuntimeConfig(buf)
-		require.ErrorContains(t, err, "autoschema_enbaled") // should contain mispelled field
+		require.ErrorContains(t, err, "autoschema_enbaled") // should contain misspelled field
 		assert.Nil(t, cfg)
 	})
 }

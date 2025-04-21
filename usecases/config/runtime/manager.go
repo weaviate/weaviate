@@ -20,7 +20,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -69,7 +68,6 @@ type ConfigManager[T any] struct {
 	// failures to load new configs.
 	currentConfig *T
 	currentHash   string
-	mu            sync.RWMutex // protects currentConfig
 
 	log             logrus.FieldLogger
 	lastLoadSuccess prometheus.Gauge
