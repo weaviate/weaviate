@@ -82,7 +82,7 @@ We could have avoided using `reflection` all together, if we have written someth
 			source.AutoschemaEnabled.Reset()
 		}
 
-		// return nil
+		return nil
 	}
 
 But this approach has two serious drawbacks
@@ -99,7 +99,7 @@ func updateRuntimeConfig(source, parsed reflect.Value) {
 	// 1. Loop through all the `source` fields
 	// 2. Check if any of those fields exists in `parsed` (non-nil)
 	// 3. If parsed config doesn't contain the field from `source`, We reset source's field.
-	//    so that it's default value take preference.
+	//    so that it's default value takes preference.
 	// 4. If parsed config does contain the field from `source`, We update the value via `SetValue`.
 
 	for i := range source.NumField() {
