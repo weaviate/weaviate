@@ -456,7 +456,10 @@ func (index *flat) searchByVectorBQ(ctx context.Context, vector []float32, k int
 	distancesUncompressedVectors := make([]float32, len(idsSlice.slice))
 
 	// use consistent setting for entire rescore – only get feature flag once
-	rescoreAgainstObjectStore := index.rescoreAgainstObjectStore.Get()
+	rescoreAgainstObjectStore := false
+	if index.rescoreAgainstObjectStore != nil {
+		rescoreAgainstObjectStore = index.rescoreAgainstObjectStore.Get()
+	}
 
 	eg := enterrors.NewErrorGroupWrapper(index.logger)
 	for workerID := 0; workerID < index.concurrentCacheReads; workerID++ {
