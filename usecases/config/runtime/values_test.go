@@ -11,86 +11,62 @@
 
 package runtime
 
-// import (
-// 	"testing"
+import (
+	"testing"
+	"time"
 
-// 	"github.com/stretchr/testify/require"
-// )
+	"github.com/stretchr/testify/assert"
+)
 
-// func TestRuntimeConfigParsing(t *testing.T) {
-// 	cm := &mockManager{c: &WeaviateRuntimeConfig{}}
-// 	rm := NewWeaviateRuntimeConfig(cm)
+func TestDynamicValue(t *testing.T) {
+	var (
+		dInt      DynamicValue[int]
+		dFloat    DynamicValue[float64]
+		dBool     DynamicValue[bool]
+		dDuration DynamicValue[time.Duration]
+	)
 
-// 	t.Run("setting explicitly value for auto schema enabled", func(t *testing.T) {
-// 		b := true
+	// invariant: Zero value of any `DynamicValue` is usable and should return correct
+	// underlying `zero-value` as default.
+	assert.Equal(t, int(0), dInt.Get())
+	assert.Equal(t, float64(0), dFloat.Get())
+	assert.Equal(t, false, dBool.Get())
+	assert.Equal(t, time.Duration(0), dDuration.Get())
 
-// 		cm.c.AutoSchemaEnabled = &b
-// 		val := rm.GetAutoSchemaEnabled()
-// 		require.NotNil(t, val)
-// 		require.Equal(t, true, *val)
+	// invariant: After setting custom default via `SetDefault`, this custom default should
+	// override the `zero-value`.
+	dInt.SetDefault(20)
+	dFloat.SetDefault(12.5)
+	dBool.SetDefault(true)
+	dDuration.SetDefault(2 * time.Second)
 
-// 		b = false
-// 		cm.c.AutoSchemaEnabled = &b
-// 		val = rm.GetAutoSchemaEnabled()
-// 		require.NotNil(t, val)
-// 		require.Equal(t, false, *val)
-// 	})
+	assert.Equal(t, int(20), dInt.Get())
+	assert.Equal(t, float64(12.5), dFloat.Get())
+	assert.Equal(t, true, dBool.Get())
+	assert.Equal(t, time.Duration(2*time.Second), dDuration.Get())
 
-// 	t.Run("auto schema not being set should return nil", func(t *testing.T) {
-// 		cm.c.AutoSchemaEnabled = nil
-// 		val := rm.GetAutoSchemaEnabled()
-// 		require.Nil(t, val)
-// 	})
+	// invariant: `NewDynamicValue` constructor should set custom default and should override
+	// the `zero-value`
+	dInt2 := NewDynamicValue(25)
+	dFloat2 := NewDynamicValue(18.6)
+	dBool2 := NewDynamicValue(true)
+	dDuration2 := NewDynamicValue(4 * time.Second)
 
-// 	t.Run("auto schema not being set should return nil", func(t *testing.T) {
-// 		cm.c.AutoSchemaEnabled = nil
-// 		val := rm.GetAutoSchemaEnabled()
-// 		require.Nil(t, val)
-// 	})
+	assert.Equal(t, int(25), dInt2.Get())
+	assert.Equal(t, float64(18.6), dFloat2.Get())
+	assert.Equal(t, true, dBool2.Get())
+	assert.Equal(t, time.Duration(4*time.Second), dDuration2.Get())
 
-// 	t.Run("maximum collection limit not being set should return nil", func(t *testing.T) {
-// 		cm.c.MaximumAllowedCollectionsCount = nil
-// 		val := rm.GetMaximumAllowedCollectionsCount()
-// 		require.Nil(t, val)
-// 	})
+	// invariant: After setting dynamic default via `SetValue`, this value should
+	// override both `zero-value` and `cutom-default`.
 
-// 	t.Run("async replicsation disabled not being set should return nil", func(t *testing.T) {
-// 		cm.c.AsyncReplicationDisabled = nil
-// 		val := rm.GetAsyncReplicationDisabled()
-// 		require.Nil(t, val)
-// 	})
-// }
+	dInt.SetValue(30)
+	dFloat.SetValue(22.7)
+	dBool.SetValue(false)
+	dDuration.SetValue(10 * time.Second)
 
-// func TestParseYaml(t *testing.T) {
-// 	t.Run("empty bytes shouldn't return error", func(t *testing.T) {
-// 		b := []byte("")
-// 		v, err := ParseYaml(b)
-// 		require.NoError(t, err)
-// 		require.NotNil(t, v)
-// 	})
-// 	t.Run("strict parsing should fail for non-existing field", func(t *testing.T) {
-// 		val := `
-// maximum_allowed_collections_count: 5
-// `
-// 		b := []byte(val)
-// 		v, err := ParseYaml(b)
-// 		require.NoError(t, err)
-// 		require.NotNil(t, v)
-
-// 		val = `
-// maximum_allowed_collections_count: 5
-// non_exist_filed: 78
-// `
-// 		b = []byte(val)
-// 		_, err = ParseYaml(b)
-// 		require.Error(t, err)
-// 	})
-// }
-
-// type mockManager struct {
-// 	c *WeaviateRuntimeConfig
-// }
-
-// func (m *mockManager) Config() (*WeaviateRuntimeConfig, error) {
-// 	return m.c, nil
-// }
+	assert.Equal(t, int(30), dInt.Get())
+	assert.Equal(t, float64(22.7), dFloat.Get())
+	assert.Equal(t, false, dBool.Get())
+	assert.Equal(t, time.Duration(10*time.Second), dDuration.Get())
+}

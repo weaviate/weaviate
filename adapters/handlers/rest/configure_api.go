@@ -1689,8 +1689,8 @@ func initRuntimeOverrides(appState *state.State) {
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
-			config.ParseYaml,
-			config.UpdateConfig,
+			config.ParseRuntimeConfig,
+			config.UpdateRuntimeConfig,
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,

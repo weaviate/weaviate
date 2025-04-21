@@ -15,7 +15,8 @@ type WeaviateRuntimeConfig struct {
 	AsyncReplicationDisabled       *runtime.DynamicValue[bool] `json:"async_replication_disabled" yaml:"async_replication_disabled"`
 }
 
-func ParseYaml(buf []byte) (*WeaviateRuntimeConfig, error) {
+// ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
+func ParseRuntimeConfig(buf []byte) (*WeaviateRuntimeConfig, error) {
 	var conf WeaviateRuntimeConfig
 
 	dec := yaml.NewDecoder(bytes.NewReader(buf))
@@ -31,15 +32,24 @@ func ParseYaml(buf []byte) (*WeaviateRuntimeConfig, error) {
 
 // UpdateConfig does in-place update of `registered` config based on values available in
 // `parsed` config.
-func UpdateConfig(registered, parsed *WeaviateRuntimeConfig) error {
+func UpdateRuntimeConfig(registered, parsed *WeaviateRuntimeConfig) error {
 	if parsed.MaximumAllowedCollectionsCount != nil {
 		registered.MaximumAllowedCollectionsCount.SetValue(parsed.MaximumAllowedCollectionsCount.Get())
+	} else {
+		registered.MaximumAllowedCollectionsCount.Reset()
 	}
+
 	if parsed.AsyncReplicationDisabled != nil {
 		registered.AsyncReplicationDisabled.SetValue(parsed.AsyncReplicationDisabled.Get())
+	} else {
+		registered.AsyncReplicationDisabled.Reset()
 	}
+
 	if parsed.AutoschemaEnabled != nil {
 		registered.AutoschemaEnabled.SetValue(parsed.AutoschemaEnabled.Get())
+	} else {
+		registered.AutoschemaEnabled.Reset()
 	}
+
 	return nil
 }

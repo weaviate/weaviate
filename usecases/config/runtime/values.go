@@ -54,6 +54,11 @@ func (vv *DynamicValue[T]) Get() T {
 	return vv.def
 }
 
+// Reset removes the old dynamic value.
+func (vv *DynamicValue[T]) Reset() {
+	vv.val = atomic.Value{}
+}
+
 // Set is used by the config manager to update the dynamic value.
 func (vv *DynamicValue[T]) SetValue(val T) error {
 	vv.val.Store(val)
