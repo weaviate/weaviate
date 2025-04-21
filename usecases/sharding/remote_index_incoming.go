@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -91,8 +92,14 @@ type RemoteIndexIncomingRepo interface {
 		filePath string) (io.WriteCloser, error)
 	IncomingCreateShard(ctx context.Context, className string, shardName string) error
 	IncomingReinitShard(ctx context.Context, shardName string) error
-	// IncomingPauseAndListFiles See adapters/clients.RemoteIndex.PauseAndListFiles
-	IncomingPauseAndListFiles(ctx context.Context, shardName string) ([]string, error)
+	// IncomingPauseFileActivity See adapters/clients.RemoteIndex.IncomingPauseFileActivity
+	IncomingPauseFileActivity(ctx context.Context, shardName string) error
+	// IncomingResumeFileActivity See adapters/clients.RemoteIndex.IncomingResumeFileActivity
+	IncomingResumeFileActivity(ctx context.Context, shardName string) error
+	// IncomingListFiles See adapters/clients.RemoteIndex.IncomingListFiles
+	IncomingListFiles(ctx context.Context, shardName string) ([]string, error)
+	// IncomingGetFileMetadata See adapters/clients.RemoteIndex.GetFileMetadata
+	IncomingGetFileMetadata(ctx context.Context, shardName, relativeFilePath string) (file.FileMetadata, error)
 	// IncomingGetFile See adapters/clients.RemoteIndex.GetFile
 	IncomingGetFile(ctx context.Context, shardName, relativeFilePath string) (io.ReadCloser, error)
 }
@@ -314,8 +321,32 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 	return index.IncomingReinitShard(ctx, shardName)
 }
 
-// PauseAndListFiles see adapters/clients.RemoteIndex.PauseAndListFiles
-func (rii *RemoteIndexIncoming) PauseAndListFiles(ctx context.Context,
+// PauseFileActivity see adapters/clients.RemoteIndex.PauseFileActivity
+func (rii *RemoteIndexIncoming) PauseFileActivity(ctx context.Context,
+	indexName, shardName string,
+) error {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingPauseFileActivity(ctx, shardName)
+}
+
+// ResumeFileActivity see adapters/clients.RemoteIndex.ResumeFileActivity
+func (rii *RemoteIndexIncoming) ResumeFileActivity(ctx context.Context,
+	indexName, shardName string,
+) error {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingResumeFileActivity(ctx, shardName)
+}
+
+// ListFiles see adapters/clients.RemoteIndex.ListFiles
+func (rii *RemoteIndexIncoming) ListFiles(ctx context.Context,
 	indexName, shardName string,
 ) ([]string, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -323,7 +354,19 @@ func (rii *RemoteIndexIncoming) PauseAndListFiles(ctx context.Context,
 		return nil, errors.Errorf("local index %q not found", indexName)
 	}
 
-	return index.IncomingPauseAndListFiles(ctx, shardName)
+	return index.IncomingListFiles(ctx, shardName)
+}
+
+// GetFileMetadata see adapters/clients.RemoteIndex.GetFileMetadata
+func (rii *RemoteIndexIncoming) GetFileMetadata(ctx context.Context,
+	indexName, shardName, relativeFilePath string,
+) (file.FileMetadata, error) {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return file.FileMetadata{}, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingGetFileMetadata(ctx, shardName, relativeFilePath)
 }
 
 // GetFile see adapters/clients.RemoteIndex.GetFile
