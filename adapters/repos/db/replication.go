@@ -334,7 +334,7 @@ func (i *Index) IncomingPauseFileActivity(ctx context.Context,
 	}
 	defer release()
 
-	err = localShard.HaltForTransfer(ctx, false)
+	err = localShard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout)
 	if err != nil {
 		return fmt.Errorf("shard %q could not be halted for transfer: %w", shardName, err)
 	}
@@ -406,9 +406,7 @@ func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relative
 	}
 	defer release()
 
-	finalPath := filepath.Join(localShard.Index().Config.RootPath, relativeFilePath)
-
-	return file.GetFileMetadata(finalPath)
+	return localShard.GetFileMetadata(ctx, relativeFilePath)
 }
 
 // IncomingGetFile returns a reader for the file at the given path in the specified shard's root
@@ -422,14 +420,7 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	}
 	defer release()
 
-	finalPath := filepath.Join(localShard.Index().Config.RootPath, relativeFilePath)
-
-	reader, err := os.Open(finalPath)
-	if err != nil {
-		return nil, fmt.Errorf("open file %q for reading: %w", relativeFilePath, err)
-	}
-
-	return reader, nil
+	return localShard.GetFile(ctx, relativeFilePath)
 }
 
 func (s *Shard) filePutter(ctx context.Context,

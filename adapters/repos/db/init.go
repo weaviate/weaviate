@@ -105,6 +105,7 @@ func (db *DB) init(ctx context.Context) error {
 				AvoidMMap:                           db.config.AvoidMMap,
 				DisableLazyLoadShards:               db.config.DisableLazyLoadShards,
 				ForceFullReplicasSearch:             db.config.ForceFullReplicasSearch,
+				TransferInactivityTimeout:           db.config.TransferInactivityTimeout,
 				LSMEnableSegmentsChecksumValidation: db.config.LSMEnableSegmentsChecksumValidation,
 				ReplicationFactor:                   class.ReplicationConfig.Factor,
 				AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,

@@ -92,6 +92,14 @@ func FromEnv(config *Config) error {
 		config.ForceFullReplicasSearch = true
 	}
 
+	if v := os.Getenv("TRANSFER_INACTIVITY_TIMEOUT"); v != "" {
+		timeout, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TRANSFER_INACTIVITY_TIMEOUT as duration: %w", err)
+		}
+		config.TransferInactivityTimeout = timeout
+	}
+
 	// Recount all property lengths at startup to support accurate BM25 scoring
 	if entcfg.Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
