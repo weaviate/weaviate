@@ -127,6 +127,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			DistanceProvider:          distProv,
 			AllocChecker:              s.index.allocChecker,
 			RescoreAgainstObjectStore: s.index.Config.FlatSearchRescoreAgainstObjectStore,
+			VectorForIDThunk:          hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())

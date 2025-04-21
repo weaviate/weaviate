@@ -13,6 +13,7 @@ package flat
 
 import (
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -27,6 +28,7 @@ type Config struct {
 	DistanceProvider          distancer.Provider
 	AllocChecker              memwatch.AllocChecker
 	RescoreAgainstObjectStore *runtime.FeatureFlag[bool]
+	VectorForIDThunk          common.VectorForID[float32]
 }
 
 func (c Config) Validate() error {
