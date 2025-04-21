@@ -58,6 +58,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -617,6 +618,7 @@ type IndexConfig struct {
 	HNSWMaxLogSize                      int64
 	HNSWWaitForCachePrefill             bool
 	HNSWFlatSearchConcurrency           int
+	FlatSearchRescoreAgainstObjectStore *configRuntime.FeatureFlag[bool]
 	VisitedListPoolMaxSize              int
 	ReplicationFactor                   *atomic.Int64
 	DeletionStrategy                    string

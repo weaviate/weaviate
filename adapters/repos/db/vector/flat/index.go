@@ -39,6 +39,7 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	bolt "go.etcd.io/bbolt"
 )
@@ -51,18 +52,19 @@ const (
 )
 
 type flat struct {
-	id                  string
-	targetVector        string
-	rootPath            string
-	dims                int32
-	metadata            *bolt.DB
-	metadataLock        *sync.RWMutex
-	store               *lsmkv.Store
-	logger              logrus.FieldLogger
-	distancerProvider   distancer.Provider
-	trackDimensionsOnce sync.Once
-	rescore             int64
-	bq                  compressionhelpers.BinaryQuantizer
+	id                        string
+	targetVector              string
+	rootPath                  string
+	dims                      int32
+	metadata                  *bolt.DB
+	metadataLock              *sync.RWMutex
+	store                     *lsmkv.Store
+	logger                    logrus.FieldLogger
+	distancerProvider         distancer.Provider
+	trackDimensionsOnce       sync.Once
+	rescore                   int64
+	rescoreAgainstObjectStore *configRuntime.FeatureFlag[bool]
+	bq                        compressionhelpers.BinaryQuantizer
 
 	pqResults *common.PqMaxPool
 	pool      *pools
@@ -88,18 +90,19 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	}
 
 	index := &flat{
-		id:                   cfg.ID,
-		targetVector:         cfg.TargetVector,
-		rootPath:             cfg.RootPath,
-		logger:               logger,
-		distancerProvider:    cfg.DistanceProvider,
-		metadataLock:         &sync.RWMutex{},
-		rescore:              extractCompressionRescore(uc),
-		pqResults:            common.NewPqMaxPool(100),
-		compression:          extractCompression(uc),
-		pool:                 newPools(),
-		store:                store,
-		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
+		id:                        cfg.ID,
+		targetVector:              cfg.TargetVector,
+		rootPath:                  cfg.RootPath,
+		logger:                    logger,
+		distancerProvider:         cfg.DistanceProvider,
+		metadataLock:              &sync.RWMutex{},
+		rescore:                   extractCompressionRescore(uc),
+		pqResults:                 common.NewPqMaxPool(100),
+		compression:               extractCompression(uc),
+		pool:                      newPools(),
+		store:                     store,
+		concurrentCacheReads:      runtime.GOMAXPROCS(0) * 2,
+		rescoreAgainstObjectStore: cfg.RescoreAgainstObjectStore,
 	}
 	if err := index.initBuckets(context.Background()); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
@@ -494,6 +497,11 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 	defer index.pool.byteSlicePool.Put(idSlice)
 
 	binary.BigEndian.PutUint64(idSlice.slice, id)
+
+	if index.rescoreAgainstObjectStore.Get() {
+		// rescore against object store
+		return index.store.Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, idSlice.slice)
+	}
 	return index.store.Bucket(index.getBucketName()).Get(idSlice.slice)
 }
 
