@@ -75,10 +75,10 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"enabled":     false,
 						"aggregation": "maxSim",
 						"muveraConfig": map[string]interface{}{
-							"dprojections": 8,
+							"dprojections": float64(8),
 							"enabled":      false,
-							"ksim":         3,
-							"repetitions":  20,
+							"ksim":         float64(3),
+							"repetitions":  float64(20),
 						},
 					},
 				},
