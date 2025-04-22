@@ -22,15 +22,16 @@ import (
 )
 
 func TestDynamicValue_Unmarshal(t *testing.T) {
-	// assert if all supported types unmarshal correctly
-	val := struct {
-		Foo    int           `yaml:"foo"`
-		Bar    float64       `yaml:"bar"`
-		Alice  bool          `yaml:"alice"`
-		Dave   time.Duration `yaml:"dave"`
-		Status string        `yaml:"status"`
-	}{}
-	buf := `
+	t.Run("built-in types", func(t *testing.T) {
+		// assert if all supported types unmarshal correctly
+		val := struct {
+			Foo    int           `yaml:"foo"`
+			Bar    float64       `yaml:"bar"`
+			Alice  bool          `yaml:"alice"`
+			Dave   time.Duration `yaml:"dave"`
+			Status string        `yaml:"status"`
+		}{}
+		buf := `
 foo: 2
 bar: 4.5
 alice: true
@@ -38,15 +39,47 @@ dave: 20s
 status: "done"
 `
 
-	dec := yaml.NewDecoder(strings.NewReader(buf))
-	dec.KnownFields(true)
-	err := dec.Decode(&val)
-	require.NoError(t, err)
-	assert.Equal(t, 2, val.Foo)
-	assert.Equal(t, 4.5, val.Bar)
-	assert.Equal(t, true, val.Alice)
-	assert.Equal(t, 20*time.Second, val.Dave)
-	assert.Equal(t, "done", val.Status)
+		dec := yaml.NewDecoder(strings.NewReader(buf))
+		dec.KnownFields(true)
+		err := dec.Decode(&val)
+		require.NoError(t, err)
+		assert.Equal(t, 2, val.Foo)
+		assert.Equal(t, 4.5, val.Bar)
+		assert.Equal(t, true, val.Alice)
+		assert.Equal(t, 20*time.Second, val.Dave)
+		assert.Equal(t, "done", val.Status)
+	})
+
+	t.Run("derived types", func(t *testing.T) {
+		// check for derived types as well
+		type MyInt int
+		type MyFloat float64
+		type MyBool bool
+		type MyString string
+
+		buf := `
+foo: 2
+bar: 4.5
+alice: true
+status: "done"
+`
+
+		val := struct {
+			Foo    MyInt    `yaml:"foo"`
+			Bar    MyFloat  `yaml:"bar"`
+			Alice  MyBool   `yaml:"alice"`
+			Status MyString `yaml:"status"`
+		}{}
+
+		dec := yaml.NewDecoder(strings.NewReader(buf))
+		dec.KnownFields(true)
+		err := dec.Decode(&val)
+		require.NoError(t, err)
+		assert.Equal(t, MyInt(2), val.Foo)
+		assert.Equal(t, MyFloat(4.5), val.Bar)
+		assert.Equal(t, MyBool(true), val.Alice)
+		assert.Equal(t, MyString("done"), val.Status)
+	})
 }
 
 func TestDynamicValue(t *testing.T) {

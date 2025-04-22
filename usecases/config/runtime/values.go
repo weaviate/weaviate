@@ -12,10 +12,7 @@
 package runtime
 
 import (
-	"fmt"
-	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -31,9 +28,9 @@ type DynamicType interface {
 // If you want zero value with different `default`, use `NewDynamicValue` constructor.
 type DynamicValue[T DynamicType] struct {
 	// val is the dynamically changing value.
-	val atomic.Value
-	// protects `val` during Reset()
-	valMu sync.Mutex
+	val *T
+	// mu protects val
+	mu sync.RWMutex
 
 	// def represents the default value.
 	def T
@@ -57,27 +54,29 @@ func (dv *DynamicValue[T]) Get() T {
 		return zero
 	}
 
-	v := dv.val.Load()
-	if v != nil {
-		return v.(T)
-	}
+	dv.mu.RLock()
+	defer dv.mu.RUnlock()
 
+	if dv.val != nil {
+		return *dv.val
+	}
 	return dv.def
 }
 
 // Reset removes the old dynamic value.
 func (dv *DynamicValue[T]) Reset() {
-	// Once atomic value is set via `Store()`, no api to reset it
-	// hence replacing the full value.
-	dv.valMu.Lock()
-	defer dv.valMu.Unlock()
+	dv.mu.Lock()
+	defer dv.mu.Unlock()
 
-	dv.val = atomic.Value{}
+	dv.val = nil
 }
 
 // Set is used by the config manager to update the dynamic value.
 func (dv *DynamicValue[T]) SetValue(val T) {
-	dv.val.Store(val)
+	dv.mu.Lock()
+	defer dv.mu.Unlock()
+
+	dv.val = &val
 
 	// NOTE: doesn't need to set any default value here
 	// as `Get()` api will return default if dynamic value is not set.
@@ -85,36 +84,13 @@ func (dv *DynamicValue[T]) SetValue(val T) {
 
 // UnmarshalYAML implements `yaml.v3` custom decoding for `DynamicValue` type.
 func (dv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
-	var zero T
-	switch any(zero).(type) {
-	case int:
-		i, err := strconv.Atoi(node.Value)
-		if err != nil {
-			return fmt.Errorf("invalid int: %w", err)
-		}
-		dv.val.Store(i)
-	case float64:
-		f, err := strconv.ParseFloat(node.Value, 64)
-		if err != nil {
-			return fmt.Errorf("invalid float: %w", err)
-		}
-		dv.val.Store(f)
-	case bool:
-		b, err := strconv.ParseBool(node.Value)
-		if err != nil {
-			return fmt.Errorf("invalid bool: %w", err)
-		}
-		dv.val.Store(b)
-	case time.Duration: // to parse time.Duration (e.g: 2m, 20s, etc)
-		d, err := time.ParseDuration(node.Value)
-		if err != nil {
-			return fmt.Errorf("invalid duration: %w", err)
-		}
-		dv.val.Store(d)
-	case string:
-		dv.val.Store(node.Value)
-	default:
-		return fmt.Errorf("unsupported type in runtime config: %T", zero)
+	var val T
+	if err := node.Decode(&val); err != nil {
+		return err
 	}
+	dv.mu.Lock()
+	defer dv.mu.Unlock()
+
+	dv.val = &val
 	return nil
 }
