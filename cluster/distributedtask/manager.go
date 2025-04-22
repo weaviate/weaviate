@@ -227,3 +227,45 @@ func (m *Manager) setTaskWithLock(task *Task) {
 
 	m.tasks[task.Namespace][task.ID] = task
 }
+
+type snapshot struct {
+	Tasks map[string][]*Task `json:"tasks,omitempty"`
+}
+
+func (m *Manager) Snapshot() ([]byte, error) {
+	tasks, err := m.ListDistributedTasks(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("list tasks: %w", err)
+	}
+
+	bytes, err := json.Marshal(&snapshot{
+		Tasks: tasks,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal snapshot: %w", err)
+	}
+
+	return bytes, nil
+}
+
+func (m *Manager) Restore(bytes []byte) error {
+	var s snapshot
+	if err := json.Unmarshal(bytes, &s); err != nil {
+		return fmt.Errorf("unmarshal snapshot: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for namespace, tasks := range s.Tasks {
+		for _, task := range tasks {
+			if _, ok := m.tasks[namespace]; !ok {
+				m.tasks[namespace] = make(map[string]*Task)
+			}
+
+			m.tasks[namespace][task.ID] = task
+		}
+	}
+
+	return nil
+}
