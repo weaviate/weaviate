@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -54,7 +55,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.NoError(t, err)
-	handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	handler.parser.experimentBackwardsCompatibleNamedVectorsEnabled = true
 	return &handler, schemaManager
 }

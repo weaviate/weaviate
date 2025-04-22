@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -479,10 +480,12 @@ func FromEnv(config *Config) error {
 		config.EnableApiBasedModules = true
 	}
 
-	config.AutoSchema.Enabled = true
+	autoSchemaEnabled := true
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
-		config.AutoSchema.Enabled = !(strings.ToLower(v) == "false")
+		autoSchemaEnabled = !(strings.ToLower(v) == "false")
 	}
+	config.AutoSchema.Enabled = runtime.NewDynamicValue(autoSchemaEnabled)
+
 	config.AutoSchema.DefaultString = schema.DataTypeText.String()
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_STRING"); v != "" {
 		config.AutoSchema.DefaultString = v
@@ -575,7 +578,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	config.Replication.AsyncReplicationDisabled = entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED"))
+	config.Replication.AsyncReplicationDisabled = runtime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
@@ -592,7 +595,9 @@ func FromEnv(config *Config) error {
 
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
-		func(val int) { config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = val },
+		func(val int) {
+			config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(val)
+		},
 		DefaultMaximumAllowedCollectionsCount,
 	); err != nil {
 		return err
@@ -627,6 +632,7 @@ func FromEnv(config *Config) error {
 		config.RuntimeOverrides.Path = v
 	}
 
+	config.RuntimeOverrides.LoadInterval = DefaultRuntimeOverridesLoadInterval
 	if v := os.Getenv("RUNTIME_OVERRIDES_LOAD_INTERVAL"); v != "" {
 		interval, err := time.ParseDuration(v)
 		if err != nil {
