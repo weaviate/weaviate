@@ -37,7 +37,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerStartedChan := make(chan struct{})
 		consumerStartedChan := make(chan struct{})
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
 			func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -94,7 +94,7 @@ func TestShardReplicationEngine(t *testing.T) {
 
 		producerStartedChan := make(chan struct{})
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
 			func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -138,7 +138,7 @@ func TestShardReplicationEngine(t *testing.T) {
 
 		consumerStartedChan := make(chan struct{})
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
 			func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -182,7 +182,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerStartedChan := make(chan struct{})
 		consumerStartedChan := make(chan struct{})
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 		mockProducer.On("Produce", mock.Anything, mock.Anything).
 			Run(func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -244,7 +244,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerStarted := make(chan struct{})
 		consumerStarted := make(chan struct{})
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 		mockProducer.On("Produce", mock.Anything, mock.Anything).
 			Run(func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -314,7 +314,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		producer2StartedChan := make(chan struct{})
 		consumer2StartedChan := make(chan struct{})
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 		mockProducer1.On("Produce", mock.Anything, mock.Anything).Run(
 			func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -398,7 +398,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerStarted := make(chan struct{})
 		consumerStarted := make(chan struct{})
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 		mockProducer.On("Produce", mock.Anything, mock.Anything).
 			Run(func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -458,13 +458,13 @@ func TestShardReplicationEngine(t *testing.T) {
 		mockConsumer := replication.NewMockOpConsumer(t)
 		mockTimer := replication.NewMockTimer(t)
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 
 		// First start/stop cycle
 		producer1StartedChan := make(chan struct{})
 		consumer1StartedChan := make(chan struct{})
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
 			func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -569,7 +569,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		mockConsumer := replication.NewMockOpConsumer(t)
 		mockTimer := replication.NewMockTimer(t)
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 		logger, _ := logrustest.NewNullLogger()
 
 		engine := replication.NewShardReplicationEngine(
@@ -641,7 +641,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		mockConsumer := replication.NewMockOpConsumer(t)
 		mockTimer := replication.NewMockTimer(t)
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 		logger, _ := logrustest.NewNullLogger()
 
 		engine := replication.NewShardReplicationEngine(
@@ -674,7 +674,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerStartedChan := make(chan struct{})
 		consumerStartedChan := make(chan struct{})
 
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 		mockProducer.On("Produce", mock.Anything, mock.Anything).
 			Run(func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -744,7 +744,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		require.NoError(t, err, "error generating operation IDs")
 
 		mockTimer := replication.NewMockTimer(t)
-		mockTimer.On("Now").Return(time.Now())
+		mockTimer.On("Now").Return(time.Now()).Maybe()
 
 		var producerWg sync.WaitGroup
 		producerWg.Add(1)
