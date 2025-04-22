@@ -161,7 +161,7 @@ func Test_Authorization(t *testing.T) {
 				require.NotNil(t, s)
 
 				if !test.ignoreAuthZ {
-					authorizer.On("Authorize", mock.Anything, test.expectedVerb, test.expectedResource).Return(nil)
+					authorizer.EXPECT().Authorize(mock.Anything, test.expectedVerb, test.expectedResource).Return(nil)
 				}
 
 				args := append([]interface{}{context.Background(), &models.Principal{}}, test.additionalArgs...)

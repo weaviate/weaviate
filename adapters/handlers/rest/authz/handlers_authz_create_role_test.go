@@ -112,7 +112,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 			schemaReader := schema.NewMockSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 			controller.On("CreateRolesPermissions", mock.Anything).Return(nil)
 
@@ -147,7 +147,7 @@ func TestCreateRoleConflict(t *testing.T) {
 			},
 		},
 	}
-	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).Return(nil)
 	controller.On("GetRoles", *params.Body.Name).Return(map[string][]authorization.Policy{"newRole": {}}, nil)
 
 	h := &authZHandlers{
@@ -239,7 +239,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if tt.expectedError == "" {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 				controller.On("upsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 			}
@@ -296,9 +296,9 @@ func TestCreateRoleForbidden(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
 			if tt.authorizeErr != nil {
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
+				authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -355,7 +355,7 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 			policies, err := conv.RolesToPolicies(tt.params.Body)
 			require.Nil(t, err)
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
 			controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 			controller.On("CreateRolesPermissions", policies).Return(tt.upsertErr)
 

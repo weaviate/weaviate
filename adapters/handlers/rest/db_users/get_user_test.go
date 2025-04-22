@@ -56,7 +56,7 @@ func TestSuccessGetUser(t *testing.T) {
 			}
 			principal := &models.Principal{Username: username}
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", principal, authorization.READ, authorization.Users(test.userId)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(principal, authorization.READ, authorization.Users(test.userId)[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			schemaGetter := schema.NewMockSchemaGetter(t)
 			if test.userType == models.UserTypeOutputDbUser {
@@ -115,7 +115,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			principal := &models.Principal{Username: "non-root"}
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", principal, authorization.READ, authorization.Users(userId)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(principal, authorization.READ, authorization.Users(userId)[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			schemaGetter := schema.NewMockSchemaGetter(t)
 
@@ -156,7 +156,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 func TestNotFound(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("static")[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.READ, authorization.Users("static")[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "static").Return(map[string]*apikey.User{}, nil)
 
@@ -175,7 +175,7 @@ func TestNotFound(t *testing.T) {
 func TestNotFoundStatic(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
@@ -204,7 +204,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+			authorizer.EXPECT().Authorize(principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(tt.GetUserReturnValue, tt.GetUserReturnErr)
 			if tt.GetUserReturnErr == nil {
@@ -226,7 +226,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 func TestListForbidden(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(errors.New("some error"))
+	authorizer.EXPECT().Authorize(principal, authorization.READ, authorization.Users("user")[0]).Return(errors.New("some error"))
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 
@@ -243,7 +243,7 @@ func TestListForbidden(t *testing.T) {
 func TestGetNoDynamic(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:       NewMockDbUserAndRolesGetter(t),
@@ -262,7 +262,7 @@ func TestGetUserWithNoPrincipal(t *testing.T) {
 		userID    = "static"
 	)
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{userID: {Id: userID, ApiKeyFirstLetters: "abc"}}, nil)
 	dynUser.On("GetRolesForUser", userID, models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)

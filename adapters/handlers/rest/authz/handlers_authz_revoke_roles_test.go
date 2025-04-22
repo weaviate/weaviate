@@ -81,7 +81,7 @@ func TestRevokeRoleFromUserSuccess(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, nil)
 			controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, tt.params.Body.UserType), tt.params.Body.Roles[0]).Return(nil)
 
@@ -157,7 +157,7 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, nil)
 			controller.On("RevokeRolesForUser", conv.PrefixGroupName(tt.params.ID), tt.params.Body.Roles[0]).Return(nil)
 
@@ -210,7 +210,7 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if tt.callAuthZ {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			}
 
 			h := &authZHandlers{
@@ -261,7 +261,7 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if tt.callAuthZ {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			}
 
 			h := &authZHandlers{
@@ -325,7 +325,7 @@ func TestRevokeRoleFromUserOrUserNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
 			if tt.callToGetUser {
@@ -378,7 +378,7 @@ func TestRevokeRoleFromGroupOrUserNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), mock.Anything, mock.Anything).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), mock.Anything, mock.Anything).Return(nil)
 
 			if tt.callToGetRole {
 				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
@@ -444,7 +444,7 @@ func TestRevokeRoleFromUserForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
+				authorizer.EXPECT().Authorize(tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -532,7 +532,7 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+				authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -601,7 +601,7 @@ func TestRevokeRoleFromUserInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
@@ -667,7 +667,7 @@ func TestRevokeRoleFromGroupInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("RevokeRolesForUser", conv.PrefixGroupName(tt.params.ID), tt.params.Body.Roles[0]).Return(tt.revokeErr)

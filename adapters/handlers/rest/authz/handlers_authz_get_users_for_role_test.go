@@ -41,7 +41,7 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 		{UserID: expectedUsers[1], UserType: models.NewUserTypeOutput(models.UserTypeOutputDbEnvUser)},
 	}
 
-	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
 	authorizer.On("AuthorizeSilent", principal, authorization.READ, authorization.Users(expectedUsers...)[1]).Return(nil)
 	controller.On("GetUsersForRole", params.ID, models.UserTypeInputDb).Return(expectedUsers, nil)
 	controller.On("GetUsersForRole", params.ID, models.UserTypeInputOidc).Return(expectedUsers, nil)
@@ -97,9 +97,9 @@ func TestGetUsersForRoleForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+				authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 				if tt.authorizeErr != nil {
-					authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+					authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 				}
 			}
 
@@ -146,7 +146,7 @@ func TestGetUsersForRoleInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
 
 			controller.On("GetUsersForRole", tt.params.ID, models.UserTypeInputOidc).Return(nil, tt.getUsersErr)
 

@@ -44,7 +44,7 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 		},
 	}
 
-	authorizer.On("Authorize", principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(params.ID)[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(params.ID)[0]).Return(nil)
 	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
 	controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(params.ID, params.Body.UserType), params.Body.Roles).Return(nil)
 
@@ -73,7 +73,7 @@ func TestAssignRoleToGroupSuccess(t *testing.T) {
 		},
 	}
 
-	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.Body.Roles...)[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.Body.Roles...)[0]).Return(nil)
 	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
 	controller.On("AddRolesForUser", conv.PrefixGroupName(params.ID), params.Body.Roles).Return(nil)
 
@@ -137,7 +137,7 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, mock.Anything, mock.Anything).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.USER_ASSIGN_AND_REVOKE, mock.Anything, mock.Anything).Return(nil)
 
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
 			if tt.callToGetUser {
@@ -188,7 +188,7 @@ func TestAssignRoleToGroupOrUserNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), mock.Anything, mock.Anything).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), mock.Anything, mock.Anything).Return(nil)
 
 			if tt.callToGetRole {
 				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
@@ -306,7 +306,7 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 				logger:     logger,
 			}
 			if tt.callAuthZ {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			}
 
 			res := h.assignRoleToGroup(tt.params, tt.principal)
@@ -362,7 +362,7 @@ func TestAssignRoleToUserForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
+				authorizer.EXPECT().Authorize(tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -432,7 +432,7 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -502,7 +502,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
@@ -568,7 +568,7 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("AddRolesForUser", conv.PrefixGroupName(tt.params.ID), tt.params.Body.Roles).Return(tt.assignErr)

@@ -64,7 +64,7 @@ func TestGetRolesSuccess(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
-			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			controller.On("GetRoles").Return(tt.expectedRoles, nil)
 
 			h := &authZHandlers{

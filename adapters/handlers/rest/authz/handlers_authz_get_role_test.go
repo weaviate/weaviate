@@ -49,7 +49,7 @@ func TestGetRoleSuccess(t *testing.T) {
 	returnedPolices := map[string][]authorization.Policy{
 		"testRole": policies,
 	}
-	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
 	controller.On("GetRoles", params.ID).Return(returnedPolices, nil)
 
 	h := &authZHandlers{
@@ -92,9 +92,9 @@ func TestGetRoleForbidden(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 			if tt.authorizeErr != nil {
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+				authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -138,7 +138,7 @@ func TestGetRoleNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{}, nil)
 
 			h := &authZHandlers{
@@ -192,7 +192,7 @@ func TestGetRoleInternalServerError(t *testing.T) {
 				"testRole": policies,
 			}
 
-			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			controller.On("GetRoles", tt.params.ID).Return(returnedPolices, tt.getRolesErr)
 
 			h := &authZHandlers{

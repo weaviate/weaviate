@@ -29,7 +29,7 @@ import (
 func TestDeleteSuccess(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetRolesForUser", "user", models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
@@ -51,7 +51,7 @@ func TestDeleteSuccess(t *testing.T) {
 func TestDeleteForbidden(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(errors.New("some error"))
+	authorizer.EXPECT().Authorize(principal, authorization.DELETE, authorization.Users("user")[0]).Return(errors.New("some error"))
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 
@@ -68,7 +68,7 @@ func TestDeleteForbidden(t *testing.T) {
 func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 
@@ -87,7 +87,7 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user-root")[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.DELETE, authorization.Users("user-root")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 
@@ -105,7 +105,7 @@ func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
 func TestDeleteNoDynamic(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
+	authorizer.EXPECT().Authorize(principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:       NewMockDbUserAndRolesGetter(t),

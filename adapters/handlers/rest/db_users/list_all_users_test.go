@@ -59,7 +59,7 @@ func TestSuccessListAll(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
+			authorizer.EXPECT().Authorize(tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers").Return(map[string]*apikey.User{dbUser: {Id: dbUser}}, nil)
 			dynUser.On("GetRolesForUser", dbUser, models.UserTypeInputDb).Return(
@@ -161,7 +161,7 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			principal := &models.Principal{Username: "non-root"}
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", principal, authorization.READ, authorization.Users()[0]).Return(nil)
+			authorizer.EXPECT().Authorize(principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			schemaGetter := schema.NewMockSchemaGetter(t)
 
@@ -211,7 +211,7 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 func TestSuccessListForbidden(t *testing.T) {
 	principal := &models.Principal{Username: "not-root"}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, mock.Anything).Return(errors.New("some error"))
+	authorizer.EXPECT().Authorize(principal, authorization.READ, mock.Anything).Return(errors.New("some error"))
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers").Return(map[string]*apikey.User{"test": {Id: "test"}}, nil)
 
