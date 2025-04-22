@@ -1267,13 +1267,13 @@ func TestEngineWithCallbacks(t *testing.T) {
 		defer cancel()
 
 		var engineStartErr error
-		var mu sync.Mutex
+		var engineStartWG sync.WaitGroup
+		engineStartWG.Add(1)
 
 		// WHEN
 		go func() {
-			mu.Lock()
+			defer engineStartWG.Done()
 			engineStartErr = engine.Start(ctx)
-			mu.Unlock()
 		}()
 
 		select {
@@ -1293,11 +1293,10 @@ func TestEngineWithCallbacks(t *testing.T) {
 			t.Fatal("timeout waiting for all stop callbacks")
 		}
 
-		// THEN
-		mu.Lock()
-		require.NoErrorf(t, engineStartErr, "engine start should not return error")
-		mu.Unlock()
+		engineStartWG.Wait()
 
+		// THEN
+		require.NoErrorf(t, engineStartErr, "engine start should not return error")
 		callbackMutex.Lock()
 		require.Equal(t, 1, startEngineCallbacksCounter, "engine start callbacks should have been called once")
 		require.Equal(t, 1, stopEngineCallbacksCounter, "engine stop callbacks should have been called once")
