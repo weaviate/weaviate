@@ -364,8 +364,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	// var vectorMigrator schema.Migrator
 	// var migrator schema.Migrator
 
+	metricsRegisterer := monitoring.NoopRegisterer
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		promMetrics := monitoring.GetMetrics()
+		metricsRegisterer = promMetrics.Registerer
 		appState.Metrics = promMetrics
 	}
 
@@ -681,7 +683,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		TasksLister:        appState.ClusterService.Raft,
 		Providers:          map[string]distributedtask.Provider{},
 		Logger:             appState.Logger,
-		MetricsRegisterer:  appState.Metrics.Registerer,
+		MetricsRegisterer:  metricsRegisterer,
 		LocalNode:          appState.Cluster.LocalName(),
 		TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
 
