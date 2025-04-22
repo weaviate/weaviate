@@ -74,6 +74,12 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"multivector": map[string]interface{}{
 						"enabled":     false,
 						"aggregation": "maxSim",
+						"muvera": map[string]interface{}{
+							"dprojections": 8,
+							"enabled":      false,
+							"ksim":         3,
+							"repetitions":  20,
+						},
 					},
 				},
 				"shardingConfig": map[string]interface{}{
