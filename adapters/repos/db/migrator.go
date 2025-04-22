@@ -395,16 +395,20 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
 
-	ec := errorcompounder.New()
+	eg := enterrors.NewErrorGroupWrapper(m.logger)
+	eg.SetLimit(_NUMCPU * 2)
+
 	for _, pl := range creates {
 		if pl.Status != models.TenantActivityStatusHOT {
 			continue // skip creating inactive shards
 		}
 
-		err := idx.initLocalShard(ctx, pl.Name)
-		ec.Add(err)
+		eg.Go(func() error {
+			return idx.initLocalShard(ctx, pl.Name)
+		})
 	}
-	return ec.ToError()
+
+	return eg.Wait()
 }
 
 // UpdateTenants activates or deactivates tenant partitions and returns a commit func
