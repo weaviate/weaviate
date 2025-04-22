@@ -3577,64 +3577,6 @@
         }
       }
     },
-    "/authz/roles/{id}/users": {
-      "get": {
-        "deprecated": true,
-        "summary": "get users (db + OIDC) assigned to role",
-        "description": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
-        "operationId": "getUsersForRoleDeprecated",
-        "x-serviceIds": [
-          "weaviate.authz.get.roles.users"
-        ],
-        "tags": [
-          "deprecated"
-        ],
-        "parameters": [
-          {
-            "description": "role name",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Users assigned to this role",
-            "schema": {
-              "type": "array",
-              "items": {
-                  "type": "string"
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "no role found"
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
     "/authz/roles/{id}/user-assignments": {
       "get": {
         "summary": "get users assigned to role",
@@ -3690,67 +3632,6 @@
           },
           "404": {
             "description": "no role found"
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/authz/users/{id}/roles": {
-      "get": {
-        "deprecated": true,
-        "summary": "get roles assigned to user (DB + OIDC)",
-        "description": "get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
-        "operationId": "getRolesForUserDeprecated",
-        "x-serviceIds": [
-          "weaviate.authz.get.users.roles"
-        ],
-        "tags": [
-          "deprecated"
-        ],
-        "parameters": [
-          {
-            "description": "user name",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Role assigned users",
-            "schema": {
-              "$ref": "#/definitions/RolesListResponse"
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "no role found for user"
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -4116,6 +3997,125 @@
         }
       }
     },
+    "/authz/roles/{id}/users": {
+      "get": {
+        "deprecated": true,
+        "summary": "get users (db + OIDC) assigned to role",
+        "description": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getUsersForRoleDeprecated",
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.users"
+        ],
+        "tags": [
+          "deprecated"
+        ],
+        "parameters": [
+          {
+            "description": "role name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Users assigned to this role",
+            "schema": {
+              "type": "array",
+              "items": {
+                  "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/users/{id}/roles": {
+      "get": {
+        "deprecated": true,
+        "summary": "get roles assigned to user (DB + OIDC)",
+        "description": "get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "operationId": "getRolesForUserDeprecated",
+        "x-serviceIds": [
+          "weaviate.authz.get.users.roles"
+        ],
+        "tags": [
+          "deprecated"
+        ],
+        "parameters": [
+          {
+            "description": "user name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found for user"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/objects": {
       "get": {
         "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
@@ -4254,302 +4254,6 @@
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
-      }
-    },
-    "/objects/{id}": {
-      "delete": {
-        "description": "Deletes an object from the database based on its UUID.",
-        "operationId": "objects.delete",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
-        "parameters": [
-          {
-            "description": "Unique ID of the Object.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantParameterQuery"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successfully deleted."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Delete an Object based on its UUID.",
-        "tags": [
-          "deprecated"
-        ],
-        "x-available-in-mqtt": true,
-        "x-available-in-websocket": true,
-        "deprecated": true
-      },
-      "get": {
-        "description": "Get a specific object based on its UUID. Also available as Websocket bus.",
-        "operationId": "objects.get",
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ],
-        "parameters": [
-          {
-            "description": "Unique ID of the Object.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "$ref": "#/parameters/CommonIncludeParameterQuery"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/Object"
-            }
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
-        "tags": [
-          "deprecated"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "deprecated": true
-      },
-      "patch": {
-        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
-        "operationId": "objects.patch",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
-        "parameters": [
-          {
-            "description": "Unique ID of the Object.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "description": "RFC 7396-style patch, the body contains the object to merge into the existing object.",
-            "in": "body",
-            "name": "body",
-            "required": false,
-            "schema": {
-              "$ref": "#/definitions/Object"
-            }
-          },
-          {
-            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successfully applied. No content provided."
-          },
-          "400": {
-            "description": "The patch-JSON is malformed."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "422": {
-            "description": "The patch-JSON is valid but unprocessable.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Update an Object based on its UUID (using patch semantics).",
-        "tags": [
-          "deprecated"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "deprecated": true
-      },
-      "put": {
-        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
-        "operationId": "objects.update",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
-        "parameters": [
-          {
-            "description": "Unique ID of the Object.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Object"
-            }
-          },
-          {
-            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/Object"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Update an Object based on its UUID.",
-        "tags": [
-          "deprecated"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "deprecated": true
-      },
-      "head": {
-        "description": "Checks if an object exists in the system based on its UUID.",
-        "operationId": "objects.head",
-        "x-serviceIds": [
-          "weaviate.objects.check"
-        ],
-        "parameters": [
-          {
-            "description": "Unique ID of the Object.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Object exists."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Object doesn't exist."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Checks Object's existence based on its UUID.",
-        "tags": [
-          "deprecated"
-        ],
-        "x-available-in-mqtt": true,
-        "x-available-in-websocket": true,
-        "deprecated": true
       }
     },
     "/objects/{className}/{id}": {
@@ -4917,212 +4621,6 @@
         "x-available-in-websocket": true
       }
     },
-    "/objects/{id}/references/{propertyName}": {
-      "post": {
-        "description": "Add a cross-reference.",
-        "operationId": "objects.references.create",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
-        "parameters": [
-          {
-            "description": "Unique ID of the Object.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "description": "Unique name of the property related to the Object.",
-            "in": "path",
-            "name": "propertyName",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/SingleRef"
-            }
-          },
-          {
-            "$ref": "#/parameters/CommonTenantParameterQuery"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully added the reference."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Add a single reference to a class-property.",
-        "tags": [
-          "deprecated"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "deprecated": true
-      },
-      "put": {
-        "description": "Replace all references in cross-reference property of an object.",
-        "operationId": "objects.references.update",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
-        "parameters": [
-          {
-            "description": "Unique ID of the Object.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "description": "Unique name of the property related to the Object.",
-            "in": "path",
-            "name": "propertyName",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/MultipleRef"
-            }
-          },
-          {
-            "$ref": "#/parameters/CommonTenantParameterQuery"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully replaced all the references."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Replace all references to a class-property.",
-        "tags": [
-          "deprecated"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "deprecated": true
-      },
-      "delete": {
-        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "objects.references.delete",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
-        "parameters": [
-          {
-            "description": "Unique ID of the Object.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "description": "Unique name of the property related to the Object.",
-            "in": "path",
-            "name": "propertyName",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/SingleRef"
-            }
-          },
-          {
-            "$ref": "#/parameters/CommonTenantParameterQuery"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successfully deleted."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "tags": [
-          "deprecated"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "deprecated": true
-      }
-    },
     "/objects/{className}/{id}/references/{propertyName}": {
       "post": {
         "description": "Add a single reference to an object. This adds a reference to the array of cross-references of the given property in the source object specified by its collection name and id",
@@ -5435,6 +4933,508 @@
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
+      }
+    },
+    "/objects/{id}": {
+      "delete": {
+        "description": "Deletes an object from the database based on its UUID.",
+        "operationId": "objects.delete",
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
+        "parameters": [
+          {
+            "description": "Unique ID of the Object.",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Delete an Object based on its UUID.",
+        "tags": [
+          "deprecated"
+        ],
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "deprecated": true
+      },
+      "get": {
+        "description": "Get a specific object based on its UUID. Also available as Websocket bus.",
+        "operationId": "objects.get",
+        "x-serviceIds": [
+          "weaviate.local.query"
+        ],
+        "parameters": [
+          {
+            "description": "Unique ID of the Object.",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
+        "tags": [
+          "deprecated"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "deprecated": true
+      },
+      "patch": {
+        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "operationId": "objects.patch",
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
+        "parameters": [
+          {
+            "description": "Unique ID of the Object.",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "RFC 7396-style patch, the body contains the object to merge into the existing object.",
+            "in": "body",
+            "name": "body",
+            "required": false,
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully applied. No content provided."
+          },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "tags": [
+          "deprecated"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "deprecated": true
+      },
+      "put": {
+        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "operationId": "objects.update",
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
+        "parameters": [
+          {
+            "description": "Unique ID of the Object.",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Update an Object based on its UUID.",
+        "tags": [
+          "deprecated"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "deprecated": true
+      },
+      "head": {
+        "description": "Checks if an object exists in the system based on its UUID.",
+        "operationId": "objects.head",
+        "x-serviceIds": [
+          "weaviate.objects.check"
+        ],
+        "parameters": [
+          {
+            "description": "Unique ID of the Object.",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Object exists."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Object doesn't exist."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Checks Object's existence based on its UUID.",
+        "tags": [
+          "deprecated"
+        ],
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "deprecated": true
+      }
+    },
+    "/objects/{id}/references/{propertyName}": {
+      "post": {
+        "description": "Add a cross-reference.",
+        "operationId": "objects.references.create",
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
+        "parameters": [
+          {
+            "description": "Unique ID of the Object.",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique name of the property related to the Object.",
+            "in": "path",
+            "name": "propertyName",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SingleRef"
+            }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully added the reference."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Add a single reference to a class-property.",
+        "tags": [
+          "deprecated"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "deprecated": true
+      },
+      "put": {
+        "description": "Replace all references in cross-reference property of an object.",
+        "operationId": "objects.references.update",
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
+        "parameters": [
+          {
+            "description": "Unique ID of the Object.",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique name of the property related to the Object.",
+            "in": "path",
+            "name": "propertyName",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/MultipleRef"
+            }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully replaced all the references."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Replace all references to a class-property.",
+        "tags": [
+          "deprecated"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "deprecated": true
+      },
+      "delete": {
+        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "operationId": "objects.references.delete",
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
+        "parameters": [
+          {
+            "description": "Unique ID of the Object.",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique name of the property related to the Object.",
+            "in": "path",
+            "name": "propertyName",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SingleRef"
+            }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "tags": [
+          "deprecated"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "deprecated": true
       }
     },
     "/batch/objects": {
@@ -7292,6 +7292,10 @@
     {
       "name": "batch",
       "description": "Create, update and delete multiple objects and references at once. <br/><br/>Note that object-level errors may be reported even in a successful batch request. Accordingly, we recommend you check the response body for errors."
+    },
+    {
+      "name": "authz",
+      "description": "Authorization-related operations, such as for role-based access control (RBAC)"
     },
     {
       "name": "backups",
