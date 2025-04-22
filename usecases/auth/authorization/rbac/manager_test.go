@@ -239,6 +239,15 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			},
 		},
 		{
+			name: "build-in not touched",
+			policiesInput: [][]string{
+				{"role:viewer", "*", "R", "*"},
+			},
+			policiesExpected: [][]string{
+				{"role:viewer", "*", "R", "*"},
+			},
+		},
+		{
 			name: "users",
 			groupingsInput: [][]string{
 				{"user:test-user", "role:admin"},

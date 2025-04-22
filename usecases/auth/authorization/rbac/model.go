@@ -122,7 +122,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	}
 
 	if versionParts[0] == "1" && minorVersion < 30 {
-		if err := upgradePoliciesFrom129(enforcer); err != nil {
+		if err := upgradePoliciesFrom129(enforcer, false); err != nil {
 			return nil, err
 		}
 

@@ -318,7 +318,7 @@ func (m *manager) Restore(b []byte) error {
 	}
 
 	if snapshot.Version == SnapshotVersionV0 {
-		if err := upgradePoliciesFrom129(m.casbin); err != nil {
+		if err := upgradePoliciesFrom129(m.casbin, true); err != nil {
 			return fmt.Errorf("upgrade policies: %w", err)
 		}
 

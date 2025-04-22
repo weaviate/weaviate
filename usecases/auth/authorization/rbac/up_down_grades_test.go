@@ -165,7 +165,7 @@ func TestUpgradeRoles(t *testing.T) {
 			enforcer.SetAdapter(fileadapter.NewAdapter(tmpFile.Name()))
 			require.NoError(t, enforcer.LoadPolicy())
 
-			require.NoError(t, upgradePoliciesFrom129(enforcer))
+			require.NoError(t, upgradePoliciesFrom129(enforcer, false))
 			policies, _ := enforcer.GetPolicy()
 			require.Len(t, policies, len(tt.expectedPolicies))
 			for i, policy := range tt.expectedPolicies {

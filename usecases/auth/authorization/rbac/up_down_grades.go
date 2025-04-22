@@ -33,7 +33,7 @@ func upgradeGroupingsFrom129(enforcer *casbin.SyncedCachedEnforcer, authNconf co
 		}
 
 		for _, user := range users {
-			// internal user assignments (for empty roles) need to be converted to from namespaced assignment with user only
+			// internal user assignments (for empty roles) need to be converted from namespaced assignment to db-user only
 			// other assignments need to be converted to both namespaces
 			if strings.Contains(user, conv.InternalPlaceHolder) {
 				if _, err := enforcer.DeleteRoleForUser(user, role); err != nil {
@@ -65,7 +65,7 @@ func upgradeGroupingsFrom129(enforcer *casbin.SyncedCachedEnforcer, authNconf co
 	return nil
 }
 
-func upgradePoliciesFrom129(enforcer *casbin.SyncedCachedEnforcer) error {
+func upgradePoliciesFrom129(enforcer *casbin.SyncedCachedEnforcer, keepBuildInRoles bool) error {
 	policies, err := enforcer.GetPolicy()
 	if err != nil {
 		return err
@@ -86,9 +86,11 @@ func upgradePoliciesFrom129(enforcer *casbin.SyncedCachedEnforcer) error {
 
 	// re-add policy with changed server version, leave out build-in roles
 	for _, policy := range policiesToAdd {
-		roleName := conv.TrimRoleNamePrefix(policy[0])
-		if _, ok := conv.BuiltInPolicies[roleName]; ok {
-			continue
+		if !keepBuildInRoles {
+			roleName := conv.TrimRoleNamePrefix(policy[0])
+			if _, ok := conv.BuiltInPolicies[roleName]; ok {
+				continue
+			}
 		}
 
 		if _, err := enforcer.AddNamedPolicy("p", policy[0], policy[1], policy[2], policy[3]); err != nil {
