@@ -7298,6 +7298,10 @@
       "description": "Authorization-related operations, such as for role-based access control (RBAC)"
     },
     {
+      "name": "users",
+      "description": "User-related operations for authorization"
+    },
+    {
       "name": "backups",
       "description": "Create, restore and check the status of backups. <br/><br/>See the [backups page](https://weaviate.io/developers/weaviate/configuration/backups) for a general introduction, configuration, and tech background of backups."
     },
@@ -7327,7 +7331,7 @@
     },
     {
       "name": "deprecated",
-      "description": "Create, update and delete objects and cross-references."
+      "description": "These endpoints have been deprecated and will be removed in the future."
     }
   ]
 }
